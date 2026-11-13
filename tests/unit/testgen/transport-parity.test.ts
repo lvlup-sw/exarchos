@@ -1,4 +1,4 @@
-// @oracle-sources: ../../../src/testgen/contract/operations.ts, ../../support/testgen/property.json, ../../support/testgen/advance.json
+// @oracle-sources: ../../../src/testgen/contract/operations.ts, ../../support/testgen/property.json, ../../support/testgen/advance.json, ../../support/testgen/vitest-property.json
 import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { expect, it } from 'vitest';
@@ -24,7 +24,7 @@ it('carries the same result through the CLI and a connected MCP client', async (
   const [serverTransport, clientTransport] = createV2LinkedTransportPair();
   const emit: Emitter = (input) => input.propertyRef === 'broken-emitter'
     ? { ok: true }
-    : dispatch('predicate' in input ? 'generate_property_tests' : 'generate_metamorphic_tests', input);
+    : dispatch(input.framework === 'vitest' || 'predicate' in input ? 'generate_property_tests' : 'generate_metamorphic_tests', input);
   const server = createTestgenServer(emit);
   const client = createV2Client({ name: 'parity', version: '1' });
   try {
@@ -32,15 +32,15 @@ it('carries the same result through the CLI and a connected MCP client', async (
     await connectV2Client(client, clientTransport);
     const { tools } = await client.listTools();
     expect(tools.map(({ name }) => name)).toEqual(commandMetadata.operations.map(({ name }) => name));
-    for (const { inputSchema } of tools) {
-      expect(inputSchema.properties).toMatchObject({
-        framework: { const: 'tunit' },
-        frameworkVersion: { const: '1.2.11' },
-      });
-    }
+    const propertyTool = tools.find(({ name }) => name === 'generate_property_tests');
+    expect(propertyTool?.inputSchema.oneOf).toMatchObject([
+      { properties: { framework: { const: 'tunit' }, frameworkVersion: { const: '1.2.11' } } },
+      { properties: { framework: { const: 'vitest' }, frameworkVersion: { const: '3.2.7' } } },
+    ]);
     for (const [fixture, name] of [
       ['property', 'generate_property_tests'],
       ['advance', 'generate_metamorphic_tests'],
+      ['vitest-property', 'generate_property_tests'],
     ] as const) {
       const input = JSON.parse(await readFile(new URL(`../../support/testgen/${fixture}.json`, import.meta.url), 'utf8'));
       for (const [patch, expectedExit] of [

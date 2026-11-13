@@ -1,5 +1,7 @@
 import type { Success, TestInput } from '../../contract/schemas.js';
 
+type TUnitInput = Extract<TestInput, { framework: 'tunit' }>;
+
 const qualified = (name: string): string => name.split('.').map((part) => `@${part}`).join('.');
 const reference = (name: string): string => `global::${qualified(name)}`;
 
@@ -7,7 +9,7 @@ function literal(value: string): string {
   return value === '-9223372036854775808' ? 'long.MinValue' : `${value}L`;
 }
 
-function renderCheck(input: TestInput): string {
+function renderCheck(input: TUnitInput): string {
   const observe = reference(input.target.observe);
   if ('predicate' in input) {
     return `        long observed = ${observe}(source);
@@ -29,7 +31,7 @@ function renderCheck(input: TestInput): string {
         await Assert.That(${reference(input.relation)}(source, follow, sourceResult, followResult)).IsTrue();`;
 }
 
-export function emitTUnit(input: TestInput): Success {
+export function emitTUnit(input: TUnitInput): Success {
   const { target, cases } = input;
   const check = target.className === 'Check' ? 'Check_' : 'Check';
   const methods = cases.map((values, i) => {
