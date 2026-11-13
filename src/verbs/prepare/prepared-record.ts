@@ -19,14 +19,19 @@ import {
 import type { DispatchContext } from '../../dispatch/core/dispatch.js';
 import { outerCorrelation, stampFromAmbient } from '../../dispatch/core/outer-correlation.js';
 import { runWithDispatchContext } from '../../dispatch/dispatch-context.js';
+import type { EventInput } from '../../events/atomic-appender.js';
+import { ConcurrencyError } from '../../events/concurrency-error.js';
+import { recordedInitialPhaseOf, validateEventRowData } from '../../events/event-validation.js';
 import type { BundleRefV1 } from '../../events/bundle/digest-references.js';
 import type { RunBundleStore } from '../../events/bundle/run-bundle-store.js';
 import {
   CapsuleRecompiledData,
   TaskAssignedData,
+  WorkflowEventBase,
   WorkflowPreparedData,
   type EventType,
   type WorkflowPrepared,
+  type WorkflowEvent,
 } from '../../events/schemas.js';
 import { ArtifactIdSchema, type ArtifactId } from '../../workflow/admission/types.js';
 import type { PreparedCapsuleReceipt, PreparedRecompile } from './types.js';
@@ -60,6 +65,13 @@ export interface PreparedCommit {
   readonly workflowType: string;
   readonly capsule: ExarchosCapsuleV1;
   readonly definition: WorkflowDefinitionV1;
+  readonly bootstrap?: {
+    readonly requestDigest: string;
+    readonly rows: readonly WorkflowEvent[];
+    readonly initialPhaseAttemptId: string;
+    readonly phase: string;
+    readonly phaseAttemptId: string;
+  };
   readonly plan?: {
     readonly digest: string;
     readonly designRecord: NonNullable<PreparedBundleV1['designRecord']>;
@@ -85,6 +97,26 @@ export interface PreparedCommit {
   readonly recompile?: PreparedRecompile;
 }
 
+/** Keep the planned envelope fields that an atomic append accepts. */
+function bootstrapInput(row: WorkflowEvent): EventInput {
+  const { type, schemaVersion, data, timestamp, source, correlationId } = row;
+  return stampFromAmbient({ type, schemaVersion, data, timestamp, source, correlationId });
+}
+
+/** Validate the complete start and its prefix before custody. */
+function validateBootstrapPrefix(commit: PreparedCommit): void {
+  const { bootstrap, streamId, workflowType, definition } = commit;
+  if (bootstrap === undefined) return;
+  const rows = bootstrap.rows.map((row) => WorkflowEventBase.parse(row));
+  rows.forEach((row) => validateEventRowData(row));
+  const start = rows[0];
+  if (start === undefined || recordedInitialPhaseOf(start) !== definition.entryStepId
+      || start.data?.featureId !== streamId || start.data.workflowType !== workflowType
+      || start.data.phaseAttemptId !== bootstrap.initialPhaseAttemptId) {
+    throw new Error('The bootstrap batch does not match the validated start.');
+  }
+}
+
 /**
  * Puts a compiled capsule in custody and commits the record that pins it.
  * The `task.assigned` announcements come first and the record comes last. The recompile row of a
@@ -102,6 +134,7 @@ export async function commitPreparedCapsule(
   bundleStore?: RunBundleStore,
 ): Promise<PreparedCapsuleReceipt> {
   const { streamId, operationId, requestDigest, capsule, definition } = commit;
+  validateBootstrapPrefix(commit);
   const digest = capsuleDigest(capsule);
   const bytes = encodePreparedBundle({
     capsule,
@@ -126,6 +159,7 @@ export async function commitPreparedCapsule(
       requestDigest,
       bundleRefs: [ref],
       ...(commit.plan !== undefined ? { planRecordDigest: commit.plan.digest } : {}),
+      ...(commit.bootstrap !== undefined ? { bootstrapRequestDigest: commit.bootstrap.requestDigest } : {}),
     });
 
     return runWithDispatchContext(outer, async () => {
@@ -164,26 +198,40 @@ export async function commitPreparedCapsule(
                 timestamp: capsule.provenance.compiledAt,
               }),
             ];
-      const events = [...announcements, ...recompiled, record];
+      const events = [...(commit.bootstrap?.rows.map(bootstrapInput) ?? []), ...announcements, ...recompiled, record];
       return ctx.eventStore
         .getAppender()
-        .decideOnce<PreparedCapsuleReceipt>(operationId, requestDigest, (tx) => ({
-          streamId,
-          events,
-          ...(commit.expectedSequence !== undefined ? { expectedSequence: commit.expectedSequence } : {}),
-          result: {
-            operationId,
+        .decideOnce<PreparedCapsuleReceipt>(operationId, requestDigest, (tx) => {
+          const snapshot = tx.readStream(streamId);
+          if (commit.bootstrap !== undefined && (snapshot.version !== 0 || snapshot.events.length !== 0)) {
+            throw new ConcurrencyError({
+              streamId, reducerId: 'prepare-bootstrap', expectedVersion: 0, actualVersion: snapshot.version, operationId,
+            });
+          }
+          if (commit.bootstrap !== undefined) {
+            events.forEach((event, index) => validateEventRowData(
+              WorkflowEventBase.parse({ ...event, streamId, sequence: index + 1 }),
+            ));
+          }
+          const expectedSequence = commit.bootstrap === undefined ? commit.expectedSequence : 0;
+          return {
             streamId,
-            workflowId: capsule.identity.workflowId,
-            capsuleVersion: capsule.identity.capsuleVersion,
-            capsuleDigest: digest,
-            definitionVersion: capsule.identity.definitionVersion,
-            capsule,
-            tailSequence: tx.readStream(streamId).version + events.length,
-            bundleRefs: [ref],
-            ...(recompile !== undefined ? { recompile } : {}),
-          },
-        }));
+            events,
+            ...(expectedSequence !== undefined ? { expectedSequence } : {}),
+            result: {
+              operationId,
+              streamId,
+              workflowId: capsule.identity.workflowId,
+              capsuleVersion: capsule.identity.capsuleVersion,
+              capsuleDigest: digest,
+              definitionVersion: capsule.identity.definitionVersion,
+              capsule,
+              tailSequence: snapshot.version + events.length,
+              bundleRefs: [ref],
+              ...(recompile !== undefined ? { recompile } : {}),
+            },
+          };
+        });
     });
   });
 }

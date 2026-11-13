@@ -189,6 +189,10 @@ export class InMemoryBackend implements StorageBackend {
     return filters?.limit !== undefined ? sliced.slice(0, filters.limit) : sliced;
   }
 
+  hasState(featureId: string): boolean {
+    return this.states.has(featureId);
+  }
+
   getState(featureId: string): WorkflowState | null {
     const entry = this.states.get(featureId);
     return entry ? entry.state : null;

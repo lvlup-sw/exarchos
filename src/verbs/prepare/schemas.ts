@@ -18,7 +18,7 @@ const ReceiptBundleRefSchema = z
   })
   .passthrough();
 
-const PreparedCapsuleReceiptData = z
+export const PreparedCapsuleReceiptData = z
   .object({
     operationId: z.string().min(1),
     streamId: z.string().min(1),

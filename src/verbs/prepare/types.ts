@@ -1,6 +1,6 @@
 /**
  * The refusal codes of `prepare` and the receipt it returns.
- * Each refusal occurs before any effect, so a refused compilation writes nothing.
+ * Document synchronization can fail after a bootstrap claim commits.
  * The message of a refusal names its cause and the recovery.
  */
 
@@ -12,6 +12,9 @@ export const PREPARE_REFUSAL_CODES = [
   /** No workflow is recorded for the subject. */
   'WORKFLOW_NOT_FOUND',
   'BOOTSTRAP_UNSUPPORTED',
+  'BOOTSTRAP_CONFLICT',
+  'BOOTSTRAP_INTEGRITY',
+  'STATE_SYNC_FAILED',
   'PREPARE_INTENT_REQUIRED',
   'DESIGN_APPROVAL_MISMATCH',
   'PLAN_UNSOUND',

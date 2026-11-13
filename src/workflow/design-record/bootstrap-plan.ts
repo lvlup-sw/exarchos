@@ -1,8 +1,6 @@
 /**
  * Plans the prefix of an empty workflow stream through its first task batch.
  * Each exit requires the checks frozen at its own source entry.
- * RESERVED(issue: #1927, owner: exarchos, expires: 2027-02-28)
- * The atomic prepare bootstrap handler will call this planner.
  */
 import { buildValidatedEvent } from '../../events/event-factory.js';
 import { recordedInitialPhaseOf } from '../../events/event-validation.js';

@@ -6,7 +6,7 @@
  * with the capsule digest. The harness runs the batch with no governance calls, and `settle` judges
  * the results against this capsule.
  *
- * Every refusal occurs before any effect. The workflow must name the branch that its tasks fork from.
+ * A bootstrap atomically starts a workflow and compiles its first batch before document synchronization.
  * The caller names the repository with an absolute `repoRoot`, and the capsule pins it with the commit of the base.
  * The config, the catalogs, the design record and each user workflow definition come from the checkout of that repository.
  *
@@ -48,6 +48,7 @@ import { loadPreparedCustody, selectPreparedAuthority, type PreparedAuthoritySel
 import { compileDecideDefinition } from '../../workflow/decide/edges.js';
 import type { DesignRecordSnapshot } from '../../workflow/design-record/schema.js';
 import { validateDesignRecord } from '../../workflow/design-record/validate.js';
+import { FeatureIdSchema } from '../../workflow/schemas.js';
 import { VERIFICATION_GATE_NAMES } from '../../workflow/verification-policy.js';
 import { resolveVerificationPolicy } from '../../workflow/verification-policy-resolver.js';
 import { resolveGateSeverity } from '../gates/gate-severity.js';
@@ -55,6 +56,7 @@ import { resolveWorkflowState } from '../resolve-state.js';
 import { deviationIdOf } from '../settle/handler.js';
 import { decodeSettlementBundle, type SettlementBundleV1 } from '../settle/settlement-bundle.js';
 import type { CatalogInvariant } from './bind-authority.js';
+import { bootstrapCollision, bootstrapRequestOf, bootstrapSyncFailure, buildBootstrapPlan, replayBootstrap, type BootstrapRequest } from './bootstrap.js';
 import {
   compileDelegationCapsule,
   ladderCells,
@@ -83,7 +85,7 @@ import {
   type CheckoutCatalogInput,
   type ScopeGit,
 } from './prepare-scope.js';
-import { commitPreparedCapsule } from './prepared-record.js';
+import { commitPreparedCapsule, type PreparedCommit } from './prepared-record.js';
 import { pendingRevisionOf, recompiledSliceOf } from './recompiled-slice.js';
 import { compilableSteps, locateStep, type StepFindingRule } from './step-locator.js';
 import type { PreparedCapsuleReceipt, PreparedRecompile, PrepareRefusal } from './types.js';
@@ -473,7 +475,7 @@ type ApprovedDesign =
   | { readonly ok: false; readonly refusal: PrepareRefusal };
 
 /** Use the approved capture for soundness, frontier, provenance and custody. */
-async function approvedDesignAt(checkout: string, intent: CompileIntent): Promise<ApprovedDesign> {
+async function approvedDesignAt(checkout: string, intent: Pick<CompileIntent, 'designRef' | 'approval'>): Promise<ApprovedDesign> {
   const read = await readTypedDesignAt(checkout, intent.designRef);
   if (read.kind !== 'typed') {
     return { ok: false, refusal: unsoundRecord(read.kind === 'invalid' ? read.message : 'The design record needs a typed plan.') };
@@ -615,7 +617,7 @@ function stepRefusal(
  */
 export async function handlePrepare(
   raw: Record<string, unknown>,
-  _stateDir: string,
+  stateDir: string,
   ctx: DispatchContext,
   deps: PrepareDeps = {},
 ): Promise<ToolResult> {
@@ -628,12 +630,51 @@ export async function handlePrepare(
   const parsedIntent = PrepareIntentSchema.optional().safeParse(raw.intent);
   if (!parsedIntent.success) return invalid(parsedIntent.error.message);
   const intent = parsedIntent.data;
-  if (intent?.mode === 'bootstrap') {
-    return refused({ code: 'BOOTSTRAP_UNSUPPORTED', message: 'Prepare bootstrap is unavailable in this build.' });
+  if (intent?.mode !== 'bootstrap') {
+    return prepareFromSnapshot(intent, streamId, repoRoot, await ctx.eventStore.query(streamId), ctx, deps);
   }
+  if (!FeatureIdSchema.safeParse(streamId).success) return invalid('Bootstrap requires a valid feature ID.');
 
-  const events = await ctx.eventStore.query(streamId);
-  if (events.length === 0) {
+  const bootstrap = bootstrapRequestOf(streamId, repoRoot, intent);
+  const rows = await ctx.eventStore.query(streamId);
+  if (rows.length > 0) return replayBootstrap(ctx, stateDir, bootstrap, rows);
+
+  let result: ToolResult;
+  try {
+    result = await bootstrapCollision(stateDir, streamId)
+      ?? await prepareFromSnapshot(undefined, streamId, repoRoot, rows, ctx, deps, bootstrap);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    result = refused({ code: 'INTERNAL_ERROR', message: `Cannot commit bootstrap. ${message}` });
+  }
+  if (result.success) {
+    const receipt = result.data as PreparedCapsuleReceipt;
+    try {
+      const current = await ctx.eventStore.query(streamId);
+      return await replayBootstrap(
+        ctx, stateDir, bootstrap, current, bootstrapSyncFailure(receipt, 'The accepted marker is unavailable.'), receipt,
+      );
+    } catch (error) {
+      return bootstrapSyncFailure(receipt, error);
+    }
+  }
+  const current = await ctx.eventStore.query(streamId).catch(() => rows);
+  if (current.length === 0) return result;
+  const original = result.error?.code === 'CONCURRENCY_CONFLICT' ? undefined : result;
+  return replayBootstrap(ctx, stateDir, bootstrap, current, original);
+}
+
+/** Compile from the first stream read. An empty stream supplies only checked bootstrap facts. */
+async function prepareFromSnapshot(
+  intent: CompileIntent | undefined,
+  streamId: string,
+  repoRoot: string,
+  events: readonly WorkflowEvent[],
+  ctx: DispatchContext,
+  deps: PrepareDeps,
+  bootstrap?: BootstrapRequest,
+): Promise<ToolResult> {
+  if (events.length === 0 && bootstrap === undefined) {
     return refused({ code: 'WORKFLOW_NOT_FOUND', message: `no workflow is recorded for '${streamId}'` });
   }
   const tail = events[events.length - 1]?.sequence ?? 0;
@@ -653,7 +694,10 @@ export async function handlePrepare(
 
   let state: Record<string, unknown>;
   let recordedType: string | undefined;
-  if (intent !== undefined) {
+  if (bootstrap !== undefined) {
+    recordedType = bootstrap.intent.workflowType;
+    state = { synthesis: { integrationBranch: bootstrap.intent.baseRef } };
+  } else if (intent !== undefined) {
     try {
       recordedType = startedTypeOf(events, streamId);
       state = { ...compileStateOf(events) };
@@ -693,7 +737,43 @@ export async function handlePrepare(
   const { registered, located } = resolution;
   const { workflowType } = registered;
 
-  const phase = typeof state.phase === 'string' ? state.phase : undefined;
+  let checkoutLocation = located;
+  let snapshot: DesignRecordSnapshot | undefined;
+  let planned: PreparedCommit['bootstrap'];
+  let bootstrapScope: Extract<Awaited<ReturnType<typeof observeScope>>, { ok: true }> | undefined;
+  let bootstrapConfig: Extract<ReturnType<typeof loadCheckoutConfig>, { ok: true }> | undefined;
+  let bootstrapProfile: ReturnType<typeof resolveVerificationProfile> | undefined;
+  const approvedIntent = bootstrap?.intent ?? intent;
+  if (bootstrap !== undefined) {
+    if (checkoutLocation === undefined) {
+      const checkoutResult = await locateCheckout(repoRoot, git);
+      if (!checkoutResult.ok) return refused(checkoutResult.refusal);
+      checkoutLocation = checkoutResult.located;
+    }
+    const approved = await approvedDesignAt(checkoutLocation.toplevel, bootstrap.intent);
+    if (!approved.ok) return refused(approved.refusal);
+    snapshot = approved.snapshot;
+    const scope = await observeScope({
+      streamId, repoRoot, baseRef: bootstrap.intent.baseRef, completedBlockers: {}, rows: events, git,
+      located: checkoutLocation,
+    });
+    if (!scope.ok) return refused(scope.refusal);
+    bootstrapScope = scope;
+    const loaded = loadCheckoutConfig(scope.observed.checkout);
+    if (!loaded.ok) return refused(loaded.refusal);
+    bootstrapConfig = loaded;
+    bootstrapProfile = resolveVerificationProfile(scope.observed.checkout, { loadConfig: () => loaded.config.outcome });
+    const prefix = buildBootstrapPlan(bootstrap, {
+      definition: registered.definition, repository: scope.observed.repository, snapshot,
+      profile: bootstrapProfile, skipPhases: loaded.config.projectConfig.workflow.skipPhases,
+      timestamp: (deps.now ?? (() => new Date().toISOString()))(),
+    });
+    if (!prefix.ok) {
+      return refused({ code: prefix.code, message: prefix.message, ...(prefix.findings ? { planFindings: prefix.findings } : {}) });
+    }
+    planned = prefix;
+  }
+  const phase = planned?.phase ?? (typeof state.phase === 'string' ? state.phase : undefined);
   const location = phase === undefined ? undefined : locateStep(registered.definition, phase);
   if (location === undefined || !location.ok) {
     const rule = location?.rule ?? 'not-a-step';
@@ -702,8 +782,6 @@ export async function handlePrepare(
   }
   const lowered = pinDefinition(workflowType, registered.definition);
 
-  let checkoutLocation = located;
-  let snapshot: DesignRecordSnapshot | undefined;
   if (intent !== undefined) {
     if (checkoutLocation === undefined) {
       const checkoutResult = await locateCheckout(repoRoot, git);
@@ -768,7 +846,7 @@ export async function handlePrepare(
     });
   }
 
-  const observed = await observeScope({
+  const observed = bootstrapScope ?? await observeScope({
     streamId,
     repoRoot,
     baseRef,
@@ -779,10 +857,10 @@ export async function handlePrepare(
   });
   if (!observed.ok) return refused(observed.refusal);
   const { checkout, repository, baseCommit } = observed.observed;
-  const loaded = loadCheckoutConfig(checkout);
+  const loaded = bootstrapConfig ?? loadCheckoutConfig(checkout);
   if (!loaded.ok) return refused(loaded.refusal);
   const { projectConfig, outcome } = loaded.config;
-  const verificationProfile = resolveVerificationProfile(checkout, { loadConfig: () => outcome });
+  const verificationProfile = bootstrapProfile ?? resolveVerificationProfile(checkout, { loadConfig: () => outcome });
 
   const catalog = catalogOf(deps, { checkout, config: loaded.config, phase: location.step.stepId, workflowType });
   if (!catalog.ok) return refused(catalog.refusal);
@@ -805,7 +883,8 @@ export async function handlePrepare(
   const designVersion = designVersionOf(events);
   const recompile = recompileOf(events, plan);
   const compilerVersion = deps.compilerVersion ?? PREPARE_COMPILER_VERSION;
-  const skipPhases = compilerVersion === PREPARE_COMPILER_VERSION ? projectConfig.workflow.skipPhases : undefined;
+  const skipPhases = bootstrap !== undefined || compilerVersion === PREPARE_COMPILER_VERSION
+    ? projectConfig.workflow.skipPhases : undefined;
   if (skipPhases !== undefined) {
     try {
       compileDecideDefinition(workflowType, registered.definition, skipPhases);
@@ -839,9 +918,10 @@ export async function handlePrepare(
     scope,
     verificationProfile,
     ...(skipPhases !== undefined ? { skipPhases } : {}),
-    ...(intent !== undefined ? {
-      intent: { mode: intent.mode, designDepth: intent.designDepth ?? 'standard', refactor: intent.refactor ?? null },
+    ...(approvedIntent !== undefined ? {
+      intent: { mode: approvedIntent.mode, designDepth: approvedIntent.designDepth ?? 'standard', refactor: approvedIntent.refactor ?? null },
     } : {}),
+    ...(bootstrap === undefined ? {} : { bootstrapRequestDigest: bootstrap.entryDigest }),
     ...(designRecordDigest !== undefined ? { designSource: { sourceId: 'design-record', digest: designRecordDigest } } : {}),
   };
   const operationId = `prepare:${contentDigest(inputs)}`;
@@ -917,6 +997,7 @@ export async function handlePrepare(
           definition: lowered.definition,
           expectedSequence: tail,
           announce,
+          ...(planned === undefined ? {} : { bootstrap: planned }),
           ...(snapshot !== undefined ? {
             plan: {
               digest: snapshot.digest,

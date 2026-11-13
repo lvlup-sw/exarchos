@@ -4,11 +4,11 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1473,
-    "parsedFiles": 1428,
+    "testFiles": 1475,
+    "parsedFiles": 1430,
     "shellFiles": 45,
-    "cases": 16320,
-    "dynamicTitles": 274,
+    "cases": 16352,
+    "dynamicTitles": 279,
     "unparseableFiles": 0
   },
   "unparseable": [],
@@ -91084,6 +91084,178 @@
         }
       ]
     },
+    "tests/integration/prepare-bootstrap-identity.test.ts": {
+      "file": "tests/integration/prepare-bootstrap-identity.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "bootstrap receipt identity",
+          "name": "Bootstrap_StartV11_EqualsValidatedEntry",
+          "dynamic": false
+        },
+        {
+          "suite": "bootstrap receipt identity",
+          "name": "Bootstrap_RefactorOverhaul_UsesOnlyValidatedScopeFacts",
+          "dynamic": false
+        },
+        {
+          "suite": "bootstrap receipt identity",
+          "name": "Bootstrap_ChangedHeadAfterCommit_ReplaysOriginal",
+          "dynamic": false
+        },
+        {
+          "suite": "bootstrap receipt identity",
+          "name": "Bootstrap_MissingFileAndBundle_ReplaysClaim",
+          "dynamic": false
+        },
+        {
+          "suite": "bootstrap receipt identity",
+          "name": "Bootstrap_ForgedMarkerWithoutClaim_Refuses",
+          "dynamic": false
+        },
+        {
+          "suite": "bootstrap receipt identity",
+          "name": "Bootstrap_Corrupt_%s_RefusesTheReplay",
+          "dynamic": false
+        },
+        {
+          "suite": "bootstrap receipt identity",
+          "name": "<dynamic-case-1>",
+          "dynamic": true
+        },
+        {
+          "suite": "bootstrap receipt identity",
+          "name": "Bootstrap_LegacyNoMarker_Conflicts",
+          "dynamic": false
+        },
+        {
+          "suite": "bootstrap receipt identity",
+          "name": "Bootstrap_PathUnsafeSubject_RefusesBeforeReads",
+          "dynamic": false
+        },
+        {
+          "suite": "bootstrap receipt identity",
+          "name": "Bootstrap_InvalidStartRow_CommitsNothing",
+          "dynamic": false
+        },
+        {
+          "suite": "bootstrap receipt identity",
+          "name": "Bootstrap_UserEntryAndDefinitionLoss_ReplayWithoutRegistration",
+          "dynamic": false
+        },
+        {
+          "suite": "bootstrap receipt identity",
+          "name": "Bootstrap_LexicalContainment_AllowsMountedPlanAndRefusesEscape",
+          "dynamic": false
+        },
+        {
+          "suite": "bootstrap receipt identity",
+          "name": "Bootstrap_ChangedApprovalRequiresCompile_OriginalEntryStillReplays",
+          "dynamic": false
+        },
+        {
+          "suite": "bootstrap receipt identity",
+          "name": "Bootstrap_BoundedPlan_%i_MeasuresCommitAndReplay",
+          "dynamic": false
+        },
+        {
+          "suite": "bootstrap receipt identity",
+          "name": "<dynamic-case-2>",
+          "dynamic": true
+        }
+      ]
+    },
+    "tests/integration/prepare-bootstrap-repair.test.ts": {
+      "file": "tests/integration/prepare-bootstrap-repair.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "bootstrap repair",
+          "name": "Bootstrap_AppendFailsAtEachRow_RollsBackBatch",
+          "dynamic": false
+        },
+        {
+          "suite": "bootstrap repair",
+          "name": "Bootstrap_%s_FaultRollsBackTheStore",
+          "dynamic": false
+        },
+        {
+          "suite": "bootstrap repair",
+          "name": "<dynamic-case-1>",
+          "dynamic": true
+        },
+        {
+          "suite": "bootstrap repair",
+          "name": "Bootstrap_LegacyDiskCollision_DoesNotMigrate_WithBackend_%s",
+          "dynamic": false
+        },
+        {
+          "suite": "bootstrap repair",
+          "name": "<dynamic-case-2>",
+          "dynamic": true
+        },
+        {
+          "suite": "bootstrap repair",
+          "name": "Bootstrap_LegacyBackendCollision_DoesNotWrite",
+          "dynamic": false
+        },
+        {
+          "suite": "bootstrap repair",
+          "name": "Bootstrap_CorruptBackendRow_RefusesWithoutDecoding",
+          "dynamic": false
+        },
+        {
+          "suite": "bootstrap repair",
+          "name": "Repair_LaterPhaseWins_PreservesEffects",
+          "dynamic": false
+        },
+        {
+          "suite": "bootstrap repair",
+          "name": "Repair_CollisionAfterCasConflict_RefusesFreshDocument",
+          "dynamic": false
+        },
+        {
+          "suite": "bootstrap repair",
+          "name": "Repair_MalformedV11_NeverFallsBack",
+          "dynamic": false
+        },
+        {
+          "suite": "bootstrap repair",
+          "name": "Repair_Committed_%s_FaultReturnsAcceptedIdentity",
+          "dynamic": false
+        },
+        {
+          "suite": "bootstrap repair",
+          "name": "<dynamic-case-3>",
+          "dynamic": true
+        },
+        {
+          "suite": "bootstrap repair",
+          "name": "Bootstrap_SameEntryRace_ReplaysDifferentFullKeyWinner",
+          "dynamic": false
+        },
+        {
+          "suite": "bootstrap repair",
+          "name": "Bootstrap_SameEntryWinner_RecoversFromLosingCustodyFailure",
+          "dynamic": false
+        },
+        {
+          "suite": "bootstrap repair",
+          "name": "Bootstrap_DifferentEntryRace_RefusesTheLoser",
+          "dynamic": false
+        },
+        {
+          "suite": "bootstrap repair",
+          "name": "Bootstrap_DifferentEntryWinner_PreservesOriginalCustodyFailure",
+          "dynamic": false
+        },
+        {
+          "suite": "bootstrap repair",
+          "name": "Bootstrap_RealStoreMatchesReducedModel",
+          "dynamic": false
+        }
+      ]
+    },
     "tests/integration/prepare-typed-plan.test.ts": {
       "file": "tests/integration/prepare-typed-plan.test.ts",
       "runner": "vitest:root",
@@ -91130,7 +91302,7 @@
         },
         {
           "suite": "typed prepare",
-          "name": "Prepare_UnsupportedBootstrapTypeBaseAndPolicy_LeaveNoWrites",
+          "name": "Prepare_ConflictingBootstrapTypeBaseAndPolicy_LeaveNoWrites",
           "dynamic": false
         },
         {

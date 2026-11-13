@@ -40,3 +40,5 @@ export const PrepareIntentSchema = z.discriminatedUnion('mode', [
 });
 
 export type CompileIntent = Extract<z.infer<typeof PrepareIntentSchema>, { mode: 'compile' }>;
+
+export type BootstrapIntent = Extract<z.infer<typeof PrepareIntentSchema>, { mode: 'bootstrap' }>;

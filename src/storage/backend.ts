@@ -173,6 +173,8 @@ export interface StorageBackend {
     filters?: QueryFilters,
   ): WorkflowEvent[];
 
+  /** Check for a document row without decoding its contents. */
+  hasState?(featureId: string): boolean;
   getState(featureId: string): WorkflowState | null;
   setState(featureId: string, state: WorkflowState, expectedVersion?: number): void;
   listStates(): Array<{ featureId: string; state: WorkflowState }>;

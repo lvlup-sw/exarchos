@@ -289,14 +289,14 @@ describe('typed prepare', () => {
     expect(missing.error?.planFindings?.some(({ code }) => code === 'UNKNOWN_DEPENDENCY')).toBe(true);
   });
 
-  it('Prepare_UnsupportedBootstrapTypeBaseAndPolicy_LeaveNoWrites', async () => {
+  it('Prepare_ConflictingBootstrapTypeBaseAndPolicy_LeaveNoWrites', async () => {
     const s = await fixture();
     const empty = await fixture({ empty: true });
     const text = textOf([task(A)]);
     await s.write(text);
     const bootstrap = compile(text, { mode: 'bootstrap', workflowType: 'feature', baseRef: BASE });
-    await refuse(empty, bootstrap, 'BOOTSTRAP_UNSUPPORTED');
-    await refuse(s, bootstrap, 'BOOTSTRAP_UNSUPPORTED');
+    await refuse(empty, bootstrap, 'PLAN_UNSOUND');
+    await refuse(s, bootstrap, 'BOOTSTRAP_CONFLICT');
     await refuse(empty, undefined, 'WORKFLOW_NOT_FOUND');
     await refuse(empty, compile(text), 'WORKFLOW_NOT_FOUND');
     await refuse(s, compile(text, { workflowType: 'debug' }), 'INVALID_INPUT');

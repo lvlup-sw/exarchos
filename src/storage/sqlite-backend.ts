@@ -1580,6 +1580,10 @@ export class SqliteBackend implements StorageBackend {
     }
   }
 
+  hasState(featureId: string): boolean {
+    return this.stmts.getStateVersion.get(featureId) != null;
+  }
+
   getState(featureId: string): WorkflowState | null {
     const row = this.stmts.getState.get(featureId) as { state: string; version: number } | undefined;
     if (!row) return null;
