@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { checkPackagedMcp } from './testgen-mcp-smoke.mjs';
+import { checkNativeV2 } from './testgen-native-smoke.mjs';
 
 const root = fileURLToPath(new URL('../../', import.meta.url));
 const scratch = mkdtempSync(join(tmpdir(), 'testgen install '));
@@ -110,6 +111,7 @@ internal static class Binding
   const output = checkedOutput(nativeRun, `dotnet run --project ${project}`);
   assert.match(output, /total:\s*4\b/i);
   process.stdout.write('Installed testgen emitted four passing native tests.\n');
+  checkNativeV2(scratch, testgen, npm, options, checkedOutput);
 } finally {
   rmSync(scratch, { recursive: true, force: true });
 }

@@ -1280,12 +1280,13 @@ jobs:
       - run: bun tools/release/codegen-testgen.ts --check
       - run: npm run build:testgen
       - run: npm run testgen:smoke
-      - name: Run generated property and metamorphic tests in Exarchos Vitest
+      - name: Run generated tests against Exarchos bindings
         shell: bash
         run: |
           set -euo pipefail
-          for kind in property metamorphic; do
-            request="tests/support/testgen/vitest-$kind.json"
+          for entry in property:vitest-property metamorphic:vitest-metamorphic property:typed-property metamorphic:typed-metamorphic differential:typed-differential stateful:stateful-ledger; do
+            kind=${entry%%:*}
+            request="tests/support/testgen/${entry#*:}.json"
             target=$(node -p 'JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).target.path' "$request")
             test ! -e "$target"
             trap 'rm -f "$target"' EXIT
