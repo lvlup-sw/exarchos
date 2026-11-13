@@ -4,11 +4,11 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1436,
-    "parsedFiles": 1391,
+    "testFiles": 1437,
+    "parsedFiles": 1392,
     "shellFiles": 45,
-    "cases": 15813,
-    "dynamicTitles": 210,
+    "cases": 15820,
+    "dynamicTitles": 213,
     "unparseableFiles": 0
   },
   "unparseable": [],
@@ -92181,6 +92181,47 @@
         {
           "suite": "",
           "name": "rejects lossy raw keys and non-scalar text before schema parsing",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/testgen/reduction.test.ts": {
+      "file": "tests/unit/testgen/reduction.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "",
+          "name": "reduces a failure while rejecting out-of-domain candidates and preserving the signature",
+          "dynamic": false
+        },
+        {
+          "suite": "",
+          "name": "<dynamic-case-1>",
+          "dynamic": true
+        },
+        {
+          "suite": "",
+          "name": "bounds native reduction and reports exhaustion",
+          "dynamic": false
+        },
+        {
+          "suite": "",
+          "name": "<dynamic-case-2>",
+          "dynamic": true
+        },
+        {
+          "suite": "",
+          "name": "retains the original assertion failure when a candidate crashes for another reason",
+          "dynamic": false
+        },
+        {
+          "suite": "",
+          "name": "<dynamic-case-3>",
+          "dynamic": true
+        },
+        {
+          "suite": "",
+          "name": "shrinks compound values without leaving structural domains",
           "dynamic": false
         }
       ]
