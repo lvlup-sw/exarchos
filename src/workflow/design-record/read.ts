@@ -220,3 +220,19 @@ export async function readDesignRecordAt(
     return { kind: 'invalid', reference, message: error instanceof Error ? error.message : 'Cannot read design record' };
   }
 }
+
+/** Classify both captured sources. Typed plans require one byte-identical unified record. */
+export function readDesignRecordPair(
+  designBytes: Uint8Array, designReference: string, planBytes: Uint8Array, planReference: string,
+): DesignRecordReadResult {
+  const design = readDesignRecord(designBytes, designReference);
+  const plan = readDesignRecord(planBytes, planReference);
+  if (design.kind === 'invalid') return design;
+  if (plan.kind === 'invalid') return plan;
+  if (design.kind === 'legacy' && plan.kind === 'legacy') return design;
+  if (design.kind !== 'typed' || plan.kind !== 'typed'
+    || designBytes.length !== planBytes.length || !designBytes.every((byte, index) => byte === planBytes[index])) {
+    return { kind: 'invalid', reference: designReference, message: 'Typed inputs require one byte-identical unified design record.' };
+  }
+  return design;
+}

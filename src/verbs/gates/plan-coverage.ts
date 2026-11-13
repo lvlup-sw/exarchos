@@ -3,6 +3,9 @@
  * tasks cover each design section, and records the gate result.
  */
 
+import { readDesignRecordPair } from '../../workflow/design-record/read.js';
+import { evaluatePlanCoverage } from '../../workflow/design-record/plan-checks.js';
+import type { DesignRecordReadResult } from '../../workflow/design-record/schema.js';
 import { extractGwtKeyword } from '../../workflow/design-record/gwt.js';
 import { readFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
@@ -695,12 +698,16 @@ export async function handlePlanCoverage(
     };
   }
 
+  let record: DesignRecordReadResult;
   let designContent: string;
   let planContent: string;
 
   try {
-    designContent = await readFile(args.designPath, 'utf-8') as string;
-    planContent = await readFile(args.planPath, 'utf-8') as string;
+    const designBytes = Buffer.from(await readFile(args.designPath));
+    const planBytes = args.designPath === args.planPath ? designBytes : Buffer.from(await readFile(args.planPath));
+    record = readDesignRecordPair(designBytes, args.designPath, planBytes, args.planPath);
+    designContent = designBytes.toString('utf8');
+    planContent = planBytes.toString('utf8');
   } catch (err: unknown) {
     return {
       success: false,
@@ -730,7 +737,7 @@ export async function handlePlanCoverage(
     ),
     providerInput: args,
     executeProvider: async () =>
-      executePlanCoverage(args, designContent, planContent, eventStore),
+      executePlanCoverage(args, designContent, planContent, eventStore, record),
   });
 }
 
@@ -746,7 +753,21 @@ async function executePlanCoverage(
   designContent: string,
   planContent: string,
   eventStore: EventStore,
+  record: DesignRecordReadResult,
 ): Promise<ToolResult> {
+  if (record.kind === 'invalid') return { success: false, error: { code: 'INVALID_DESIGN_RECORD', message: record.message } };
+  if (record.kind === 'typed') {
+    const checked = evaluatePlanCoverage(record.snapshot);
+    const gapSections = record.snapshot.requirements.filter((id) => !checked.edges.some((edge) => edge.requirementId === id));
+    const total = record.snapshot.requirements.length;
+    const coverage = { covered: total - gapSections.length, gaps: gapSections.length, deferred: 0, total };
+    const report = ['## Plan Coverage Report', ...checked.edges.map((edge) => `| ${edge.requirementId} | ${edge.taskId} |`),
+      ...checked.findings.map((finding) => `${finding.code}: ${finding.message}`), `**Result: ${checked.passed ? 'PASS' : 'FAIL'}**`].join('\n');
+    await emitGateEvent(eventStore, args.featureId, 'plan-coverage', 'planning', checked.passed,
+      { dimension: 'D1', phase: 'plan', covered: coverage.covered, gaps: coverage.gaps, deferred: 0, totalSections: total },
+      sameOperationGateKey('plan-coverage'));
+    return { success: true, data: { ...checked, coverage, gapSections, report } };
+  }
   const designSections = parseDesignSections(designContent);
   if (designSections.length === 0) {
     return {

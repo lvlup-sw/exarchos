@@ -1,7 +1,5 @@
 /**
  * Source checks share the typed snapshot and its exact implements relation.
- * RESERVED(issue: #1927, owner: exarchos, expires: 2027-02-28)
- * Gate adapters will consume these pure checks when their typed input paths land.
  */
 import type { DesignRecordSnapshot } from './schema.js';
 import { validateDesignRecord } from './validate.js';
@@ -31,7 +29,7 @@ export function evaluatePlanCoverage(snapshot: DesignRecordSnapshot) {
 export function evaluatePlanTraceability(snapshot: DesignRecordSnapshot) {
   const validation = validateDesignRecord(snapshot);
   const edges = implementsEdges(snapshot);
-  const report = ['| Requirement | Task |', '|---|---|', ...edges.map((edge) => `| ${edge.requirementId} | ${edge.taskId} |`)].join('\n');
+  const report = ['| Requirement | Task |', '|---|---|', ...snapshot.tasks.flatMap((task) => edges.filter((edge) => edge.taskId === task.id).map((edge) => `| ${edge.requirementId} | ${edge.taskId} |`))].join('\n');
   return { ...validation, edges, report };
 }
 

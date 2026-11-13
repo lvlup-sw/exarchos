@@ -4,11 +4,11 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1468,
-    "parsedFiles": 1423,
+    "testFiles": 1469,
+    "parsedFiles": 1424,
     "shellFiles": 45,
-    "cases": 16236,
-    "dynamicTitles": 264,
+    "cases": 16248,
+    "dynamicTitles": 267,
     "unparseableFiles": 0
   },
   "unparseable": [],
@@ -58209,6 +58209,11 @@
           "suite": "handlePlanCoverage > no tasks in plan",
           "name": "handlePlanCoverage_NoTasks_ReturnsFailResult",
           "dynamic": false
+        },
+        {
+          "suite": "",
+          "name": "Coverage_LegacyFixture_PreservesContract",
+          "dynamic": false
         }
       ]
     },
@@ -94489,6 +94494,67 @@
           "suite": "",
           "name": "Settle_ActualClaimStreamDiffers_RefusesReceiptWithoutRepair",
           "dynamic": false
+        }
+      ]
+    },
+    "tests/integration/design-record-consumers.test.ts": {
+      "file": "tests/integration/design-record-consumers.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "typed consumer adoption; prepare remains deferred to its own task",
+          "name": "Consumers_T01WithMisleadingTitle_AgreeOnEdges",
+          "dynamic": false
+        },
+        {
+          "suite": "typed consumer adoption; prepare remains deferred to its own task",
+          "name": "generated relations agree across real wrappers and shared evaluators",
+          "dynamic": false
+        },
+        {
+          "suite": "typed consumer adoption; prepare remains deferred to its own task",
+          "name": "Consumers_InvalidTypedBlock_AllRefuse: %s",
+          "dynamic": false
+        },
+        {
+          "suite": "typed consumer adoption; prepare remains deferred to its own task",
+          "name": "<dynamic-case-1>",
+          "dynamic": true
+        },
+        {
+          "suite": "typed consumer adoption; prepare remains deferred to its own task",
+          "name": "whole graph refuses %s despite full coverage",
+          "dynamic": false
+        },
+        {
+          "suite": "typed consumer adoption; prepare remains deferred to its own task",
+          "name": "<dynamic-case-2>",
+          "dynamic": true
+        },
+        {
+          "suite": "typed consumer adoption; prepare remains deferred to its own task",
+          "name": "classifies both sources and refuses different typed or legacy bytes",
+          "dynamic": false
+        },
+        {
+          "suite": "typed consumer adoption; prepare remains deferred to its own task",
+          "name": "unified absolute paths are captured once by coverage traceability and pure provenance",
+          "dynamic": false
+        },
+        {
+          "suite": "typed consumer adoption; prepare remains deferred to its own task",
+          "name": "typed coverage and decomposition advisories do not block a sound graph",
+          "dynamic": false
+        },
+        {
+          "suite": "typed consumer adoption; prepare remains deferred to its own task",
+          "name": "Provenance_FileChangesAfterRead_DigestMatchesVerdict typed=%s",
+          "dynamic": false
+        },
+        {
+          "suite": "typed consumer adoption; prepare remains deferred to its own task",
+          "name": "<dynamic-case-3>",
+          "dynamic": true
         }
       ]
     }

@@ -5,6 +5,9 @@
  * and bare forms of one id number, with or without leading zeros, as the same task.
  */
 
+import { readDesignRecord } from '../../workflow/design-record/read.js';
+import { evaluatePlanDecomposition } from '../../workflow/design-record/plan-checks.js';
+import type { DesignRecordReadResult } from '../../workflow/design-record/schema.js';
 import { readFile } from 'node:fs/promises';
 import type { ToolResult } from '../../format.js';
 import type { EventStore } from '../../events/store.js';
@@ -639,9 +642,12 @@ async function executeTaskDecomposition(
     };
   }
 
+  let record: DesignRecordReadResult;
   let planContent: string;
   try {
-    planContent = await readFile(args.planPath, 'utf-8');
+    const bytes = Buffer.from(await readFile(args.planPath));
+    record = readDesignRecord(bytes, args.planPath);
+    planContent = bytes.toString('utf8');
   } catch (err: unknown) {
     return {
       success: false,
@@ -652,6 +658,22 @@ async function executeTaskDecomposition(
     };
   }
 
+  if (record.kind === 'invalid') return { success: false, error: { code: 'INVALID_DESIGN_RECORD', message: record.message } };
+  if (record.kind === 'typed') {
+    const result = evaluatePlanDecomposition(record.snapshot);
+    const totalTasks = record.snapshot.tasks.length;
+    const needsRework = record.snapshot.tasks.filter((task) => result.findings.some((finding) => finding.taskIds.includes(task.id))).length;
+    const wellDecomposed = totalTasks - needsRework;
+    const report = ['## Task Decomposition Report', ...record.snapshot.tasks.map((task) => `| ${task.id} | ${task.blockedBy.join(', ')} |`),
+      ...result.findings.map((finding) => `${finding.code}: ${finding.message}`), ...renderPlausibilitySection(result.plausibility),
+      `**Result: ${result.passed ? 'PASS' : 'FAIL'}**`].join('\n');
+    const carrier: ToolResult = { success: true, data: { ...result, totalTasks, needsRework, wellDecomposed,
+      tasks: record.snapshot.tasks, dagValid: !result.findings.some((finding) => ['SELF_DEPENDENCY', 'UNKNOWN_DEPENDENCY', 'DEPENDENCY_CYCLE'].includes(finding.code)),
+      parallelSafe: !result.findings.some((finding) => finding.code === 'PARALLEL_FILE_CONFLICT'), report } };
+    const unrecorded = await requireGateEvent(eventStore, args.featureId, 'task-decomposition', 'planning', result.passed, carrier,
+      { dimension: 'D5', phase: 'plan', wellDecomposed, needsRework, totalTasks }, sameOperationGateKey('task-decomposition'));
+    return unrecorded ?? carrier;
+  }
   const blocks = parseTaskBlocks(planContent);
 
   if (blocks.length === 0) {
