@@ -22,7 +22,7 @@ const REPO_ROOT = resolve(__dirname, '../../');
  * `tests/scripts/installer-verify.test.ts` runs that script in a sandbox, so
  * it leaves no file in the checkout.
  */
-const BUILD_ONLY_ENTRIES: readonly string[] = ['dist/bin', 'dist/release-verify.js', 'dist/testgen-cli.js'];
+const BUILD_ONLY_ENTRIES: readonly string[] = ['dist/bin', 'dist/release-verify.js', 'dist/testgen-cli.js', 'dist/testgen-mcp.js'];
 
 const readJson = (rel: string): Record<string, unknown> =>
   JSON.parse(readFileSync(join(REPO_ROOT, rel), 'utf8')) as Record<string, unknown>;

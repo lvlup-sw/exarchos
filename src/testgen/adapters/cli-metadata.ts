@@ -12,7 +12,7 @@ export const commandMetadata = {
     },
     {
       "name": "generate_metamorphic_tests",
-      "description": "Emit paired TUnit or Vitest tests for a supplied transformation, precondition, and relation."
+      "description": "Emit paired native tests for a reviewed transformation, precondition, and relation."
     },
     {
       "name": "generate_differential_tests",
@@ -20,7 +20,15 @@ export const commandMetadata = {
     },
     {
       "name": "generate_stateful_tests",
-      "description": "Emit model-based operation histories with native precondition filtering, fresh reset, and replay."
+      "description": "Emit model-based histories with native precondition filtering, fresh reset, and replay."
+    },
+    {
+      "name": "scaffold_tests",
+      "description": "Propose a request and throwing binding stubs for a native test suite."
+    },
+    {
+      "name": "replay_tests",
+      "description": "Rebuild a native suite from a matching request and concrete failure record."
     }
   ]
 } as const;

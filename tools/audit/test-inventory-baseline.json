@@ -4,11 +4,11 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1438,
-    "parsedFiles": 1393,
+    "testFiles": 1439,
+    "parsedFiles": 1394,
     "shellFiles": 45,
-    "cases": 15825,
-    "dynamicTitles": 213,
+    "cases": 15830,
+    "dynamicTitles": 214,
     "unparseableFiles": 0
   },
   "unparseable": [],
@@ -92253,6 +92253,37 @@
         {
           "suite": "",
           "name": "validates operation names, argument domains, and generation budgets before emission",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/testgen/workflow.test.ts": {
+      "file": "tests/unit/testgen/workflow.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "",
+          "name": "scaffolds each supported method for %s with throwing stubs",
+          "dynamic": false
+        },
+        {
+          "suite": "",
+          "name": "<dynamic-case-1>",
+          "dynamic": true
+        },
+        {
+          "suite": "",
+          "name": "derives capability methods and domains from the operation and domain contracts",
+          "dynamic": false
+        },
+        {
+          "suite": "",
+          "name": "replays concrete stateless and stateful records and rejects mismatched evidence",
+          "dynamic": false
+        },
+        {
+          "suite": "",
+          "name": "uses the same scaffold and replay contracts through aliases and MCP",
           "dynamic": false
         }
       ]
