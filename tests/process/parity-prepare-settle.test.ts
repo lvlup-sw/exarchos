@@ -11,6 +11,9 @@
  *
  * The cases test the `exarchos` binary on PATH. `npm run test:files` builds the binary of the tree and puts it first on PATH.
  */
+import { createHash } from 'node:crypto';
+import { writeFile } from 'node:fs/promises';
+import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 import { rmrfAsync } from '../../tools/test-helpers/temp-dir.js';
@@ -21,6 +24,7 @@ import { extractEnvelope } from '../helpers/mcp-envelope.js';
 import { normalize } from '../helpers/normalizers.js';
 import { PARITY_CONTRACT, assertParity } from '../helpers/parity-contract.js';
 import { scopedRepository, type FixtureFiles } from '../helpers/scoped-repository.js';
+import { task, textOf } from '../helpers/capsule/prepared-authority.js';
 
 const TASK = 'task-1';
 const BATCH = 'batch-1';
@@ -164,6 +168,37 @@ async function rowCount(fixture: Fixture, type: string): Promise<number> {
 }
 
 describe('parity: exarchos orchestrate prepare and settle — CLI ↔ MCP', () => {
+  it('Prepare_TypedMcpIntentAndCliFlag_ReplayOneAcceptedCapsule', async () => {
+    await withDelegatingWorkflow(async (fixture, checkout) => {
+      const text = textOf([task('T-01', { title: 'Misleading task 999' })]);
+      await writeFile(path.join(checkout, PLAN_PATH), text);
+      const designDigest = createHash('sha256').update(text).digest('hex');
+      const intent = { mode: 'compile', designRef: PLAN_PATH, approval: { decision: 'approved', designDigest } };
+      const subject = { featureId: fixture.featureId, repoRoot: checkout };
+      const prepared = await withMcp(fixture.env, async (call) => {
+        const legacyIntent = await call('exarchos_orchestrate', { action: 'prepare', ...subject, intent: 'task-completion' });
+        expect(legacyIntent).toMatchObject({ success: false, error: { code: 'INVALID_INPUT' } });
+        const typedRunbook = await call('exarchos_orchestrate', { action: 'execute_intent', intent, args: {} });
+        expect(typedRunbook).toMatchObject({ success: false, error: { code: 'INVALID_INPUT' } });
+        return call('exarchos_orchestrate', { action: 'prepare', ...subject, intent });
+      });
+      expect(dataOf(prepared)).toMatchObject({
+        capsuleVersion: 1,
+        capsule: {
+          graph: { tasks: [{ taskId: 'T-01' }] },
+          provenance: { sources: expect.arrayContaining([{ sourceId: 'design-record', digest: designDigest }]) },
+          settlementContract: { skipPhases: [] },
+        },
+      });
+      const retried = await cli(fixture.env, [
+        'orchestrate', 'prepare', '--feature-id', fixture.featureId, '--repo-root', checkout, '--intent', JSON.stringify(intent),
+      ]);
+      expect(retried.exitCode).toBe(0);
+      expectParity(retried.envelope, prepared, 'orchestrate.prepare');
+      expect(await rowCount(fixture, 'workflow.prepared')).toBe(1);
+    });
+  }, CASE_TIMEOUT_MS);
+
   /**
    * MCP compiles capsule v1. The same request on the CLI replays the claim of that compilation.
    * A second compilation gives capsule v2, so equal `data` shows that the CLI returned the recorded receipt.

@@ -1,4 +1,7 @@
-/** Typed preparation binds approved file bytes, ledger completion, and the accepted phase policy. */
+/**
+ * Typed preparation binds approved file bytes, ledger completion, and the accepted phase policy.
+ * @oracle-sources: ../../src/verbs/prepare/handler.ts, authored fixture bytes and independent ledger traces
+ */
 import { createHash } from 'node:crypto';
 import { mkdir, symlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';

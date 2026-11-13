@@ -7,7 +7,7 @@
     "testFiles": 1471,
     "parsedFiles": 1426,
     "shellFiles": 45,
-    "cases": 16275,
+    "cases": 16276,
     "dynamicTitles": 267,
     "unparseableFiles": 0
   },
@@ -90212,6 +90212,11 @@
       "file": "tests/process/parity-prepare-settle.test.ts",
       "runner": "vitest:root",
       "cases": [
+        {
+          "suite": "parity: exarchos orchestrate prepare and settle — CLI ↔ MCP",
+          "name": "Prepare_TypedMcpIntentAndCliFlag_ReplayOneAcceptedCapsule",
+          "dynamic": false
+        },
         {
           "suite": "parity: exarchos orchestrate prepare and settle — CLI ↔ MCP",
           "name": "prepare_cliRetryOfMcpPrepare_envelopesMatchAfterNormalize",
