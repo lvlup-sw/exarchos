@@ -8,10 +8,11 @@ const support = fileURLToPath(new URL('../../tests/support/testgen/native/', imp
 const methods = ['property', 'metamorphic', 'differential', 'stateful'];
 const domain = { kind: 'record', fields: {
   enabled: { kind: 'boolean' },
-  text: { kind: 'string', alphabet: 'aé😀', minLength: 0, maxLength: 4 },
+  ['key\u2028']: { kind: 'boolean' },
+  text: { kind: 'string', alphabet: 'aé😀\u0085\u2028\u2029', minLength: 0, maxLength: 4 },
   count: { kind: 'integer', min: '-99999999999999999999999', max: '99999999999999999999999' },
   score: { kind: 'number', min: -1e308, max: 1e308 },
-  items: { kind: 'array', element: { kind: 'nullable', value: { kind: 'enum', values: ['red', 'blue'] } }, minLength: 0, maxLength: 3 },
+  items: { kind: 'array', element: { kind: 'nullable', value: { kind: 'enum', values: ['red', 'blue', '\u0085', '\u2028', '\u2029'] } }, minLength: 0, maxLength: 3 },
 } };
 
 export function checkNativeV2(scratch, testgen, npm, options, checkedOutput) {
@@ -25,14 +26,14 @@ export function checkNativeV2(scratch, testgen, npm, options, checkedOutput) {
       writeFileSync(join(cwd, `${name}.${extension}`), readFileSync(join(support, `${name}.${extension}`)));
     }
     if (framework === 'tunit') writeFileSync(join(cwd, 'Smoke.csproj'), `<Project Sdk="Microsoft.NET.Sdk">
-<PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net10.0</TargetFramework><Nullable>enable</Nullable><NuGetAudit>false</NuGetAudit></PropertyGroup>
+<PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net10.0</TargetFramework><Nullable>enable</Nullable><GenerateDocumentationFile>true</GenerateDocumentationFile><TreatWarningsAsErrors>true</TreatWarningsAsErrors><NuGetAudit>false</NuGetAudit></PropertyGroup>
 <ItemGroup><PackageReference Include="TUnit" Version="1.2.11" /></ItemGroup>
 </Project>`);
     const requests = methods.map((method) => {
       const binding = method === 'stateful' ? 'StatefulBinding' : 'TypedBinding';
       return {
         contractVersion: 2, framework, frameworkVersion: framework === 'tunit' ? '1.2.11' : '3.2.7',
-        propertyRef: `installed/${method}`, assumptions: [], reduction: { maxAttempts: 64 },
+        propertyRef: `installed/${method}/\u2028`, assumptions: [], reduction: { maxAttempts: 64 },
         target: framework === 'tunit'
           ? { project: `${folder}/Smoke.csproj`, path: `${folder}/${method}.cs`, namespace: 'Smoke', className: `Generated${method}`, binding: `Smoke.${binding}` }
           : { path: `${folder}/${method}.test.ts`, bindingModule: `${folder}/${binding}.ts` },
@@ -41,13 +42,15 @@ export function checkNativeV2(scratch, testgen, npm, options, checkedOutput) {
           histories: [[{ operation: 'put', args: 'a' }, { operation: 'put', args: 'b' }, { operation: 'remove', args: 'a' }]],
           generation: { seed: 42, count: 5, maxSteps: 10, maxAttempts: 64 },
         } : {
-          domain, cases: [{ enabled: true, text: 'a', count: '17', score: 1, items: ['red', null] }],
+          domain, cases: [{ enabled: true, ['key\u2028']: false, text: '\u0085\u2028\u2029', count: '17', score: 1, items: ['\u2029', null] }],
           generation: { seed: 17, count: 12, maxAttempts: 100 },
         }),
       };
     });
+    const discovered = new Map();
     function apply(result, path) {
       assert.equal(result.ok, true, JSON.stringify(result));
+      discovered.set(path, result.fixture.cases?.length ?? result.fixture.scenarios.length);
       rmSync(join(scratch, path), { force: true });
       const patch = join(scratch, 'generated.patch');
       writeFileSync(patch, result.patch);
@@ -68,6 +71,11 @@ export function checkNativeV2(scratch, testgen, npm, options, checkedOutput) {
       if (fault) assert.notEqual(result.status, 0, output);
       else assert.equal(result.status, 0, output);
       assert.doesNotMatch(output, /error CS\d+/);
+      const expectedCount = [...discovered.values()].reduce((sum, count) => sum + count, 0);
+      const total = framework === 'tunit' ? output.match(/total:\s*(\d+)\b/i)
+        : output.match(/Tests\s+[^\n]*\((\d+)\)/);
+      assert.ok(total, `Native discovery summary is missing: ${output}`);
+      assert.equal(Number(total[1]), expectedCount, output);
       return output;
     }
     function typecheck() {
