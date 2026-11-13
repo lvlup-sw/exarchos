@@ -91,3 +91,16 @@ function valueSize(domain: Domain): number {
     default: return 1;
   }
 }
+
+export function maximumEncodedSize(domain: Domain): number {
+  switch (domain.kind) {
+    case 'boolean': return 5;
+    case 'integer': return Math.max(domain.min.length, domain.max.length) + 2;
+    case 'number': return 25;
+    case 'string': return 2 + domain.maxLength * 12;
+    case 'enum': return Math.max(...domain.values.map((value) => JSON.stringify(value).length));
+    case 'nullable': return Math.max(4, maximumEncodedSize(domain.value));
+    case 'array': return 2 + domain.maxLength * (1 + maximumEncodedSize(domain.element));
+    case 'record': return 2 + Object.entries(domain.fields).reduce((sum, [key, value]) => sum + JSON.stringify(key).length + 2 + maximumEncodedSize(value), 0);
+  }
+}

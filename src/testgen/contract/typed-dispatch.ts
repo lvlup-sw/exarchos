@@ -1,5 +1,5 @@
 import type { TypedInput, TypedMethod, TypedSuccess } from './typed.js';
-import { canonicalJson, domainProblem, inDomain } from '../domains/schema.js';
+import { canonicalJson, domainProblem, inDomain, maximumEncodedSize } from '../domains/schema.js';
 import { generateCases } from '../domains/generate.js';
 import { emitTypedVitest } from '../emitters/vitest/typed.js';
 import { emitTypedTUnit } from '../emitters/tunit/typed.js';
@@ -11,6 +11,9 @@ export function typedRequestProblem(input: TypedInput): string | undefined {
   if (new Set(input.cases.map(canonicalJson)).size !== input.cases.length) return 'Duplicate cases are not allowed.';
   if (input.cases.length === 0 && !input.generation) return 'Supply cases or a generation budget.';
   if (input.generation && input.cases.length > input.generation.count) return 'The generation count must include all supplied cases.';
+  const generatedCount = (input.generation?.count ?? input.cases.length) - input.cases.length;
+  const encodedSize = JSON.stringify(input.cases).length + generatedCount * (maximumEncodedSize(input.domain) + 1);
+  if (encodedSize > 2_000_000) return 'The case budget exceeds two megabytes.';
   return undefined;
 }
 

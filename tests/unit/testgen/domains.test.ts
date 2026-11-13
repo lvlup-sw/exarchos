@@ -89,3 +89,14 @@ it('fails input validation before emission for malformed typed requests', () => 
   cyclic.self = cyclic;
   expect(dispatch('generate_property_tests', cyclic)).toMatchObject({ ok: false, error: { code: 'INVALID_INPUT' } });
 });
+
+it('rejects oversized generated fixtures before materializing the case pool', () => {
+  const request = {
+    contractVersion: 2, framework: 'vitest', frameworkVersion: '3.2.7',
+    target: { path: 'tests/size.test.ts', bindingModule: 'tests/binding.ts' },
+    propertyRef: 'budget/size', assumptions: [], cases: [],
+    domain: { kind: 'array', minLength: 0, maxLength: 64, element: { kind: 'string', alphabet: 'ab', minLength: 0, maxLength: 64 } },
+    generation: { seed: 1, count: 256, maxAttempts: 256 },
+  };
+  expect(dispatch('generate_property_tests', request)).toMatchObject({ ok: false, error: { code: 'INVALID_INPUT', message: expect.stringContaining('megabytes') } });
+});
