@@ -7,8 +7,8 @@
     "testFiles": 1467,
     "parsedFiles": 1422,
     "shellFiles": 45,
-    "cases": 16200,
-    "dynamicTitles": 254,
+    "cases": 16202,
+    "dynamicTitles": 255,
     "unparseableFiles": 0
   },
   "unparseable": [],
@@ -93470,6 +93470,16 @@
           "suite": "legacy custody await replay",
           "name": "KernelNoStart_LaterCountedRowKeepsSnapshotCursorAcrossRepair",
           "dynamic": false
+        },
+        {
+          "suite": "no-start claim recovery across calls",
+          "name": "KernelNoAttempt_PersistentPublicationFailure_FreshRequestDifferentPayload_%s",
+          "dynamic": false
+        },
+        {
+          "suite": "no-start claim recovery across calls",
+          "name": "<dynamic-case-20>",
+          "dynamic": true
         }
       ]
     },

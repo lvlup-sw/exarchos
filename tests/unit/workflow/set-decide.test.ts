@@ -1753,3 +1753,49 @@ describe('legacy custody await replay', () => {
     expect((await documentOf(store, FEATURE_ID)).planReview).toMatchObject({ revisionCount: 1 });
   });
 });
+
+/** A failed document publication keeps the original source version for a later claim lookup. */
+describe('no-start claim recovery across calls', () => {
+  it.each([false, true])('KernelNoAttempt_PersistentPublicationFailure_FreshRequestDifferentPayload_%s', async different => {
+    const store = await openStore();
+    await init(store, FEATURE_ID, 'feature', false);
+    await pinKernel(store);
+    await forgeDocument(store, FEATURE_ID, document => {
+      const { phaseAttemptId: _attempt, ...withoutAttempt } = document;
+      return withoutAttempt;
+    });
+    const before = await documentOf(store, FEATURE_ID);
+    expect(before).not.toHaveProperty('phaseAttemptId');
+    const guard = vi.spyOn(hsmTransitionGuard, 'attempt');
+    const input = { featureId: FEATURE_ID, phase: 'plan-review', updates: { 'artifacts.plan': PLAN_ARTIFACT } };
+    failSetState(store, 4);
+    await expect(handleSet(input, store.stateDir, store.eventStore)).rejects.toMatchObject({ code: 'VERSION_CONFLICT' });
+    expect(await documentOf(store, FEATURE_ID)).toEqual(before);
+    expect(guard).toHaveBeenCalledTimes(1);
+    const committedRows = await rowsOf(store, FEATURE_ID);
+    expect(committedRows.filter(row => row.type === 'workflow.transition')).toHaveLength(1);
+    expect(committedRows.filter(row => row.type === 'state.patched')).toHaveLength(1);
+    const raw = new Database(path.join(store.stateDir, 'exarchos.db'));
+    releases.push(() => raw.close());
+    const claims = () => raw.prepare('SELECT * FROM idempotency_claims WHERE idempotencyKey LIKE ? ORDER BY idempotencyKey').all(`transition:${FEATURE_ID}:%`);
+    const heldClaims = claims();
+    expect(heldClaims).toHaveLength(1);
+    await appendRow(store, FEATURE_ID, 'state.patched', { featureId: FEATURE_ID, fields: ['notes.afterCommit'], patch: { 'notes.afterCommit': 'later row' } });
+    const beforeRetry = await rowsOf(store, FEATURE_ID);
+    const custody = vi.spyOn(store.eventStore.bundleStore, 'resolve').mockRejectedValue(new Error('custody removed after accepted move'));
+    guard.mockImplementation(async () => { throw new Error('The accepted guard must not repeat'); });
+    const retry = handleSet({ ...input, updates: { 'artifacts.plan': different ? 'different.md' : PLAN_ARTIFACT } }, store.stateDir, store.eventStore);
+    if (different) {
+      await expect(retry).rejects.toBeInstanceOf(OperationDigestMismatchError);
+      expect(await documentOf(store, FEATURE_ID)).toEqual(before);
+    } else {
+      expect(await retry).toMatchObject({ success: true, data: { phase: 'plan-review', idempotent: true } });
+      expect(await documentOf(store, FEATURE_ID)).toMatchObject({ phase: 'plan-review', artifacts: { plan: PLAN_ARTIFACT },
+        notes: { afterCommit: 'later row' }, _eventSequence: beforeRetry.at(-1)?.sequence });
+    }
+    expect(guard).toHaveBeenCalledTimes(1);
+    expect(custody).not.toHaveBeenCalled();
+    expect(claims()).toEqual(heldClaims);
+    expect(await rowsOf(store, FEATURE_ID)).toEqual(beforeRetry);
+  });
+});

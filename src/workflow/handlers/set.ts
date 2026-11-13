@@ -253,6 +253,12 @@ function foldRead(
   return { rows, prior, input, from, foldAttemptId, attemptId, version };
 }
 
+/** A no-start source uses its document version when no durable attempt exists. Stream growth cannot change this operation identity. */
+function documentAttemptId(featureId: string, target: string, state: WorkflowState): string | undefined {
+  return state.phase === target ? undefined : allocatePhaseAttemptId(featureId, state.phase, target,
+    readPhaseAttemptId(state), state._version ?? 1);
+}
+
 /** Returns the floor of a move: the coordinate of the fold before the updates, and the gates that the target froze. */
 function floorOf(read: FoldRead, target: string): TransitionObligationFloor | undefined {
   const priorCoordinate = statedCoordinate(read.prior);
@@ -394,8 +400,7 @@ async function decideOnTheFold(pass: FoldPassInput): Promise<FoldPass> {
     if (!rows.some(row => row.type === START_ROW_TYPE)) {
       read = { ...read, from: pass.state.phase, prior: { ...pass.state },
         foldAttemptId: readPhaseAttemptId(pass.state),
-        attemptId: pass.state.phase === target ? undefined : allocatePhaseAttemptId(featureId, pass.state.phase, target,
-          readPhaseAttemptId(pass.state), highestSequence(rows)) };
+        attemptId: documentAttemptId(featureId, target, pass.state) };
     }
     replayRead = read;
     const replay = await replayClaim(pass, read);
@@ -855,8 +860,9 @@ export async function handleSet(
           patchAuthority = pass.authority;
           legacyNoStart = !rows.some(row => row.type === START_ROW_TYPE);
           ledgerBacked = !legacyNoStart;
-          transitionPhaseAttemptId = state.phase === input.phase ? undefined : allocatePhaseAttemptId(input.featureId, state.phase, input.phase,
-            readPhaseAttemptId(state), highestSequence(rows));
+          transitionPhaseAttemptId = legacyNoStart ? documentAttemptId(input.featureId, input.phase, state)
+            : state.phase === input.phase ? undefined : allocatePhaseAttemptId(input.featureId, state.phase, input.phase,
+              readPhaseAttemptId(state), highestSequence(rows));
           mutableState._pendingPhaseAttemptId = transitionPhaseAttemptId;
         } else if (pass.kind === 'moved') {
           committed = pass.move;
