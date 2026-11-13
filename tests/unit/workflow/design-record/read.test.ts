@@ -1,10 +1,15 @@
-/** Reader witnesses cover byte authority, strict syntax, fence boundaries and exact identifiers. */
+/**
+ * Reader witnesses cover byte authority, strict syntax, fence boundaries and exact identifiers.
+ * @oracle-sources: ../../../../src/workflow/design-record/read.ts, ../../../helpers/fixtures/design-record/typed-standard.md
+ * The authored fixture supplies exact bytes and identities independently of the reader output.
+ */
 import { createHash } from 'node:crypto';
-import { readFile, mkdtemp, writeFile, symlink, rm } from 'node:fs/promises';
+import { readFile, mkdtemp, writeFile, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import fc from 'fast-check';
+import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
 import { readDesignRecord, readDesignRecordAt } from '../../../../src/workflow/design-record/read.js';
 import type { DesignRecordSnapshot } from '../../../../src/workflow/design-record/schema.js';
 
@@ -239,7 +244,7 @@ describe('design record reader', () => {
       expect((await readDesignRecordAt(root, 'absent.md')).kind).toBe('invalid');
       expect((await readDesignRecordAt(root, root)).kind).toBe('invalid');
     } finally {
-      await rm(root, { recursive: true });
+      await rmrfAsync(root);
     }
   });
 

@@ -216,6 +216,11 @@ export const INERT_DEPENDENCIES: ReadonlySet<string> = new Set([
   '@inquirer/prompts',
   /** In-memory YAML parser and serializer. It opens no socket. */
   'js-yaml',
+  /**
+   * The default production parser entry and its imports process in-memory text without I/O.
+   * A different entry or export condition requires another audit.
+   */
+  'mdast-util-from-markdown',
 ]);
 
 /**

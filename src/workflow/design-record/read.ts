@@ -1,4 +1,8 @@
-/** Read one bounded design record and retain the exact source for later validators. */
+/**
+ * Read one bounded design record and retain the exact source for later validators.
+ * RESERVED(issue: #1927, owner: exarchos, expires: 2027-02-28)
+ * Production consumers follow in the typed plan validators and prepare integration.
+ */
 import { createHash } from 'node:crypto';
 import { open } from 'node:fs/promises';
 import path from 'node:path';
@@ -28,6 +32,12 @@ function freeze<T>(value: T): T {
   return value;
 }
 
+/** Refuse a missing source value instead of asserting that an array index exists. */
+function required<T>(value: T | null | undefined): T {
+  if (value === undefined || value === null) throw new Error('Missing design record source value');
+  return value;
+}
+
 /** Build spans from line starts without rescanning the source for each task. */
 function spanFactory(text: string): (start: number, end: number) => SourceSpan {
   const starts = [0];
@@ -40,7 +50,7 @@ function spanFactory(text: string): (start: number, end: number) => SourceSpan {
     let hi = starts.length;
     while (lo + 1 < hi) {
       const mid = (lo + hi) >>> 1;
-      if (starts[mid]! <= offset) lo = mid;
+      if (required(starts[mid]) <= offset) lo = mid;
       else hi = mid;
     }
     return lo + 1;
@@ -65,11 +75,11 @@ function scanMarkdown(text: string, span: ReturnType<typeof spanFactory>) {
     if (node.type === 'code') {
       const opening = /^(`{3,}|~{3,})([^\r\n]*)(?:\r\n|\r|\n|$)/.exec(raw);
       if (!opening) continue;
-      const info = opening[2]!.trim();
+      const info = required(opening[2]).trim();
       if (!info.startsWith('exarchos-plan') && !node.lang?.startsWith('exarchos-plan')) continue;
-      const lastLine = /[^\r\n]*$/.exec(raw)![0];
+      const lastLine = required(/[^\r\n]*$/.exec(raw))[0];
       const closing = /^ {0,3}(`{3,}|~{3,})[ \t]*$/.exec(lastLine);
-      if (!closing || closing[1]![0] !== opening[1]![0] || closing[1]!.length < opening[1]!.length
+      if (!closing || required(closing[1])[0] !== required(opening[1])[0] || required(closing[1]).length < required(opening[1]).length
         || opening[0].length === raw.length) throw new Error('Unterminated typed plan fence');
       blocks.push({ info, start: start + opening[0].length, end: end - lastLine.length });
     } else if (node.type === 'heading') {
@@ -79,7 +89,7 @@ function scanMarkdown(text: string, span: ReturnType<typeof spanFactory>) {
       if (title === 'Design & Rationale') regionLevel = node.depth;
       else if (regionLevel !== undefined) {
         const requirement = /^(DR-[1-9][0-9]*)(?=[: \t]|$)/.exec(title);
-        if (requirement) definitions.push({ id: requirement[1]!, title, span: span(start, end) });
+        if (requirement) definitions.push({ id: required(requirement[1]), title, span: span(start, end) });
       }
     }
   }
@@ -96,7 +106,7 @@ function jsonTaskSpans(body: string, start: number, maxDepth: number, span: Retu
     const match = token.exec(body);
     if (!match) throw new Error('Invalid JSON token');
     offset = token.lastIndex;
-    return match[1]!;
+    return required(match[1]);
   };
   const walk = (keys: readonly (string | number)[], depth: number): void => {
     if (depth > maxDepth) throw new Error('Plan exceeds the JSON depth limit');
@@ -147,7 +157,7 @@ export function readDesignRecord(bytes: Uint8Array, reference: string, limits: D
     const { blocks, definitions } = scanMarkdown(text, span);
     if (blocks.length === 0) return { kind: 'legacy', reference };
     if (blocks.length !== 1) throw new Error('Expected exactly one typed plan block');
-    const block = blocks[0]!;
+    const block = required(blocks[0]);
     if (block.info !== 'exarchos-plan-v1') throw new Error('Unsupported typed plan fence');
     const body = text.slice(block.start, block.end);
     const value: unknown = JSON.parse(body);
@@ -161,7 +171,7 @@ export function readDesignRecord(bytes: Uint8Array, reference: string, limits: D
         rawBytes: Array.from(owned),
         version: plan.version,
         requirements: plan.requirements,
-        tasks: plan.tasks.map((task, index) => ({ ...task, span: spans[index]! })),
+        tasks: plan.tasks.map((task, index) => ({ ...task, span: required(spans[index]) })),
         definitions,
         planSpan: span(block.start, block.end),
       },
