@@ -377,3 +377,30 @@ describe('settle receipt integrity', () => {
     expect(await settledRows(s)).toHaveLength(1);
   });
 });
+
+
+it('Settle_ActualClaimStreamDiffers_RefusesReceiptWithoutRepair', async () => {
+  const source = await store(); await seed(source); await prepare(source);
+  const request = { claims: [{ taskId: 'unknown', fields: {}, evidence: [] }] };
+  const rejected = SettlementReceiptData.parse((await settle(source, request)).data);
+  expect(rejected.outcome).toBe('rejected');
+  const row = (await settledRows(source))[0];
+  if (row === undefined) throw new Error('Missing rejected settlement row');
+  const target = await store();
+  const wrongStream = 'other-workflow';
+  await target.events.getAppender().decideOnce(rejected.operationId, rejected.requestDigest, () => ({
+    streamId: wrongStream,
+    events: [{ type: row.type, data: row.data }],
+    result: rejected,
+  }));
+  const claim = target.backend.lookupOperationClaim(rejected.operationId);
+  expect(claim).toMatchObject({ streamId: wrongStream, requestDigest: rejected.requestDigest, result: rejected });
+  const custody = vi.spyOn(target.events.bundleStore, 'resolve');
+  const result = await settle(target, request);
+  expect(result.success).toBe(false);
+  expect(result.error?.code).toBe('CAPSULE_UNRESOLVED');
+  expect(custody).not.toHaveBeenCalled();
+  expect(await target.events.query(STREAM)).toEqual([]);
+  expect(await target.events.query(wrongStream)).toHaveLength(1);
+  expect(target.backend.lookupOperationClaim(rejected.operationId)).toEqual(claim);
+});

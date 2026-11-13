@@ -1784,7 +1784,7 @@ async function replaySettlement(request: ReplayRequest): Promise<ToolResult | un
     const decoded = SettlementReceiptData.safeParse(claim.result);
     if (!decoded.success) return refused('CAPSULE_UNRESOLVED', 'The persisted settlement receipt is invalid.');
     const receipt = claim.result;
-    if (receipt.streamId !== streamId || receipt.operationId !== operationId || (receipt.round ?? 0) !== round
+    if (claim.streamId !== streamId || receipt.streamId !== streamId || receipt.operationId !== operationId || (receipt.round ?? 0) !== round
       || receipt.capsule.capsuleVersion !== capsuleVersion || receipt.capsule.batchId !== batchId
       || receipt.capsule.workflowId !== workflowId || settlementClaimKey(streamId, receipt.capsule, round) !== operationId
       || receipt.requestDigest !== claim.requestDigest) {

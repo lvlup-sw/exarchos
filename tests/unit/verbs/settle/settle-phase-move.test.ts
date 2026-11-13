@@ -1181,9 +1181,8 @@ it('Settle_LateMissingCustody_PreservesSegmentAndNoMove', async () => {
   expect(await store.eventStore.query(STREAM, { type: 'gate.executed' })).toEqual(gates);
 });
 
+/** The measured fixture keeps its correctness assertions here. Elapsed-time evidence is recorded separately. */
 it('Settle_BoundedExistingFixtureBenchmark_SeparatesGateRuntime', async () => {
-  let totalMs = 0;
-  let gateMs = 0;
   let gateRuns = 0;
   for (let iteration = 0; iteration < 5; iteration += 1) {
     const store = await openStore();
@@ -1192,18 +1191,13 @@ it('Settle_BoundedExistingFixtureBenchmark_SeparatesGateRuntime', async () => {
     const execute = executeDeps();
     const gate: LeafHandler = async (...args) => {
       gateRuns += 1;
-      const start = performance.now();
-      try { return await liveHandler('check_mock_boundary')(...args); }
-      finally { gateMs += performance.now() - start; }
+      return liveHandler('check_mock_boundary')(...args);
     };
-    const start = performance.now();
     const result = await runWithDispatchContext(correlation(), () => handleSettle(
       { featureId: STREAM, capsuleVersion: 1, batchId: 'benchmark', claims: [completedClaim('task-a')] },
       store.stateDir, wiring(store), { execute: { ...execute, handlers: { ...execute.handlers, check_mock_boundary: gate } } },
     ));
-    totalMs += performance.now() - start;
     expect(receiptOf(result).phaseMove).toMatchObject({ kind: 'moved' });
   }
   expect(gateRuns).toBe(5);
-  console.log(JSON.stringify({ iterations: 5, totalMs, gateMs, gateRuns }));
 });

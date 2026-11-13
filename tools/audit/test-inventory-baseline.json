@@ -7,7 +7,7 @@
     "testFiles": 1468,
     "parsedFiles": 1423,
     "shellFiles": 45,
-    "cases": 16235,
+    "cases": 16236,
     "dynamicTitles": 264,
     "unparseableFiles": 0
   },
@@ -94483,6 +94483,11 @@
         {
           "suite": "settle receipt integrity",
           "name": "Settle_ReceiptDigestDisagreesWithClaim_RefusesReplay",
+          "dynamic": false
+        },
+        {
+          "suite": "",
+          "name": "Settle_ActualClaimStreamDiffers_RefusesReceiptWithoutRepair",
           "dynamic": false
         }
       ]
