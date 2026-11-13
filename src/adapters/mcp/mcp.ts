@@ -152,7 +152,7 @@ export function toMcpResult(env: Envelope<unknown> | ErrorEnvelope) {
  * both versions, and tests compare them.
  */
 const SERVER_NAME = 'exarchos-mcp';
-const SERVER_VERSION = '2.12.1';
+const SERVER_VERSION = '2.13.0';
 
 /**
  * Combines the per-action annotations into one tool-level `ToolAnnotations` record for

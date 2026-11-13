@@ -26,7 +26,7 @@ export const SERVER_NAME = 'exarchos-mcp';
 /**
  * The binary version. It must match the root `package.json` version, the version constant in `adapters/mcp/mcp.ts`, and `minBinaryVersion` in `.claude-plugin/plugin.json`.
  */
-export const SERVER_VERSION = '2.12.1';
+export const SERVER_VERSION = '2.13.0';
 
 /**
  * Returns true when the process runs as the long-running MCP server (`exarchos mcp`), not as a short CLI command.
