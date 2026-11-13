@@ -1,4 +1,5 @@
 import type { Domain } from '../../domains/schema.js';
+import { csharpLiteral } from './csharp-literal.js';
 
 export function typescriptDomainCheck(domain: Domain, value = 'value', depth = 0): string {
   const text = `(${value} as string)`;
@@ -28,13 +29,13 @@ export function csharpDomainCheck(domain: Domain, value = 'value', names = { nex
   const text = `${value}.GetString()!`;
   switch (domain.kind) {
     case 'boolean': return `(${value}.ValueKind == JsonValueKind.True || ${value}.ValueKind == JsonValueKind.False)`;
-    case 'integer': return `(${value}.ValueKind == JsonValueKind.String && ${text}.Length <= 128 && Regex.IsMatch(${text}, @"\\A(?:0|-?[1-9][0-9]*)\\z") && BigInteger.Parse(${text}, CultureInfo.InvariantCulture) >= BigInteger.Parse(${JSON.stringify(domain.min)}, CultureInfo.InvariantCulture) && BigInteger.Parse(${text}, CultureInfo.InvariantCulture) <= BigInteger.Parse(${JSON.stringify(domain.max)}, CultureInfo.InvariantCulture))`;
+    case 'integer': return `(${value}.ValueKind == JsonValueKind.String && ${text}.Length <= 128 && Regex.IsMatch(${text}, @"\\A(?:0|-?[1-9][0-9]*)\\z") && BigInteger.Parse(${text}, CultureInfo.InvariantCulture) >= BigInteger.Parse(${csharpLiteral(domain.min)}, CultureInfo.InvariantCulture) && BigInteger.Parse(${text}, CultureInfo.InvariantCulture) <= BigInteger.Parse(${csharpLiteral(domain.max)}, CultureInfo.InvariantCulture))`;
     case 'number': {
       const number = `number${names.next++}`;
       return `(${value}.ValueKind == JsonValueKind.Number && ${value}.TryGetDouble(out var ${number}) && double.IsFinite(${number}) && BitConverter.DoubleToInt64Bits(${number}) != long.MinValue && ${number} >= ${domain.min}d && ${number} <= ${domain.max}d)`;
     }
-    case 'string': return `(${value}.ValueKind == JsonValueKind.String && ${text}.EnumerateRunes().Count() >= ${domain.minLength} && ${text}.EnumerateRunes().Count() <= ${domain.maxLength} && ${text}.EnumerateRunes().All(character => ${JSON.stringify(domain.alphabet)}.EnumerateRunes().Contains(character)))`;
-    case 'enum': return `(${value}.ValueKind == JsonValueKind.String && new string[] { ${domain.values.map((item) => JSON.stringify(item)).join(', ')} }.Contains(${text}))`;
+    case 'string': return `(${value}.ValueKind == JsonValueKind.String && ${text}.EnumerateRunes().Count() >= ${domain.minLength} && ${text}.EnumerateRunes().Count() <= ${domain.maxLength} && ${text}.EnumerateRunes().All(character => ${csharpLiteral(domain.alphabet)}.EnumerateRunes().Contains(character)))`;
+    case 'enum': return `(${value}.ValueKind == JsonValueKind.String && new string[] { ${domain.values.map((item) => csharpLiteral(item)).join(', ')} }.Contains(${text}))`;
     case 'nullable': return `(${value}.ValueKind == JsonValueKind.Null || ${csharpDomainCheck(domain.value, value, names)})`;
     case 'array': {
       const item = `item${names.next++}`;
@@ -43,7 +44,7 @@ export function csharpDomainCheck(domain: Domain, value = 'value', names = { nex
     case 'record': {
       const fields = Object.entries(domain.fields).map(([key, field]) => {
         const name = `field${names.next++}`;
-        return `${value}.TryGetProperty(${JSON.stringify(key)}, out var ${name}) && ${csharpDomainCheck(field, name, names)}`;
+        return `${value}.TryGetProperty(${csharpLiteral(key)}, out var ${name}) && ${csharpDomainCheck(field, name, names)}`;
       });
       return `(${value}.ValueKind == JsonValueKind.Object && ${value}.EnumerateObject().Count() == ${fields.length}${fields.map((field) => ` && (${field})`).join('')})`;
     }

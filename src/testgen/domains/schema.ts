@@ -25,6 +25,10 @@ export const domainSchema: z.ZodType<Domain> = z.lazy(() => z.discriminatedUnion
 ]));
 export const jsonValueSchema: z.ZodType<JsonValue> = z.json();
 
+export function isScalarText(value: string): boolean {
+  return !/\p{Surrogate}/u.test(value);
+}
+
 export function domainProblem(domain: Domain, depth = 0): string | undefined {
   if (valueSize(domain) > 4096) return 'A domain value exceeds the 4096-node budget.';
   if (depth > 6) return 'Domain nesting exceeds six levels.';
@@ -35,10 +39,11 @@ export function domainProblem(domain: Domain, depth = 0): string | undefined {
       return domain.min > domain.max ? 'Number bounds are reversed.' : undefined;
     case 'string':
       if (domain.minLength > domain.maxLength) return 'String length bounds are reversed.';
-      if (/\p{Surrogate}/u.test(domain.alphabet)) return 'String alphabets require Unicode scalar values.';
+      if (!isScalarText(domain.alphabet)) return 'String alphabets require Unicode scalar values.';
       if (new Set(domain.alphabet).size !== [...domain.alphabet].length) return 'Alphabet characters must be unique.';
       return undefined;
     case 'enum':
+      if (domain.values.some((value) => !isScalarText(value))) return 'Enum values require Unicode scalar values.';
       return new Set(domain.values).size !== domain.values.length ? 'Enum values must be unique.' : undefined;
     case 'nullable':
       return domainProblem(domain.value, depth + 1);
@@ -46,6 +51,7 @@ export function domainProblem(domain: Domain, depth = 0): string | undefined {
       if (domain.minLength > domain.maxLength) return 'Array length bounds are reversed.';
       return domainProblem(domain.element, depth + 1);
     case 'record': {
+      if (Object.keys(domain.fields).some((key) => !isScalarText(key))) return 'Record keys require Unicode scalar values.';
       const fields = Object.values(domain.fields);
       if (fields.length > 32) return 'Records support at most 32 fields.';
       return fields.map((field) => domainProblem(field, depth + 1)).find(Boolean);

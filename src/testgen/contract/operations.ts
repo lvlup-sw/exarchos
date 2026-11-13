@@ -53,7 +53,7 @@ const emitForTarget: Emitter = (input, kind) => {
 export function dispatch(name: string, input: unknown, emit: Emitter = emitForTarget): GenerationResult {
   const operation = Object.entries(operations).find(([key]) => key === name)?.[1];
   if (!operation) return failure('INVALID_INPUT', 'Unknown operation.');
-  if (!inputWithinBudget(input)) return failure('INVALID_INPUT', 'Request exceeds structural budgets or contains cyclic objects.');
+  if (!inputWithinBudget(input)) return failure('INVALID_INPUT', 'Request exceeds structural budgets, contains a cycle or non-scalar Unicode, or uses the reserved __proto__ key.');
   const parsed = operation.input.safeParse(input);
   if (!parsed.success) {
     const selection = frameworkSelection.safeParse(input);

@@ -1,5 +1,5 @@
 import type { TypedInput, TypedMethod, TypedSuccess } from './typed.js';
-import { canonicalJson, domainProblem, inDomain, maximumEncodedSize } from '../domains/schema.js';
+import { canonicalJson, domainProblem, inDomain, maximumEncodedSize, isScalarText } from '../domains/schema.js';
 import { generateCases } from '../domains/generate.js';
 import { emitTypedVitest } from '../emitters/vitest/typed.js';
 import { emitTypedTUnit } from '../emitters/tunit/typed.js';
@@ -67,13 +67,17 @@ export function inputWithinBudget(input: unknown): boolean {
       continue;
     }
     if (++nodes > 100_000 || depth > 32) return false;
-    if (typeof value === 'string') textLength += value.length;
+    if (typeof value === 'string') {
+      if (!isScalarText(value)) return false;
+      textLength += value.length;
+    }
     if (textLength > 2_000_000) return false;
     if (value === null || typeof value !== 'object') continue;
     if (seen.has(value)) return false;
     seen.add(value);
     pending.push({ value, depth, leave: true });
     for (const [key, child] of Object.entries(value)) {
+      if (key === '__proto__' || !isScalarText(key)) return false;
       textLength += key.length;
       pending.push({ value: child, depth: depth + 1, leave: false });
     }

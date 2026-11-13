@@ -100,3 +100,25 @@ it('rejects oversized generated fixtures before materializing the case pool', ()
   };
   expect(dispatch('generate_property_tests', request)).toMatchObject({ ok: false, error: { code: 'INVALID_INPUT', message: expect.stringContaining('megabytes') } });
 });
+
+it('rejects lossy raw keys and non-scalar text before schema parsing', () => {
+  const request = {
+    contractVersion: 2, framework: 'vitest', frameworkVersion: '3.2.7',
+    target: { path: 'tests/text.test.ts', bindingModule: 'tests/binding.ts' },
+    propertyRef: 'text/exact', assumptions: [], cases: [], generation: { seed: 1, count: 1, maxAttempts: 1 },
+    domain: { kind: 'boolean' },
+  };
+  for (const domain of [
+    { kind: 'enum', values: ['\ud800'] },
+    { kind: 'record', fields: { ['\ud800']: { kind: 'boolean' } } },
+    JSON.parse('{"kind":"record","fields":{"__proto__":{"kind":"boolean"}}}'),
+  ]) {
+    expect(dispatch('generate_property_tests', { ...request, domain })).toMatchObject({ ok: false, error: { code: 'INVALID_INPUT' } });
+  }
+  expect(dispatch('generate_property_tests', { ...request, domain: { kind: 'record', fields: {} }, cases: [JSON.parse('{"__proto__":true}')] }))
+    .toMatchObject({ ok: false, error: { code: 'INVALID_INPUT' } });
+  expect(dispatch('generate_property_tests', { ...request, propertyRef: '\ud800' }))
+    .toMatchObject({ ok: false, error: { code: 'INVALID_INPUT' } });
+  expect(dispatch('generate_property_tests', { ...request, domain: { kind: 'enum', values: ['😀\u0085\u2028\u2029'] } }))
+    .toMatchObject({ ok: true, fixture: { cases: ['😀\u0085\u2028\u2029'] } });
+});

@@ -1,6 +1,7 @@
 import type { TypedInput, TypedMethod } from '../../contract/typed.js';
 import { canonicalJson } from '../../domains/schema.js';
 import { csharpDomainCheck } from '../shared/domain-check.js';
+import { csharpLiteral } from '../shared/csharp-literal.js';
 
 type Input = Extract<TypedInput, { framework: 'tunit' }>;
 const qualify = (name: string) => name.split('.').map((part) => `@${part}`).join('.');
@@ -28,7 +29,7 @@ export function emitTypedTUnit(input: Input, method: TypedMethod): string {
     [Test]
     public async Task ${name}()
     {
-        using var document = JsonDocument.Parse(${JSON.stringify(canonicalJson(value))});
+        using var document = JsonDocument.Parse(${csharpLiteral(canonicalJson(value))});
         var source = document.RootElement;
         if (!${checkName}(source) || !${binding}.IsValid(source)) throw new InvalidOperationException("TestGen invalid case: source is outside the declared domain.");
 ${methods[method]}
