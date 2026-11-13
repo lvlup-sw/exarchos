@@ -3,7 +3,7 @@
  * @oracle-sources: ../../../../src/workflow/design-record/validate.ts, literal corruptions and expected identities in this file
  */
 import { describe, expect, it } from 'vitest';
-import { baseValidDefinition } from '../../../../src/contract/capsule/exarchos-capsule-fixtures.js';
+import { builtInDefinition, kernelOf } from '../../../../src/workflow/definitions/built-in.js';
 import { WorkflowDefinitionV1Schema } from '@lvlup-sw/strategos-contracts';
 import { capsuleDigest, contentDigest } from '../../../../src/contract/capsule/capsule-digest.js';
 import { decodePreparedBundle, encodePreparedBundle } from '../../../../src/contract/capsule/prepared-bundle.js';
@@ -117,11 +117,18 @@ describe('prepared custody', () => {
   });
   it('Custody_KernelOnlyLegacyRemainsUnsupported_AndNewPinCannotDisappear', () => {
     const original = fixture(textOf(), false);
-    const definition = WorkflowDefinitionV1Schema.parse(baseValidDefinition());
+    const definition = WorkflowDefinitionV1Schema.parse(kernelOf(builtInDefinition('feature')));
+    expect(definition.name).toBe('exarchos.feature');
+    expect(Object.hasOwn(definition, 'exarchos')).toBe(false);
     const bundle = { ...original, definition, capsule: { ...original.capsule,
       identity: { ...original.capsule.identity, definitionVersion: contentDigest(definition) },
       provenance: { ...original.capsule.provenance, compilerVersion: 'exarchos-prepare-5' } } };
-    expect(verifyPreparedCustody(selected([prepared(bundle)]), bundle).pinnedDefinition).toBeUndefined();
+    const decoded = decodePreparedBundle(encodePreparedBundle(bundle));
+    expect(verifyPreparedCustody(selected([prepared(bundle)]), decoded)).toMatchObject({ kind: 'legacy' });
+    expect(verifyPreparedCustody(selected([prepared(bundle)]), decoded).pinnedDefinition).toBeUndefined();
+    const wrongType = prepared(bundle);
+    const wrongSelection = selected([{ ...wrongType, data: { ...wrongType.data, workflowType: 'debug' } }]);
+    expect(() => verifyPreparedCustody(wrongSelection, decoded)).toThrow(/workflow type/i);
     const fresh = { ...bundle, capsule: { ...bundle.capsule, provenance: { ...bundle.capsule.provenance, compilerVersion: 'exarchos-prepare-7' } } };
     expect(() => verifyPreparedCustody(selected([prepared(fresh)]), fresh)).toThrow(/definition/i);
     const { skipPhases: _skips, ...contract } = original.capsule.settlementContract;

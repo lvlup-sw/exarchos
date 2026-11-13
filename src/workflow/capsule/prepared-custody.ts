@@ -76,14 +76,14 @@ export function recheckPreparedAuthority(selection: PreparedAuthoritySelection, 
 
 /** Validate full definitions when present. Older kernel-only pins retain their unsupported transition route. */
 function definitionOf(bundle: PreparedBundleV1, record: WorkflowPrepared): ExarchosDefinition | undefined {
+  if (bundle.definition.name !== record.workflowType && bundle.definition.name !== `exarchos.${record.workflowType}`) {
+    throw new Error('Prepared workflow type does not match its definition');
+  }
   const required = record.planRecordDigest !== undefined || /^exarchos-prepare-(?:[7-9]|[1-9][0-9]+)$/.test(record.compilerVersion);
   const full = Object.hasOwn(bundle.definition, 'exarchos');
   if (!full && !required) return undefined;
   const checked = checkDefinitionDocument(bundle.definition, () => []);
   if (!checked.ok) throw new Error(`Invalid prepared definition: ${JSON.stringify(checked.findings)}`);
-  if (checked.definition.name !== record.workflowType && checked.definition.name !== `exarchos.${record.workflowType}`) {
-    throw new Error('Prepared workflow type does not match its definition');
-  }
   const skips = bundle.capsule.settlementContract.skipPhases;
   if (required && skips === undefined) throw new Error('Prepared capsule is missing its frozen skip policy');
   compileDecideDefinition(record.workflowType, checked.definition, skips);
