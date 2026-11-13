@@ -1,6 +1,5 @@
 import type { Scenario, StatefulInput } from '../contract/stateful.js';
-import type { Domain } from '../domains/schema.js';
-import { domainProblem, inDomain } from '../domains/schema.js';
+import { domainProblem, inDomain, maximumEncodedSize } from '../domains/schema.js';
 import { sample, seededRandom } from '../domains/generate.js';
 
 export function statefulRequestProblem(input: StatefulInput): string | undefined {
@@ -42,15 +41,3 @@ export function generateHistories(input: StatefulInput): Scenario[] {
   return scenarios;
 }
 
-function maximumEncodedSize(domain: Domain): number {
-  switch (domain.kind) {
-    case 'boolean': return 5;
-    case 'integer': return Math.max(domain.min.length, domain.max.length) + 2;
-    case 'number': return 25;
-    case 'string': return 2 + domain.maxLength * 12;
-    case 'enum': return Math.max(...domain.values.map((value) => JSON.stringify(value).length));
-    case 'nullable': return Math.max(4, maximumEncodedSize(domain.value));
-    case 'array': return 2 + domain.maxLength * (1 + maximumEncodedSize(domain.element));
-    case 'record': return 2 + Object.entries(domain.fields).reduce((sum, [key, value]) => sum + JSON.stringify(key).length + 2 + maximumEncodedSize(value), 0);
-  }
-}
