@@ -173,6 +173,13 @@ function withoutPhaseMove<T>(value: T): T {
   return JSON.parse(JSON.stringify(value), (key: string, entry: unknown) => (key === 'phaseMove' ? undefined : entry));
 }
 
+/** Copies an older receipt and corrects its tail after removal of the phase rows. */
+function earlierResult<T>(value: T, tailSequence: number): T {
+  const result = withoutPhaseMove(value);
+  if (typeof result !== 'object' || result === null || !('tailSequence' in result)) return result;
+  return { ...result, tailSequence };
+}
+
 /** Makes each settle commit write what a build before the phase move wrote: no phase row and no `phaseMove`. */
 function commitAsAnEarlierBuild(): void {
   const appender = eventStore.getAppender();
@@ -181,10 +188,12 @@ function commitAsAnEarlierBuild(): void {
     if (!operationId.startsWith('settle:')) return commit(operationId, requestDigest, closure);
     return commit(operationId, requestDigest, (tx) => {
       const decision = closure(tx);
+      const events = decision.events.filter((event) => !MOVE_ROW_TYPES.includes(event.type));
+      const tail = tx.readStream(decision.streamId).version + events.length;
       return {
         ...decision,
-        events: decision.events.filter((event) => !MOVE_ROW_TYPES.includes(event.type)),
-        result: withoutPhaseMove(decision.result),
+        events,
+        result: earlierResult(decision.result, tail),
       };
     });
   });
@@ -257,11 +266,28 @@ describe('a settle moves the phase of the stream', () => {
     const context = shippedContext();
     const capsuleVersion = await walkToAPreparedBatch(context);
     commitAsAnEarlierBuild();
-    await settle(context, capsuleVersion);
+    const first = await settle(context, capsuleVersion);
+    const before = await eventStore.query(STREAM);
+    expect(first.tailSequence).toBe(before.find((row) => row.type === 'execution.settled')?.sequence);
     vi.restoreAllMocks();
     const replayed = await settle(context, capsuleVersion);
     expect(replayed.outcome).toBe('settled');
     expect(replayed.phaseMove).toBeUndefined();
+    expect(replayed.tailSequence).toBe(first.tailSequence);
+    const after = await eventStore.query(STREAM);
+    expect(after.slice(0, before.length)).toEqual(before);
+    const appended = after.slice(before.length);
+    expect(appended).toHaveLength(1);
+    expect(appended[0]).toMatchObject({
+      streamId: STREAM, type: 'gate.executed', sequence: before.length + 1,
+      data: {
+        gateName: 'event-emissions', layer: 'observability', passed: false,
+        details: { phase: 'delegate', checked: 5, missing: 5, missingTypes: ['team.spawned', 'team.task.planned', 'team.teammate.dispatched', 'team.disbanded', 'task.progressed'] },
+      },
+    });
+    expect(appended[0]?.correlationId).toBe(appended[0]?.operationId);
+    expect(appended[0]?.idempotencyKey).toBe(`gate.executed:event-emissions:${appended[0]?.operationId}`);
+    expect(after.filter((row) => row.type !== 'gate.executed')).toEqual(before.filter((row) => row.type !== 'gate.executed'));
     const transitions = (await rowsOf('workflow.transition')).length;
 
     const moved = await succeed('exarchos_workflow', { action: 'transition', target: 'review' }, context);

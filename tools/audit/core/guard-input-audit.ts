@@ -36,6 +36,7 @@ import {
 import { SqliteBackend } from '../../../src/storage/sqlite-backend.js';
 import { resolveStateDir, STORE_DB_FILENAME, type StorePathResolutionInputs } from '../../../src/utils/paths.js';
 import { collectCleanupEvidence } from '../../../src/workflow/cleanup.js';
+import { frozenFloorOf, mergeFloors, phaseMoveEvents, statedCoordinate } from '../../../src/workflow/decide/emit.js';
 import { decide, type DecideOutcome } from '../../../src/workflow/decide/decide.js';
 import { compileDecideDefinition, type DecideDefinition, type DecideEdge } from '../../../src/workflow/decide/edges.js';
 import {
@@ -203,6 +204,7 @@ type DocumentOutcome =
       readonly workflowType: BuiltInWorkflowType;
       readonly standing: Standing;
       readonly sides: ComparedSides;
+      readonly rows: readonly WorkflowEvent[];
       readonly ledgerSequence: number;
     };
 
@@ -290,10 +292,26 @@ function compareSides(document: Record<string, unknown>, rows: readonly Workflow
   }
 }
 
-/** Returns the verdict of the legacy transition to `to` on the document side. A throw gives `throw`. */
-function legacyVerdictOf(machine: HSMDefinition, document: GuardInput, to: string): PreviewEdge['legacy'] {
+/** Combines the stated coordinate with the frozen obligations of the target. */
+function previewFloor(input: GuardInput, rows: readonly WorkflowEvent[], target: string) {
+  const coordinate = statedCoordinate(input);
+  return mergeFloors([coordinate === null ? null : { coordinates: [coordinate] }, frozenFloorOf(rows, target)]);
+}
+
+/** Runs the pure emitter after admission so its refusals also deny the preview. */
+function prospectiveVerdict(def: DecideDefinition, input: GuardInput, phase: string, outcome: DecideOutcome | undefined, rows: readonly WorkflowEvent[]): PreviewEdge['decide'] {
+  if (outcome?.kind !== 'admit') return decideVerdictOf(outcome);
   try {
-    return executeTransition(machine, { ...document }, to).success ? 'allow' : 'deny';
+    return phaseMoveEvents(def, { ...input, phase }, outcome.move, previewFloor(input, rows, outcome.move.to)).success ? 'allow' : 'deny';
+  } catch {
+    return 'throw';
+  }
+}
+
+/** Returns the verdict of the legacy transition to `to` on the document side. A throw gives `throw`. */
+function legacyVerdictOf(machine: HSMDefinition, document: GuardInput, to: string, rows: readonly WorkflowEvent[]): PreviewEdge['legacy'] {
+  try {
+    return executeTransition(machine, { ...document }, to, undefined, previewFloor(document, rows, to)).success ? 'allow' : 'deny';
   } catch {
     return 'throw';
   }
@@ -352,10 +370,11 @@ function previewEdgeOf(
   sides: ComparedSides,
   phase: string,
   edge: DecideEdge,
+  rows: readonly WorkflowEvent[],
 ): PreviewEdge {
-  const legacy = legacyVerdictOf(machine, sides.document, edge.to);
+  const legacy = legacyVerdictOf(machine, sides.document, edge.to, rows);
   const onFold = decideOutcomeOf(def, sides.fold, phase, edge.to);
-  const decided = decideVerdictOf(onFold);
+  const decided = prospectiveVerdict(def, sides.fold, phase, onFold, rows);
   const change = changeOf(legacy, decided);
   const keys =
     change === 'newly-denied'
@@ -375,6 +394,7 @@ function previewOf(
   workflowType: BuiltInWorkflowType,
   sides: ComparedSides,
   definitions: Map<string, DecideDefinition>,
+  rows: readonly WorkflowEvent[],
 ): PreviewDocument {
   const def = definitions.get(workflowType) ?? compileDecideDefinition(workflowType, builtInDefinition(workflowType));
   definitions.set(workflowType, def);
@@ -382,7 +402,7 @@ function previewOf(
   const { phase } = sides.comparison;
   const edges = def.edges
     .filter((edge) => edge.from === phase.document)
-    .map((edge) => previewEdgeOf(def, machine, sides, phase.document, edge));
+    .map((edge) => previewEdgeOf(def, machine, sides, phase.document, edge, rows));
   return { featureId, workflowType, phase, effect: effectOf(edges), edges };
 }
 
@@ -405,7 +425,7 @@ function auditDocument(reader: GuardAuditReader, featureId: string, state: unkno
   if (!hasStartRow(read.rows)) return { kind: 'noStartRow', standing };
   const sides = compareSides(document, read.rows);
   if (sides === undefined) return { kind: 'foldError', standing };
-  return { kind: 'compared', workflowType, standing, sides, ledgerSequence: highestSequence(read.rows) };
+  return { kind: 'compared', workflowType, standing, sides, rows: read.rows, ledgerSequence: highestSequence(read.rows) };
 }
 
 /** Calls a listing of the reader. A throw refuses the audit as unreadable. */
@@ -457,7 +477,7 @@ export async function auditGuardInputs(reader: GuardAuditReader, options: GuardA
       const { comparison } = sides;
       compared[standing] += 1;
       if (options.preview === true && standing === 'active') {
-        preview.push(previewOf(featureId, outcome.workflowType, sides, definitions));
+        preview.push(previewOf(featureId, outcome.workflowType, sides, definitions, outcome.rows));
       }
       if (comparison.agrees) {
         agreeing[standing] += 1;

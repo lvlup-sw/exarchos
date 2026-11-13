@@ -405,18 +405,18 @@
               "perTask": 0
             },
             "exarchos": {
-              "atUnit": 3,
-              "fixed": 3,
-              "formula": "3",
+              "atUnit": 6,
+              "fixed": 5,
+              "formula": "5 + 1*tasks",
               "perPr": 0,
-              "perTask": 0
+              "perTask": 1
             },
             "exarchosWithDiscovery": {
-              "atUnit": 5,
-              "fixed": 5,
-              "formula": "5",
+              "atUnit": 8,
+              "fixed": 7,
+              "formula": "7 + 1*tasks",
               "perPr": 0,
-              "perTask": 0
+              "perTask": 1
             },
             "native": {
               "atUnit": 2,
@@ -446,7 +446,7 @@
           "id": "phase-not-moved",
           "label": "the settle receipt holds no moved phaseMove, or a level warning, so the coordinator calls transition",
           "reentersNormalPath": false,
-          "through": "exarchos_orchestrate.settle",
+          "through": null,
           "trigger": {
             "line": 392,
             "source": "content/delivery/skills/delegate/SKILL.md"
@@ -2317,7 +2317,7 @@
       "subject": "exarchos_orchestrate.check_integration_suite"
     },
     {
-      "decision": "The fallback path: prepare, the settle whose receipt holds no moved phaseMove, and the transition. A receipt of an earlier build holds no phaseMove. A stayed receipt names the false facts of each edge, and the coordinator fixes them before the call. A moved receipt with a PHASE_LEVEL_FAILED warning takes the same idempotent call, which levels the document. Landing and the backstop also run, as on the normal path. Counted to the transition.",
+      "decision": "The fallback path: prepare, the settle whose receipt holds no moved phaseMove, and the transition. A receipt of an earlier build holds no phaseMove. A stayed receipt names the false facts of each edge, and the coordinator fixes them before the call. A moved receipt with a PHASE_LEVEL_FAILED warning takes the same idempotent call, which levels the document. The count includes landing and both backstops before transition.",
       "flag": null,
       "intent": "delegation",
       "kind": "exception",
@@ -4852,8 +4852,8 @@
       "endsAt": "transition delegate -> review",
       "exceptions": [
         {
-          "atUnit": 3,
-          "exarchos": "3",
+          "atUnit": 6,
+          "exarchos": "5 + 1*tasks",
           "id": "phase-not-moved"
         },
         {

@@ -35,7 +35,7 @@ interface RaceStore {
 const FEATURE_ID = 'transition-race';
 
 /** The row types of the trail of a move. */
-const TRAIL_TYPES: readonly string[] = ['workflow.transition', 'phase.exited', 'phase.entered'];
+const TRAIL_TYPES: readonly string[] = ['workflow.transition', 'workflow.compound-entry', 'phase.exited', 'phase.entered'];
 
 /** Each release of the current case, in the order of creation. The teardown runs them in reverse order. */
 const releases: (() => Promise<void> | void)[] = [];
@@ -141,6 +141,7 @@ describe('the commit of a transition move', () => {
     await featureAtPlanReview(store);
     const appender = store.eventStore.getAppender();
     const originalQuery = store.eventStore.query.bind(store.eventStore);
+    const before = (await originalQuery(FEATURE_ID)).length;
     let foreignCommitted = false;
     replaceMethod(store.eventStore, 'query', async (streamId: string, filters?: Parameters<EventStore['query']>[1]) => {
       const rows = await originalQuery(streamId, filters);
@@ -149,10 +150,12 @@ describe('the commit of a transition move', () => {
         await appender.decideOnce<number>('a-foreign-operation', 'a-foreign-digest', () => ({
           streamId: FEATURE_ID,
           events: [
-            { type: 'workflow.transition', data: { from: 'plan-review', to: 'delegate', trigger: 'foreign', featureId: FEATURE_ID } },
+            { type: 'workflow.transition', data: { from: 'plan-review', to: 'delegate', trigger: 'foreign', featureId: FEATURE_ID, phaseAttemptId: 'foreign-attempt' } },
+            { type: 'workflow.compound-entry', data: { compoundStateId: 'implementation', featureId: FEATURE_ID } },
             { type: 'phase.exited', data: { phase: 'plan-review', allRequiredGatesPassed: true } },
+            { type: 'phase.entered', data: { phase: 'delegate', kind: 'IMPLEMENT', resolver: 'verification-ladder', resolvedGates: [], riskTier: 'unknown', boundaryTouching: true, posture: 'task-isolated', policySource: 'builtin', mode: 'enforce' } },
           ],
-          result: 2,
+          result: 4,
         }));
       }
       return rows;
@@ -163,7 +166,14 @@ describe('the commit of a transition move', () => {
     expect(foreignCommitted).toBe(true);
     expect(result.success).toBe(true);
     expect(result.data).toMatchObject({ phase: 'delegate', idempotent: true });
-    expect(transitionsTo(await originalQuery(FEATURE_ID), 'delegate')).toHaveLength(1);
+    const trail = trailOf((await originalQuery(FEATURE_ID)).slice(before));
+    expect(trail.map((row) => ({ type: row.type, data: row.data }))).toEqual([
+      { type: 'workflow.transition', data: { from: 'plan-review', to: 'delegate', trigger: 'foreign', featureId: FEATURE_ID, phaseAttemptId: 'foreign-attempt' } },
+      { type: 'workflow.compound-entry', data: { compoundStateId: 'implementation', featureId: FEATURE_ID } },
+      { type: 'phase.exited', data: { phase: 'plan-review', allRequiredGatesPassed: true } },
+      { type: 'phase.entered', data: { phase: 'delegate', kind: 'IMPLEMENT', resolver: 'verification-ladder', resolvedGates: [], riskTier: 'unknown', boundaryTouching: true, posture: 'task-isolated', policySource: 'builtin', mode: 'enforce' } },
+    ]);
+    expect(dataField(result, 'phaseAttemptId')).toBe('foreign-attempt');
   });
 
   /**

@@ -20,7 +20,7 @@ export const SETTLE_ECONOMY_BUDGET_TOKENS = 1000;
  */
 export const SETTLE_DETAIL_READ =
   'The settlement bundle that bundleRefs names holds each finding and outcome. exarchos_event query ' +
-  'with filter.type execution.settled returns the record of the batch.';
+  'with filter.type execution.settled returns the record of the batch. These reads do not recover omitted phase-move targets.';
 
 /** The most verification outcomes that a summary lists. */
 const SUMMARY_VERIFICATION_OUTCOMES = 4;
@@ -73,7 +73,10 @@ interface SettlementSummaryCore {
     readonly deviationIds: unknown;
   };
   /** What the commit did to the phase, without the list of edge verdicts. The caller decides the next call from it. */
-  readonly phaseMove?: Readonly<Record<string, unknown>>;
+  readonly phaseMove?: Readonly<Record<string, unknown>> & {
+    readonly admittedTargets?: readonly string[];
+    readonly admittedTargetsOmitted?: number;
+  };
 }
 
 /**
@@ -166,6 +169,19 @@ function phaseMoveWithoutEdges(phaseMove: unknown): Readonly<Record<string, unkn
   return Object.fromEntries(Object.entries(phaseMove).filter(([key]) => key !== 'edges'));
 }
 
+/** Complete admitted target names, once each in edge order. These names exist only in capped output. */
+function admittedTargetsOf(phaseMove: unknown): readonly string[] {
+  if (typeof phaseMove !== 'object' || phaseMove === null || !('kind' in phaseMove) || phaseMove.kind !== 'stayed') return [];
+  if (!('edges' in phaseMove) || !Array.isArray(phaseMove.edges)) return [];
+  const targets = new Set<string>();
+  const edges: readonly unknown[] = phaseMove.edges;
+  for (const edge of edges) {
+    if (typeof edge !== 'object' || edge === null) continue;
+    if ('verdict' in edge && edge.verdict === 'allow' && 'to' in edge && typeof edge.to === 'string') targets.add(edge.to);
+  }
+  return [...targets];
+}
+
 /** The list, or undefined for a value that is not an array. */
 function listOrUndefined<T>(value: ReadonlyArray<T> | undefined): ReadonlyArray<T> | undefined {
   return Array.isArray(value) ? value : undefined;
@@ -234,7 +250,9 @@ function largestFittingCount(limit: number, fits: (count: number) => boolean): n
  * For a receipt that names its unresolved tasks, it also holds their count and their entries.
  * A summary over the budget first loses its findings page, and then its verification outcomes.
  * It then loses unresolved entries from the end, and it says how many it omits.
- * No trim removes the core or the count. The full findings and outcomes stay in the referenced bundle.
+ *
+ * Complete admitted targets survive until diagnostics are empty. The largest fitting prefix states its omitted count.
+ * If the target fields cannot fit, a bounded summary marker replaces them. No trim removes the core or the count.
  *
  * `adjudicated` stays whole, because the census tells zero findings apart from the first page of many.
  * The fields after `firstPage` pass through `CappedDataSchema`, which is `.passthrough()`.
@@ -250,6 +268,7 @@ export function summarizeSettlementReceipt(data: unknown): SettlementReceiptSumm
     cause: task.cause,
   }));
   const core = summaryCoreOf(receipt);
+  const targets = admittedTargetsOf(receipt.phaseMove);
 
   const firstPage: ReadonlyArray<SummaryFinding> = findings
     .slice(0, SUMMARY_FIRST_PAGE_ITEMS)
@@ -275,6 +294,7 @@ export function summarizeSettlementReceipt(data: unknown): SettlementReceiptSumm
     page: ReadonlyArray<SummaryFinding>,
     shown: ReadonlyArray<SummaryVerificationOutcome>,
     listed: number,
+    targetCount = targets.length,
   ): SettlementReceiptSummary => ({
     summary:
       `batch '${String(receipt.capsule?.batchId)}' of capsule v${String(receipt.capsule?.capsuleVersion)} ` +
@@ -306,6 +326,13 @@ export function summarizeSettlementReceipt(data: unknown): SettlementReceiptSumm
     ...(named !== undefined ? { unresolved: unresolved.slice(0, listed) } : {}),
     bundleRefs: receipt.bundleRefs,
     ...core,
+    ...(targets.length > 0 ? {
+      phaseMove: {
+        ...core.phaseMove,
+        admittedTargets: targets.slice(0, targetCount),
+        admittedTargetsOmitted: targets.length - targetCount,
+      },
+    } : {}),
   });
   const fits = (candidate: SettlementReceiptSummary): boolean =>
     estimateOutputTokens(candidate) <= SETTLE_ECONOMY_BUDGET_TOKENS;
@@ -316,8 +343,18 @@ export function summarizeSettlementReceipt(data: unknown): SettlementReceiptSumm
   const withoutFindingsPage = assemble([], outcomes, every);
   if (fits(withoutFindingsPage)) return withoutFindingsPage;
   const withoutOutcomes = assemble([], [], every);
-  if (every === 0 || fits(withoutOutcomes)) return withoutOutcomes;
-  return assemble([], [], largestFittingCount(every, (listed) => fits(assemble([], [], listed))));
+  if (fits(withoutOutcomes)) return withoutOutcomes;
+  const listed = largestFittingCount(every, (count) => fits(assemble([], [], count)));
+  const trimmed = assemble([], [], listed);
+  if (fits(trimmed) || targets.length === 0) return trimmed;
+  const emptyTargets = assemble([], [], 0, 0);
+  if (fits(emptyTargets)) {
+    const count = largestFittingCount(targets.length, (count) => fits(assemble([], [], 0, count)));
+    return assemble([], [], 0, count);
+  }
+  if (core.phaseMove === undefined) return trimmed;
+  const fallback = { ...emptyTargets, phaseMove: core.phaseMove, summary: 'Admitted target detail omitted.' };
+  return fallback;
 }
 
 /**

@@ -400,6 +400,13 @@ function withoutPhaseMove<T>(value: T): T {
   return JSON.parse(JSON.stringify(value), (key: string, entry: unknown) => (key === 'phaseMove' ? undefined : entry));
 }
 
+/** Copies an older receipt and corrects its tail after removal of the phase rows. */
+function earlierResult<T>(value: T, tailSequence: number): T {
+  const result = withoutPhaseMove(value);
+  if (typeof result !== 'object' || result === null || !('tailSequence' in result)) return result;
+  return { ...result, tailSequence };
+}
+
 /**
  * Makes each settle commit write what a build before the phase move wrote: no phase row and no `phaseMove`.
  * The tail of the stored receipt drops the phase rows too, so the record stays at the tail.
@@ -411,10 +418,12 @@ function commitAsAnEarlierBuild(store: MoveStore): void {
     if (!operationId.startsWith('settle:')) return commit(operationId, requestDigest, closure);
     return commit(operationId, requestDigest, (tx) => {
       const decision = closure(tx);
+      const events = decision.events.filter((event) => !MOVE_ROW_TYPES.includes(event.type));
+      const tail = tx.readStream(decision.streamId).version + events.length;
       return {
         ...decision,
-        events: decision.events.filter((event) => !MOVE_ROW_TYPES.includes(event.type)),
-        result: withoutPhaseMove(decision.result),
+        events,
+        result: earlierResult(decision.result, tail),
       };
     });
   });
@@ -867,12 +876,16 @@ describe('settle replays the phase move of its claim', () => {
     const capsuleVersion = await featureBatchAtDelegate(store, { document: true });
     const args = { capsuleVersion, batchId: 'batch-1', claims: [completedClaim('task-a')] };
     commitAsAnEarlierBuild(store);
-    receiptOf(await settle(store, args));
+    const first = receiptOf(await settle(store, args));
+    const before = await store.eventStore.query(STREAM);
+    expect(first.tailSequence).toBe(before.find((row) => row.type === 'execution.settled')?.sequence);
     vi.restoreAllMocks();
 
     const replayed = receiptOf(await settle(store, args));
 
     expect(replayed.outcome).toBe('settled');
+    expect(replayed.tailSequence).toBe(first.tailSequence);
+    expect(await store.eventStore.query(STREAM)).toHaveLength(before.length);
     expect(replayed).not.toHaveProperty('phaseMove');
     expect(await phaseRowTypes(store)).toEqual(['workflow.transition']);
     expect(documentOf(store).phase).toBe('plan');

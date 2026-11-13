@@ -126,7 +126,7 @@ const ReceiptPhaseMoveSchema = z
       })
       .passthrough(),
   ])
-  .describe('`moved`: the phase moved. Absent, `stayed` or `not-decided`: call `transition` when the work is done');
+  .describe('The outcome next-call instruction takes priority. `moved`: the phase moved. Absent, `stayed` or `not-decided`: call `transition` after required work, with no earlier outcome call');
 
 /** The call after one outcome, from the rule of the outcome, as the start of a sentence. */
 function nextCallSentence(outcome: SettlementOutcome): string {

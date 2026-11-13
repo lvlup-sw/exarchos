@@ -6,6 +6,10 @@ All notable changes to Exarchos are documented in this file. Organized by semver
 
 ### Operator notes
 
+- The guard-input preview now runs the pure move emitter after admission and applies frozen gate floors to both sides. Circuit-limit refusals stay denied.
+- A capped settlement reply preserves complete admitted targets in edge order, with an omitted count. If target-field overhead cannot fit, the summary states that detail is omitted. The bundle and settlement event do not recover omitted phase targets. Stored receipts and schemas do not change.
+- The settlement outcome determines the next call before phase fallback advice. Delegation fallback includes landing and both backstops: six calls at one task, or `5 + 1*tasks`. The normal count stays `4 + 1*tasks`.
+
 - **`prepare` pins a verification profile in the capsule, and each gate of a segment runs only what the profile pins.** This is a change of behavior, and the upgrade is one way. The compiler is now `exarchos-prepare-5`.
   - `prepare` resolves the verification profile at the checkout and pins it once for each capsule, as `settlementContract.verificationProfile`. The profile holds each command as an argv, the test globs, the test-support segments, the probe, the static-analysis checks, the integration suite, the contract commands, the boundary checks and the `ownership.firstParty` globs. `prepare` refuses no unresolved term: the capsule pins its reason.
   - Under `settle`, each gate of a segment reads only the pinned profile, so a change in the task worktree does not change the commands, the globs or the codes that judge the task. A pinned command still reads some files of the task worktree, as the limit at the end of this note says. A direct gate call outside a segment resolves the profile at its `repoRoot`. Each gate names the path of its profile: `pinned by capsule v<N>` or `resolved at <root>`.

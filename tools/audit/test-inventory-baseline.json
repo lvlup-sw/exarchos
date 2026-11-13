@@ -4,10 +4,10 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1457,
-    "parsedFiles": 1412,
+    "testFiles": 1460,
+    "parsedFiles": 1415,
     "shellFiles": 45,
-    "cases": 16014,
+    "cases": 16024,
     "dynamicTitles": 224,
     "unparseableFiles": 0
   },
@@ -93312,6 +93312,74 @@
         {
           "suite": "Final lifecycle transaction",
           "name": "Finalization_ABrokenSnapshot_RejectsWithoutClaim",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/core/scripts/guard-input-preview-outcomes.test.ts": {
+      "file": "tests/core/scripts/guard-input-preview-outcomes.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "prospective guard audit outcomes",
+          "name": "GuardInputAudit_Preview_AnExhaustedFixCycle_IsDeniedOnBothSides (%i)",
+          "dynamic": false
+        },
+        {
+          "suite": "prospective guard audit outcomes",
+          "name": "GuardInputAudit_Preview_ABelowLimitFixCycle_IsAllowedOnBothSides",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/scripts/call-shape-fallback.test.ts": {
+      "file": "tests/scripts/call-shape-fallback.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "the complete delegation fallback",
+          "name": "CallShape_ThePhaseFallback_IncludesLandingAndBothBackstops",
+          "dynamic": false
+        },
+        {
+          "suite": "the complete delegation fallback",
+          "name": "CallShape_TheNormalPath_KeepsItsCount",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/verbs/settle/phase-move-summary.test.ts": {
+      "file": "tests/unit/verbs/settle/phase-move-summary.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "admitted targets in capped settlement output",
+          "name": "SettleSummary_TwoAdmittedTargets_SurviveTheCapAndReplay",
+          "dynamic": false
+        },
+        {
+          "suite": "admitted targets in capped settlement output",
+          "name": "SettleSummary_LongTargets_AreWholeAndTheirOmissionIsCounted (%i)",
+          "dynamic": false
+        },
+        {
+          "suite": "admitted targets in capped settlement output",
+          "name": "SettleSummary_DeniedEdges_DoNotBecomeTargets",
+          "dynamic": false
+        },
+        {
+          "suite": "admitted targets in capped settlement output",
+          "name": "SettleSummary_AnOlderReceipt_GainsNoPhaseMove",
+          "dynamic": false
+        },
+        {
+          "suite": "admitted targets in capped settlement output",
+          "name": "SettleSummary_TargetFieldOverhead_UsesABoundedOmissionMarker",
+          "dynamic": false
+        },
+        {
+          "suite": "admitted targets in capped settlement output",
+          "name": "SettleSummary_AnOversizedImmutableCore_KeepsItsIndependentLimit",
           "dynamic": false
         }
       ]

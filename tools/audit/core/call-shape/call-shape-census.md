@@ -9,7 +9,7 @@ Counts read `fixed + k*tasks + m*prs`. The N=1 columns set every loop variable t
 | Intent | Ends at | Exarchos, normal | N=1 | Exception paths, Exarchos (N=1) | Describe | Runbook fetch | Conditional discovery | Harness |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | plan | transition plan -> plan-review | 8 | 8 | coverage-gaps-revise: 11 (11) | 0 | 0 | 3 | 0 |
-| delegation | transition delegate -> review | 4 + 1*tasks | 5 | phase-not-moved: 3 (3)<br>corrective-capsule: 3 (3)<br>settlement-rejected: 3 (3)<br>recompile-required: 4 (4)<br>deviation-pending: 3 (3)<br>design-revised: 3 (3)<br>material-revision: 5 (5)<br>context-compaction: 7 + 1*tasks (8)<br>integration-advanced: 5 + 1*tasks (6)<br>integration-advanced-rollback: 5 + 1*tasks (6) | 0 | 2 | 4 | 2*tasks |
+| delegation | transition delegate -> review | 4 + 1*tasks | 5 | phase-not-moved: 5 + 1*tasks (6)<br>corrective-capsule: 3 (3)<br>settlement-rejected: 3 (3)<br>recompile-required: 4 (4)<br>deviation-pending: 3 (3)<br>design-revised: 3 (3)<br>material-revision: 5 (5)<br>context-compaction: 7 + 1*tasks (8)<br>integration-advanced: 5 + 1*tasks (6)<br>integration-advanced-rollback: 5 + 1*tasks (6) | 0 | 2 | 4 | 2*tasks |
 | task-completion | task_complete records the task complete | 6 | 6 | gate-failure-fix: 8 (8) | 0 | 1 | 1 | 0 |
 | review | transition review -> synthesize | 10 | 10 | needs-fixes: 9 (9) | 0 | 3 | 2 | 1 |
 | synthesis | human checkpoint: merge the stack | 4 + 3*prs | 7 | pr-body-invalid: 5 + 3*prs (8)<br>readiness-fails: 1 (1) | 0 | 1 | 4 | 1*prs |
@@ -48,8 +48,8 @@ Ends at: transition delegate -> review (`content/delivery/skills/delegate/SKILL.
 
 Exception `phase-not-moved`: the settle receipt holds no moved phaseMove, or a level warning, so the coordinator calls transition (`content/delivery/skills/delegate/SKILL.md:392`)
 
-- Runs the normal path through `exarchos_orchestrate.settle`, adds `exarchos_workflow.transition`.
-- Exarchos 3; describe 0; runbook fetch 2; harness 2*tasks.
+- Runs the whole normal path, adds `exarchos_workflow.transition`.
+- Exarchos 5 + 1*tasks; describe 0; runbook fetch 2; harness 2*tasks.
 
 Exception `corrective-capsule`: a task is unresolved after settlement, so a fixer is dispatched and the task is settled in a new batch on the same capsule (`content/delivery/skills/delegate/SKILL.md:400`)
 

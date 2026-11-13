@@ -212,7 +212,7 @@ const DELEGATION: IntentModel = {
       id: 'phase-not-moved',
       label: 'the settle receipt holds no moved phaseMove, or a level warning, so the coordinator calls transition',
       trigger: { source: 'delegate', needle: 'Call `transition` when `phaseMove` is absent, `stayed` or `not-decided`.' },
-      through: `${O}.settle`,
+      through: null,
       extra: [
         {
           kind: 'site',
@@ -221,7 +221,7 @@ const DELEGATION: IntentModel = {
         },
       ],
       reentersNormalPath: false,
-      why: 'The fallback path: prepare, the settle whose receipt holds no moved phaseMove, and the transition. A receipt of an earlier build holds no phaseMove. A stayed receipt names the false facts of each edge, and the coordinator fixes them before the call. A moved receipt with a PHASE_LEVEL_FAILED warning takes the same idempotent call, which levels the document. Landing and the backstop also run, as on the normal path. Counted to the transition.',
+      why: 'The fallback path: prepare, the settle whose receipt holds no moved phaseMove, and the transition. A receipt of an earlier build holds no phaseMove. A stayed receipt names the false facts of each edge, and the coordinator fixes them before the call. A moved receipt with a PHASE_LEVEL_FAILED warning takes the same idempotent call, which levels the document. The count includes landing and both backstops before transition.',
     },
     {
       id: 'corrective-capsule',
