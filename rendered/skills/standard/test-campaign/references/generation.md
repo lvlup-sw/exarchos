@@ -41,7 +41,7 @@ Use `--json` for the patch, fixture, generation accounting, obligations, and sug
 | `array` | Bounded length and one element domain |
 | `record` | Exactly the declared fields, each with its own domain |
 
-Domains have bounded depth and materialized size. Consult operation schemas for numeric limits. These are JSON domains: objects with methods, cyclic graphs, dates, and arbitrary binary values need an explicit reviewed encoding.
+All request text must contain Unicode scalar values. The reserved own key `__proto__` is rejected before parsing, so it cannot silently disappear from a domain or fixture. Domains have bounded depth and materialized size. Consult operation schemas for numeric limits. These are JSON domains: objects with methods, cyclic graphs, dates, and arbitrary binary values need an explicit reviewed encoding.
 
 Stateless requests contain `domain` and `cases`. Optional `generation: {seed, count, maxAttempts}` adds deterministic boundary and random candidates. Inspect requested/actual counts, duplicates, and exhaustion; a passing undersized sample does not satisfy a larger exploration budget. Rejected native preconditions are explicit failures, not successful tests. Optional `reduction: {maxAttempts}` bounds native reduction; zero disables it. The native test runner owns timeouts and process/resource budgets.
 

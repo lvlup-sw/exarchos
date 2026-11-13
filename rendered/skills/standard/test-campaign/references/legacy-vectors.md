@@ -2,7 +2,7 @@
 
 Both generation operations support TUnit 1.2.11 for C# and Vitest 3.2.7 for TypeScript. Set `framework` and `frameworkVersion` to the target's supported values. Inspect the installed package with `testgen describe --json` for its actual release capabilities. Use this contract for existing vector bindings; new application domains should use version 2.
 
-Keep reviewed bindings, requests, and emitted tests in the target repository. The native runner discovers and executes each `Case_N`. Inputs are finite signed 64-bit vectors, with at most 256 expanded cases. The generator does not infer a domain or oracle.
+Request text must contain Unicode scalar values. Reserved own `__proto__` keys are rejected before parsing. Keep reviewed bindings, requests, and emitted tests in the target repository. The native runner discovers and executes each `Case_N`. Inputs are finite signed 64-bit vectors, with at most 256 expanded cases. The generator does not infer a domain or oracle.
 
 ```sh
 testgen describe generate_property_tests --json
