@@ -58,6 +58,7 @@ export interface RequirementDefinition {
   readonly id: string;
   readonly title: string;
   readonly span: SourceSpan;
+  readonly bodySpan: SourceSpan;
 }
 
 type Immutable<T> = T extends readonly (infer V)[] ? readonly Immutable<V>[]

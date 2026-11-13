@@ -3,6 +3,7 @@
  * tasks cover each design section, and records the gate result.
  */
 
+import { extractGwtKeyword } from '../../workflow/design-record/gwt.js';
 import { readFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import type { ToolResult } from '../../format.js';
@@ -331,15 +332,6 @@ export function detectGwtSections(markdown: string): string[] {
   let inDesignSection = false;
   let currentSectionName: string | null = null;
   let hasGwt = false;
-
-  const gwtPattern = /(?:\*\*(Given|When|Then)\*\*|^[-*]\s+(Given|When|Then)\b|^\s+[-*]\s+(Given|When|Then)\b|(Given|When|Then)\s*:)/i;
-
-  function extractGwtKeyword(line: string): string | null {
-    const m = gwtPattern.exec(line);
-    if (!m) return null;
-    const kw = (m[1] ?? m[2] ?? m[3] ?? m[4] ?? '').toLowerCase();
-    return kw;
-  }
 
   let seenKeywords = new Set<string>();
 

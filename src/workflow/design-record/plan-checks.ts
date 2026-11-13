@@ -1,0 +1,51 @@
+/**
+ * Source checks share the typed snapshot and its exact implements relation.
+ * RESERVED(issue: #1927, owner: exarchos, expires: 2027-02-28)
+ * Gate adapters will consume these pure checks when their typed input paths land.
+ */
+import type { DesignRecordSnapshot } from './schema.js';
+import { validateDesignRecord } from './validate.js';
+import { hasGwtCriteria } from './gwt.js';
+import { assessDecompositionPlausibility, countBehaviors } from './decomposition-plausibility.js';
+
+/** Render only authored edges. Neither titles nor other prose can add an edge. */
+function implementsEdges(snapshot: DesignRecordSnapshot) {
+  return snapshot.tasks.flatMap((task) => task.implements.map((requirementId) => ({ taskId: task.id, requirementId })))
+    .sort((a, b) => a.requirementId < b.requirementId ? -1 : a.requirementId > b.requirementId ? 1
+      : a.taskId < b.taskId ? -1 : a.taskId > b.taskId ? 1 : 0);
+}
+
+/** Requirement coverage is exact. Missing acceptance-layer coverage is advisory. */
+export function evaluatePlanCoverage(snapshot: DesignRecordSnapshot) {
+  const validation = validateDesignRecord(snapshot);
+  const edges = implementsEdges(snapshot);
+  const text = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(Uint8Array.from(snapshot.rawBytes));
+  const advisories = snapshot.definitions.filter((definition) =>
+    hasGwtCriteria(text.slice(definition.bodySpan.start, definition.bodySpan.end))
+    && !snapshot.tasks.some((task) => task.testLayer === 'acceptance' && task.implements.includes(definition.id)))
+    .map((definition) => `${definition.id} has Given/When/Then acceptance criteria but no plan task with **Test Layer:** acceptance implements it`);
+  return { ...validation, edges, advisories };
+}
+
+/** Traceability shows the same exact relation that coverage validates. */
+export function evaluatePlanTraceability(snapshot: DesignRecordSnapshot) {
+  const validation = validateDesignRecord(snapshot);
+  const edges = implementsEdges(snapshot);
+  const report = ['| Requirement | Task |', '|---|---|', ...edges.map((edge) => `| ${edge.requirementId} | ${edge.taskId} |`)].join('\n');
+  return { ...validation, edges, report };
+}
+
+/** The verdict and evidence identity come from the same immutable read. */
+export function evaluatePlanProvenance(snapshot: DesignRecordSnapshot) {
+  return { ...validateDesignRecord(snapshot), edges: implementsEdges(snapshot), reference: snapshot.reference, digest: snapshot.digest };
+}
+
+/** Typed structure and graph checks block. Semantic plausibility challenges remain advisory. */
+export function evaluatePlanDecomposition(snapshot: DesignRecordSnapshot) {
+  const validation = validateDesignRecord(snapshot);
+  const plausibility = assessDecompositionPlausibility(snapshot.tasks.map((task) => ({
+    id: task.id, files: task.files, riskTier: task.riskTier, boundaryTouching: task.boundaryTouching,
+    behaviorCount: countBehaviors([task.title, task.instructions, ...task.acceptance].join('\n')),
+  })));
+  return { ...validation, plausibility };
+}

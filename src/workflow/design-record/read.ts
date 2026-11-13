@@ -62,6 +62,7 @@ function spanFactory(text: string): (start: number, end: number) => SourceSpan {
 function scanMarkdown(text: string, span: ReturnType<typeof spanFactory>) {
   const blocks: { info: string; start: number; end: number }[] = [];
   const definitions: RequirementDefinition[] = [];
+  const openDefinitions: { index: number; depth: number }[] = [];
   const bom = text.startsWith('\uFEFF') ? 1 : 0;
   const tree = fromMarkdown(text.slice(bom));
   let regionLevel: number | undefined;
@@ -83,13 +84,21 @@ function scanMarkdown(text: string, span: ReturnType<typeof spanFactory>) {
         || opening[0].length === raw.length) throw new Error('Unterminated typed plan fence');
       blocks.push({ info, start: start + opening[0].length, end: end - lastLine.length });
     } else if (node.type === 'heading') {
+      while (openDefinitions.length > 0 && required(openDefinitions[openDefinitions.length - 1]).depth >= node.depth) {
+        const open = required(openDefinitions.pop());
+        const definition = required(definitions[open.index]);
+        definitions[open.index] = { ...definition, bodySpan: span(definition.span.end, start) };
+      }
       const title = raw.replace(/^#{1,6}[ \t]+/, '').replace(/(?:\r\n|\r|\n)[ \t]*[=-]+[ \t]*$/, '')
         .replace(/[ \t]+#+[ \t]*$/, '').trim();
       if (regionLevel !== undefined && node.depth <= regionLevel) regionLevel = undefined;
       if (title === 'Design & Rationale') regionLevel = node.depth;
       else if (regionLevel !== undefined) {
         const requirement = /^(DR-[1-9][0-9]*)(?=[: \t]|$)/.exec(title);
-        if (requirement) definitions.push({ id: required(requirement[1]), title, span: span(start, end) });
+        if (requirement) {
+          openDefinitions.push({ index: definitions.length, depth: node.depth });
+          definitions.push({ id: required(requirement[1]), title, span: span(start, end), bodySpan: span(end, text.length) });
+        }
       }
     }
   }

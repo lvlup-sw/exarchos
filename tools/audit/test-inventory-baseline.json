@@ -4,10 +4,10 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1461,
-    "parsedFiles": 1416,
+    "testFiles": 1463,
+    "parsedFiles": 1418,
     "shellFiles": 45,
-    "cases": 16085,
+    "cases": 16105,
     "dynamicTitles": 235,
     "unparseableFiles": 0
   },
@@ -93691,6 +93691,118 @@
         {
           "suite": "design record reader",
           "name": "refuses generated escape-equivalent duplicate keys",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/workflow/design-record/validate.test.ts": {
+      "file": "tests/unit/workflow/design-record/validate.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "typed plan soundness",
+          "name": "Plan_CompletedDisconnectedCycle_Refuses",
+          "dynamic": false
+        },
+        {
+          "suite": "typed plan soundness",
+          "name": "Coverage_TitleMentionsDr_DoesNotCover",
+          "dynamic": false
+        },
+        {
+          "suite": "typed plan soundness",
+          "name": "keeps exact task identity and refuses unknown aliases",
+          "dynamic": false
+        },
+        {
+          "suite": "typed plan soundness",
+          "name": "refuses self dependencies and disconnected cycles",
+          "dynamic": false
+        },
+        {
+          "suite": "typed plan soundness",
+          "name": "refuses missing, duplicate and unlisted definitions",
+          "dynamic": false
+        },
+        {
+          "suite": "typed plan soundness",
+          "name": "refuses unknown implements and prose deferral",
+          "dynamic": false
+        },
+        {
+          "suite": "typed plan soundness",
+          "name": "Structure_HighRiskWithoutTests_Refuses",
+          "dynamic": false
+        },
+        {
+          "suite": "typed plan soundness",
+          "name": "reuses the strict schema for empty files, instructions and acceptance",
+          "dynamic": false
+        },
+        {
+          "suite": "typed plan soundness",
+          "name": "refuses duplicate task identities even for a constructed snapshot",
+          "dynamic": false
+        },
+        {
+          "suite": "typed plan soundness",
+          "name": "Parallel_SharedFile_Refuses",
+          "dynamic": false
+        },
+        {
+          "suite": "typed plan soundness",
+          "name": "sorts findings by code, source position and exact identity",
+          "dynamic": false
+        },
+        {
+          "suite": "typed plan soundness",
+          "name": "permuting generated DAGs preserves soundness and exact edges",
+          "dynamic": false
+        },
+        {
+          "suite": "typed plan soundness",
+          "name": "generated backedges outside the ready component always fail",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/integration/design-record-checks.test.ts": {
+      "file": "tests/integration/design-record-checks.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "shared typed plan checks",
+          "name": "Coverage_GwtWithoutAcceptanceTask_AdvisoryOnly",
+          "dynamic": false
+        },
+        {
+          "suite": "shared typed plan checks",
+          "name": "finds GWT under deeper and setext authoritative headings",
+          "dynamic": false
+        },
+        {
+          "suite": "shared typed plan checks",
+          "name": "does not leak GWT from adjacent prose or a later design boundary",
+          "dynamic": false
+        },
+        {
+          "suite": "shared typed plan checks",
+          "name": "keeps section bounds across fenced, HTML and container pseudoheadings",
+          "dynamic": false
+        },
+        {
+          "suite": "shared typed plan checks",
+          "name": "uses exact edges and the same digest for coverage, traceability and provenance",
+          "dynamic": false
+        },
+        {
+          "suite": "shared typed plan checks",
+          "name": "all evaluators return whole-plan failures instead of canned passes",
+          "dynamic": false
+        },
+        {
+          "suite": "shared typed plan checks",
+          "name": "keeps semantic plausibility challenges advisory on typed fields",
           "dynamic": false
         }
       ]
