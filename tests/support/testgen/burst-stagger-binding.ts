@@ -15,3 +15,11 @@ export function predicate([jitter]: readonly bigint[], observed: number): boolea
   if (jitter > 0n) return observed === 500;
   return observed === 300;
 }
+
+export function transform([jitter]: readonly bigint[]): bigint[] {
+  return [-jitter!];
+}
+
+export function relation(_source: readonly bigint[], _follow: readonly bigint[], sourceResult: number, followResult: number): boolean {
+  return sourceResult + followResult === 600;
+}

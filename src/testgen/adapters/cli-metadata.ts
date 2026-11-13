@@ -12,7 +12,7 @@ export const commandMetadata = {
     },
     {
       "name": "generate_metamorphic_tests",
-      "description": "Emit paired TUnit tests for a supplied transformation, precondition, and relation."
+      "description": "Emit paired TUnit or Vitest tests for a supplied transformation, precondition, and relation."
     }
   ]
 } as const;

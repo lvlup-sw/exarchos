@@ -1,21 +1,36 @@
 import { posix } from 'node:path';
-import type { Success, TestInput } from '../../contract/schemas.js';
+import type { Success, TestInput, TestKind } from '../../contract/schemas.js';
 
 type VitestInput = Extract<TestInput, { framework: 'vitest' }>;
 
-export function emitVitest(input: VitestInput): Success {
+export function emitVitest(input: VitestInput, kind: TestKind): Success {
   const { path, bindingModule } = input.target;
   const relative = posix.relative(posix.dirname(path), bindingModule).replace(/\.ts$/, '.js');
   const specifier = relative.startsWith('../') ? relative : `./${relative}`;
+  const bindings = kind === 'property' ? 'isValid, observe, predicate' : 'isValid, observe, transform, relation';
+  const check = kind === 'property'
+    ? `  const observed = await observe(input);
+  expect(await predicate(input, observed)).toBe(true);`
+    : `  const follow = await transform([...input]);
+  if (!Array.isArray(follow) || follow.length !== input.length
+    || !Array.from(follow).every((value) => typeof value === 'bigint' && value >= -(1n << 63n) && value < (1n << 63n))
+    || isValid(follow) !== true) {
+    throw new Error('TestGen invalid case: follow-up is outside the declared domain.');
+  }
+  if (input.every((value, index) => value === follow[index])) {
+    throw new Error('TestGen invalid case: transformation produced an identical input.');
+  }
+  const sourceResult = await observe(input);
+  const followResult = await observe(follow);
+  expect(await relation(input, follow, sourceResult, followResult)).toBe(true);`;
   const methods = input.cases.map((values, index) => `it('Case_${index + 1}', async () => {
   const input = [${values.map((value) => `${value}n`).join(', ')}];
-  if (!isValid(input)) throw new Error('TestGen invalid case: source is outside the declared domain.');
-  const observed = await observe(input);
-  expect(await predicate(input, observed)).toBe(true);
+  if (isValid(input) !== true) throw new Error('TestGen invalid case: source is outside the declared domain.');
+${check}
 });`);
   const lines = [
     "import { expect, it } from 'vitest';",
-    `import { isValid, observe, predicate } from ${JSON.stringify(specifier)};`,
+    `import { ${bindings} } from ${JSON.stringify(specifier)};`,
     '',
     methods.join('\n\n'),
   ].join('\n').split('\n');

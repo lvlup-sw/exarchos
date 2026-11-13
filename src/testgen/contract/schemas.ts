@@ -41,7 +41,7 @@ const tunitProperty = z.strictObject({ ...common, ...tunit, predicate: binding }
 const tsPath = z.string().max(240)
   .regex(/^(?:[A-Za-z0-9_][A-Za-z0-9_.-]*\/)*[A-Za-z0-9_][A-Za-z0-9_.-]*\.ts(?![\s\S])/)
   .refine((path) => path.split('/').every((part) => !part.endsWith('.')), 'Use portable path segments.');
-const vitestProperty = z.strictObject({
+const vitestInput = z.strictObject({
   ...common,
   framework: z.literal('vitest'),
   frameworkVersion: z.literal(frameworkVersions.vitest),
@@ -50,8 +50,12 @@ const vitestProperty = z.strictObject({
     bindingModule: tsPath.refine((path) => !path.endsWith('.d.ts'), 'Use a runtime binding module.'),
   }),
 });
-export const propertyInput = z.discriminatedUnion('framework', [tunitProperty, vitestProperty]);
-export const metamorphicInput = z.strictObject({ ...common, ...tunit, transform: binding, relation: binding });
+export const propertyInput = z.discriminatedUnion('framework', [tunitProperty, vitestInput]);
+export const metamorphicInput = z.discriminatedUnion('framework', [
+  z.strictObject({ ...common, ...tunit, transform: binding, relation: binding }),
+  vitestInput,
+]);
+export type TestKind = 'property' | 'metamorphic';
 export type TestInput = z.infer<typeof propertyInput> | z.infer<typeof metamorphicInput>;
 
 const errorCode = z.enum(['INVALID_INPUT', 'UNSUPPORTED_FRAMEWORK', 'INTERNAL_ERROR']);

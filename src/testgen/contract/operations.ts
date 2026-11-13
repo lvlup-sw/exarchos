@@ -3,20 +3,22 @@ import { expandCases } from '../generators/cases.js';
 import { emitVitest } from '../emitters/vitest/emit.js';
 import { emitTUnit } from '../emitters/tunit/emit.js';
 import { errors, frameworkSelection, metamorphicInput, propertyInput, resultSchema, frameworkVersions } from './schemas.js';
-import type { ErrorCode, GenerationResult, TestInput } from './schemas.js';
+import type { ErrorCode, GenerationResult, TestInput, TestKind } from './schemas.js';
 
 export const operations = {
   generate_property_tests: {
     description: 'Emit TUnit or Vitest tests for a supplied predicate and finite integer cases.',
+    kind: 'property',
     input: propertyInput,
   },
   generate_metamorphic_tests: {
-    description: 'Emit paired TUnit tests for a supplied transformation, precondition, and relation.',
+    description: 'Emit paired TUnit or Vitest tests for a supplied transformation, precondition, and relation.',
+    kind: 'metamorphic',
     input: metamorphicInput,
   },
 } as const;
 
-export type Emitter = (input: TestInput) => unknown;
+export type Emitter = (input: TestInput, kind: TestKind) => unknown;
 
 export function describeOperations() {
   return {
@@ -34,7 +36,7 @@ export function failure(code: ErrorCode, message: string): GenerationResult {
   return { ok: false, error: { code, message } };
 }
 
-const emitForTarget: Emitter = (input) => input.framework === 'vitest' ? emitVitest(input) : emitTUnit(input);
+const emitForTarget: Emitter = (input, kind) => input.framework === 'vitest' ? emitVitest(input, kind) : emitTUnit(input);
 
 export function dispatch(name: string, input: unknown, emit: Emitter = emitForTarget): GenerationResult {
   const operation = Object.entries(operations).find(([key]) => key === name)?.[1];
@@ -45,7 +47,7 @@ export function dispatch(name: string, input: unknown, emit: Emitter = emitForTa
     if (selection.success) {
       const { framework, frameworkVersion } = selection.data;
       const supported = framework === 'tunit' && frameworkVersion === frameworkVersions.tunit
-        || name === 'generate_property_tests' && framework === 'vitest' && frameworkVersion === frameworkVersions.vitest;
+        || framework === 'vitest' && frameworkVersion === frameworkVersions.vitest;
       if (!supported) {
         return failure('UNSUPPORTED_FRAMEWORK', 'Use a framework and version listed by describe for this operation.');
       }
@@ -78,7 +80,7 @@ export function dispatch(name: string, input: unknown, emit: Emitter = emitForTa
   if (cases.length > 256) return failure('INVALID_INPUT', 'The expanded case count exceeds 256.');
 
   try {
-    const result = resultSchema.safeParse(emit({ ...request, cases }));
+    const result = resultSchema.safeParse(emit({ ...request, cases }, operation.kind));
     if (result.success) return result.data;
     return failure('INTERNAL_ERROR', 'Emitter result violates the output schema.');
   } catch {

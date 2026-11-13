@@ -22,9 +22,9 @@ it('carries the same result through the CLI and a connected MCP client', async (
   const dir = makeTempDir('testgen space ');
   const file = join(dir, 'input file.json');
   const [serverTransport, clientTransport] = createV2LinkedTransportPair();
-  const emit: Emitter = (input) => input.propertyRef === 'broken-emitter'
+  const emit: Emitter = (input, kind) => input.propertyRef === 'broken-emitter'
     ? { ok: true }
-    : dispatch(input.framework === 'vitest' || 'predicate' in input ? 'generate_property_tests' : 'generate_metamorphic_tests', input);
+    : dispatch(kind === 'property' ? 'generate_property_tests' : 'generate_metamorphic_tests', input);
   const server = createTestgenServer(emit);
   const client = createV2Client({ name: 'parity', version: '1' });
   try {
@@ -41,6 +41,7 @@ it('carries the same result through the CLI and a connected MCP client', async (
       ['property', 'generate_property_tests'],
       ['advance', 'generate_metamorphic_tests'],
       ['vitest-property', 'generate_property_tests'],
+      ['vitest-metamorphic', 'generate_metamorphic_tests'],
     ] as const) {
       const input = JSON.parse(await readFile(new URL(`../../support/testgen/${fixture}.json`, import.meta.url), 'utf8'));
       for (const [patch, expectedExit] of [
