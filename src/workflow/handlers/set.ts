@@ -374,7 +374,7 @@ async function decideOnTheFold(pass: FoldPassInput): Promise<FoldPass> {
         if (err instanceof StateStoreError && err.code === ErrorCode.INVALID_INPUT) {
           const replay = await replayClaim(pass, read);
           if (replay !== undefined) return replay;
-          return reply({ code: ErrorCode.INVALID_INPUT, message: err.message });
+          return reply({ code: ErrorCode.INVALID_INPUT, message: `Write-time validation failed: ${err.message}` });
         }
         throw err;
       }
@@ -507,7 +507,7 @@ async function commitMove(
     return { kind: 'moved', move: committed };
   } catch (err) {
     if (err instanceof TransitionReadsChanged) return { kind: 'reads-changed' };
-    if (err instanceof StateStoreError && err.code === ErrorCode.INVALID_INPUT) return reply({ code: err.code, message: err.message });
+    if (err instanceof StateStoreError && err.code === ErrorCode.INVALID_INPUT) return reply({ code: err.code, message: `Write-time validation failed: ${err.message}` });
     if (err instanceof OperationDigestMismatchError) throw err;
     if (err instanceof TransitionFoldFailed) {
       return reply({
@@ -638,7 +638,8 @@ export async function handleSet(
     }
 
     const validated = WorkflowStateSchema.safeParse(mutableState);
-    if (!input.phase && routeOf(state, eventStore, undefined).kind === 'legacy' && !validated.success) {
+    if (!input.phase && !validated.success
+      && (routeOf(state, eventStore, undefined).kind === 'legacy' || !input.updates || Object.keys(input.updates).length === 0)) {
       return { success: false, error: { code: ErrorCode.INVALID_INPUT, message: `Write-time validation failed: ${validated.error.message}` } };
     }
 
@@ -698,7 +699,7 @@ export async function handleSet(
         ...(options?.skipPhases !== undefined ? { skipPhases: options.skipPhases } : {}),
       });
 
-      if (route.kind === 'legacy' && !validated.success) {
+      if (!validated.success && (route.kind === 'legacy' || !input.updates || Object.keys(input.updates).length === 0)) {
         return withShadowRecord({ success: false, error: {
           code: ErrorCode.INVALID_INPUT, message: `Write-time validation failed: ${validated.error.message}`,
         } }, shadowRun, stateDir, routeWarnings);
@@ -932,7 +933,8 @@ export async function handleSet(
           error: {
             code: err instanceof TransitionFoldFailed ? ErrorCode.PROJECTION_REPLAY_FAILED
               : err instanceof StateStoreError && err.code === ErrorCode.INVALID_INPUT ? ErrorCode.INVALID_INPUT : ErrorCode.EVENT_APPEND_FAILED,
-            message: `Event append failed: ${err instanceof Error ? err.message : String(err)}`,
+            message: err instanceof StateStoreError && err.code === ErrorCode.INVALID_INPUT
+              ? `Write-time validation failed: ${err.message}` : `Event append failed: ${messageOf(err)}`,
           },
         }, shadowRun, stateDir, routeWarnings);
       }
