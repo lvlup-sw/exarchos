@@ -7,7 +7,8 @@ import fc from 'fast-check';
 import * as fsPromises from 'node:fs/promises';
 import * as fs from 'node:fs';
 import { createHash } from 'node:crypto';
-import { mkdtempSync, writeFileSync, rmSync, existsSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, existsSync } from 'node:fs';
+import { rmrf } from '../../tools/test-helpers/temp-dir.js';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { EventStore } from '../../src/events/store.js';
@@ -50,7 +51,7 @@ const store = {} as EventStore;
 afterEach(() => {
   capture.afterCapture = () => {};
   vi.clearAllMocks();
-  for (const directory of directories.splice(0)) rmSync(directory, { recursive: true });
+  for (const directory of directories.splice(0)) rmrf(directory);
 });
 function files(design: string, plan = design) {
   const directory = mkdtempSync(join(tmpdir(), 'consumer-record-'));
