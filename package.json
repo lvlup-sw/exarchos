@@ -6,7 +6,8 @@
   "main": "dist/index.js",
   "bin": {
     "exarchos-release-verify": "dist/release-verify.js",
-    "testgen": "dist/testgen-cli.js"
+    "testgen": "dist/testgen-cli.js",
+    "testgen-mcp": "dist/testgen-mcp.js"
   },
   "publishConfig": {
     "registry": "https://registry.npmjs.org/",
@@ -16,6 +17,7 @@
     "dist/bin",
     "dist/release-verify.js",
     "dist/testgen-cli.js",
+    "dist/testgen-mcp.js",
     "rendered",
     "hooks",
     "settings.json",
@@ -26,7 +28,7 @@
     "build": "npm run codegen:runtimes && tsc && npm run build:binary && npm run build:release-verifier && npm run build:testgen && npm run build:skills && npm run build:hooks",
     "build:binary": "bun run tools/release/build-binary.ts --all",
     "build:release-verifier": "bun build src/install/release/release-verify-cli.ts --target=node --format=esm --banner \"#!/usr/bin/env node\" --outfile dist/release-verify.js",
-    "build:testgen": "bun build src/testgen/entry-cli.ts --target=node --format=esm --banner \"#!/usr/bin/env node\" --outfile dist/testgen-cli.js",
+    "build:testgen": "bun build src/testgen/entry-cli.ts --target=node --format=esm --banner \"#!/usr/bin/env node\" --outfile dist/testgen-cli.js && bun build src/testgen/entry-mcp.ts --target=node --format=esm --banner \"#!/usr/bin/env node\" --outfile dist/testgen-mcp.js",
     "testgen:mcp": "bun src/testgen/entry-mcp.ts",
     "testgen:smoke": "node tools/release/testgen-smoke.mjs",
     "codegen:runtimes": "bun run tools/release/codegen-runtimes.ts",

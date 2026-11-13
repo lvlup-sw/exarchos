@@ -4,6 +4,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { checkPackagedMcp } from './testgen-mcp-smoke.mjs';
 
 const root = fileURLToPath(new URL('../../', import.meta.url));
 const scratch = mkdtempSync(join(tmpdir(), 'testgen install '));
@@ -40,6 +41,7 @@ try {
 
   const bundle = readFileSync(join(scratch, 'node_modules/@lvlup-sw/exarchos/dist/testgen-cli.js'), 'utf8');
   assert.doesNotMatch(bundle, /@modelcontextprotocol\/|better-sqlite3|exarchos\.db/);
+  await checkPackagedMcp(join(scratch, 'node_modules/@lvlup-sw/exarchos/dist/testgen-mcp.js'), scratch, testgen(['describe']));
 
   const requestPath = join(scratch, 'input file.json');
   const project = 'Smoke.csproj';
