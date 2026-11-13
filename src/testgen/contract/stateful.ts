@@ -32,7 +32,6 @@ export const statefulInput = z.discriminatedUnion('framework', [
   }),
 ]);
 export type StatefulInput = z.infer<typeof statefulInput>;
-export type Step = z.infer<typeof stepSchema>;
 export const scenarioSchema = z.strictObject({
   mode: z.enum(['exact', 'enabled']),
   steps: z.array(stepSchema).max(256),
