@@ -4,11 +4,11 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1477,
-    "parsedFiles": 1432,
+    "testFiles": 1480,
+    "parsedFiles": 1435,
     "shellFiles": 45,
-    "cases": 16374,
-    "dynamicTitles": 280,
+    "cases": 16389,
+    "dynamicTitles": 283,
     "unparseableFiles": 0
   },
   "unparseable": [],
@@ -91223,6 +91223,99 @@
           "suite": "bootstrap receipt identity",
           "name": "<dynamic-case-2>",
           "dynamic": true
+        }
+      ]
+    },
+    "tests/process/prepare-bootstrap-races.test.ts": {
+      "file": "tests/process/prepare-bootstrap-races.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "packaged bootstrap schedules",
+          "name": "Race_SameEntryDifferentObservations_OneWinningReceipt",
+          "dynamic": false
+        },
+        {
+          "suite": "packaged bootstrap schedules",
+          "name": "Race_SameEntrySameObservations_OneWinningReceipt",
+          "dynamic": false
+        },
+        {
+          "suite": "packaged bootstrap schedules",
+          "name": "Race_DifferentEntry_LoserConflicts",
+          "dynamic": false
+        },
+        {
+          "suite": "packaged bootstrap schedules",
+          "name": "Race_BoundedSchedules_MatchSingleCommitModel",
+          "dynamic": false
+        },
+        {
+          "suite": "packaged bootstrap schedules",
+          "name": "Race_PrecommitLookupError_RechecksOnlyForAnAcceptedWinner (winner %s)",
+          "dynamic": false
+        },
+        {
+          "suite": "packaged bootstrap schedules",
+          "name": "<dynamic-case-2>",
+          "dynamic": true
+        },
+        {
+          "suite": "packaged bootstrap schedules",
+          "name": "Race_ApprovedFileEdit_UsesCapturedBytesAndRequiresNewApproval",
+          "dynamic": false
+        },
+        {
+          "suite": "packaged compatibility document repair",
+          "name": "Race_RepairAfterLaterMove_KeepsLaterAttempt",
+          "dynamic": false
+        },
+        {
+          "suite": "packaged compatibility document repair",
+          "name": "Acceptance_PackagedHistoricalConstructor_DecodesColdAndRequiresRegistrationForNewStarts",
+          "dynamic": false
+        },
+        {
+          "suite": "packaged compatibility document repair",
+          "name": "Race_BoundedBootstrapContention_RecordsFreshAndReplayTimings",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/process/pinned-plan-races.test.ts": {
+      "file": "tests/process/pinned-plan-races.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "packaged prepared authority",
+          "name": "Race_NewPinDuringTransition_RejectsOldPlanAdmission",
+          "dynamic": false
+        },
+        {
+          "suite": "packaged prepared authority",
+          "name": "<dynamic-case-1>",
+          "dynamic": true
+        },
+        {
+          "suite": "packaged prepared authority",
+          "name": "Race_NewPinAfterTaskSegment_NoUnsafeMove (changed pin %s)",
+          "dynamic": false
+        },
+        {
+          "suite": "packaged prepared authority",
+          "name": "<dynamic-case-2>",
+          "dynamic": true
+        }
+      ]
+    },
+    "tests/acceptance/s6-plan-compile-input.test.ts": {
+      "file": "tests/acceptance/s6-plan-compile-input.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "",
+          "name": "Acceptance_TypedFeature_PrepareAndSettleUsesApprovedPlan",
+          "dynamic": false
         }
       ]
     },
