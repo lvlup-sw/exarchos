@@ -1,5 +1,5 @@
 /** Runs a fixture barrier after a real Git observation or inside a real test command. */
-import { spawnSync } from 'node:child_process';
+import { execFile } from 'node:child_process';
 import { closeSync, constants, openSync, writeSync } from 'node:fs';
 import { access, rename, writeFile } from 'node:fs/promises';
 import path from 'node:path';
@@ -26,15 +26,22 @@ async function pause(directory, facts) {
 
 const [mode, ...args] = process.argv.slice(2);
 if (mode === 'git') {
-  const result = spawnSync(process.env.S6_REAL_GIT, args, { encoding: 'utf8', timeout: 10_000 });
-  if (result.error) throw result.error;
+  const result = await new Promise((resolve, reject) => {
+    execFile(process.env.S6_REAL_GIT, args, { encoding: 'utf8', timeout: 10_000, killSignal: 'SIGKILL' }, (error, stdout, stderr) => {
+      if (error !== null && typeof error.code !== 'number') {
+        reject(error);
+        return;
+      }
+      resolve({ status: error?.code ?? 0, stdout, stderr });
+    });
+  });
   const expected = ['-C', process.env.S6_CHECKOUT, 'rev-parse', '--verify', '--quiet', '--end-of-options', 'integration^{commit}'];
   if (args.length === expected.length && args.every((arg, index) => arg === expected[index])) {
     await pause(process.env.S6_BARRIER, { status: result.status, commit: result.stdout.trim() });
   }
   process.stdout.write(result.stdout);
   process.stderr.write(result.stderr);
-  process.exitCode = result.status ?? 1;
+  process.exitCode = result.status;
 } else if (mode === 'suite') {
   if (path.basename(process.cwd()) === 'worktree-T-02' && process.env.S6_BARRIER) {
     await pause(process.env.S6_BARRIER, { tree: process.cwd(), gate: 'integration-suite' });
