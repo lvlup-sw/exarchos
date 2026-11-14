@@ -23,6 +23,7 @@ import { observeImmutableClaimedTree } from '../../utils/git-tree.js';
 import { verificationOperationId, settlementClaimKey } from '../settle/settlement-reads.js';
 import { resolveTaskStanding } from '../settle/task-standing.js';
 import { IntentExecutedOutputSchema } from './schemas.js';
+import { historicalSynthesisDigest } from './historical-requests.js';
 
 import { resolveEmissionEnforcement } from '../../config/resolve.js';
 import {
@@ -228,6 +229,49 @@ async function boundReceipt(operationId: string, input: z.infer<typeof ExecuteIn
   return claim.result;
 }
 
+/** Authenticate original synthesis custody without consulting live compilation, providers or configuration. */
+async function historicalSynthesisResult(streamId: string, operationId: string, args: Record<string, unknown>, ctx: DispatchContext, bundles: RunBundleStore): Promise<ToolResult | undefined> {
+  try {
+    let claim = ctx.eventStore.getAppender().ensureSqliteBackendSync().lookupOperationClaim<IntentReceipt>(operationId);
+    let rows = await ctx.eventStore.query(streamId);
+    if (claim === undefined) {
+      const effects = await ctx.eventStore.query('vcs', { operationId: derivedLeafOperationId(operationId, 1, 'create_pr') });
+      if (effects.some(row => row.type === 'pr.create.requested' || row.type === 'pr.create.executed')
+        || rows.some(row => row.type === INTENT_EXECUTED_EVENT && row.data?.operationId === operationId)) {
+        claim = ctx.eventStore.getAppender().ensureSqliteBackendSync().lookupOperationClaim<IntentReceipt>(operationId);
+        if (claim === undefined) return { success: false, error: { code: 'INTENT_HISTORY_INCOMPLETE', message: 'Original writer evidence has no authenticated terminal claim. Nothing was executed.' } };
+        rows = await ctx.eventStore.query(streamId);
+      } else return undefined;
+    }
+    const requestDigest = historicalSynthesisDigest(streamId, args);
+    if (claim.streamId !== streamId) throw new Error('Historical claim belongs to another stream');
+    if (claim.requestDigest !== requestDigest) return digestMismatchResult(operationId, 'Nothing was executed.');
+    const receipt = IntentExecutedOutputSchema.options[0].shape.data.parse(claim.result);
+    if (receipt.operationId !== operationId || receipt.intent !== 'synthesis-closeout' || receipt.requestDigest !== requestDigest
+      || claim.sequences.length !== 1 || claim.eventIds.length !== 1 || claim.timestamps.length !== 1) throw new Error('Invalid historical terminal claim');
+    const row = rows.find(candidate => candidate.sequence === claim.sequences[0]);
+    if (row === undefined || row.streamId !== streamId || !('eventId' in row) || row.eventId !== claim.eventIds[0] || row.timestamp !== claim.timestamps[0]
+      || row.type !== INTENT_EXECUTED_EVENT || row.schemaVersion !== INTENT_EXECUTED_SETTLEMENT.custodyFromSchemaVersion) throw new Error('Missing original historical terminal member');
+    const record = OrchestrateIntentExecutedData.parse(row.data);
+    if (record.operationId !== operationId || record.intent !== receipt.intent || record.outcome !== receipt.outcome
+      || record.failedLeaf !== receipt.failedLeaf || record.requestDigest !== requestDigest
+      || canonicalJson(record.leaves) !== canonicalJson(receipt.leaves.map(leaf => ({ action: leaf.action, status: leaf.status, sequences: leaf.events.map(event => event.sequence) })))
+      || canonicalJson(record.steering) !== canonicalJson(receipt.steering)
+      || canonicalJson(record.bundleRefs) !== canonicalJson(receipt.bundleRefs)) throw new Error('Historical terminal record differs from receipt');
+    const ref = receipt.bundleRefs?.[0];
+    if (receipt.bundleRefs?.length !== 1 || ref === undefined || ref.artifactId !== executeIntentBundleArtifactId(operationId)) throw new Error('Invalid historical run reference');
+    const run = decodeExecuteIntentBundle(await bundles.resolve(ContentDigestV1Schema.parse(ref.digest)));
+    if (run.operationId !== operationId || run.streamId !== streamId || run.intent !== receipt.intent || run.requestDigest !== requestDigest
+      || run.input !== undefined || run.outcome !== receipt.outcome || run.failedLeaf !== receipt.failedLeaf
+      || canonicalJson(run.failure) !== canonicalJson(receipt.failure) || canonicalJson(run.steering) !== canonicalJson(receipt.steering)
+      || run.tailSequence !== receipt.tailSequence || canonicalJson(run.interaction) !== canonicalJson(receipt.interaction)
+      || canonicalJson(receiptLeavesOfRun(run)) !== canonicalJson(receipt.leaves)) throw new Error('Historical run differs from original receipt');
+    return receiptResult(claim.result);
+  } catch (error) {
+    return { success: false, error: { code: 'INTENT_HISTORY_REFUSED', message: error instanceof Error ? error.message : String(error) } };
+  }
+}
+
 /**
  * Derives the operation id of one leaf from the caller's id.
  * The separator is a colon, because the admission id grammar accepts a colon and rejects a slash.
@@ -423,26 +467,34 @@ export async function handleExecuteIntent(
     catch (error) { return { success: false, error: { code: 'SEGMENT_INPUT_REFUSED', message: error instanceof Error ? error.message : String(error) } }; }
   }
 
-  const compiled = compileIntent(intent, { streamId }, intentArgs, deps);
-  if (!compiled.ok) {
-    return {
-      success: false,
-      error: {
-        code: compiled.refusal.code,
-        message: compiled.refusal.message,
-        ...(compiled.refusal.step !== undefined ? { expectedShape: { step: compiled.refusal.step } } : {}),
-      },
-    };
-  }
-  const segment = compiled.segment;
-  const requestDigest = executeRequestDigest(intent, streamId, segment.args);
-
   return runExclusivePerOperation(operationId, async () => {
+    if (intent === 'synthesis-closeout') {
+      const historical = await historicalSynthesisResult(streamId, operationId, intentArgs, ctx, deps.bundleStore ?? ctx.eventStore.bundleStore);
+      if (historical !== undefined) return historical;
+    }
+    const compiled = compileIntent(intent, { streamId }, intentArgs, deps);
+    if (!compiled.ok) {
+      return {
+        success: false,
+        error: {
+          code: compiled.refusal.code,
+          message: compiled.refusal.message,
+          ...(compiled.refusal.step !== undefined ? { expectedShape: { step: compiled.refusal.step } } : {}),
+        },
+      };
+    }
+    const segment = compiled.segment;
+    const requestDigest = executeRequestDigest(intent, streamId, segment.args);
+
     const claim = ctx.eventStore
       .getAppender()
       .ensureSqliteBackendSync()
       .lookupOperationClaim<IntentReceipt>(operationId);
     if (claim !== undefined) {
+      if (intent === 'synthesis-closeout') {
+        return await historicalSynthesisResult(streamId, operationId, intentArgs, ctx, deps.bundleStore ?? ctx.eventStore.bundleStore)
+          ?? { success: false, error: { code: 'INTENT_HISTORY_REFUSED', message: 'Historical claim disappeared. Nothing was executed.' } };
+      }
       if (claim.requestDigest !== requestDigest) {
         return digestMismatchResult(operationId, 'Nothing was executed.');
       }

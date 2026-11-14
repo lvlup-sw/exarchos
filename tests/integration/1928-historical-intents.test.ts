@@ -1,5 +1,10 @@
 // @oracle-sources: persisted SQLite operation membership and original content-addressed run bytes, a separately maintained fake remote creation log, and the frozen S7 request digest recipe
 /** Capture shipped S7 writer behavior before retirement, without contacting a remote service. */
+import { Database } from 'bun:sqlite';
+import { join } from 'node:path';
+import { writeFile, unlink } from 'node:fs/promises';
+import { WorkflowEventBase } from '../../src/events/schemas.js';
+import { DECIDE_ONCE_CLAIM_STREAM } from '../../src/storage/sqlite/constants.js';
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -7,7 +12,7 @@ import { EventStore } from '../../src/events/store.js';
 import { runWithDispatchContext } from '../../src/dispatch/dispatch-context.js';
 import { ACTION_HANDLERS } from '../../src/verbs/composite.js';
 import { handleExecuteIntent, productionExecuteDeps, derivedLeafOperationId } from '../../src/verbs/execute/executor.js';
-import { decodeExecuteIntentBundle } from '../../src/verbs/execute/run-bundle.js';
+import { decodeExecuteIntentBundle, encodeExecuteIntentBundle } from '../../src/verbs/execute/run-bundle.js';
 import { makeTempDir, rmrfAsync } from '../../tools/test-helpers/temp-dir.js';
 import { seedActivePhaseAttempt } from '../../tools/test-helpers/trusted-context.js';
 import { fixtureCorrelation, fixtureWiring, receiptOf } from '../unit/verbs/execute/fixtures.js';
@@ -29,10 +34,10 @@ function historicalDigest(args: Record<string, unknown>): string {
 }
 
 /** Only the remote transport is fake. The live compiler, handlers, append/claim and custody store remain real. */
-async function fixture() {
+async function fixture(seed = true) {
   const state = makeTempDir('1928-history-'); const events = new EventStore(state); await events.initialize();
   closes.push(async () => { events.close(); await rmrfAsync(state); });
-  await seedActivePhaseAttempt(events, STREAM, { phase: 'synthesize' });
+  if (seed) await seedActivePhaseAttempt(events, STREAM, { phase: 'synthesize' });
   const opened: { number: number; url: string; headRefName: string; baseRefName: string }[] = [];
   const provider: VcsProvider = { name: 'github',
     createPr: vi.fn(async input => { const pr = { number: 42, url: 'https://example.invalid/pr/42', headRefName: input.headBranch, baseRefName: input.baseBranch }; opened.push(pr); return { number: pr.number, url: pr.url }; }),
@@ -43,7 +48,7 @@ async function fixture() {
   const run = (operationId: string, args: Record<string, unknown> = ARGS, retired = false) => runWithDispatchContext(fixtureCorrelation(), () =>
     handleExecuteIntent({ intent: INTENT, streamId: STREAM, operationId, args }, state, fixtureWiring(state, events),
       { ...productionExecuteDeps(ACTION_HANDLERS, 'exarchos_orchestrate'), ...(retired ? { runbookTable: [] } : {}) }));
-  return { events, run, opened, provider, backend: events.getAppender().ensureSqliteBackendSync() };
+  return { state, events, run, opened, provider, backend: events.getAppender().ensureSqliteBackendSync() };
 }
 
 describe('S7 historical writer provenance', () => {
@@ -68,7 +73,7 @@ describe('S7 historical writer provenance', () => {
     expect(await f.events.query(STREAM)).toEqual(rows); expect(await f.events.query('vcs')).toEqual(vcsRows); expect(f.opened).toHaveLength(1);
     expect(await f.run(operationId, { ...ARGS, title: 'changed' })).toMatchObject({ success: false, error: { code: 'INTENT_REPLAY_DIGEST_MISMATCH' } });
     expect((await f.run(operationId, { ...ARGS, unknown: true })).success).toBe(false);
-    expect(await f.run(operationId, ARGS, true)).toMatchObject({ success: false, error: { code: 'INTENT_UNKNOWN' } });
+    expect(await f.run(operationId, ARGS, true)).toEqual(first);
     expect(f.opened).toHaveLength(1);
 
     const interrupted = await fixture(); const interruptedId = 'history-interrupted';
@@ -85,8 +90,8 @@ describe('S7 historical writer provenance', () => {
     expect(originalRuns).toHaveLength(1);
     expect(decodeExecuteIntentBundle(originalRuns[0] ?? Buffer.alloc(0)).requestDigest).toBe(historicalDigest(ARGS));
     const beforeRetry = [...interrupted.opened]; const retry = await interrupted.run(interruptedId);
-    expect(retry.success, JSON.stringify(retry)).toBe(true); expect(interrupted.opened).toEqual(beforeRetry);
-    expect(interrupted.backend.lookupOperationClaim(interruptedId)?.result).toEqual(receiptOf(retry));
+    expect(retry).toMatchObject({ success: false, error: { code: 'INTENT_HISTORY_INCOMPLETE' } }); expect(interrupted.opened).toEqual(beforeRetry);
+    expect(interrupted.backend.lookupOperationClaim(interruptedId)).toBeUndefined();
     expect(await interrupted.events.query('vcs')).toEqual(interruptedVcs);
     const saved = frozenHistory();
     expect(saved.requestDigest).toBe(historicalDigest(ARGS));
@@ -120,6 +125,141 @@ describe('S7 historical writer provenance', () => {
   });
 });
 
+/** Import original members and run bytes. SQL envelope serialization is reconstructed from captured values, not recaptured. */
+async function importedHistory(interrupted = false) {
+  const saved = frozenHistory(); const f = await fixture(false);
+  const original = interrupted ? saved.interrupted : saved.terminal;
+  const rows = [...original.rows, ...original.vcsRows].map(row => WorkflowEventBase.passthrough().parse(row));
+  for (const row of rows) f.backend.appendEvent(row.streamId, row);
+  const bytes = Buffer.from(original.runBytesBase64, 'base64');
+  const digest = await f.events.bundleStore.put(bytes);
+  if (!interrupted) {
+    const claim = saved.terminal.claim;
+    const members = claim.sequences.map((sequence, i) => {
+      const matches = rows.filter(row => row.streamId === claim.streamId && row.sequence === sequence && row.eventId === claim.eventIds[i] && row.timestamp === claim.timestamps[i]);
+      expect(matches).toHaveLength(1); return matches[0];
+    });
+    const db = new Database(join(f.state, 'exarchos.db'));
+    try {
+      db.prepare('INSERT INTO idempotency_claims (streamId,idempotencyKey,eventIds,sequences,timestamps,events_json,claimedAt) VALUES (?,?,?,?,?,?,?)')
+        .run(DECIDE_ONCE_CLAIM_STREAM, original.operationId, JSON.stringify(claim.eventIds), JSON.stringify(claim.sequences), JSON.stringify(claim.timestamps), JSON.stringify({ version: 1, streamId: claim.streamId, requestDigest: claim.requestDigest, result: claim.result, events: members }), claim.timestamps[0]);
+    } finally { db.close(); }
+    expect(f.backend.lookupOperationClaim(original.operationId)).toEqual(claim);
+    expect(receiptOf({ success: true, data: claim.result }).bundleRefs?.[0]?.digest).toEqual(digest);
+  }
+  return { ...f, original, saved, bytes, digest, blobPath: join(f.state, 'run-bundles', digest.algorithm, digest.value.slice(0, 2), digest.value.slice(2)) };
+}
+
+/** Capture all durable rows and claims, including their exact serialized payloads, without synthesizing a projection. */
+function durableSnapshot(state: string) {
+  const db = new Database(join(state, 'exarchos.db'));
+  try { return { events: db.prepare('SELECT * FROM events ORDER BY streamId,sequence').all(), claims: db.prepare('SELECT * FROM idempotency_claims ORDER BY streamId,idempotencyKey').all() }; }
+  finally { db.close(); }
+}
+
+describe('historical terminal admission without live compilation', () => {
+  it('OriginalCustody_NoCompilerOrWriter_ExactReceiptAndAdmission', async () => {
+    const f = await importedHistory(); const before = durableSnapshot(f.state);
+    const put = vi.spyOn(f.events.bundleStore, 'put');
+    const reordered = { headBranch: ARGS.headBranch, title: ARGS.title, prBody: ARGS.prBody, baseBranch: ARGS.baseBranch };
+    expect(await f.run(f.original.operationId, reordered, true)).toMatchObject({ success: true, data: f.saved.terminal.claim.result });
+    expect(await f.run(f.original.operationId, { ...ARGS, title: 'different' }, true)).toMatchObject({ success: false, error: { code: 'INTENT_REPLAY_DIGEST_MISMATCH' } });
+    for (const args of [{}, { ...ARGS, extra: true }, { ...ARGS, title: '' }]) {
+      expect(await f.run(f.original.operationId, args, true)).toMatchObject({ success: false, error: { code: 'INTENT_HISTORY_REFUSED' } });
+    }
+    for (const raw of [
+      { intent: INTENT, streamId: STREAM, featureId: 'other', operationId: f.original.operationId, args: ARGS },
+      { intent: INTENT, streamId: STREAM, operationId: '../invalid', args: ARGS },
+    ]) expect((await handleExecuteIntent(raw, f.state, fixtureWiring(f.state, f.events), { ...productionExecuteDeps(ACTION_HANDLERS, 'exarchos_orchestrate'), runbookTable: [] })).success).toBe(false);
+    expect(durableSnapshot(f.state)).toEqual(before); expect(put).not.toHaveBeenCalled(); expect(f.opened).toEqual([]);
+    expect(await f.events.bundleStore.resolve(f.digest)).toEqual(f.bytes);
+  });
+
+  it('UnfinishedOriginal_RefusesWithLiveAndRetiredCompiler_EmptyFreshRemainsLive', async () => {
+    const f = await importedHistory(true); const before = durableSnapshot(f.state);
+    for (const retired of [false, true]) expect(await f.run(f.original.operationId, ARGS, retired)).toMatchObject({ success: false, error: { code: 'INTENT_HISTORY_INCOMPLETE' } });
+    expect(durableSnapshot(f.state)).toEqual(before); expect(f.opened).toEqual([]);
+    expect(await f.run('new-retired-operation', ARGS, true)).toMatchObject({ success: false, error: { code: 'INTENT_UNKNOWN' } });
+    expect(durableSnapshot(f.state)).toEqual(before);
+    expect(await f.run('new-live-malformed', {})).toMatchObject({ success: false, error: { code: 'INTENT_ARGS_INVALID' } });
+    expect(durableSnapshot(f.state)).toEqual(before);
+    expect((await f.run('new-live-operation')).success).toBe(true); expect(f.opened).toHaveLength(1);
+  });
+
+  it('PhysicalCustodyCorruption_NoFallbackNoMutation', async () => {
+    for (const mutation of ['claim-missing', 'claim-stream', 'claim-eventId', 'claim-timestamp', 'claim-sequence', 'receipt-outcome', 'member-missing', 'member-eventId', 'member-operation', 'member-failedLeaf', 'artifact-id', 'extra-ref', 'missing-blob', 'corrupt-blob', 'valid-wrong-run']) {
+      const f = await importedHistory(); const db = new Database(join(f.state, 'exarchos.db'));
+      try {
+        const claim = structuredClone(f.saved.terminal.claim);
+        const receipt = receiptOf({ success: true, data: claim.result });
+        const member = WorkflowEventBase.passthrough().parse(f.saved.terminal.rows.find(row => row.sequence === claim.sequences[0]));
+        if (mutation === 'claim-missing') expect(db.prepare('DELETE FROM idempotency_claims WHERE streamId=? AND idempotencyKey=?').run(DECIDE_ONCE_CLAIM_STREAM, f.original.operationId).changes).toBe(1);
+        else if (mutation.startsWith('claim-') || mutation === 'receipt-outcome' || mutation === 'artifact-id' || mutation === 'extra-ref' || mutation === 'valid-wrong-run') {
+          if (mutation === 'claim-stream') claim.streamId = 'foreign';
+          if (mutation === 'claim-eventId') claim.eventIds[0] = 'wrong-event';
+          if (mutation === 'claim-timestamp') claim.timestamps[0] = '2000-01-01T00:00:00.000Z';
+          if (mutation === 'claim-sequence') claim.sequences[0] = 1;
+          if (mutation === 'receipt-outcome') Reflect.set(receipt, 'outcome', 'failed');
+          if (mutation === 'artifact-id') Reflect.set(receipt.bundleRefs?.[0] ?? {}, 'artifactId', 'run-bundle:wrong');
+          if (mutation === 'extra-ref') Reflect.set(receipt, 'bundleRefs', [...(receipt.bundleRefs ?? []), ...(receipt.bundleRefs ?? [])]);
+          if (mutation === 'valid-wrong-run') {
+            const run = decodeExecuteIntentBundle(f.bytes); const wrong = encodeExecuteIntentBundle({ ...run, streamId: 'foreign' });
+            const digest = await f.events.bundleStore.put(wrong); Reflect.set(receipt.bundleRefs?.[0] ?? {}, 'digest', digest);
+          }
+          if (['artifact-id', 'extra-ref', 'valid-wrong-run'].includes(mutation)) {
+            Reflect.set(member.data ?? {}, 'bundleRefs', receipt.bundleRefs);
+            db.prepare('UPDATE events SET data=?,payload=? WHERE streamId=? AND sequence=?').run(JSON.stringify(member.data), JSON.stringify(member), STREAM, member.sequence);
+          }
+          expect(db.prepare('UPDATE idempotency_claims SET eventIds=?,sequences=?,timestamps=?,events_json=? WHERE streamId=? AND idempotencyKey=?').run(JSON.stringify(claim.eventIds), JSON.stringify(claim.sequences), JSON.stringify(claim.timestamps), JSON.stringify({ version: 1, streamId: claim.streamId, requestDigest: claim.requestDigest, result: receipt }), DECIDE_ONCE_CLAIM_STREAM, f.original.operationId).changes).toBe(1);
+        } else if (mutation === 'member-missing') expect(db.prepare('DELETE FROM events WHERE streamId=? AND sequence=?').run(STREAM, member.sequence).changes).toBe(1);
+        else if (mutation.startsWith('member-')) {
+          if (mutation === 'member-eventId') Reflect.set(member, 'eventId', 'copied-member');
+          if (mutation === 'member-operation') Reflect.set(member.data ?? {}, 'operationId', 'other-operation');
+          if (mutation === 'member-failedLeaf') Reflect.set(member.data ?? {}, 'failedLeaf', 'create_pr');
+          expect(db.prepare('UPDATE events SET data=?,payload=? WHERE streamId=? AND sequence=?').run(JSON.stringify(member.data), JSON.stringify(member), STREAM, member.sequence).changes).toBe(1);
+        } else if (mutation === 'missing-blob') await unlink(f.blobPath);
+        else if (mutation === 'corrupt-blob') await writeFile(f.blobPath, 'corrupt original bytes');
+      } finally { db.close(); }
+      const before = durableSnapshot(f.state); const put = vi.spyOn(f.events.bundleStore, 'put');
+      const result = await f.run(f.original.operationId, ARGS, true);
+      expect(result.success, mutation).toBe(false);
+      expect(result.error?.code, mutation).toBe(mutation === 'claim-missing' ? 'INTENT_HISTORY_INCOMPLETE' : 'INTENT_HISTORY_REFUSED');
+      expect(durableSnapshot(f.state), mutation).toEqual(before); expect(f.opened, mutation).toEqual([]); expect(put, mutation).not.toHaveBeenCalled();
+    }
+  });
+
+  it('TerminalWinsDuringMissingObservation_ReauthenticatesExactRequest', async () => {
+    for (const changed of [false, true]) {
+      const f = await importedHistory(); const before = durableSnapshot(f.state);
+      const db = new Database(join(f.state, 'exarchos.db'));
+      const stored = z.object({ streamId: z.string(), idempotencyKey: z.string(), eventIds: z.string(), sequences: z.string(), timestamps: z.string(), events_json: z.string(), claimedAt: z.string() }).parse(db.prepare('SELECT * FROM idempotency_claims WHERE streamId=? AND idempotencyKey=?').get(DECIDE_ONCE_CLAIM_STREAM, f.original.operationId));
+      expect(db.prepare('DELETE FROM idempotency_claims WHERE streamId=? AND idempotencyKey=?').run(DECIDE_ONCE_CLAIM_STREAM, f.original.operationId).changes).toBe(1);
+      db.close(); const query = f.events.query.bind(f.events); let published = false;
+      vi.spyOn(f.events, 'query').mockImplementation(async (...args) => {
+        if (args[0] === 'vcs' && !published) {
+          published = true; const writer = new Database(join(f.state, 'exarchos.db'));
+          try { writer.prepare('INSERT INTO idempotency_claims (streamId,idempotencyKey,eventIds,sequences,timestamps,events_json,claimedAt) VALUES (?,?,?,?,?,?,?)').run(stored.streamId, stored.idempotencyKey, stored.eventIds, stored.sequences, stored.timestamps, stored.events_json, stored.claimedAt); }
+          finally { writer.close(); }
+        }
+        return query(...args);
+      });
+      const result = await f.run(f.original.operationId, changed ? { ...ARGS, title: 'different' } : ARGS, true);
+      expect(published).toBe(true);
+      if (changed) expect(result).toMatchObject({ success: false, error: { code: 'INTENT_REPLAY_DIGEST_MISMATCH' } });
+      else expect(result).toMatchObject({ success: true, data: f.saved.terminal.claim.result });
+      expect(durableSnapshot(f.state)).toEqual(before); expect(f.opened).toEqual([]);
+    }
+  });
+
+  it('OriginalFailedTerminal_PreservesFailureCarrierWithoutCompiler', async () => {
+    const f = await fixture(); const args = { ...ARGS, prBody: 'Missing required sections' };
+    const original = await f.run('original-failed-body', args); expect(original.success).toBe(false);
+    expect(receiptOf(original).outcome).toBe('failed'); const before = durableSnapshot(f.state);
+    expect(await f.run('original-failed-body', args, true)).toEqual(original);
+    expect(durableSnapshot(f.state)).toEqual(before); expect(f.opened).toEqual([]);
+  });
+});
+
 /** Parse frozen custody without regenerating original event IDs, timestamps or content-addressed bytes. */
 function frozenHistory() {
   const originalBytes = Buffer.from(FROZEN_HISTORY_JSON, 'utf8');
@@ -128,7 +268,7 @@ function frozenHistory() {
   const claim = z.object({ streamId: z.string(), requestDigest: z.string(), result: z.unknown(), sequences: z.array(z.number()), eventIds: z.array(z.string()), timestamps: z.array(z.string()) });
   return z.object({
     capturedFrom: z.string(), args: z.record(z.string(), z.unknown()), requestDigest: z.string(),
-    terminal: z.object({ operationId: z.string(), claim, rows: z.array(row), runBytesBase64: z.string() }),
+    terminal: z.object({ operationId: z.string(), claim, rows: z.array(row), vcsRows: z.array(row), runBytesBase64: z.string() }),
     interrupted: z.object({ operationId: z.string(), terminalClaim: z.null(), rows: z.array(row), vcsRows: z.array(row), runBytesBase64: z.string(), retry: z.object({ data: z.unknown() }), postRetryClaim: claim, postRetryRows: z.array(row) }),
   }).parse(JSON.parse(originalBytes.toString('utf8')));
 }
