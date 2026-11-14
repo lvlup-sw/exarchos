@@ -7,7 +7,7 @@
     "testFiles": 1480,
     "parsedFiles": 1435,
     "shellFiles": 45,
-    "cases": 16409,
+    "cases": 16416,
     "dynamicTitles": 288,
     "unparseableFiles": 0
   },
@@ -21799,6 +21799,21 @@
         {
           "suite": "the capsule contract, validated both ways",
           "name": "Capsule_EveryFixtureName_IsDistinct",
+          "dynamic": false
+        },
+        {
+          "suite": "the capsule contract, validated both ways",
+          "name": "CoordinateInput_RoundtripAndClosedBinding_KeepDistinctDigests",
+          "dynamic": false
+        },
+        {
+          "suite": "the capsule contract, validated both ways",
+          "name": "NormalizedInput_BoundsDenseJsonBeforeNormalization",
+          "dynamic": false
+        },
+        {
+          "suite": "the capsule contract, validated both ways",
+          "name": "Compiler8_OptionalWireFields_AgreeAcrossValidatorsAndRejectUnknownKeys",
           "dynamic": false
         }
       ]
@@ -95001,6 +95016,26 @@
           "suite": "prepared bundle compatibility",
           "name": "<dynamic-case-1>",
           "dynamic": true
+        },
+        {
+          "suite": "prepared bundle compatibility",
+          "name": "Compiler8_CompleteCustody_RoundTripsWithoutLegacyFallback",
+          "dynamic": false
+        },
+        {
+          "suite": "prepared bundle compatibility",
+          "name": "Compiler8_ContextMustMatchApprovedTaskAndSpan",
+          "dynamic": false
+        },
+        {
+          "suite": "prepared bundle compatibility",
+          "name": "Compiler8_JoinModel_RejectsCollisionsAndReorderedWaiters",
+          "dynamic": false
+        },
+        {
+          "suite": "prepared bundle compatibility",
+          "name": "Compiler8_ContextUtf8AndAggregateBounds_RejectWithoutTruncation",
+          "dynamic": false
         }
       ]
     },

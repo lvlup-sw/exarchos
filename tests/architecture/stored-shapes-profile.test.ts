@@ -83,7 +83,8 @@ describe('the stored-shape decision of the verification profile', () => {
     expect(profileDecision?.schemaVersion).toBe(SCHEMA_VERSION);
 
     for (const [name, schema] of Object.entries(UNCHANGED_SHAPES)) {
-      expect(shapeDigest(schema), name).toBe(scopeDecision?.shapes[name]);
+      if (name !== 'SettlementBundleV1Schema') expect(shapeDigest(schema), name).toBe(scopeDecision?.shapes[name]);
+      expect(shapeDigest(schema), name).toBe(decisions.at(-1)?.shapes[name]);
       expect(profileDecision?.shapes[name], name).toBe(scopeDecision?.shapes[name]);
     }
     const prepared = shapeDigest(PreparedBundleV1Schema);
@@ -102,24 +103,24 @@ describe('the stored-shape decision of the verification profile', () => {
     expect(entryDecision?.shapes.PreparedBundleV1Schema).toBe('sha256:a9449d8eaacb8bbe862150ab91c9ab2a20433a85bc71e12a0c550d85424b4610');
     expect(entryDecision?.shapes.ExarchosCapsuleV1Schema).toBe('sha256:72381c09521c02845b431f14a62d3540f632bee7f7bd9329d64dbf8b8a1ce044');
     expect(Object.keys(ExarchosCapsuleV1Schema.shape.graph.shape.tasks.element.shape).sort()).toEqual([
-      'stepId', 'taskId', 'title',
+      'stage', 'stepId', 'taskContext', 'taskId', 'title',
     ]);
     expect(Object.keys(ExarchosCapsuleV1Schema.shape.graph.shape.joins.element.shape).sort()).toEqual([
-      'joinId', 'mode', 'waitsFor',
+      'forTaskId', 'joinId', 'mode', 'waitsFor',
     ]);
     expect(Object.keys(DesignTaskSchema.shape).sort()).toEqual([
       'acceptance', 'blockedBy', 'boundaryTouching', 'files', 'id', 'implements', 'instructions',
-      'parallelizable', 'riskTier', 'testFiles', 'testLayer', 'title',
+      'knowledgeSlice', 'parallelizable', 'riskTier', 'testFiles', 'testLayer', 'title',
     ]);
     expect(Object.keys(TaskCompletionArgs.shape).sort()).toEqual([
       'baseRef', 'boundaryTouching', 'branch', 'capsuleVersion', 'result', 'riskTier', 'taskId', 'worktreePath',
     ]);
     expect(Object.keys(ExecuteIntentRunBundleV1Schema.shape).sort()).toEqual([
-      'bundleVersion', 'failedLeaf', 'failure', 'intent', 'interaction', 'kind', 'leaves',
+      'bundleVersion', 'failedLeaf', 'failure', 'input', 'intent', 'interaction', 'kind', 'leaves',
       'operationId', 'outcome', 'requestDigest', 'steering', 'streamId', 'tailSequence',
     ]);
     expect(Object.keys(SettlementBundleV1Schema.shape.verification.unwrap().element.shape).sort()).toEqual([
-      'bundleRefs', 'failedLeaf', 'message', 'operationId', 'outcome', 'taskId', 'treeCommit',
+      'bundleRefs', 'coordinate', 'failedLeaf', 'message', 'operationId', 'outcome', 'taskId', 'treeCommit',
     ]);
   });
 });
