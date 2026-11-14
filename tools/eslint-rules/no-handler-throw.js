@@ -156,10 +156,25 @@ function resolveEstreeVariable(identifierNode, sourceCode) {
   return undefined;
 }
 
+/** Select a first callback only when the resolved adapter signature proves a Boolean option. */
+function hasBooleanAdapterOption(node, services, checker) {
+  if (node.arguments.length !== 2 || node.arguments[0].type === 'SpreadElement'
+    || node.arguments[1].type !== 'Literal' || typeof node.arguments[1].value !== 'boolean') return false;
+  const call = services.esTreeNodeToTSNodeMap.get(node);
+  if (!call || !ts.isCallExpression(call)) return false;
+  const signature = checker.getResolvedSignature(call);
+  if (!signature || signature.parameters.length !== 2) return false;
+  const callback = checker.getTypeOfSymbolAtLocation(signature.parameters[0], call);
+  const option = checker.getNonNullableType(checker.getTypeOfSymbolAtLocation(signature.parameters[1], call));
+  return callback.getCallSignatures().length > 0 && (option.flags & ts.TypeFlags.BooleanLike) !== 0
+    && checker.getReturnTypeOfSignature(signature).getCallSignatures().length > 0;
+}
+
 /**
  * Resolves an `ACTION_HANDLERS` value or a special-branch callee to the `ts.Node` of
- * the handler function. It unwraps casts, takes the last argument of an adapter call,
- * and resolves an identifier through the type checker, across files too. An inline
+ * the handler function. It unwraps casts and takes the last adapter argument,
+ * except for a typed callback with a literal Boolean option.
+ * It resolves an identifier through the type checker, across files too. An inline
  * function literal is the handler. For a zero-arg factory call, it resolves the factory
  * and unwraps the function literal that the factory returns.
  * It returns `undefined` when no function declaration resolves.
@@ -176,6 +191,9 @@ function resolveHandlerFnNode(estreeNode, services, checker) {
         const factoryFnNode = resolveHandlerFnNode(estreeNode.callee, services, checker);
         if (!factoryFnNode) return undefined;
         return factoryReturnedFunctionNode(factoryFnNode);
+      }
+      if (hasBooleanAdapterOption(estreeNode, services, checker)) {
+        return resolveHandlerFnNode(estreeNode.arguments[0], services, checker);
       }
       const lastArg = estreeNode.arguments[estreeNode.arguments.length - 1];
       return resolveHandlerFnNode(lastArg, services, checker);
