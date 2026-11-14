@@ -23,7 +23,7 @@ describe('packaged S7 DAG races', () => {
       let ready: Record<string, unknown>;
       try { ready = await barrier.wait(); } finally { await process.stop(); }
       const tree = string(f.trees.get('T-01'));
-      expect(ready.argv).toEqual(['--no-optional-locks', '-c', 'core.fsmonitor=false', '-C', tree, 'status', '--porcelain']);
+      expect(ready.argv).toEqual(['--no-optional-locks', '-c', 'core.fsmonitor=false', '-C', tree, 'status', '--porcelain', '--untracked-files=all']);
       expect(ready.rows).toMatchObject([{ type: 'admission.evidence-recorded', data: { evidence: { verdict: 'pass' } } },
         { type: 'gate.executed', data: { passed: true, details: { taskId: 'T-01', worktree: tree, verdict: 'pass' } } }]);
       expect(ready.bindings).toHaveLength(1);

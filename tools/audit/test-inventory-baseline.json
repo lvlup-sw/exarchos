@@ -7,7 +7,7 @@
     "testFiles": 1493,
     "parsedFiles": 1448,
     "shellFiles": 45,
-    "cases": 16520,
+    "cases": 16521,
     "dynamicTitles": 288,
     "unparseableFiles": 0
   },
@@ -95765,6 +95765,11 @@
         {
           "suite": "immutable task forks",
           "name": "WrongRepo_ZeroSegments_AndDirtyScope",
+          "dynamic": false
+        },
+        {
+          "suite": "immutable task forks",
+          "name": "HiddenUntrackedInput_RefusesBeforeBinding_ThenCleanTwinAccepts",
           "dynamic": false
         },
         {

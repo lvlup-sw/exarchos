@@ -291,7 +291,7 @@ export async function observeImmutableClaimedTree(dir: string, baseCommit: strin
   if (tree.head === undefined) return { kind: 'unobservable', cause: 'The task checkout has no commit' };
   const [ancestry, status] = await Promise.all([
     isAncestor(dir, baseCommit, tree.head),
-    runGit(['--no-optional-locks', '-c', 'core.fsmonitor=false', '-C', dir, 'status', '--porcelain']),
+    runGit(['--no-optional-locks', '-c', 'core.fsmonitor=false', '-C', dir, 'status', '--porcelain', '--untracked-files=all']),
   ]);
   if (ancestry.kind === 'unobservable') return { kind: 'unobservable', cause: ancestry.cause };
   if (status.kind === 'failed') return { kind: 'unobservable', cause: status.cause };

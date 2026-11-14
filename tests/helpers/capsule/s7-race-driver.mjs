@@ -12,7 +12,7 @@ const result = await new Promise((resolve, reject) => {
     resolve({ code: error?.code ?? 0, stdout, stderr });
   });
 });
-const expected = ['--no-optional-locks', '-c', 'core.fsmonitor=false', '-C', process.env.S7_TREE, 'status', '--porcelain'];
+const expected = ['--no-optional-locks', '-c', 'core.fsmonitor=false', '-C', process.env.S7_TREE, 'status', '--porcelain', '--untracked-files=all'];
 if (result.code === 0 && args.length === expected.length && args.every((arg, i) => arg === expected[i])) {
   const db = new Database(process.env.S7_DATABASE, { readonly: true });
   let facts;

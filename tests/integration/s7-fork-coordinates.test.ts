@@ -1,6 +1,6 @@
 // @oracle-sources: real Git commit ancestry, original SQLite operation claims, and content-addressed segment input custody
 /** Real settlement binds exact Git coordinates without granting standing from observations. */
-import { chmod, readFile, writeFile } from 'node:fs/promises';
+import { chmod, readFile, unlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { existsSync } from 'node:fs';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -224,6 +224,44 @@ describe('immutable task forks', () => {
     const before = await footprint(dirty.tree); const dirtyResult = await dirty.run(); expect(dirtyResult.data).toMatchObject({ outcome: 'corrective-capsule' });
     expect(JSON.stringify(dirtyResult.data)).toContain('uncommitted-changes');
     expect(dirty.calls()).toBe(0); expect(await footprint(dirty.tree)).toEqual(before);
+  });
+
+  /** Repository status preferences cannot hide uncommitted verification inputs from immutable settlement. */
+  it('HiddenUntrackedInput_RefusesBeforeBinding_ThenCleanTwinAccepts', async () => {
+    const f = await setup();
+    await git(f.tree, 'config', 'status.showUntrackedFiles', 'no');
+    const hidden = join(f.tree, 'hidden-helper.cjs');
+    await writeFile(hidden, 'module.exports = true;\n');
+    expect(await git(f.tree, 'status', '--porcelain')).toBe('');
+    expect(await git(f.tree, 'status', '--porcelain', '--untracked-files=all')).toBe('?? hidden-helper.cjs');
+    const before = await footprint(f.tree); const rows = await f.events.query(f.streamId);
+    const refused = await f.run();
+    expect(refused).toMatchObject({ success: true, data: { outcome: 'corrective-capsule', acceptedTasks: [] } });
+    expect(JSON.stringify(refused.data)).toContain('uncommitted-changes');
+    expect(f.calls()).toBe(0); expect(f.backend.lookupSegmentInput(f.segment)).toBeUndefined();
+    expect(f.backend.lookupOperationClaim(f.segment)).toBeUndefined();
+    const after = await f.events.query(f.streamId);
+    expect(after.slice(0, rows.length)).toEqual(rows);
+    expect(after.slice(rows.length).some(row => ['task.completed', 'gate.executed', 'orchestrate.intent_executed'].includes(row.type))).toBe(false);
+    expect(await footprint(f.tree)).toEqual(before);
+    const observed = await observeImmutableClaimedTree(f.tree, f.repo.baseCommit);
+    expect(observed).toMatchObject({ kind: 'tree', head: f.repo.baseCommit, holdsBase: true, dirtyPaths: ['hidden-helper.cjs'] });
+    expect(await readFile(hidden, 'utf8')).toBe('module.exports = true;\n');
+    await unlink(hidden);
+    const accepted = await f.run(undefined, { batch: 'clean' });
+    expect(accepted.success, JSON.stringify(accepted)).toBe(true);
+    expect(accepted.data).toMatchObject({ acceptedTasks: ['target'] });
+    expect(f.calls()).toBe(1);
+    const acceptedRows = await f.events.query(f.streamId);
+    expect(acceptedRows.filter(row => row.type === 'task.completed')).toHaveLength(1);
+    expect(acceptedRows.filter(row => row.type === 'orchestrate.intent_executed')).toHaveLength(1);
+    const terminal = acceptedRows.find(row => row.type === 'orchestrate.intent_executed');
+    const operationId = terminal?.data?.operationId;
+    if (typeof operationId !== 'string') throw new Error('Missing actual clean segment');
+    expect(f.backend.lookupOperationClaim(operationId)).toBeDefined();
+    const binding = SegmentInputBindingV1Schema.parse(JSON.parse(f.backend.lookupSegmentInput(operationId) ?? 'null'));
+    const input = ExecuteIntentInputSchema.parse(JSON.parse((await f.events.bundleStore.resolve(binding.inputRef.digest)).toString()));
+    expect(input.args.coordinate).toMatchObject({ taskId: 'target', observedHeadCommit: f.repo.baseCommit });
   });
 
   /** Immutable observation leaves the index and refs unchanged and suppresses configured fsmonitor execution. */
