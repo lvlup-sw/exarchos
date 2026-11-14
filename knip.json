@@ -12,6 +12,7 @@
     ".": {
       "entry": [
         "src/index.ts",
+        "src/runtime/verification-host/main.ts",
         "src/testgen/entry-cli.ts",
         "src/testgen/entry-mcp.ts",
         "src/install/build-skills.ts",

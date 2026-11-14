@@ -27,3 +27,6 @@ export const TARGETS: readonly Target[] = [
   { os: 'darwin', arch: 'arm64', bunTarget: 'bun-darwin-arm64' },
   { os: 'windows', arch: 'x64', bunTarget: 'bun-windows-x64' },
 ] as const;
+
+/** Separately selected verifier artifacts support only the Linux confinement platform. */
+export const VERIFIER_TARGETS = TARGETS.filter(target => target.os === 'linux');

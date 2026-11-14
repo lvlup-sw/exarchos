@@ -4,10 +4,10 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1497,
-    "parsedFiles": 1452,
+    "testFiles": 1499,
+    "parsedFiles": 1454,
     "shellFiles": 45,
-    "cases": 16550,
+    "cases": 16556,
     "dynamicTitles": 288,
     "unparseableFiles": 0
   },
@@ -10287,6 +10287,32 @@
         }
       ]
     },
+    "tests/integration/1928-verifier-protocol.test.ts": {
+      "file": "tests/integration/1928-verifier-protocol.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "private verifier protocol",
+          "name": "Framing_ExactBoundAndMalformedBytesRefuseBeforeDecode",
+          "dynamic": false
+        },
+        {
+          "suite": "private verifier protocol",
+          "name": "Claims_StableOperationAliasesAndUnknownLeasesSurviveRestart",
+          "dynamic": false
+        },
+        {
+          "suite": "private verifier protocol",
+          "name": "AuthorizationFailure_RereadsAConcurrentOriginalClaim",
+          "dynamic": false
+        },
+        {
+          "suite": "private verifier protocol",
+          "name": "SignedStatuses_ExactSubjectAndSignerCannotBeSubstituted",
+          "dynamic": false
+        }
+      ]
+    },
     "tests/integration/action-contract-emissions.test.ts": {
       "file": "tests/integration/action-contract-emissions.test.ts",
       "runner": "vitest:root",
@@ -11238,6 +11264,22 @@
         {
           "suite": "telemetry action/transport split outcome (#1364)",
           "name": "Telemetry_AfterJsThrow_IncrementsTransportErrors",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/process/1928-verifier-binary.test.ts": {
+      "file": "tests/process/1928-verifier-binary.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "",
+          "name": "IndependentVerifier_RealConfinementOriginalReplayAndProtectedProvisioning",
+          "dynamic": false
+        },
+        {
+          "suite": "",
+          "name": "IndependentVerifier_CrashRetainsUnknownClaimAndStopsOwnedChildren",
           "dynamic": false
         }
       ]

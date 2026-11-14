@@ -19,7 +19,7 @@ import { $ } from 'bun';
 import { mkdirSync, readFileSync } from 'node:fs';
 import { resolve, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { TARGETS, type Target } from './build-binary-targets.js';
+import { TARGETS, VERIFIER_TARGETS, type Target } from './build-binary-targets.js';
 import { generateEmbeddedRuntimesModule } from './codegen-runtimes.js';
 import {
   buildIdentityBanner,
@@ -145,18 +145,23 @@ function buildReleaseTag(version: string): string {
  * stale copy. `--target` selects the Bun runtime to embed. `--define` inlines the version and the
  * release tag, and `--banner` stamps the build identity into the artifact.
  */
-async function buildOne(target: Target, outdir: string = DEFAULT_OUTDIR): Promise<void> {
-  codegenEmbeddedRuntimes();
+async function buildOne(target: Target, outdir: string = DEFAULT_OUTDIR, component: 'governor' | 'verifier' = 'governor'): Promise<void> {
+  if (component === 'governor') codegenEmbeddedRuntimes();
+  if (component === 'verifier' && target.os !== 'linux') throw new Error('Verifier requires a Linux target');
 
   const ext = target.os === 'windows' ? '.exe' : '';
-  const outfile = join(outdir, `exarchos-${target.os}-${target.arch}${ext}`);
+  const outfile = join(outdir, `exarchos-${component === 'verifier' ? 'verifier-' : ''}${target.os}-${target.arch}${ext}`);
   mkdirSync(outdir, { recursive: true });
 
   const version = readBuildVersion();
   const versionDefine = `EXARCHOS_BUILD_VERSION=${JSON.stringify(version)}`;
   const releaseTagDefine = `EXARCHOS_BUILD_RELEASE_TAG=${JSON.stringify(buildReleaseTag(version))}`;
-  const banner = identityBanner();
-  await $`bun build src/index.ts --compile --target=${target.bunTarget} --define ${versionDefine} --define ${releaseTagDefine} --banner ${banner} --outfile ${outfile}`;
+  const identity = identityBanner();
+  const banner = component === 'verifier'
+    ? identity.replace(/^globalThis\.\w+=/, 'globalThis.__verifierBuildIdentity__=')
+    : identity;
+  const entry = component === 'verifier' ? 'src/runtime/verification-host/main.ts' : 'src/index.ts';
+  await $`bun build ${entry} --compile --target=${target.bunTarget} --define ${versionDefine} --define ${releaseTagDefine} --banner ${banner} --outfile ${outfile}`;
 
   console.log(`Built ${outfile}`);
 }
@@ -190,17 +195,20 @@ function findTargetByName(name: string): Target {
 }
 
 if ((import.meta as ImportMeta & { readonly main?: boolean }).main === true) {
+  const selectedComponent = parseFlagValue(process.argv, '--component') ?? 'governor';
+  if (selectedComponent !== 'governor' && selectedComponent !== 'verifier') throw new Error('Unsupported build component');
+  const targets = selectedComponent === 'verifier' ? VERIFIER_TARGETS : TARGETS;
   const wantAll = process.argv.includes('--all');
   const wantTarget = parseTargetFlag(process.argv);
   const outdir = parseFlagValue(process.argv, '--outdir') ?? DEFAULT_OUTDIR;
 
   if (wantAll) {
-    for (const t of TARGETS) {
-      await buildOne(t, outdir);
+    for (const t of targets) {
+      await buildOne(t, outdir, selectedComponent);
     }
   } else if (wantTarget) {
-    await buildOne(findTargetByName(wantTarget), outdir);
+    await buildOne(findTargetByName(wantTarget), outdir, selectedComponent);
   } else {
-    await buildOne(getHostTarget(), outdir);
+    await buildOne(getHostTarget(), outdir, selectedComponent);
   }
 }
