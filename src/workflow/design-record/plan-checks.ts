@@ -7,7 +7,7 @@ import type { VerificationProfile } from '../verification/profile.js';
 import type { DesignRecordSnapshot } from './schema.js';
 import { validateDesignRecord } from './validate.js';
 import { hasGwtCriteria } from './gwt.js';
-import { assessDecompositionPlausibility, countBehaviors } from './decomposition-plausibility.js';
+import { assessDecompositionPlausibility, countBehaviors, type PlausibilityBaseline } from './decomposition-plausibility.js';
 
 /** Render only authored edges. Neither titles nor other prose can add an edge. */
 function implementsEdges(snapshot: DesignRecordSnapshot) {
@@ -37,8 +37,11 @@ export function evaluatePlanCoverage(snapshot: DesignRecordSnapshot) {
 export function evaluatePlanTraceability(snapshot: DesignRecordSnapshot) {
   const validation = validateDesignRecord(snapshot);
   const edges = implementsEdges(snapshot);
-  const report = ['| Requirement | Task |', '|---|---|', ...snapshot.tasks.flatMap((task) => edges.filter((edge) => edge.taskId === task.id).map((edge) => `| ${edge.requirementId} | ${edge.taskId} |`))].join('\n');
-  return { ...validation, edges, report };
+  const lines = ['| Requirement | Task |', '|---|---|', ...snapshot.tasks.flatMap((task) => edges.filter((edge) => edge.taskId === task.id).map((edge) => `| ${edge.requirementId} | ${edge.taskId} |`))];
+  if (!validation.passed) {
+    lines.push('', '**Result: FAIL**', '', ...validation.findings.map(({ code, message }) => `- ${code}: ${message}`));
+  }
+  return { ...validation, edges, report: lines.join('\n') };
 }
 
 /** The verdict and evidence identity come from the same immutable read. */
@@ -47,12 +50,12 @@ export function evaluatePlanProvenance(snapshot: DesignRecordSnapshot) {
 }
 
 /** Typed structure and graph checks block. Semantic plausibility challenges remain advisory. */
-export function evaluatePlanDecomposition(snapshot: DesignRecordSnapshot) {
+export function evaluatePlanDecomposition(snapshot: DesignRecordSnapshot, baseline?: PlausibilityBaseline) {
   const validation = validateDesignRecord(snapshot);
   const plausibility = assessDecompositionPlausibility(snapshot.tasks.map((task) => ({
     id: task.id, files: task.files, riskTier: task.riskTier, boundaryTouching: task.boundaryTouching,
     behaviorCount: countBehaviors([task.title, task.instructions, ...task.acceptance].join('\n')),
-  })));
+  })), baseline === undefined ? {} : { baseline });
   return { ...validation, plausibility };
 }
 

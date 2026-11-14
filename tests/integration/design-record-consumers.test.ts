@@ -7,13 +7,18 @@ import fc from 'fast-check';
 import * as fsPromises from 'node:fs/promises';
 import * as fs from 'node:fs';
 import { createHash } from 'node:crypto';
-import { mkdtempSync, writeFileSync, existsSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
 import { rmrf } from '../../tools/test-helpers/temp-dir.js';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import type { EventStore } from '../../src/events/store.js';
 import type { ToolResult } from '../../src/format.js';
 import { createEvidenceSubject } from '../../src/workflow/admission/evidence-subject.js';
+import { planBootstrapPrefix } from '../../src/workflow/design-record/bootstrap-plan.js';
+import { DEFAULT_PLAUSIBILITY_BASELINE } from '../../src/workflow/design-record/decomposition-plausibility.js';
+import { builtInDefinition } from '../../src/workflow/definitions/built-in.js';
+import { prefixInput } from '../helpers/capsule/bootstrap-prefix.js';
+import { pinnedTestProfile } from '../helpers/verification-profile.js';
 import { readDesignRecord } from '../../src/workflow/design-record/read.js';
 import { evaluatePlanCoverage, evaluatePlanDecomposition, evaluatePlanProvenance, evaluatePlanTraceability } from '../../src/workflow/design-record/plan-checks.js';
 
@@ -35,7 +40,8 @@ vi.mock('../../src/verbs/gates/gate-runner.js', () => ({
     return request.executeProvider();
   },
 }));
-vi.mock('../../src/verbs/gates/gate-utils.js', () => ({
+vi.mock('../../src/verbs/gates/gate-utils.js', async (original) => ({
+  ...await original<typeof import('../../src/verbs/gates/gate-utils.js')>(),
   emitGateEvent: vi.fn(async () => {}),
   requireGateEvent: vi.fn(async () => undefined),
   sameOperationGateKey: (gate: string) => gate,
@@ -44,6 +50,7 @@ import { handlePlanCoverage } from '../../src/verbs/gates/plan-coverage.js';
 import { handleGenerateTraceability } from '../../src/verbs/gates/generate-traceability.js';
 import { handleProvenanceChain } from '../../src/verbs/gates/provenance-chain.js';
 import { verifyProvenanceChain } from '../../src/verbs/pure/provenance-chain.js';
+import { handleSpecCoverageCheck, testPathWellFormednessError } from '../../src/verbs/gates/spec-coverage-check.js';
 import { handleTaskDecomposition } from '../../src/verbs/tasks/task-decomposition.js';
 
 const directories: string[] = [];
@@ -145,7 +152,79 @@ describe('typed consumer adoption; prepare remains deferred to its own task', ()
       expect(result.data?.findings).toEqual(expect.arrayContaining([expect.objectContaining({ code })]));
     }
     expect(results.pure.status).toBe('fail');
-    expect(existsSync(results.paths.outputFile)).toBe(false);
+    const report = fs.readFileSync(results.paths.outputFile, 'utf8');
+    expect(report).toBe(results.trace.data?.report);
+    expect(report).toContain('**Result: FAIL**');
+    expect(report).toContain(code);
+  });
+  it('TypedTraceability_Uncovered_ReplacesPassingReport', () => {
+    const paths = files(record());
+    const args = { designFile: paths.designPath, planFile: paths.designPath, outputFile: paths.outputFile };
+    const passed = handleGenerateTraceability(args);
+    expect(passed).toMatchObject({ success: true, data: { passed: true } });
+    const previous = fs.readFileSync(paths.outputFile, 'utf8');
+    expect(previous).toContain('| DR-2 | T-1 |');
+
+    writeFileSync(paths.designPath, record([task('T-01', ['DR-1'])]));
+    const failed = handleGenerateTraceability(args);
+    expect(failed).toMatchObject({ success: true, data: {
+      passed: false, findings: [expect.objectContaining({ code: 'UNIMPLEMENTED_REQUIREMENT', requirementIds: ['DR-2'] })],
+    } });
+    const report = fs.readFileSync(paths.outputFile, 'utf8');
+    expect(report).toBe(failed.data?.report);
+    expect(report).toContain('| DR-1 | T-01 |');
+    expect(report).not.toContain('| DR-2 | T-1 |');
+    expect(report).toContain('**Result: FAIL**');
+    expect(report).toContain('UNIMPLEMENTED_REQUIREMENT: Requirement DR-2 has no implementing task.');
+
+    writeFileSync(paths.designPath, '```exarchos-plan-v1\n{\n```');
+    expect(handleGenerateTraceability(args)).toMatchObject({ success: false, error: { code: 'INVALID_DESIGN_RECORD' } });
+    expect(fs.readFileSync(paths.outputFile, 'utf8')).toBe(report);
+  });
+  it('TypedDecomposition_ExplicitBaseline_ControlsAdvisory', async () => {
+    const paths = files(record([
+      { ...task('T-1', ['DR-2']), files: ['src/a.ts', 'src/b.ts', 'src/c.ts'] },
+      task('T-01', ['DR-1'], ['T-1']),
+    ]));
+    const args = { featureId: 'consumer-test', ...paths };
+    const defaults = await handleTaskDecomposition(args, '', store);
+    expect(defaults).toMatchObject({ success: true, data: { passed: true, plausibility: { challenged: false, challenges: [] } } });
+    const custom = await handleTaskDecomposition(args, '', store, { ...DEFAULT_PLAUSIBILITY_BASELINE, maxFileCount: 2 });
+    expect(custom).toMatchObject({ success: true, data: { passed: true, plausibility: { challenged: true, challenges: [
+      expect.objectContaining({ signal: 'historical-size', taskId: 'T-1', observed: 3, threshold: 2 }),
+    ] } } });
+    expect(custom.data?.report).toContain('baseline 2');
+  });
+  it('TypedTestPath_WhitespaceRejectedBeforeGlobOrExistence', async () => {
+    const clean = 'tests/check.test.ts';
+    const pinnedProfile = pinnedTestProfile(1, { globs: { state: 'resolved', globs: ['**/*.test.ts'], source: 'config' } });
+    const plan = (testPath: string) => record([{ ...task('T-01', ['DR-1', 'DR-2']), testFiles: [testPath] }]);
+    const paths = files(plan(clean));
+    const repoRoot = dirname(paths.planPath);
+    mkdirSync(join(repoRoot, 'tests'));
+    writeFileSync(join(repoRoot, clean), '');
+    const check = (coveragePhase: 'plan' | 'post-implementation') => handleSpecCoverageCheck({
+      featureId: 'consumer-test', planFile: paths.planPath, repoRoot, coveragePhase, skipRun: true, pinnedProfile,
+    }, '', store);
+    const bootstrap = (text: string) => planBootstrapPrefix({
+      ...prefixInput('feature', builtInDefinition('feature'), snapshot(text)), profile: pinnedProfile.profile,
+    });
+    expect(bootstrap(plan(clean))).toMatchObject({ ok: true, phase: 'delegate' });
+    for (const phase of ['plan', 'post-implementation'] as const) {
+      expect(await check(phase)).toMatchObject({ success: true, data: { passed: true, found: 1, malformed: [], missing: [] } });
+    }
+    expect(testPathWellFormednessError(` ${clean} `)).toBeNull();
+
+    for (const padded of [` ${clean}`, `${clean} `, `\t${clean}`, `${clean}\n`]) {
+      const text = plan(padded);
+      writeFileSync(paths.planPath, text);
+      expect(bootstrap(text)).toMatchObject({ ok: false, gate: 'spec_coverage_check', message: expect.stringContaining('holds no whitespace') });
+      for (const phase of ['plan', 'post-implementation'] as const) {
+        expect(await check(phase)).toMatchObject({ success: true, data: {
+          passed: false, found: 0, malformed: [padded], missing: [], report: expect.stringContaining('holds no whitespace'),
+        } });
+      }
+    }
   });
   it('classifies both sources and refuses different typed or legacy bytes', async () => {
     for (const [design, plan] of [[record(), 'legacy'], ['legacy', record()], [record(), '```exarchos-plan-v1\n{\n```'], [record(), record() + '\n'], ['```exarchos-plan-v1\n{\n```', record()]]) {

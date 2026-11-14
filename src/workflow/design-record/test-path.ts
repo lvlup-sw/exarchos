@@ -16,20 +16,19 @@ export function testPathWellFormednessError(
   testPath: string,
   globs: readonly string[],
 ): string | null {
-  const trimmed = testPath.trim();
-  if (trimmed.length === 0) {
+  if (testPath.trim().length === 0) {
     return 'Empty test path';
   }
-  if (/^(?:[a-zA-Z]:[\\/]|[\\/])/.test(trimmed)) {
+  if (/^(?:[a-zA-Z]:[\\/]|[\\/])/.test(testPath)) {
     return 'Absolute path — declare a repo-relative test path instead';
   }
-  if (trimmed.split(/[\\/]/).includes('..')) {
+  if (testPath.split(/[\\/]/).includes('..')) {
     return 'Path escapes the repo root via a ".." segment';
   }
-  if (WHITESPACE.test(trimmed)) {
+  if (WHITESPACE.test(testPath)) {
     return 'Does not name a test file (a test path holds no whitespace)';
   }
-  if (!matchesAnyGlob(trimmed, globs)) {
+  if (!matchesAnyGlob(testPath, globs)) {
     return 'Does not name a test file (no glob of tests.globs matches the path)';
   }
   return null;

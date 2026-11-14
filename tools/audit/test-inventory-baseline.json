@@ -7,7 +7,7 @@
     "testFiles": 1480,
     "parsedFiles": 1435,
     "shellFiles": 45,
-    "cases": 16390,
+    "cases": 16393,
     "dynamicTitles": 283,
     "unparseableFiles": 0
   },
@@ -95260,6 +95260,21 @@
           "suite": "typed consumer adoption; prepare remains deferred to its own task",
           "name": "<dynamic-case-2>",
           "dynamic": true
+        },
+        {
+          "suite": "typed consumer adoption; prepare remains deferred to its own task",
+          "name": "TypedTraceability_Uncovered_ReplacesPassingReport",
+          "dynamic": false
+        },
+        {
+          "suite": "typed consumer adoption; prepare remains deferred to its own task",
+          "name": "TypedDecomposition_ExplicitBaseline_ControlsAdvisory",
+          "dynamic": false
+        },
+        {
+          "suite": "typed consumer adoption; prepare remains deferred to its own task",
+          "name": "TypedTestPath_WhitespaceRejectedBeforeGlobOrExistence",
+          "dynamic": false
         },
         {
           "suite": "typed consumer adoption; prepare remains deferred to its own task",

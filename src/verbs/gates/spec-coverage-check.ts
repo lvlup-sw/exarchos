@@ -134,7 +134,7 @@ export function testPathWellFormednessError(
   testPath: string,
   globs: readonly string[] = DEFAULT_TEST_GLOBS,
 ): string | null {
-  return declaredTestPathError(testPath, globs);
+  return declaredTestPathError(testPath.trim(), globs);
 }
 
 function generateReport(
@@ -296,7 +296,8 @@ async function executeSpecCoverageCheck(args: SpecCoverageCheckArgs): Promise<To
     : extractTestFiles(bytes.toString('utf8'), globTerm.globs);
 
   return phase === 'plan'
-    ? runPlanSyntaxCheck(planFile, repoRoot, testFiles, globTerm.globs)
+    ? runPlanSyntaxCheck(planFile, repoRoot, testFiles, globTerm.globs,
+      record.kind === 'typed' ? declaredTestPathError : testPathWellFormednessError)
     : runImplementationCoverageCheck(args, testFiles, tests.probe, record.kind === 'typed' ? globTerm.globs : undefined);
 }
 
@@ -335,6 +336,7 @@ function runPlanSyntaxCheck(
   repoRoot: string,
   testFiles: readonly string[],
   globs: readonly string[],
+  pathError: typeof declaredTestPathError,
 ): ToolResult {
   const checks: CheckEntry[] = [];
   const malformed: string[] = [];
@@ -348,7 +350,7 @@ function runPlanSyntaxCheck(
   }
 
   for (const testFile of testFiles) {
-    const problem = testPathWellFormednessError(testFile, globs);
+    const problem = pathError(testFile, globs);
     if (problem === null) {
       checks.push({ status: 'PASS', name: `Test path well-formed: ${testFile}` });
     } else {
@@ -468,7 +470,7 @@ async function runImplementationCoverageCheck(
   }
 
   for (const testFile of testFiles) {
-    const problem = typedGlobs === undefined ? null : testPathWellFormednessError(testFile, typedGlobs);
+    const problem = typedGlobs === undefined ? null : declaredTestPathError(testFile, typedGlobs);
     if (problem !== null) {
       checks.push({ status: 'FAIL', name: `Test path well-formed: ${testFile}`, detail: problem });
       malformed.push(testFile);

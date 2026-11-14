@@ -183,7 +183,7 @@ export function handleGenerateTraceability(args: GenerateTraceabilityArgs): Tool
   if (read.kind === 'typed') {
     const result = evaluatePlanTraceability(read.snapshot);
     const coveredCount = read.snapshot.requirements.filter((id) => result.edges.some((edge) => edge.requirementId === id)).length;
-    if (result.passed && args.outputFile) writeFileSync(args.outputFile, result.report, 'utf-8');
+    if (args.outputFile) writeFileSync(args.outputFile, result.report, 'utf-8');
     return { success: true, data: { ...result, sections: read.snapshot.requirements.length,
       coveredCount, uncoveredCount: read.snapshot.requirements.length - coveredCount } };
   }

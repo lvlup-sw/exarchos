@@ -660,7 +660,7 @@ async function executeTaskDecomposition(
 
   if (record.kind === 'invalid') return { success: false, error: { code: 'INVALID_DESIGN_RECORD', message: record.message } };
   if (record.kind === 'typed') {
-    const result = evaluatePlanDecomposition(record.snapshot);
+    const result = evaluatePlanDecomposition(record.snapshot, baseline);
     const totalTasks = record.snapshot.tasks.length;
     const needsRework = record.snapshot.tasks.filter((task) => result.findings.some((finding) => finding.taskIds.includes(task.id))).length;
     const wellDecomposed = totalTasks - needsRework;
