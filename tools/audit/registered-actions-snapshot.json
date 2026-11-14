@@ -4,7 +4,7 @@
   "counts": {
     "tools": 5,
     "visibleTools": 4,
-    "actions": 127,
+    "actions": 128,
     "eventTypes": 186
   },
   "tools": [
@@ -84,6 +84,7 @@
         "prepare_synthesis",
         "prune_stale_workflows",
         "prune_worktrees",
+        "read_prepared_capsule",
         "reconcile_state",
         "reconcile_worktrees",
         "release_worktree",

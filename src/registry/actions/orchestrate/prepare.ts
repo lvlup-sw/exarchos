@@ -61,7 +61,7 @@ export const prepareActions: readonly BuiltinToolAction[] = [
   withContract({
     name: 'prepare',
     description:
-      'Compile ready tasks of a task-batch step into one capsule and record workflow.prepared. ' +
+      'Compile the work selected by the pinned compiler into one capsule and record workflow.prepared. ' +
       'Bootstrap an empty stream with type, base, relative designRef and approved SHA-256. ' +
       'Use compile intent for later typed preparation. Legacy plans allow no intent. ' +
       'Repeat a bootstrap request to recover its receipt or repair its document. ' +

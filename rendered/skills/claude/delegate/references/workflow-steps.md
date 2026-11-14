@@ -15,7 +15,7 @@ exarchos_orchestrate({
 })
 ```
 
-Resend the identical saved bootstrap request to recover its receipt. Preserve the original approval and depth even if the checkout has changed. For a later frontier, design revision, or approved plan edit, use compile intent. If the file changed, obtain approval for the new raw bytes and set `approvedCurrentFileSha256` to their digest. If the file is unchanged, use its existing approval.
+Resend the identical saved bootstrap request to recover its receipt. Preserve the original approval and depth even if the checkout has changed. Use compile intent for a design revision or approved plan edit. Compiler 7 also needs it for each later frontier; compiler 8 keeps the complete pinned graph across waves. If the file changed, obtain approval for the new raw bytes and set `approvedCurrentFileSha256` to their digest. If the file is unchanged, use its existing approval.
 
 ```typescript
 exarchos_orchestrate({
@@ -40,11 +40,13 @@ The worktree is detached, so the base step of the worker makes the branch of the
 
 A task never runs in the checkout that `prepare` read or in the primary worktree of the repository: `settle` and `task_complete` refuse both. A linked `node_modules` needs the ignore rule `node_modules`, without a trailing slash, or the worktree is not clean.
 
+For compiler-8 dependents, replace the root base step with `git switch -c <own branch> <forkCommit>` at the supplied clean commit containing all direct blocker heads and the pinned base. Record the full fork before edits and return `fields.forkCommit` when the result contract requires it. Never reset a dependent to the root base.
+
 ## Step 2: Extract Task Details
 
-For each capsule task, use its ID to select the object from the approved typed plan. Copy the title, instructions, acceptance criteria, and source and test paths into the worker prompt.
+For compiler 8, copy each pinned taskContext and its referenced result contract from the capsule or its exact read_prepared_capsule detail invocation. Follow continuations without changing stream/version. Do not rebuild context from current prose. For compiler 7, use each capsule task ID to select the object from the matching approved typed plan. Copy full title, instructions, acceptance criteria, and source and test paths into the worker prompt.
 
-From implementation plan, extract for each task:
+From that version-appropriate source, include for each task:
 - Full task description
 - Files to create/modify
 - Test file paths
@@ -213,9 +215,9 @@ A task that is not completed gets a claim with a status and a reason, and no fie
 - Every claim is read against the task's declared result shape
 - Each accepted task's verification runs — the ladder gates under the tier the capsule froze, then the completion — against the worktree the claim names
 - A claim with a status gets no verification, and its task stays unresolved
-- A settled batch leaves every required task complete. Each other outcome names every finding at once
+- Compiler 7 settlement requires every required result. Compiler 8 can accept a partial batch while other graph nodes remain; accepted standing must come from actual claims and custody. Read the findings and phaseMove rather than treating an accepted subset as whole-graph completion.
 
-**On `settled`:** All delegation results verified. Update TodoWrite status, land the worktrees, run the wave backstop, then check if schema sync is needed (Step 7) and proceed to review phase.
+**On `settled`:** Update TodoWrite for accepted results, land their worktrees and run the wave backstop. For compiler 8, continue any remaining eligible graph nodes under the same applicable capsule with a new batchId. Follow phaseMove; proceed to schema sync (Step 7) and review only when the whole task-batch obligations are satisfied.
 
 **On `accepted-with-rationale`:** The batch is settled, and a claim records a delegated choice. The same gates ran. Continue as on `settled`.
 

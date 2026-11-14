@@ -113,6 +113,7 @@ import { resolveWorkflowState } from './resolve-state.js';
 import { TASK_COMPLETION } from '../runbooks/definitions.js';
 import { handleExecuteIntent, productionExecuteDeps, derivedLeafOperationId } from './execute/executor.js';
 import { handlePrepare } from './prepare/handler.js';
+import { handleReadPreparedCapsule } from './prepare/read-prepared-capsule.js';
 import { handleSettle } from './settle/handler.js';
 
 type ActionHandler = (args: Record<string, unknown>, stateDir: string, ctx?: DispatchContext) => Promise<ToolResult>;
@@ -567,6 +568,10 @@ export const ACTION_HANDLERS: Readonly<Record<string, ActionHandler>> = {
     return handleSettle(args, stateDir, ctx, {
       execute: productionExecuteDeps(ACTION_HANDLERS, ACTION_HANDLERS_TOOL),
     });
+  },
+  read_prepared_capsule: async (args, stateDir, ctx) => {
+    if (!ctx) throw new Error('DispatchContext required for read_prepared_capsule');
+    return handleReadPreparedCapsule(args, stateDir, ctx, ctx.preparedDetailWarnings);
   },
   /** The compilation endpoint, the pair of `settle`. It reads the workflow and commits through the store, so it needs the real context. */
   prepare: async (args, stateDir, ctx) => {

@@ -113,13 +113,18 @@ const LOCK_NOTE =
   'the preceding change. No invariant changed.' +
   ' RE-APPROVED for the INV-3 edit. The `invariant-catalog` digest moves because INV-3 no ' +
   'longer names the remote-MCP skeleton. Reed decided on 2026-10-23 to delete it before its ' +
-  'RESERVED expiry of 2026-10-31. INV-3 keeps its other references, and no other invariant changed.';
+  'RESERVED expiry of 2026-10-31. INV-3 keeps its other references, and no other invariant changed.' +
+  ' RE-APPROVED for S7 T12 by the delegated Codex coordinator under Reed\'s authorized ' +
+  'project decision: read_prepared_capsule is the sole added ActionId. It reads bounded ' +
+  'historical prepared custody with no writes. All other authority pins remain unchanged.';
 
 /**
  * The approver that the freeze records for the current snapshot. Change it at each new approval, so
  * the lockfile records who approved and not the tool.
  */
 export const CURRENT_APPROVER =
+  'Delegated Codex coordinator (S7 T12 action introduction reviewed under Reed\'s authorized ' +
+  'project decision, 2026-11-14). Previously: ' +
   'Reed (re-approved for the INV-3 edit: the reference to the deleted remote-MCP skeleton ' +
   'removed; decision of 2026-10-23). Previously: ' +
   'Reed (re-approved for the compilation endpoint: exarchos_orchestrate.prepare added, ' +

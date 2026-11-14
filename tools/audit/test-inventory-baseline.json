@@ -4,10 +4,10 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1489,
-    "parsedFiles": 1444,
+    "testFiles": 1490,
+    "parsedFiles": 1445,
     "shellFiles": 45,
-    "cases": 16505,
+    "cases": 16509,
     "dynamicTitles": 288,
     "unparseableFiles": 0
   },
@@ -95959,6 +95959,32 @@
         {
           "suite": "authenticated prepared detail",
           "name": "DetailRead_ZeroWrites",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/integration/s7-dispatch-contract.test.ts": {
+      "file": "tests/integration/s7-dispatch-contract.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "prepared detail public dispatch",
+          "name": "DetailRead_CliMcpParity_BothFrontEndsRecoverPinnedContext",
+          "dynamic": false
+        },
+        {
+          "suite": "prepared detail public dispatch",
+          "name": "TelemetryOn_DetailAndRefusalsHaveZeroWrites",
+          "dynamic": false
+        },
+        {
+          "suite": "prepared detail public dispatch",
+          "name": "Compiler8_DeclaredShapeParity_ClosedInputsAndReadAuthority",
+          "dynamic": false
+        },
+        {
+          "suite": "prepared detail public dispatch",
+          "name": "FinalCarrier_CorrelationAndAmbientWarningFitBeforeReturn",
           "dynamic": false
         }
       ]

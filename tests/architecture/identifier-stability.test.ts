@@ -358,6 +358,7 @@ describe('identifier stability across decomposition', () => {
         'cutover_decide',
         'execute_intent',
         'prepare',
+        'read_prepared_capsule',
         'settle',
         'describe',
       ],
