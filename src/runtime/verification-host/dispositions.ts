@@ -3,6 +3,7 @@ import { timingSafeEqual } from 'node:crypto';
 import { VerificationCommand, type VerificationResponse, verificationDigest, signVerification, authenticateVerification, signVerificationReply, encodeVerificationFrame, VERIFIER_VERSION } from '../../contract/verification/harness-verification.js';
 import { authorizeVerification } from './authorization.js';
 import { VerificationClaims } from './claims.js';
+import { runHostedAdequacy } from './adequacy.js';
 import { runVerificationProbe } from './processes.js';
 import type { loadHostProvisioning } from './provisioning.js';
 
@@ -37,7 +38,9 @@ export function createVerificationDispositions(config: Awaited<ReturnType<typeof
           else {
             const execution = (async (): Promise<VerificationResponse> => {
               try {
-                const outcome = await runVerificationProbe(authorized, abort.signal);
+                const outcome = request.operation === 'adequacy'
+                  ? await runHostedAdequacy(authorized, abort.signal)
+                  : await runVerificationProbe(authorized, abort.signal);
                 const signed = signVerification({ version: 1, hostVersion: VERIFIER_VERSION, signerId: config.signerId,
                   request, requestDigest: digest, hostPolicyDigest: authorized.hostPolicyDigest, resources: authorized.identities, completedAt: new Date().toISOString(), outcome }, config.privateKey);
                 const terminal: Extract<VerificationResponse, { kind: 'evidence' }> = { kind: 'evidence', signed };

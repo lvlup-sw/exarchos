@@ -1,8 +1,9 @@
 /** Authorize exact configured subjects and disjoint resources before a durable execution claim. */
 import { realpath, stat, open, lstat } from 'node:fs/promises';
+import { constants } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { basename, dirname, join, relative, isAbsolute, sep } from 'node:path';
-import { verificationJson, verificationKey, type VerificationRequest } from '../../contract/verification/harness-verification.js';
+import { verificationJson, verificationKey, verificationValueDigest, type VerificationRequest } from '../../contract/verification/harness-verification.js';
 import { createGitObserver } from '../../utils/git-observer.js';
 import type { HostProvisioning } from './provisioning.js';
 
@@ -74,6 +75,29 @@ function mountedLocation(mounts: Awaited<ReturnType<typeof readMounts>>, path: s
   return { device: mount.device, path: join(mount.root, relative(mount.path, path)) };
 }
 
+/** Check exact runtime bytes through a bounded, non-following file handle. */
+async function requireRuntimeDigest(path: string, expected: string): Promise<void> {
+  if (!isAbsolute(path) || await realpath(path) !== path) throw new Error('Canonical runner path required');
+  const file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+  try {
+    const before = await file.stat();
+    if (!before.isFile() || before.size > 256 * 1024 * 1024) throw new Error('Invalid pinned runtime file');
+    const hash = createHash('sha256');
+    let size = 0;
+    const bytes = Buffer.alloc(64 * 1024);
+    for (;;) {
+      const read = await file.read(bytes, 0, bytes.length, null);
+      if (read.bytesRead === 0) break;
+      size += read.bytesRead;
+      if (size > before.size) throw new Error('Pinned runtime grew');
+      hash.update(bytes.subarray(0, read.bytesRead));
+    }
+    const after = await file.stat();
+    if (size !== before.size || before.mtimeMs !== after.mtimeMs || before.ctimeMs !== after.ctimeMs ||
+      hash.digest('hex') !== expected) throw new Error('Pinned runtime digest changed');
+  } finally { await file.close(); }
+}
+
 /** Resolve operator policy into immutable resource identities and a fixed executable profile. */
 export async function authorizeVerification(policy: HostProvisioning, provisioningPath: string, request: VerificationRequest) {
   const { key, ...rest } = request;
@@ -83,6 +107,13 @@ export async function authorizeVerification(policy: HostProvisioning, provisioni
   if (!resource || !profile || policy.resources.filter(value => value.id === request.resourceId).length !== 1
     || policy.profiles.filter(value => value.id === request.profileId).length !== 1
     || verificationJson(resource.subject) !== verificationJson(request.subject) || profile.digest !== request.subject.profileDigest) throw new Error('Request does not match operator policy');
+  if (request.operation === 'adequacy' &&
+      (profile.adequacy === undefined
+      || verificationJson(profile.adequacy.selection) !== verificationJson(request.selection)
+      || verificationValueDigest(request.selection) !== request.subject.testSelectionDigest
+      || verificationValueDigest({ command: profile.adequacy.command, files: profile.adequacy.files }) !== request.commandDigest)) {
+    throw new Error('Adequacy selection is not authorized');
+  }
   const paths = [...new Set([resource.checkout, resource.repository, resource.gitDir])];
   const gitPath = await trustedSystemExecutable(policy.gitPath, 'git');
   const bwrap = await trustedSystemExecutable(policy.bwrapPath, 'bwrap');
@@ -109,13 +140,46 @@ export async function authorizeVerification(policy: HostProvisioning, provisioni
   const controlIdentities = await Promise.all(controls.map(path => stat(path)));
   const runtimePaths = await Promise.all(policy.runtimePaths.map(path => realpath(path)));
   const executable = await realpath(profile.executable);
+  const dependencies = profile.adequacy?.dependencyRoot;
+  if (dependencies !== undefined &&
+      (!isAbsolute(dependencies) || await realpath(dependencies) !== dependencies ||
+      !runtimePaths.includes(dependencies) || !(await stat(dependencies)).isDirectory())) {
+    throw new Error('Adequacy dependencies require an explicitly approved canonical runtime directory');
+  }
   const mounts = await readMounts();
   const controlLocations = controls.map(path => mountedLocation(mounts, path));
   for (const path of [policy.tokenPath, policy.privateKeyPath, provisioningPath]) {
     const info = await lstat(path);
     if (!info.isFile() || info.nlink !== 1 || info.uid !== process.getuid?.() || (info.mode & 0o777) !== 0o600) throw new Error('Control file authority changed');
   }
-  if (!runtimePaths.some(path => executable === path || executable.startsWith(`${path}${sep}`))) throw new Error('Executable is outside approved runtime mounts');
+  const mountedRuntime = (file: string) => runtimePaths.some(path => file.startsWith(path + sep));
+  if (!mountedRuntime(executable)) throw new Error('Executable is outside approved runtime mounts');
+  if (request.operation === 'adequacy') {
+    const configured = profile.adequacy;
+    if (configured === undefined || configured.controlPaths.length !== new Set(configured.controlPaths).size ||
+      configured.controlPaths.some(path => request.selection.sources.includes(path))) {
+      throw new Error('Adequacy control inputs must be frozen outside the source revert');
+    }
+    const node = configured.reporter !== 'vitest';
+    const supported = node
+      ? verificationJson(configured.command) === verificationJson(['node', '--test']) &&
+        configured.files === 'as-arguments' && verificationJson(profile.args) === verificationJson(['--test'])
+      : verificationJson(configured.command) === verificationJson(['npm', 'run', 'test:files']) &&
+        configured.files === 'after-separator' && dependencies !== undefined &&
+        configured.npmEntry !== undefined && mountedRuntime(configured.npmEntry) &&
+        configured.controlPaths.includes('package.json') &&
+        configured.controlPaths.includes('tools/test-helpers/run-test-files.mjs') &&
+        configured.controlPaths.some(path => /^vitest\.config\.[cm]?[jt]s$/.test(path)) &&
+        verificationJson(profile.args) === verificationJson([configured.npmEntry, 'run', 'test:files']);
+    if (!supported || paths.some(path => pathsOverlap(path, executable) || (
+      configured.npmEntry !== undefined && pathsOverlap(path, configured.npmEntry)
+    ))) throw new Error('Unsupported hosted adequacy runner');
+    await requireRuntimeDigest(executable, configured.runnerDigest);
+    if (!node) {
+      if (configured.npmEntry === undefined || configured.npmDigest === undefined) throw new Error('Pinned npm entry required');
+      await requireRuntimeDigest(configured.npmEntry, configured.npmDigest);
+    }
+  }
   for (const exposed of [...paths, ...runtimePaths]) {
     if (mounts.some(mount => mount.path !== exposed && mount.path.startsWith(`${exposed}${sep}`))) throw new Error('Nested resource mounts are unsupported');
     const info = await stat(exposed);
@@ -129,12 +193,13 @@ export async function authorizeVerification(policy: HostProvisioning, provisioni
     const other = await realpath(configured.checkout);
     if (other !== resource.checkout && pathsOverlap(other, resource.checkout)) throw new Error('Overlapping checkout authority');
   }
-  const mountsAndTools = [...new Set([...paths, ...runtimePaths, bwrap, executable, gitPath])];
+  const npmEntry = request.operation === 'adequacy' ? profile.adequacy?.npmEntry : undefined;
+  const mountsAndTools = [...new Set([...paths, ...runtimePaths, bwrap, executable, gitPath, ...(npmEntry === undefined ? [] : [npmEntry])])];
   const custody = await Promise.all(mountsAndTools.map(async path => {
     const info = await stat(path);
     return { path, canonical: await realpath(path), device: String(info.dev), inode: String(info.ino), mode: info.mode, uid: info.uid };
   }));
   const hostPolicyDigest = createHash('sha256').update(verificationJson({ profile, runtimePaths, bwrap, gitPath, custody })).digest('hex');
-  return { custody, hostPolicyDigest, policy, provisioningPath, request, resource, profile: { ...profile, executable }, identities, runtimePaths: [...new Set(runtimePaths)], bwrap };
+  return { custody, hostPolicyDigest, policy, provisioningPath, request, resource, gitPath, profile: { ...profile, executable }, identities, runtimePaths: [...new Set(runtimePaths)], bwrap };
 }
 export type AuthorizedVerification = Awaited<ReturnType<typeof authorizeVerification>>;

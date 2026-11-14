@@ -4,12 +4,25 @@ import { lstat, open, realpath } from 'node:fs/promises';
 import { dirname, isAbsolute, resolve } from 'node:path';
 import { createPrivateKey } from 'node:crypto';
 import { z } from 'zod';
-import { VerificationSubject, verifierSignerId } from '../../contract/verification/harness-verification.js';
+import { AdequacySelection, VerificationSubject, verifierSignerId } from '../../contract/verification/harness-verification.js';
 
 export const HostProvisioning = z.object({
   version: z.literal(1), socketPath: z.string(), stateDir: z.string(), tokenPath: z.string(), privateKeyPath: z.string(), publicKey: z.string().max(4096),
   bwrapPath: z.string(), gitPath: z.string(), runtimePaths: z.array(z.string()).min(1).max(16),
-  profiles: z.array(z.object({ id: z.string(), digest: z.string().regex(/^[a-f0-9]{64}$/), executable: z.string(), args: z.array(z.string().max(1024)).max(32), timeoutMs: z.number().int().min(100).max(30000) }).strict()).min(1).max(32),
+  profiles: z.array(z.object({ id: z.string(), digest: z.string().regex(/^[a-f0-9]{64}$/), executable: z.string(), args: z.array(z.string().max(1024)).max(32), timeoutMs: z.number().int().min(100).max(30000),
+    adequacy: z.object({
+      command: z.array(z.string().min(1).max(1024)).min(1).max(32),
+      selection: AdequacySelection,
+      files: z.enum(['as-arguments', 'after-separator']),
+      runnerDigest: z.string().regex(/^[a-f0-9]{64}$/),
+      controlPaths: z.array(z.string().min(1).max(300)).max(40).refine(paths =>
+        AdequacySelection.safeParse({ tests: paths, sources: [] }).success),
+      reporter: z.enum(['node', 'vitest']).optional(),
+      dependencyRoot: z.string().optional(),
+      npmEntry: z.string().optional(),
+      npmDigest: z.string().regex(/^[a-f0-9]{64}$/).optional(),
+    }).strict().optional(),
+  }).strict()).min(1).max(32),
   resources: z.array(z.object({ id: z.string(), checkout: z.string(), repository: z.string(), gitDir: z.string(), branch: z.string(), subject: VerificationSubject }).strict()).min(1).max(64),
 }).strict();
 export type HostProvisioning = z.infer<typeof HostProvisioning>;

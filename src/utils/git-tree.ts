@@ -360,5 +360,9 @@ export async function createConstrainedGitReads(executable: string) {
     requireCommit: (gitDir: string, checkout: string, id: string) => run(gitDir, checkout, ['cat-file', '-e', `${constrainedCommitId(id)}^{commit}`]),
     ancestry: (gitDir: string, checkout: string, ancestor: string, descendant: string) => run(gitDir, checkout, ['merge-base', '--is-ancestor', constrainedCommitId(ancestor), constrainedCommitId(descendant)]),
     diff: (gitDir: string, checkout: string, base: string, head: string) => run(gitDir, checkout, ['diff', '--no-ext-diff', '--no-textconv', '--no-renames', constrainedCommitId(base), constrainedCommitId(head), '--']),
+    nameStatus: (gitDir: string, checkout: string, base: string, head: string) => run(gitDir, checkout, [
+      'diff', '--name-status', '-z', '--no-ext-diff', '--no-textconv', '--no-renames',
+      constrainedCommitId(base), constrainedCommitId(head), '--',
+    ]),
   };
 }

@@ -97,6 +97,9 @@ export type GateProviderExecutor = (
   input: unknown,
 ) => Promise<ToolResult>;
 
+/** A lost or unfinished hosted reply leaves the original bound segment retryable. */
+export class HostedAdequacyPending extends Error {}
+
 export interface GateRunnerDependencies {
   readonly eventStore: Pick<EventStore, 'append' | 'query'>;
   readonly artifactStore: ContentAddressedStore;
@@ -403,6 +406,7 @@ export async function runGate(
     try {
       providerResult = await dependencies.executeProvider(provider, request.providerInput);
     } catch (error) {
+      if (error instanceof HostedAdequacyPending) throw error;
       providerResult = {
         success: false,
         error: {

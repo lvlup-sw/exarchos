@@ -632,6 +632,8 @@ function registerLedger(): readonly EffectOwnershipRule[] {
     rule('filesystem', 'runtime/verification-host/provisioning.ts', 'verifier-provisioning', 'protected operator provisioning reads', 'none'),
     rule('filesystem', 'runtime/verification-host/authorization.ts', 'verifier-resources', 'canonical resource identity reads', 'none'),
     rule('filesystem', 'runtime/verification-host/processes.ts', 'verifier-mounts', 'captured resource identity recheck', 'retain incomplete claim on refusal'),
+    rule('filesystem', 'runtime/verification-host/adequacy.ts', 'verifier-adequacy-images',
+      'host-private disposable images of exact committed sources', 'verify cleanup and untouched registered checkout before terminal evidence'),
     rule('filesystem', 'storage/sqlite/verifier-claim-db.ts', 'verifier-claims', 'atomic private claim and lease writes', 'durable original evidence and leases'),
     rule('filesystem', 'runtime/verification-host/server.ts', 'verifier-socket', 'inode-bound private listener lifecycle', 'close only original listener'),
     rule('network', 'vcs/github-pr-observer.ts', 'github-pr-get-observer',
