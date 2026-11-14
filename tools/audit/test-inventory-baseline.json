@@ -7,7 +7,7 @@
     "testFiles": 1480,
     "parsedFiles": 1435,
     "shellFiles": 45,
-    "cases": 16389,
+    "cases": 16390,
     "dynamicTitles": 283,
     "unparseableFiles": 0
   },
@@ -91268,6 +91268,11 @@
         {
           "suite": "packaged compatibility document repair",
           "name": "Race_RepairAfterLaterMove_KeepsLaterAttempt",
+          "dynamic": false
+        },
+        {
+          "suite": "packaged compatibility document repair",
+          "name": "Race_BootstrapReplay_RefusesADamagedAttemptChain",
           "dynamic": false
         },
         {

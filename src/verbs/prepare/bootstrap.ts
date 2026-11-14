@@ -19,7 +19,7 @@ import { lexicalRepoPath } from '../../utils/paths.js';
 import { PhaseAttemptIdSchema } from '../../workflow/admission/types.js';
 import { planBootstrapPrefix, type BootstrapPlanInput, type BootstrapPlanResult } from '../../workflow/design-record/bootstrap-plan.js';
 import { CURRENT_ES_VERSION } from '../../workflow/handlers/shared.js';
-import { allocateInitialPhaseAttemptId } from '../../workflow/phase-attempt-id.js';
+import { allocateInitialPhaseAttemptId, allocatePhaseAttemptId } from '../../workflow/phase-attempt-id.js';
 import { ErrorCode } from '../../workflow/schemas.js';
 import {
   buildInitialState, initialStateExists, levelPhaseInStateDocument, projectStateDocument, publishInitialState,
@@ -166,7 +166,7 @@ function bootstrapTrailPhase(
     integrity('The bootstrap start needs its compatibility patch and entry.');
   }
   let phase = start.initialPhase;
-  const attempts = new Set([PhaseAttemptIdSchema.parse(start.phaseAttemptId)]);
+  let attempt = PhaseAttemptIdSchema.parse(start.phaseAttemptId);
   let index = 2;
   const visited = new Set<string>();
   while (index < rows.length) {
@@ -184,8 +184,10 @@ function bootstrapTrailPhase(
       integrity('A bootstrap transition does not leave its recorded entry.');
     }
     const next = PhaseAttemptIdSchema.parse(transition.phaseAttemptId);
-    if (attempts.has(next)) integrity('A bootstrap transition repeats a phase attempt.');
-    attempts.add(next);
+    if (next !== allocatePhaseAttemptId(request.streamId, phase, transition.to, attempt, index)) {
+      integrity('A bootstrap transition attempt does not match its predecessor.');
+    }
+    attempt = next;
     index += 1;
     if (types[index] === 'workflow.compound-entry') {
       if (WorkflowCompoundEntryData.parse(rows[index]?.data).featureId !== request.streamId) {

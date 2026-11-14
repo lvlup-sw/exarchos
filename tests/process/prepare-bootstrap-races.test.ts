@@ -237,6 +237,40 @@ describe('packaged compatibility document repair', () => {
     });
   }, PROCESS_TIMEOUT);
 
+  it('Race_BootstrapReplay_RefusesADamagedAttemptChain', async () => {
+    await withRaceRepository(async fixture => {
+      const request = await prepareRequest(fixture);
+      const first = data((await fixture.cli(request.cli)).envelope);
+      expect(data(await fixture.mcp('exarchos_orchestrate', request.mcp))).toEqual(first);
+      const accepted = fixture.ledger();
+      expect(accepted.operations).toMatchObject([{ key: first.operationId, result: first }]);
+      const moves = accepted.rows.filter(row => row.type === 'workflow.transition');
+      expect(moves).toHaveLength(2);
+      const last = moves.at(-1);
+      if (last === undefined) throw new Error('Missing bootstrap transition');
+      const replacedAttempt = `phase-attempt:${'b'.repeat(64)}`;
+      expect(accepted.rows.map(row => row.data?.phaseAttemptId)).not.toContain(replacedAttempt);
+      expect(accepted.document).toMatchObject({ phase: 'delegate', phaseAttemptId: last.data?.phaseAttemptId });
+
+      changeDatabase(fixture.database,
+        "UPDATE events SET data = json_set(data, '$.phaseAttemptId', ?), payload = json_set(payload, '$.data.phaseAttemptId', ?) WHERE streamId = ? AND sequence = ?",
+        replacedAttempt, replacedAttempt, STREAM, String(last.sequence),
+      );
+      const damaged = fixture.ledger();
+      expect(damaged.rows).toEqual(accepted.rows.map(row => row.sequence === last.sequence
+        ? { ...row, data: { ...row.data, phaseAttemptId: replacedAttempt } } : row));
+      expect(damaged.operations).toEqual(accepted.operations);
+      expect(damaged.document).toEqual(accepted.document);
+
+      const replay = await fixture.cli(request.cli);
+      expect(replay.envelope).toMatchObject({
+        success: false, error: { code: 'BOOTSTRAP_INTEGRITY', message: expect.stringContaining('attempt') },
+      });
+      expect(replay.exitCode).not.toBe(0);
+      expect(fixture.ledger()).toEqual(damaged);
+    });
+  }, PROCESS_TIMEOUT);
+
   it('Acceptance_PackagedHistoricalConstructor_DecodesColdAndRequiresRegistrationForNewStarts', async () => {
     const config = 'exarchos.config.js';
     await withRaceRepository(async fixture => {
