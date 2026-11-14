@@ -7,7 +7,7 @@
     "testFiles": 1493,
     "parsedFiles": 1448,
     "shellFiles": 45,
-    "cases": 16521,
+    "cases": 16526,
     "dynamicTitles": 288,
     "unparseableFiles": 0
   },
@@ -95551,6 +95551,11 @@
       "cases": [
         {
           "suite": "immutable segment input",
+          "name": "PrivateDecisionRound_WrongKeyRefusesBeforeBinding",
+          "dynamic": false
+        },
+        {
+          "suite": "immutable segment input",
           "name": "SegmentRetry_DeletedTreeOriginalArgs",
           "dynamic": false
         },
@@ -95839,6 +95844,26 @@
       "file": "tests/integration/s7-dag-settlement.test.ts",
       "runner": "vitest:root",
       "cases": [
+        {
+          "suite": "partial DAG settlement",
+          "name": "HeldDecision_RoundOneDependenciesAndOriginalReplay",
+          "dynamic": false
+        },
+        {
+          "suite": "partial DAG settlement",
+          "name": "HeldOrigin_ClaimAndMembershipDamageRefusesBeforeEffects",
+          "dynamic": false
+        },
+        {
+          "suite": "partial DAG settlement",
+          "name": "HeldOrigin_NormalFormRationaleAndStatusSurviveDecision",
+          "dynamic": false
+        },
+        {
+          "suite": "partial DAG settlement",
+          "name": "HeldOrigin_CommitRaceRetainsSegmentsWithoutDecision",
+          "dynamic": false
+        },
         {
           "suite": "partial DAG settlement",
           "name": "ReverseClaims_ThreeWaveFanIn",

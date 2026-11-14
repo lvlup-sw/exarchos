@@ -173,7 +173,7 @@ async function competingAcceptance(f: Awaited<ReturnType<typeof fixture>>, taskI
   const result = await runAsTrustedCaller(f.stateDir, () => handleExecuteIntent({ intent: 'task-completion', featureId: f.capsule.identity.workflowId,
     operationId: segment, args }, f.stateDir, { ...f.ctx, verificationProfile: { capsuleVersion: f.capsule.identity.capsuleVersion,
       profile } }, { ...productionExecuteDeps(ACTION_HANDLERS, 'exarchos_orchestrate'),
-    verificationInput: { authority, outerOperationId: outer, callerDigest: digest, batchId: identity.batchId, coordinate } }));
+    verificationInput: { authority, round: 0, outerOperationId: outer, callerDigest: digest, batchId: identity.batchId, coordinate } }));
   expect(result.success, JSON.stringify(result)).toBe(true);
   const receipt = IntentExecutedOutputSchema.options[0].shape.data.parse(result.data); expect(receipt.outcome).toBe('committed');
   const oldOuter = f.events.getAppender().ensureSqliteBackendSync().lookupOperationClaim(prior.proof.outerOperationId);

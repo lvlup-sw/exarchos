@@ -106,7 +106,7 @@ async function setup(unsafe = false, enforcement: 'block' | 'advisory' = 'block'
       if (ctx === undefined) throw new Error('Missing context');
       if (!quiet) await ctx.eventStore.append(streamId, { type: 'task.completed', timestamp: TIME, data: { taskId: 'root' } }, { idempotencyKey: `${operationId}:effect` });
       return { success: true, data: { appended: 'task.completed' } };
-    } }, bundleStore: bundles, verificationInput: { authority, outerOperationId: outer, batchId: 'batch', callerDigest, coordinate } };
+    } }, bundleStore: bundles, verificationInput: { authority, round: 0, outerOperationId: outer, batchId: 'batch', callerDigest, coordinate } };
   const run = (rawArgs: Record<string, unknown> = args, overrides: ExecuteIntentDeps = deps) => runWithDispatchContext(fixtureCorrelation(), () =>
     handleExecuteIntent({ intent: 'task-completion', featureId: streamId, operationId, args: rawArgs }, root, { ...fixtureWiring(root, events), projectConfig: resolveConfig({ events: { 'emission-enforcement': enforcement } }) }, overrides));
   const backend = () => events.getAppender().ensureSqliteBackendSync();
@@ -119,6 +119,25 @@ async function setup(unsafe = false, enforcement: 'block' | 'advisory' = 'block'
 }
 
 describe('immutable segment input', () => {
+  /** A mismatched private round cannot borrow the other round's outer or segment identity. */
+  it('PrivateDecisionRound_WrongKeyRefusesBeforeBinding', async () => {
+    const f = await setup(); const authority = f.deps.verificationInput;
+    if (authority === undefined) throw new Error('Missing trusted fixture authority');
+    const before = await f.rows();
+    const invalid = { ...authority }; Reflect.set(invalid, 'round', 2);
+    const outsideDomain = await f.run(f.args, { ...f.deps, verificationInput: invalid });
+    expect(outsideDomain.success, JSON.stringify(outsideDomain)).toBe(false);
+    const wrongRound = await f.run(f.args, { ...f.deps, verificationInput: { ...authority, round: 1 } });
+    expect(wrongRound.success, JSON.stringify(wrongRound)).toBe(false);
+    const decisionOuter = settlementClaimKey(f.streamId, { ...authority.authority.capsule.identity, batchId: authority.batchId }, 1);
+    const wrongKey = await f.run(f.args, { ...f.deps, verificationInput: { ...authority, outerOperationId: decisionOuter } });
+    expect(wrongKey.success, JSON.stringify(wrongKey)).toBe(false);
+    expect(f.calls()).toBe(0); expect(await f.rows()).toEqual(before);
+    expect(f.backend().lookupSegmentInput(f.operationId)).toBeUndefined();
+    expect(f.backend().lookupOperationClaim(f.operationId)).toBeUndefined();
+    const normal = await f.run(); expect(normal.success, JSON.stringify(normal)).toBe(true); expect(f.calls()).toBe(1);
+  });
+
   /** Actual terminal claim and custody replay after deleting the original checkout, with no leaf call. */
   it('SegmentRetry_DeletedTreeOriginalArgs', async () => {
     const f = await setup(); const first = await f.run(); expect(first.success).toBe(true);

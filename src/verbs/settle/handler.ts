@@ -326,14 +326,87 @@ function designRevisionOf(
   };
 }
 
+type HeldOriginFence = (rows: readonly { readonly streamId: string; readonly sequence: number }[], lookup: (operationId: string) => unknown) => boolean;
+
 type HeldBatchLookup =
   | {
       readonly kind: 'held';
+      readonly recheck?: HeldOriginFence;
       readonly claims: SettlementClaim[];
       readonly deviations: ProposedDeviation[];
     }
   | { readonly kind: 'not-settled' }
   | { readonly kind: 'not-held'; readonly outcome: SettlementOutcome };
+
+/** Held input authority must come from one original claim, its actual members and its custody. */
+function requireHeld(condition: unknown, message: string): asserts condition {
+  if (!condition) throw new Error(`Invalid held origin: ${message}`);
+}
+
+/** Authenticate the original compiler-8 submission and retain its exact rows and claim for commit. */
+async function authenticatedHeldBatch(ctx: DispatchContext, streamId: string, identity: SettledCapsuleIdentity,
+  bundles: RunBundleStore): Promise<HeldBatchLookup> {
+  const rows = await ctx.eventStore.query(streamId);
+  const operationId = settlementClaimKey(streamId, identity);
+  const claim = ctx.eventStore.getAppender().ensureSqliteBackendSync().lookupOperationClaim(operationId);
+  if (claim === undefined) {
+    requireHeld(!rows.some(row => row.type === EXECUTION_SETTLED_SETTLEMENT.type
+      && isRecord(row.data) && row.data.workflowId === identity.workflowId
+      && row.data.capsuleVersion === identity.capsuleVersion && row.data.batchId === identity.batchId), 'the original operation claim is missing');
+    return { kind: 'not-settled' };
+  }
+  const receipt = SettlementReceiptData.parse(claim.result);
+  requireHeld(claim.streamId === streamId && receipt.streamId === streamId && receipt.operationId === operationId
+    && receipt.requestDigest === claim.requestDigest && canonicalJson(receipt.capsule) === canonicalJson(identity)
+    && (receipt.round ?? 0) === 0, 'the original receipt identity differs');
+  requireHeld(Array.isArray(claim.sequences) && Array.isArray(claim.eventIds) && Array.isArray(claim.timestamps)
+    && claim.sequences.length > 0 && claim.sequences.length === claim.eventIds.length && claim.sequences.length === claim.timestamps.length
+    && new Set(claim.sequences).size === claim.sequences.length && new Set(claim.eventIds).size === claim.eventIds.length,
+  'the original claim membership is invalid');
+  const members = claim.sequences.map((sequence, index) => {
+    const matching = rows.filter(row => row.streamId === streamId && row.sequence === sequence);
+    const row = matching[0]; const eventId = row !== undefined && 'eventId' in row ? row.eventId : undefined;
+    requireHeld(matching.length === 1 && row !== undefined && typeof eventId === 'string' && eventId.length > 0
+      && eventId === claim.eventIds[index] && row.timestamp === claim.timestamps[index], 'an original claim member is missing or changed');
+    return row;
+  });
+  const terminals = members.filter(row => row.type === EXECUTION_SETTLED_SETTLEMENT.type);
+  const terminal = terminals[0];
+  requireHeld(terminals.length === 1 && terminal !== undefined && receipt.tailSequence === terminal.sequence,
+    'the original terminal member is ambiguous');
+  const record = ExecutionSettledData.parse(terminal.data);
+  requireHeld(record.operationId === operationId && record.workflowId === identity.workflowId
+    && record.capsuleVersion === identity.capsuleVersion && record.batchId === identity.batchId
+    && record.definitionVersion === identity.definitionVersion && (record.round ?? 0) === 0
+    && record.outcome === receipt.outcome && record.requestDigest === claim.requestDigest
+    && canonicalJson(record.acceptedTasks) === canonicalJson(receipt.acceptedTasks)
+    && canonicalJson(record.adjudicated) === canonicalJson(receipt.adjudicated)
+    && canonicalJson(record.bundleRefs) === canonicalJson(receipt.bundleRefs), 'the terminal differs from its original receipt');
+  if (!SETTLEMENT_OUTCOME_RULES[receipt.outcome].holds) return { kind: 'not-held', outcome: receipt.outcome };
+  const ref = record.bundleRefs[0]; requireHeld(ref !== undefined, 'the original custody reference is missing');
+  const bundle = decodeSettlementBundle(await bundles.resolve(ref.digest));
+  requireHeld(bundle.streamId === streamId && bundle.operationId === operationId && bundle.round === undefined
+    && canonicalJson(bundle.capsule) === canonicalJson(identity) && bundle.outcome === receipt.outcome
+    && bundle.requestDigest === claim.requestDigest && bundle.settledAt === terminal.timestamp && canonicalJson(bundle.acceptedTasks) === canonicalJson(receipt.acceptedTasks)
+    && canonicalJson(bundle.findings) === canonicalJson(receipt.findings)
+    && canonicalJson(bundle.adjudicated) === canonicalJson(receipt.adjudicated)
+    && (bundle.decisions === undefined || bundle.decisions.length === 0), 'the original custody differs from its receipt');
+  const claims = bundle.claims.map(claimOfTrace);
+  const deviations = bundle.deviations.map(held => normalDeviation(held.deviationKind, held.statement, held.affectedTasks, held.proposedChange));
+  requireHeld(requestDigestOf(streamId, identity, claims, deviations) === claim.requestDigest
+    && canonicalJson(pendingDeviationsOf(identity, deviations)) === canonicalJson(receipt.pendingDeviations),
+  'the recovered original inputs do not reproduce the held request');
+  const capturedClaim = canonicalJson(claim);
+  const capturedRows = members.map(row => ({ sequence: row.sequence, value: canonicalJson(row) }));
+  return { kind: 'held', claims, deviations, recheck: (currentRows, lookup) => {
+    try {
+      return canonicalJson(lookup(operationId)) === capturedClaim && capturedRows.every(member => {
+        const matching = currentRows.filter(row => row.streamId === streamId && row.sequence === member.sequence);
+        return matching.length === 1 && canonicalJson(matching[0]) === member.value;
+      });
+    } catch { return false; }
+  } };
+}
 
 /**
  * The batch that a decision round adjudicates, read back from the record of the
@@ -1112,6 +1185,7 @@ interface SettlementCall {
   readonly recoveredInputs: Map<string, Record<string, unknown>>;
   /** Exact proof closures selected for this call, retained for transaction fencing. */
   readonly standingProofs: Map<string, StandingProof>;
+  readonly heldOrigin?: HeldOriginFence;
   inputs: SettlementInputs;
   checkout?: CheckoutReading;
 }
@@ -1218,7 +1292,7 @@ async function runCompiled(
     }
     const execute = call.namedAuthority.capsule.provenance.compilerVersion === 'exarchos-prepare-8'
       ? { ...call.deps.execute, verificationInput: { authority: call.namedAuthority, outerOperationId: call.operationId,
-        callerDigest: call.requestDigest, batchId: call.identity.batchId, replayOnly, ...(task.coordinate === undefined ? {} : { coordinate: task.coordinate }) } } : call.deps.execute;
+        callerDigest: call.requestDigest, batchId: call.identity.batchId, round: call.inputs.round, replayOnly, ...(task.coordinate === undefined ? {} : { coordinate: task.coordinate }) } } : call.deps.execute;
     attempted += 1;
     const run = await verifyTask(task, call.streamId, call.batchLabel, call.stateDir, ctx, execute);
     if (run.kind === 'refused' && !run.halted) return run.result;
@@ -1837,6 +1911,10 @@ async function commitJudgement(
           .decideOnce<SettlementReceipt>(operationId, requestDigest, (tx) => {
             const snapshot = tx.readStream(streamId);
             const rows = migrateEvents(snapshot.events);
+            if (call.heldOrigin !== undefined && !call.heldOrigin(rows,
+              id => ctx.eventStore.getAppender().ensureSqliteBackendSync().lookupOperationClaim(id))) {
+              throw new SettlementReadsChanged(batchLabel);
+            }
             if (!recheckPreparedAuthority(call.latestAuthority.selection, rows)) {
               throw new SettlementReadsChanged(batchLabel);
             }
@@ -2189,8 +2267,13 @@ export async function handleSettle(
 
     let claims: SettlementClaim[] = submittedClaims;
     let deviations: ProposedDeviation[] = submittedDeviations;
+    let heldOrigin: HeldOriginFence | undefined;
     if (deciding) {
-      const held = await heldBatch(ctx, streamId, identity, deps.bundleStore);
+      let held: HeldBatchLookup;
+      if (capsule.provenance.compilerVersion === 'exarchos-prepare-8') {
+        try { held = await authenticatedHeldBatch(ctx, streamId, identity, deps.bundleStore ?? ctx.eventStore.bundleStore); }
+        catch (error) { return (await replay()) ?? refused('CAPSULE_UNRESOLVED', `Held origin is unavailable or invalid: ${String(error)}`); }
+      } else held = await heldBatch(ctx, streamId, identity, deps.bundleStore);
       if (held.kind === 'not-settled') {
         return refused(
           'BATCH_NOT_HELD',
@@ -2207,6 +2290,7 @@ export async function handleSettle(
       }
       claims = held.claims;
       deviations = held.deviations;
+      heldOrigin = held.recheck;
       const pending = new Map(pendingDeviationsOf(identity, deviations).map((p) => [p.deviationId, p]));
       const unknown = decisions.filter((decision) => !pending.has(decision.deviationId));
       if (unknown.length > 0) {
@@ -2268,6 +2352,7 @@ export async function handleSettle(
       runs: new Map(),
       recoveredInputs: new Map(),
       standingProofs: new Map(),
+      ...(heldOrigin === undefined ? {} : { heldOrigin }),
       inputs,
     };
     const replayRefusal = await replayCommittedSegments(call);

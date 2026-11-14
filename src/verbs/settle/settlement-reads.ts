@@ -205,7 +205,7 @@ export interface SettlementInputs {
   /** The decision for each deviation. It returns undefined for a deviation that no decision answers. */
   readonly decided: NonNullable<AdjudicationContext['decided']>;
   /** The round of the call: 0 for the round that submits the batch, 1 for the decision round. */
-  readonly round: number;
+  readonly round: 0 | 1;
   /**
    * How a task stands in the plan, read before the commit. It is absent when no deviation names a task.
    * On the decision round, it is also absent when the plan does not resolve.

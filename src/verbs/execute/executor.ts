@@ -140,7 +140,7 @@ export interface ExecuteIntentDeps extends CompileDeps {
   readonly steeringSource?: ReceiptSteering['source'];
   /** Only settlement supplies this immutable prepared authority. Public arguments cannot select coordinate mode. */
   readonly verificationInput?: {
-    readonly authority: PreparedAuthority; readonly outerOperationId: string; readonly callerDigest: string; readonly batchId: string;
+    readonly authority: PreparedAuthority; readonly outerOperationId: string; readonly callerDigest: string; readonly batchId: string; readonly round: 0 | 1;
     readonly coordinate?: z.infer<typeof TaskVerificationCoordinateSchema>;
     readonly replayOnly?: boolean;
   };
@@ -545,7 +545,8 @@ async function executeBoundInput(intent: string, streamId: string, operationId: 
   const authority = deps.verificationInput;
   if (authority === undefined || authority.authority.capsule.provenance.compilerVersion !== 'exarchos-prepare-8'
     || authority.authority.capsule.identity.workflowId !== streamId || intent !== 'task-completion'
-    || settlementClaimKey(streamId, { ...authority.authority.capsule.identity, batchId: authority.batchId }) !== authority.outerOperationId
+    || (authority.round !== 0 && authority.round !== 1)
+    || settlementClaimKey(streamId, { ...authority.authority.capsule.identity, batchId: authority.batchId }, authority.round) !== authority.outerOperationId
     || typeof args.taskId !== 'string' || operationId !== verificationOperationId(authority.outerOperationId, args.taskId)) throw new Error('Invalid internal verification authority');
   validateInputTree(args);
   const bundles = deps.bundleStore ?? ctx.eventStore.bundleStore;

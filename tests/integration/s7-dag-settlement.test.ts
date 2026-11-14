@@ -1,5 +1,11 @@
 // @oracle-sources: real Git ancestry, persisted SQLite operation claims and original run custody, independent dependency-position model
 /** Whole-DAG settlement authenticates predecessors and retains original verification coordinates. */
+import { existsSync } from 'node:fs';
+import { Database } from 'bun:sqlite';
+import { DECIDE_ONCE_CLAIM_STREAM } from '../../src/storage/sqlite/constants.js';
+import { requestDigest } from '../../src/contract/request-context.js';
+import { SettlementReceiptData } from '../../src/verbs/settle/schemas.js';
+import { settlementClaimKey, verificationOperationId } from '../../src/verbs/settle/settlement-reads.js';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -11,7 +17,7 @@ import { readDesignRecord } from '../../src/workflow/design-record/read.js';
 import { configDigestAt } from '../../src/verbs/prepare/prepare-scope.js';
 import { handleSettle } from '../../src/verbs/settle/handler.js';
 import { productionExecuteDeps } from '../../src/verbs/execute/executor.js';
-import { decodeSettlementBundle } from '../../src/verbs/settle/settlement-bundle.js';
+import { decodeSettlementBundle, encodeSettlementBundle } from '../../src/verbs/settle/settlement-bundle.js';
 import { resolveTaskStanding } from '../../src/verbs/settle/task-standing.js';
 import { taskGraphOrder } from '../../src/verbs/settle/dag-scheduler.js';
 import { fixture as preparedFixture, prepared, task, textOf } from '../helpers/capsule/prepared-authority.js';
@@ -44,7 +50,7 @@ function referenceOrder(tasks: readonly string[], edges: readonly { from: string
 }
 
 /** Publishes an approved typed graph whose real task heads contain their direct predecessors. */
-async function fixture(dependencies: Readonly<Record<string, readonly string[]>> = { a: [], b: [], c: ['a', 'b'], d: ['c'] }, legacy = false) {
+async function fixture(dependencies: Readonly<Record<string, readonly string[]>> = { a: [], b: [], c: ['a', 'b'], d: ['c'] }, legacy = false, normalForm = false, holding = false) {
   const stateDir = makeTempDir('s7-dag-');
   const journal = join(stateDir, 'commands.jsonl');
   const command = `const fs=require('node:fs'),cp=require('node:child_process');fs.appendFileSync(${JSON.stringify(journal)},JSON.stringify({cwd:process.cwd(),args:process.argv.slice(2),head:cp.execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim()})+'\\n');process.exit(fs.existsSync('FAIL')?1:0);`;
@@ -71,6 +77,7 @@ async function fixture(dependencies: Readonly<Record<string, readonly string[]>>
   profile.staticAnalysis = { state: 'resolved', checks: [{ name: 'lint', command: cmd('static') }], source: 'config' };
   profile.integration.command = cmd('integration');
   profile.contract = { codegen: cmd('codegen'), typecheck: cmd('types'), diff: { ...cmd('diff'), argv: [...cmd('diff').argv, '@baseCommit@', '@headCommit@'] } };
+  if (normalForm) capsule.authority.delegatedDecisions = [{ id: 'choice', statement: 'Choose result field naming' }];
   capsule.provenance.compilerVersion = legacy ? 'exarchos-prepare-7' : 'exarchos-prepare-8';
   capsule.graph.tasks = read.snapshot.tasks.map(entry => ({ taskId: entry.id, title: entry.title, stepId: 'delegate',
     stage: { kind: 'task-batch', stepId: 'delegate' }, taskContext: { taskId: entry.id, title: entry.title,
@@ -81,6 +88,7 @@ async function fixture(dependencies: Readonly<Record<string, readonly string[]>>
       knowledgeSlice: { invariantIds: [], adrRefs: [], symbols: [], files: [] } } }));
   capsule.graph.dependencies = edges; capsule.graph.joins = Object.entries(dependencies).filter(([, parents]) => parents.length > 1)
     .map(([id, parents]) => ({ joinId: `join-${id}`, forTaskId: id, waitsFor: [...parents], mode: 'all' }));
+  if (holding) capsule.contracts.deviationEnvelope = { allowedDeviationKinds: ['invalidated-assumption'], materialDeviationKinds: ['invalidated-assumption'], requiresApproval: true };
   capsule.contracts.taskInputs = {};
   capsule.contracts.taskResults = Object.fromEntries(Object.entries(dependencies).map(([id, parents]) => [id,
     [{ name: 'worktreePath', type: 'string', required: true }, ...(parents.length ? [{ name: 'forkCommit', type: 'string', required: true }] : [])]]));
@@ -89,23 +97,178 @@ async function fixture(dependencies: Readonly<Record<string, readonly string[]>>
     scope: { repository: repository.repository, checkout: repo.checkout, configDigest: await configDigestAt(repo.checkout) },
     taskVerification: Object.fromEntries(Object.keys(dependencies).map(id => [id, { riskTier: 'low', boundaryTouching: false, baseRef: 'main', baseCommit: repo.baseCommit }])) };
   await seedActivePhaseAttempt(events, capsule.identity.workflowId);
+  if (holding) await events.append(capsule.identity.workflowId, { type: 'state.patched', data: { patch: {
+    tasks: Object.keys(dependencies).map(id => ({ id, title: `The work of ${id}`, status: 'pending' })),
+  } } });
   const digest = await events.bundleStore.put(encodePreparedBundle(bundle)); const initial = prepared(bundle);
   await events.append(capsule.identity.workflowId, { type: 'workflow.prepared', schemaVersion: '1.0', data: {
     ...initial.data, capsuleDigest: capsuleDigest(capsule), bundleRefs: [{ artifactId: 'run-bundle:prepared', digest }] } });
   const claim = (taskId: string): SettlementClaim => ({ taskId, fields: { worktreePath: trees.get(taskId),
     ...((dependencies[taskId]?.length ?? 0) > 0 ? { forkCommit: forks.get(taskId) } : {}) }, evidence: [] });
   const ctx = fixtureWiring(stateDir, events);
-  const call = (claims: readonly SettlementClaim[], batchId = 'batch', handlers = ACTION_HANDLERS) => runAsTrustedCaller(stateDir, () => handleSettle({
-    featureId: capsule.identity.workflowId, capsuleVersion: capsule.identity.capsuleVersion, batchId, claims }, stateDir, ctx,
+  const invoke = (payload: Record<string, unknown>, batchId = 'batch', handlers = ACTION_HANDLERS) => runAsTrustedCaller(stateDir, () => handleSettle({
+    featureId: capsule.identity.workflowId, capsuleVersion: capsule.identity.capsuleVersion, batchId, ...payload }, stateDir, ctx,
     { execute: productionExecuteDeps(handlers, 'exarchos_orchestrate') }));
+  const call = (claims: readonly SettlementClaim[], batchId = 'batch', handlers = ACTION_HANDLERS) => invoke({ claims }, batchId, handlers);
   const rows = () => events.query(capsule.identity.workflowId);
   const commands = async (): Promise<{cwd:string;args:string[];head:string}[]> => (await readFile(journal, 'utf8')).trim().split('\n').map(line => JSON.parse(line));
   const standing = async (taskId: string) => resolveTaskStanding({ streamId: capsule.identity.workflowId, taskId, rows: await rows(),
     bundles: events.bundleStore, lookupClaim: id => events.getAppender().ensureSqliteBackendSync().lookupOperationClaim(id) });
-  return { stateDir, repo, events, capsule, trees, heads, forks, claim, ctx, call, rows, commands, standing };
+  return { stateDir, repo, events, capsule, trees, heads, forks, claim, ctx, call, invoke, rows, commands, standing };
+}
+
+/** Submits a real material hold before any completion runbook is eligible. */
+async function heldFixture(batchId = 'held', normalForm = false) {
+  const f = await fixture({ a: [], b: ['a'], pending: [] }, false, normalForm, true);
+  const claims: SettlementClaim[] = [f.claim('b'), { ...f.claim('a'), ...(normalForm ? { rationale: [{ delegatedDecision: 'choice', statement: 'Keep the original result naming' }] } : {}) },
+    ...(normalForm ? [{ taskId: 'pending', status: 'blocked' as const, reason: 'Await revised input', fields: {}, evidence: [] }] : [])];
+  const deviations = [{ deviationKind: 'invalidated-assumption', statement: 'The pending task needs revised input', affectedTasks: ['pending'] }];
+  const result = await f.invoke({ claims, deviations }, batchId);
+  expect(result.success, JSON.stringify(result)).toBe(true);
+  const held = SettlementReceiptData.parse(result.data); expect(held.outcome, JSON.stringify(result)).toBe('deviation-pending');
+  expect((await f.rows()).filter(row => row.type === 'orchestrate.intent_executed')).toEqual([]);
+  const decisions = (held.pendingDeviations ?? []).map(({ deviationId }) => ({ deviationId, decision: 'accepted', actor: 'reviewer', rationale: 'Revise pending work; verify independent results' }));
+  expect(decisions).toHaveLength(1);
+  return { ...f, claims, deviations, held, decisions, batchId };
 }
 
 describe('partial DAG settlement', () => {
+  /** A real accepting decision runs untouched dependent tasks with round-one proof and replays its original receipt. */
+  it('HeldDecision_RoundOneDependenciesAndOriginalReplay', async () => {
+    const f = await heldFixture(); const backend = f.events.getAppender().ensureSqliteBackendSync();
+    const original = backend.lookupOperationClaim(f.held.operationId); expect(original).toBeDefined();
+    const result = await f.invoke({ decisions: f.decisions }, f.batchId);
+    expect(result.success, JSON.stringify(result)).toBe(true);
+    const receipt = SettlementReceiptData.parse(result.data);
+    expect(receipt).toMatchObject({ round: 1, acceptedTasks: ['a', 'b'] });
+    expect(receipt.operationId).toBe(settlementClaimKey(f.capsule.identity.workflowId, { ...f.capsule.identity, batchId: f.batchId }, 1));
+    expect(receipt.operationId).not.toBe(f.held.operationId);
+    expect(receipt.requestDigest).toBe(requestDigest({ streamId: f.capsule.identity.workflowId, identity: receipt.capsule, round: 1, decisions: f.decisions }));
+    expect(backend.lookupOperationClaim(f.held.operationId)).toEqual(original);
+    const ref = receipt.bundleRefs?.[0]; if (ref === undefined) throw new Error('Missing decision bundle');
+    const bundle = decodeSettlementBundle(await f.events.bundleStore.resolve(ref.digest));
+    const child = bundle.verification?.find(trace => trace.taskId === 'b');
+    expect(child?.coordinate?.blockers).toEqual([expect.objectContaining({ kind: 'provisional', taskId: 'a', outerOperationId: receipt.operationId,
+      segmentOperationId: verificationOperationId(receipt.operationId, 'a') })]);
+    for (const id of ['a', 'b']) {
+      const segment = verificationOperationId(receipt.operationId, id);
+      expect(backend.lookupOperationClaim(segment)).toBeDefined(); expect(backend.lookupSegmentInput(segment)).toBeDefined();
+      expect(backend.lookupOperationClaim(verificationOperationId(f.held.operationId, id))).toBeUndefined();
+    }
+    const rows = await f.rows(); const commands = await f.commands();
+    expect((await f.invoke({ claims: f.claims, deviations: f.deviations }, f.batchId)).data).toEqual(f.held);
+    expect((await f.invoke({ decisions: f.decisions }, f.batchId)).data).toEqual(receipt);
+    for (const tree of f.trees.values()) await rmrfAsync(tree);
+    expect((await f.invoke({ decisions: f.decisions }, f.batchId)).data).toEqual(receipt);
+    const changed = await f.invoke({ decisions: f.decisions.map(decision => ({ ...decision, rationale: 'Changed rationale' })) }, f.batchId);
+    expect(changed).toMatchObject({ success: false, error: { code: 'OPERATION_DIGEST_MISMATCH' } });
+    expect(await f.rows()).toEqual(rows); expect(await f.commands()).toEqual(commands);
+  });
+
+  /** Retained rows and bundle bytes cannot replace the original held operation claim or exact membership. */
+  it('HeldOrigin_ClaimAndMembershipDamageRefusesBeforeEffects', async () => {
+    for (const damage of ['missing-claim', 'member-id', 'member-time', 'request-digest', 'swapped-bundle', 'changed-held-input']) {
+      const f = await heldFixture(); const before = await f.rows();
+      const backend = f.events.getAppender().ensureSqliteBackendSync();
+      const originalClaim = backend.lookupOperationClaim(f.held.operationId);
+      if (originalClaim === undefined) throw new Error('Missing actual held claim');
+      const terminalIndex = originalClaim.sequences.indexOf(f.held.tailSequence);
+      expect(terminalIndex).toBeGreaterThanOrEqual(0);
+      const originalRef = f.held.bundleRefs?.[0]; if (originalRef === undefined) throw new Error('Missing held custody');
+      let changedRef;
+      if (damage === 'swapped-bundle' || damage === 'changed-held-input') {
+        const original = decodeSettlementBundle(await f.events.bundleStore.resolve(originalRef.digest));
+        const changed = damage === 'swapped-bundle' ? { ...original, capsule: { ...original.capsule, batchId: 'foreign-batch' } }
+          : { ...original, claims: original.claims.map(claim => claim.taskId === 'a' ? { ...claim, fields: { ...claim.fields, worktreePath: f.trees.get('pending') } } : claim) };
+        changedRef = { ...originalRef, digest: await f.events.bundleStore.put(encodeSettlementBundle(changed)) };
+      }
+      const db = new Database(join(f.stateDir, 'exarchos.db'));
+      try {
+        if (damage === 'missing-claim') {
+          expect(db.prepare('DELETE FROM idempotency_claims WHERE streamId=? AND idempotencyKey=?').run(DECIDE_ONCE_CLAIM_STREAM, f.held.operationId).changes).toBe(1);
+        } else if (damage === 'member-id' || damage === 'member-time') {
+          expect(db.prepare(`UPDATE idempotency_claims SET ${damage === 'member-id' ? 'eventIds' : 'timestamps'}=? WHERE streamId=? AND idempotencyKey=?`)
+            .run(JSON.stringify((damage === 'member-id' ? originalClaim.eventIds : originalClaim.timestamps)
+              .map((value, index) => index === terminalIndex ? 'wrong' : value)), DECIDE_ONCE_CLAIM_STREAM, f.held.operationId).changes).toBe(1);
+        } else {
+          const stored = db.prepare('SELECT events_json FROM idempotency_claims WHERE streamId=? AND idempotencyKey=?').get(DECIDE_ONCE_CLAIM_STREAM, f.held.operationId);
+          if (typeof stored !== 'object' || stored === null || !('events_json' in stored) || typeof stored.events_json !== 'string') throw new Error('Missing original operation envelope');
+          const envelope = JSON.parse(stored.events_json);
+          if (changedRef === undefined) envelope.requestDigest = 'changed';
+          else {
+            envelope.result.bundleRefs = [changedRef];
+            const row = before.find(row => row.type === 'execution.settled' && row.data?.operationId === f.held.operationId);
+            if (row === undefined) throw new Error('Missing held terminal');
+            const changed = { ...row, data: { ...row.data, bundleRefs: [changedRef] } };
+            expect(db.prepare('UPDATE events SET payload=?, data=? WHERE streamId=? AND sequence=?')
+              .run(JSON.stringify(changed), JSON.stringify(changed.data), f.capsule.identity.workflowId, row.sequence).changes).toBe(1);
+          }
+          expect(db.prepare('UPDATE idempotency_claims SET events_json=? WHERE streamId=? AND idempotencyKey=?')
+            .run(JSON.stringify(envelope), DECIDE_ONCE_CLAIM_STREAM, f.held.operationId).changes).toBe(1);
+        }
+      } finally { db.close(); }
+      const damagedRows = await f.rows();
+      const result = await f.invoke({ decisions: f.decisions }, f.batchId);
+      expect(result.success, JSON.stringify(result)).toBe(false);
+      expect(await f.rows()).toEqual(damagedRows); expect(existsSync(join(f.stateDir, 'commands.jsonl'))).toBe(false);
+      const decision = settlementClaimKey(f.capsule.identity.workflowId, { ...f.capsule.identity, batchId: f.batchId }, 1);
+      expect(backend.lookupOperationClaim(decision)).toBeUndefined();
+      for (const id of ['a', 'b']) { const segment = verificationOperationId(decision, id);
+        expect(backend.lookupSegmentInput(segment)).toBeUndefined(); expect(backend.lookupOperationClaim(segment)).toBeUndefined(); }
+    }
+  });
+
+  /** Stored rationale and incomplete status reproduce the original request without dropping either field. */
+  it('HeldOrigin_NormalFormRationaleAndStatusSurviveDecision', async () => {
+    const f = await heldFixture('normal-form', true);
+    const original = f.events.getAppender().ensureSqliteBackendSync().lookupOperationClaim(f.held.operationId);
+    const ref = f.held.bundleRefs?.[0]; if (ref === undefined) throw new Error('Missing held bundle');
+    const held = decodeSettlementBundle(await f.events.bundleStore.resolve(ref.digest));
+    expect(held.claims).toEqual(f.claims);
+    expect(f.held.requestDigest).toBe(requestDigest({ streamId: f.capsule.identity.workflowId, identity: f.held.capsule, claims: f.claims, deviations: f.deviations }));
+    expect(held.claims.find(claim => claim.taskId === 'a')?.rationale).toEqual([{ delegatedDecision: 'choice', statement: 'Keep the original result naming' }]);
+    expect(held.claims.find(claim => claim.taskId === 'pending')).toMatchObject({ status: 'blocked', reason: 'Await revised input' });
+    const result = await f.invoke({ decisions: f.decisions }, f.batchId);
+    expect(result.success, JSON.stringify(result)).toBe(true);
+    const receipt = SettlementReceiptData.parse(result.data); expect(receipt.acceptedTasks).toEqual(['a', 'b']);
+    const decidedRef = receipt.bundleRefs?.[0]; if (decidedRef === undefined) throw new Error('Missing decision custody');
+    expect(decodeSettlementBundle(await f.events.bundleStore.resolve(decidedRef.digest)).claims).toEqual(f.claims);
+    expect(f.events.getAppender().ensureSqliteBackendSync().lookupOperationClaim(f.held.operationId)).toEqual(original);
+  });
+
+  /** Actual held authority lost after real segments finish cannot publish a stale decision. */
+  it('HeldOrigin_CommitRaceRetainsSegmentsWithoutDecision', async () => {
+    for (const damage of [false, true]) {
+      const f = await heldFixture(); const put = f.events.bundleStore.put.bind(f.events.bundleStore); let removed = false;
+      const barrier = vi.spyOn(f.events.bundleStore, 'put').mockImplementation(async bytes => {
+        const parsed = JSON.parse(Buffer.from(bytes).toString());
+        if (!removed && parsed.kind === 'settlement-adjudication' && parsed.round === 1) {
+          removed = true; if (!damage) return put(bytes);
+          const db = new Database(join(f.stateDir, 'exarchos.db'));
+          try { expect(db.prepare('DELETE FROM idempotency_claims WHERE streamId=? AND idempotencyKey=?')
+            .run(DECIDE_ONCE_CLAIM_STREAM, f.held.operationId).changes).toBe(1); } finally { db.close(); }
+        }
+        return put(bytes);
+      });
+      let result;
+      try { result = await f.invoke({ decisions: f.decisions }, f.batchId); } finally { barrier.mockRestore(); }
+      expect(removed).toBe(true);
+      if (!damage) {
+        expect(result.success, JSON.stringify(result)).toBe(true);
+        expect(result.data).toMatchObject({ round: 1, acceptedTasks: ['a', 'b'] });
+        continue;
+      }
+      expect(result.success, JSON.stringify(result)).toBe(false);
+      const rows = await f.rows(); expect(rows.filter(row => row.type === 'orchestrate.intent_executed')).toHaveLength(2);
+      expect(rows.filter(row => row.type === 'execution.settled')).toHaveLength(1);
+      expect(rows.filter(row => row.type === 'deviation.decided' || row.type === 'design.revised'
+        || (row.type === 'workflow.transition' && row.data?.trigger === 'settle'))).toHaveLength(0);
+      const decision = settlementClaimKey(f.capsule.identity.workflowId, { ...f.capsule.identity, batchId: f.batchId }, 1);
+      const backend = f.events.getAppender().ensureSqliteBackendSync(); expect(backend.lookupOperationClaim(decision)).toBeUndefined();
+      for (const id of ['a', 'b']) expect(backend.lookupOperationClaim(verificationOperationId(decision, id))).toBeDefined();
+    }
+  });
+
   /** Reverse claims still commit three dependency waves and persist the original coordinate in custody. */
   it('ReverseClaims_ThreeWaveFanIn', async () => {
     const f = await fixture({ d: ['c'], c: ['a', 'b'], b: [], a: [] });

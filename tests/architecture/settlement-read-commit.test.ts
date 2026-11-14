@@ -73,6 +73,7 @@ const COMPLETION_HELPERS: readonly string[] = [
 const PLAN_STANDING_OWNER = 'drift row completion-gate-row';
 
 /** Candidate proof validation precedes binding. The settlement transaction fence remains a separate obligation. */
+const HELD_ORIGIN_OWNER = 'captured held-origin rows and claim rechecked by commitJudgement in the write transaction';
 const COORDINATE_STANDING_OWNER = 'selected proofs rechecked by commitJudgement in the write transaction';
 
 /**
@@ -96,6 +97,30 @@ interface RoleEntry {
 
 /** The role of each read in scope. A key is the file, the function and the read, never a line. */
 const ROLES: readonly RoleEntry[] = [
+  {
+    file: HANDLER,
+    fn: 'authenticatedHeldBatch',
+    read: 'event:*',
+    role: 'pre-read',
+    reason: 'captures original held claim members for the fresh decision and retains their exact bytes for the commit fence',
+    owner: HELD_ORIGIN_OWNER,
+  },
+  {
+    file: HANDLER,
+    fn: 'authenticatedHeldBatch',
+    read: 'event:execution.settled',
+    role: 'pre-read',
+    reason: 'selects the original held terminal from authenticated claim membership before custody resolution',
+    owner: HELD_ORIGIN_OWNER,
+  },
+  {
+    file: HANDLER,
+    fn: 'authenticatedHeldBatch',
+    read: 'helper:lookupOperationClaim',
+    role: 'pre-read',
+    reason: 'authenticates the actual original round-zero receipt and retains the whole claim for the committing fence',
+    owner: HELD_ORIGIN_OWNER,
+  },
   {
     file: HANDLER,
     fn: 'heldBatch',
@@ -161,7 +186,7 @@ const ROLES: readonly RoleEntry[] = [
     fn: 'commitJudgement',
     read: 'helper:lookupOperationClaim',
     role: 'in-commit',
-    reason: 'selected proof claims are compared on the same SQLite connection under the write lock',
+    reason: 'selected standing and held-origin claims are compared on the same SQLite connection under the write lock',
   },
   {
     file: HANDLER,
@@ -531,6 +556,9 @@ describe('the census of the reads that decide a settlement verdict', () => {
     expect(new Set(ROLES.map((role) => readKey(role.file, role.fn, role.read))).size).toBe(ROLES.length);
     expect(ROLES.filter((role) => role.reason.length === 0)).toEqual([]);
     expect(ROLES.filter((role) => role.role === 'pre-read').map((role) => [role.fn, role.read, role.owner])).toEqual([
+      ['authenticatedHeldBatch', 'event:*', HELD_ORIGIN_OWNER],
+      ['authenticatedHeldBatch', 'event:execution.settled', HELD_ORIGIN_OWNER],
+      ['authenticatedHeldBatch', 'helper:lookupOperationClaim', HELD_ORIGIN_OWNER],
       ['planStandingLookup', 'helper:resolveWorkflowState', PLAN_STANDING_OWNER],
       ['coordinateFor', 'event:*', COORDINATE_STANDING_OWNER],
       ['coordinateFor', 'helper:lookupOperationClaim', COORDINATE_STANDING_OWNER],
