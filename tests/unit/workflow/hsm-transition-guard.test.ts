@@ -3,7 +3,7 @@
  * A guarded transition appends `workflow.transition` on a pass or `workflow.guard-failed` on a fail, never both.
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import * as os from 'node:os';
@@ -14,6 +14,8 @@ import {
   LEGACY_TRANSITION_CORPUS_POSTURE,
   legacyTransitionCorpus,
 } from './__fixtures__/transition-admission-corpus.js';
+import * as stateMachine from '../../../src/workflow/state-machine.js';
+import { buildEvent } from '../../../src/events/event-factory.js';
 import { getHSMDefinition } from '../../../src/workflow/state-machine.js';
 import { EventStore } from '../../../src/events/store.js';
 import type { WorkflowEvent } from '../../../src/events/schemas.js';
@@ -28,6 +30,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+  vi.restoreAllMocks();
   await rmrfAsync(tmpDir);
 });
 
@@ -443,5 +446,43 @@ describe('HSM emission boundary schema-validates event data (T-03, #1339)', () =
       const parsed = fixCycleSchema!.safeParse(evt.data);
       expect(parsed.success).toBe(true);
     }
+  });
+});
+
+/** The success hook preserves ordered ordinals and observes only an owned commit. */
+describe('atomic legacy success hook', () => {
+  it.each([true, false])('SuccessHook_StagesPrefixOrdinals_AndObservesOnlyOwned_%s', async owned => {
+    vi.spyOn(stateMachine, 'executeTransition').mockReturnValue({ success: true, idempotent: false, newPhase: 'plan-review', effects: [],
+      events: [
+        { type: 'fix-cycle', from: 'plan', to: 'plan-review', trigger: 'test', metadata: { compoundStateId: 'a' } },
+        { type: 'fix-cycle', from: 'plan', to: 'plan-review', trigger: 'test', metadata: { compoundStateId: 'b' } },
+        { type: 'fix-cycle', from: 'plan', to: 'plan-review', trigger: 'test', metadata: { compoundStateId: 'a' } },
+        { type: 'plan-revision', from: 'plan', to: 'plan-review', trigger: 'test' },
+        { type: 'plan-revision', from: 'plan', to: 'plan-review', trigger: 'test' },
+      ] });
+    const observer = vi.fn();
+    const commit = vi.fn(async (rows: readonly WorkflowEvent[]) => {
+      expect(observer).not.toHaveBeenCalled();
+      expect(rows.map(row => row.data?.count)).toEqual([2, 1, 3, 2, 3]);
+      return { sequence: 17, owned };
+    });
+    const result = await new DefaultHSMTransitionGuard().attempt(featureId, 'plan', 'plan-review', {
+      workflowType: 'feature', state: { phase: 'plan', artifacts: { plan: 'plan.md' } }, eventStore: null,
+      sourceRows: [buildEvent(featureId, 1, { type: 'workflow.fix-cycle', data: { compoundStateId: 'a', count: 1, featureId } }),
+        buildEvent(featureId, 2, { type: 'workflow.plan-revision', data: { count: 1, featureId } })],
+      commitSuccess: commit, shadowObserver: observer,
+    });
+    expect(result).toMatchObject({ ok: true, transitionEvent: { sequence: 17 } });
+    expect(commit).toHaveBeenCalledTimes(1);
+    expect(observer).toHaveBeenCalledTimes(owned ? 1 : 0);
+  });
+
+  it('SuccessHook_ConflictRunsNoSuccessfulObserver', async () => {
+    const observer = vi.fn();
+    await expect(new DefaultHSMTransitionGuard().attempt(featureId, 'plan', 'plan-review', {
+      workflowType: 'feature', state: { phase: 'plan', artifacts: { plan: 'plan.md' } }, eventStore: null,
+      sourceRows: [], commitSuccess: async () => { throw new Error('changed tail'); }, shadowObserver: observer,
+    })).rejects.toThrow('changed tail');
+    expect(observer).not.toHaveBeenCalled();
   });
 });

@@ -3,6 +3,10 @@
  * tasks cover each design section, and records the gate result.
  */
 
+import { readDesignRecordPair } from '../../workflow/design-record/read.js';
+import { evaluatePlanCoverage } from '../../workflow/design-record/plan-checks.js';
+import type { DesignRecordReadResult } from '../../workflow/design-record/schema.js';
+import { extractGwtKeyword } from '../../workflow/design-record/gwt.js';
 import { readFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import type { ToolResult } from '../../format.js';
@@ -331,15 +335,6 @@ export function detectGwtSections(markdown: string): string[] {
   let inDesignSection = false;
   let currentSectionName: string | null = null;
   let hasGwt = false;
-
-  const gwtPattern = /(?:\*\*(Given|When|Then)\*\*|^[-*]\s+(Given|When|Then)\b|^\s+[-*]\s+(Given|When|Then)\b|(Given|When|Then)\s*:)/i;
-
-  function extractGwtKeyword(line: string): string | null {
-    const m = gwtPattern.exec(line);
-    if (!m) return null;
-    const kw = (m[1] ?? m[2] ?? m[3] ?? m[4] ?? '').toLowerCase();
-    return kw;
-  }
 
   let seenKeywords = new Set<string>();
 
@@ -703,12 +698,16 @@ export async function handlePlanCoverage(
     };
   }
 
+  let record: DesignRecordReadResult;
   let designContent: string;
   let planContent: string;
 
   try {
-    designContent = await readFile(args.designPath, 'utf-8') as string;
-    planContent = await readFile(args.planPath, 'utf-8') as string;
+    const designBytes = Buffer.from(await readFile(args.designPath));
+    const planBytes = args.designPath === args.planPath ? designBytes : Buffer.from(await readFile(args.planPath));
+    record = readDesignRecordPair(designBytes, args.designPath, planBytes, args.planPath);
+    designContent = designBytes.toString('utf8');
+    planContent = planBytes.toString('utf8');
   } catch (err: unknown) {
     return {
       success: false,
@@ -738,7 +737,7 @@ export async function handlePlanCoverage(
     ),
     providerInput: args,
     executeProvider: async () =>
-      executePlanCoverage(args, designContent, planContent, eventStore),
+      executePlanCoverage(args, designContent, planContent, eventStore, record),
   });
 }
 
@@ -754,7 +753,19 @@ async function executePlanCoverage(
   designContent: string,
   planContent: string,
   eventStore: EventStore,
+  record: DesignRecordReadResult,
 ): Promise<ToolResult> {
+  if (record.kind === 'invalid') return { success: false, error: { code: 'INVALID_DESIGN_RECORD', message: record.message } };
+  if (record.kind === 'typed') {
+    const checked = evaluatePlanCoverage(record.snapshot);
+    const gapSections = record.snapshot.requirements.filter((id) => !checked.edges.some((edge) => edge.requirementId === id));
+    const total = record.snapshot.requirements.length;
+    const coverage = { covered: total - gapSections.length, gaps: gapSections.length, deferred: 0, total };
+    const report = ['## Plan Coverage Report', ...checked.edges.map((edge) => `| ${edge.requirementId} | ${edge.taskId} |`),
+      ...checked.findings.map((finding) => `${finding.code}: ${finding.message}`), `**Result: ${checked.passed ? 'PASS' : 'FAIL'}**`].join('\n');
+    await emitCoverageResult(eventStore, args.featureId, checked.passed, coverage);
+    return { success: true, data: { ...checked, coverage, gapSections, report } };
+  }
   const designSections = parseDesignSections(designContent);
   if (designSections.length === 0) {
     return {
@@ -789,22 +800,31 @@ async function executePlanCoverage(
   const foldedResult =
     foldedAdvisories.length > 0 ? { ...result, advisories: foldedAdvisories } : result;
 
-  await emitGateEvent(
+  await emitCoverageResult(eventStore, args.featureId, result.passed, result.coverage);
+  return { success: true, data: { ...foldedResult } };
+}
+
+/** Record the same metrics for a typed or legacy coverage verdict. */
+function emitCoverageResult(
+  eventStore: EventStore,
+  featureId: string,
+  passed: boolean,
+  coverage: { readonly covered: number; readonly gaps: number; readonly deferred: number; readonly total: number },
+) {
+  return emitGateEvent(
     eventStore,
-    args.featureId,
+    featureId,
     'plan-coverage',
     'planning',
-    result.passed,
+    passed,
     {
       dimension: 'D1',
       phase: 'plan',
-      covered: result.coverage.covered,
-      gaps: result.coverage.gaps,
-      deferred: result.coverage.deferred,
-      totalSections: result.coverage.total,
+      covered: coverage.covered,
+      gaps: coverage.gaps,
+      deferred: coverage.deferred,
+      totalSections: coverage.total,
     },
     sameOperationGateKey('plan-coverage'),
   );
-
-  return { success: true, data: { ...foldedResult } };
 }

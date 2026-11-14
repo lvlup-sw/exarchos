@@ -28,7 +28,7 @@ import {
   PhaseEnteredPostureSchema,
   type EventType,
 } from '../../../src/events/schemas.js';
-import { extendWorkflowTypeEnum, unextendWorkflowTypeEnum } from '../../../src/workflow/schemas.js';
+import { WorkflowTypeSchema, extendWorkflowTypeEnum, unextendWorkflowTypeEnum } from '../../../src/workflow/schemas.js';
 import { KIND_OBLIGATIONS, resolveGateSet, type PhaseKind } from '../../../src/workflow/phase-kind.js';
 
 describe('WorkflowEventBase', () => {
@@ -145,13 +145,13 @@ describe('WorkflowStartedData', () => {
     ).toThrow();
   });
 
-  it('should reject unregistered workflow type', () => {
-    expect(() =>
-      WorkflowStartedData.parse({
-        featureId: 'test',
-        workflowType: 'unregistered-type',
-      }),
-    ).toThrow();
+  it('StoredWorkflowType_ColdDecodeAcceptsButWriterAdmissionRefuses', () => {
+    const stored = { featureId: 'test', workflowType: 'unregistered-type' };
+    expect(WorkflowStartedData.parse(stored)).toEqual(stored);
+    expect(() => WorkflowTypeSchema.parse(stored.workflowType)).toThrow();
+    for (const workflowType of ['', 'Uppercase', '-leading', 'trailing-', 'two--parts', 'with space']) {
+      expect(() => WorkflowStartedData.parse({ ...stored, workflowType })).toThrow();
+    }
   });
 
   it('should accept registered custom workflow type', () => {

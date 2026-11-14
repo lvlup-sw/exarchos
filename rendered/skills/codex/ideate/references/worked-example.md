@@ -48,6 +48,4 @@ Buffer events in a WAL, flush deduplicated batches.
 
 Agent writes the `## Design & Rationale` section of the one unified `docs/specs/2026-02-28-event-deduplication.md` artifact covering: problem statement, chosen approach (optional idempotency keys), numbered requirements (`DR-N`) each with acceptance criteria, integration points (event append tool, view tool), testing strategy (duplicate detection tests, backward compatibility).
 
-**State update:** `artifacts.spec` set to the `docs/specs/` path. No phase transition — `plan` is the initial phase; the decomposition is authored next in the same phase.
-
-**Agent:** "Design & Rationale section saved. Auto-continuing to decomposition..."
+The agent saves that section in the local file and passes its path and the selected depth to plan. For deep exploration, the design also cites the research note and its matching `correlationId` under `### Exploration`.

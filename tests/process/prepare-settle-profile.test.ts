@@ -141,7 +141,7 @@ async function seedDelegation(mcp: SagaToolClient): Promise<void> {
 }
 
 describe('the packaged chain of prepare and settle', () => {
-  it('PackagedChain_PrepareSixThenSettle_RefusesAHighTierTaskThatBreaksAnotherTest', async () => {
+  it('PackagedChain_PrepareSevenThenSettle_RefusesAHighTierTaskThatBreaksAnotherTest', async () => {
     await withHermeticEnv(async (env) => {
       const worktree = await taskFixture(env.gitDir);
       const mcp = await spawnMcpClient({ stateDir: env.stateDir });
@@ -150,7 +150,7 @@ describe('the packaged chain of prepare and settle', () => {
 
         const prepared = await dataOf(mcp, orchestrate('prepare', { repoRoot: env.gitDir }));
         expect(prepared.capsule).toMatchObject({
-          provenance: { compilerVersion: 'exarchos-prepare-6' },
+          provenance: { compilerVersion: 'exarchos-prepare-7' },
           settlementContract: {
             verificationProfile: { integration: { command: { state: 'resolved', argv: ['npm', 'run', 'test:run'] } } },
           },

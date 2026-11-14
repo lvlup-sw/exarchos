@@ -44,6 +44,7 @@ function materialCapsule(): ExarchosCapsuleV1 {
   const base = baseValidCapsule();
   return {
     ...base,
+    identity: { ...base.identity, workflowId: STREAM },
     contracts: {
       ...base.contracts,
       deviationEnvelope: {
@@ -62,7 +63,7 @@ beforeEach(async () => {
     streamId: STREAM,
     operationId: 'seed:prepared',
     requestDigest: 'sha256:seed-prepared',
-    workflowType: 'feature',
+    workflowType: WorkflowDefinitionV1Schema.parse(baseValidDefinition()).name,
     capsule: materialCapsule(),
     definition: WorkflowDefinitionV1Schema.parse(baseValidDefinition()),
   });

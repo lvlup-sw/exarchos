@@ -72,7 +72,6 @@ const SITES: readonly ProseSite[] = [
     shape: 'probe-call',
     runbook: TASK_COMPLETION,
   },
-  { skill: 'content/design/skills/plan/SKILL.md', phase: 'delegate', shape: 'probe-call', runbook: TASK_COMPLETION },
   { skill: 'content/review/skills/review/references/gate-execution.md', phase: 'review', shape: 'carrier-reading' },
 ];
 
@@ -652,7 +651,6 @@ describe('SkillProse — the checked-by sentence names the gate row', () => {
     expect(sites.map((s) => s.skill)).toEqual([
       'content/review/skills/review/SKILL.md',
       'content/review/skills/review/references/spec-compliance-checklist.md',
-      'content/design/skills/plan/SKILL.md',
     ]);
     for (const site of sites) {
       expect(site.runbook, site.skill).toBeDefined();
@@ -685,7 +683,7 @@ describe('SkillProse — the checked-by sentence names the gate row', () => {
   /**
    * The census reads each Markdown file of `content/` with the passage reader of the judge.
    * Each file that holds a call of the kill probe must have a probe-call site, so no such passage escapes the judge.
-   * A seeded file with an unlisted call and a site list without the plan skill are each named.
+   * A seeded file and an omitted review site each produce a finding.
    */
   it('SkillProse_EveryProbeCallPassageOfTheContent_HasAProbeCallSite', () => {
     const files = new Map(
@@ -703,9 +701,9 @@ describe('SkillProse — the checked-by sentence names the gate row', () => {
       'content/seeded/SKILL.md calls check_test_adequacy, and no probe-call site lists it',
     ]);
 
-    const withoutPlan = listed.filter((file) => file !== 'content/design/skills/plan/SKILL.md');
-    expect(probeCallCensus(files, withoutPlan)).toEqual([
-      'content/design/skills/plan/SKILL.md calls check_test_adequacy, and no probe-call site lists it',
+    const withoutReview = listed.filter((file) => file !== 'content/review/skills/review/SKILL.md');
+    expect(probeCallCensus(files, withoutReview)).toEqual([
+      'content/review/skills/review/SKILL.md calls check_test_adequacy, and no probe-call site lists it',
     ]);
     expect(probeCallCensus(new Map(), listed)).toEqual(
       listed.map((file) => `${file} is a probe-call site and holds no call of check_test_adequacy`),

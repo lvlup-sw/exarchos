@@ -21,88 +21,22 @@ const SCHEMA_REFERENCE = 'schema-discovery reference: consulted when a schema is
 const PLAN: IntentModel = {
   id: 'plan',
   source: 'plan',
+  authoringOnly: true,
   boundary: {
-    label: 'transition plan -> plan-review',
-    cite: { source: 'plan', needle: 'The `plan` → `plan-review` transition requires guard' },
+    label: 'approved handoff to delegate',
+    cite: { source: 'plan', needle: '## Approved handoff to delegate' },
   },
   normal: [
-    { kind: 'site', ref: at('plan', `${O}.generate_traceability`, '-traceability.md"') },
-    { kind: 'site', ref: at('plan', `${O}.check_plan_coverage`, 'action: "check_plan_coverage",') },
-    { kind: 'site', ref: at('plan', `${O}.check_provenance_chain`, 'action: "check_provenance_chain",') },
     {
-      kind: 'site',
-      ref: at('plan', `${O}.check_task_decomposition`, 'action: "check_task_decomposition",'),
-      why: 'advisory gate, but its step prescribes running it',
-    },
-    { kind: 'site', ref: at('plan', `${O}.spec_coverage_check`, 'repoRoot: ".",') },
-    {
-      kind: 'site',
-      ref: at('plan', `${O}.check_coverage_thresholds`, 'lineThreshold: 80'),
-      why: 'prescribed only as a completion criterion, which the skill lists as required before planning is complete',
-      flag: 'A plan-phase completion criterion prescribes a coverage-threshold gate, but no coverage summary exists at plan time for it to read.',
-    },
-    {
-      kind: 'site',
-      ref: at('plan', `${W}.update`, 'action: "update", featureId: "<id>", updates: {'),
-      why: 'a bare action key, resolved to the only tool that serves update',
-    },
-    { kind: 'site', ref: at('plan', `${W}.transition`, 'action: "transition", featureId: "<id>", target: "<plan-review-phase>"') },
-  ],
-  exceptions: [
-    {
-      id: 'coverage-gaps-revise',
-      label: 'the coverage gate fails, so the plan is revised and re-run',
-      trigger: { source: 'plan', needle: 'If passed: false → auto-invoke `plan --revise`' },
-      through: `${O}.check_plan_coverage`,
-      extra: [
-        {
-          kind: 'site',
-          ref: at('plan', `${W}.update`, 'clear gaps via `exarchos:exarchos_workflow`'),
-          why: 'revision mode names one call, clearing the recorded gaps',
-        },
-      ],
-      reentersNormalPath: true,
-      bound: { max: 3, cite: { source: 'plan', needle: 'Max revisions: 3 per plan.' } },
-      why: 'Revision re-invokes this skill, so one revision counts the calls up to the failing gate, the gap-clearing update, and the whole normal path again. Reading the gaps from state names no call and is not counted.',
+      kind: 'mention',
+      call: 'native:SPAWN_AGENT_CALL',
+      cite: { source: 'plan', needle: 'Dispatch fresh-context refuters with the harness subagent tool.' },
+      why: 'The harness dispatches independent refuters. The call count represents one dispatch and is a lower bound.',
     },
   ],
-  conditional: [
-    { kind: 'site', ref: at('plan', `${W}.describe`, 'actions: ["update", "init"] })` for'), why: SCHEMA_REFERENCE },
-    { kind: 'site', ref: at('plan', `${W}.describe`, 'playbook: "feature" })`'), why: SCHEMA_REFERENCE },
-    {
-      kind: 'site',
-      ref: at('plan', `${O}.describe`, 'actions: ["check_plan_coverage", "check_provenance_chain"]'),
-      why: SCHEMA_REFERENCE,
-    },
-  ],
-  excluded: [
-    {
-      ref: at('plan', `${O}.check_test_adequacy`, 'riskTier: "high"'),
-      kind: 'other-phase',
-      why: 'the verification-ladder section shows the kill probe a task runs after implementation, not a planning call',
-    },
-    { ref: at('plan', `${O}.generate_traceability`, 'Spec traceability table created'), kind: 'restatement', why: 'completion checklist restates the traceability step' },
-    { ref: at('plan', `${O}.check_plan_coverage`, 'Plan verification passed'), kind: 'restatement', why: 'completion checklist restates the coverage step' },
-    { ref: at('plan', `${O}.check_provenance_chain`, 'Provenance chain checked'), kind: 'restatement', why: 'completion checklist restates the provenance step' },
-    { ref: at('plan', `${O}.check_task_decomposition`, 'Task decomposition checked'), kind: 'restatement', why: 'completion checklist restates the decomposition step' },
-    { ref: at('plan', `${O}.spec_coverage_check`, 'Spec coverage check passed'), kind: 'restatement', why: 'completion checklist restates the spec coverage step' },
-    {
-      ref: at('plan', `${O}.check_coverage_thresholds`, 'Coverage thresholds met'),
-      kind: 'restatement',
-      why: 'the checklist line names the call whose full recipe follows it',
-    },
-    {
-      ref: at('plan', `${O}.prepare_review`, 'scope: "plan", artifact:'),
-      kind: 'beyond-boundary',
-      why: 'provisions the plan-review pass, which runs after the transition this intent ends at',
-    },
-    { ref: at('plan', `${O}.check_plan_coverage`, '**REQUIRED:** Run'), kind: 'restatement', why: 'the transition section restates the coverage gate as the revise trigger' },
-    {
-      ref: at('plan', `${W}.transition`, 'Phase transitions auto-emit `workflow.transition` events via'),
-      kind: 'restatement',
-      why: 'the integration note restates the transition call of the State Management section to say which event it emits',
-    },
-  ],
+  exceptions: [],
+  conditional: [],
+  excluded: [],
 };
 
 const TASK_COMPLETION: IntentModel = {
@@ -173,7 +107,7 @@ const DELEGATION: IntentModel = {
     { kind: 'site', ref: at('delegate', `${O}.runbook`, '**Dispatch strategy:**'), why: 'pre-dispatch decision runbook, prescribed before dispatching' },
     {
       kind: 'site',
-      ref: at('delegate', `${O}.prepare`, 'action: "prepare", featureId: "<featureId>", repoRoot:'),
+      ref: at('delegate', `${O}.prepare`, 'mode: "bootstrap", workflowType: "feature"'),
       why: 'compiles the batch into the capsule every packet is built from, and announces its tasks in the same commit — the announcement the skill used to make first is the compilation\'s now',
     },
     {
@@ -262,8 +196,8 @@ const DELEGATION: IntentModel = {
       extra: [
         {
           kind: 'site',
-          ref: at('delegate', `${O}.prepare`, 'action: "prepare", featureId: "<featureId>", repoRoot:'),
-          why: 'the same prepare call, made again after the stale verdict. It compiles under the design version that the later revision recorded',
+          ref: at('delegate', `${O}.prepare`, 'mode: "compile", designDepth: "standard"'),
+          why: 'a compile continuation uses the design version that the later revision recorded',
         },
         {
           kind: 'site',
@@ -272,7 +206,7 @@ const DELEGATION: IntentModel = {
         },
       ],
       reentersNormalPath: false,
-      why: 'The stale path: prepare, the settle that finds the capsule stale, the second prepare, and the settle under its capsule. Nothing was verified under the stale batch. The second prepare and its settle have no call site of their own, because each is the call that the normal path already shows, so each is counted at that site. Dispatching a named task again from the new packet is a harness call that the branch does not name, so the harness count is a lower bound. The revision that made the capsule stale belongs to another batch, and its calls are not counted here. Landing and the backstop follow as on the normal path.',
+      why: 'The stale path: prepare, the settle that finds the capsule stale, the second prepare, and the settle under its capsule. Nothing was verified under the stale batch. The second prepare uses the compile recipe. The second settle uses the normal settle recipe with the new capsule. Dispatching a named task again from the new packet is a harness call that the branch does not name, so the harness count is a lower bound. The revision that made the capsule stale belongs to another batch, and its calls are not counted here. Landing and the backstop follow as on the normal path.',
     },
     {
       id: 'deviation-pending',
@@ -317,8 +251,8 @@ const DELEGATION: IntentModel = {
         },
         {
           kind: 'site',
-          ref: at('delegate', `${O}.prepare`, 'action: "prepare", featureId: "<featureId>", repoRoot:'),
-          why: 'the continuation: the same prepare call, made again after the revision. It compiles the ready tasks under the new design version and records the recompile in the commit of its record',
+          ref: at('delegate', `${O}.prepare`, 'mode: "compile", designDepth: "standard"'),
+          why: 'the continuation compiles the ready tasks under the new design version and records the recompile in the commit of its record',
         },
         {
           kind: 'site',
@@ -327,7 +261,7 @@ const DELEGATION: IntentModel = {
         },
       ],
       reentersNormalPath: false,
-      why: 'The whole path of a material deviation with a human decision, counted to the settlement of the recompiled capsule: prepare, the settle that is held, the settle that carries the decision and records the revision, the continuation prepare, and the settle of the capsule it compiled. The continuation and its settle have no call site of their own, because each is the call the normal path already shows, so each is counted at that site. The design-revised path stops at the decision call; this path counts on from it. The own-task path has the same five calls: the held batch reports a task as blocked and its deviation names that task, the decision round needs a correction and records the revision, and the continuation compiles the task. Dispatching and collecting the recompiled tasks are harness calls the branch does not name again, so the harness count is a lower bound. Landing and the backstop follow as on the normal path. An invalidated task that is not ready yet waits for a later prepare, which is the normal path. A retry of the continuation replays its receipt and is not a second continuation.',
+      why: 'The whole path of a material deviation with a human decision, counted to the settlement of the recompiled capsule: prepare, the settle that is held, the settle that carries the decision and records the revision, the continuation prepare, and the settle of the capsule it compiled. The continuation uses the compile recipe. Its settle uses the normal settle recipe with the new capsule. The design-revised path stops at the decision call; this path counts on from it. The own-task path has the same five calls: the held batch reports a task as blocked and its deviation names that task, the decision round needs a correction and records the revision, and the continuation compiles the task. Dispatching and collecting the recompiled tasks are harness calls the branch does not name again, so the harness count is a lower bound. Landing and the backstop follow as on the normal path. An invalidated task that is not ready yet waits for a later prepare, which is the normal path. A retry of the continuation replays its receipt and is not a second continuation.',
     },
     {
       id: 'context-compaction',
@@ -387,11 +321,6 @@ const DELEGATION: IntentModel = {
       kind: 'site',
       ref: at('delegate', `${O}.describe`, '`exarchos_orchestrate({ action: "describe", actions: ["prepare", "settle"] })`'),
       why: SCHEMA_REFERENCE,
-    },
-    {
-      kind: 'site',
-      ref: at('delegate', `${W}.update`, '"synthesis.integrationBranch": "<branch the tasks fork from>"'),
-      why: 'the remedy for a BASE_UNRESOLVED refusal: made once, when the workflow records no integration branch, then prepare runs again',
     },
     {
       kind: 'site',

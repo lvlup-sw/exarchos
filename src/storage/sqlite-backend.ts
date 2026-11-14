@@ -18,8 +18,9 @@ import type {
   DrainResult,
   WorkflowSummary,
   WorkflowSummaryFilter,
+  StoredStateIdentity,
 } from './backend.js';
-import { deriveWorkflowStatus, matchesWorkflowSummaryFilter } from './backend.js';
+import { deriveWorkflowStatus, matchesWorkflowSummaryFilter, matchesStoredStateIdentity, StoredStateIdentityConflictError } from './backend.js';
 import { VersionConflictError } from './memory-backend.js';
 import type { SnapshotRecord } from '../projections/snapshot-schema.js';
 import { resolveMaxRecords } from './snapshot-retention.js';
@@ -1580,6 +1581,10 @@ export class SqliteBackend implements StorageBackend {
     }
   }
 
+  hasState(featureId: string): boolean {
+    return this.stmts.getStateVersion.get(featureId) != null;
+  }
+
   getState(featureId: string): WorkflowState | null {
     const row = this.stmts.getState.get(featureId) as { state: string; version: number } | undefined;
     if (!row) return null;
@@ -1592,13 +1597,18 @@ export class SqliteBackend implements StorageBackend {
    * without `expectedVersion` takes `state._version`, so the version matches
    * the persisted counter.
    */
-  setState(featureId: string, state: WorkflowState, expectedVersion?: number): void {
+  setState(featureId: string, state: WorkflowState, expectedVersion?: number, expectedIdentity?: StoredStateIdentity): void {
     const setFn = this.db.transaction(() => {
-      const existing = this.stmts.getStateVersion.get(featureId) as { version: number } | undefined;
+      const statement = expectedIdentity === undefined ? this.stmts.getStateVersion : this.stmts.getState;
+      const existing = statement.get(featureId) as { version: number; state?: string } | undefined;
       const currentVersion = existing ? existing.version : 0;
 
       if (expectedVersion !== undefined && currentVersion !== expectedVersion) {
         throw new VersionConflictError(featureId, expectedVersion, currentVersion);
+      }
+      if (expectedIdentity !== undefined) {
+        const stored = existing?.state === undefined ? undefined : JSON.parse(existing.state) as unknown;
+        if (!matchesStoredStateIdentity(stored, expectedIdentity)) throw new StoredStateIdentityConflictError();
       }
 
       let newVersion: number;
@@ -1616,7 +1626,12 @@ export class SqliteBackend implements StorageBackend {
       );
     });
 
-    setFn();
+    if (expectedIdentity === undefined) {
+      setFn();
+    } else {
+      if (!hasImmediateTransaction(setFn)) throw new SqliteImmediateUnsupportedError();
+      setFn.immediate();
+    }
   }
 
   listStates(): Array<{ featureId: string; state: WorkflowState }> {

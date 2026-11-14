@@ -325,6 +325,7 @@ export const CapsuleTaskVerificationSchema = z
 export const CapsuleSettlementContractSchema = z
   .object({
     requiredResults: z.array(SharedStableIdSchema).min(1),
+    skipPhases: z.array(z.string()).optional(),
     /**
      * Per-task verification terms, keyed by task id. The field is optional, because the contract derives for any kernel step.
      * A settlement that needs the terms of a task refuses a task without terms.

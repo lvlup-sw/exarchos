@@ -1,0 +1,251 @@
+/**
+ * Read one bounded design record and retain the exact source for later validators.
+ */
+import { createHash } from 'node:crypto';
+import { open } from 'node:fs/promises';
+import path from 'node:path';
+import { TextDecoder } from 'node:util';
+import { fromMarkdown } from 'mdast-util-from-markdown';
+import {
+  DesignPlanSchema,
+  type DesignRecordReadResult,
+  type RequirementDefinition,
+  type SourceSpan,
+} from './schema.js';
+import { validateDesignRecord, type PlanFinding } from './validate.js';
+
+export interface DesignRecordLimits {
+  readonly maxBytes?: number;
+  readonly maxDepth?: number;
+}
+
+const DEFAULT_MAX_BYTES = 1024 * 1024;
+const DEFAULT_MAX_DEPTH = 128;
+
+/** Freeze nested arrays and objects before a snapshot leaves the reader. */
+function freeze<T>(value: T): T {
+  if (value !== null && typeof value === 'object') {
+    for (const child of Object.values(value)) freeze(child);
+    Object.freeze(value);
+  }
+  return value;
+}
+
+/** Refuse a missing source value instead of asserting that an array index exists. */
+function required<T>(value: T | null | undefined): T {
+  if (value === undefined || value === null) throw new Error('Missing design record source value');
+  return value;
+}
+
+/** Build spans from line starts without rescanning the source for each task. */
+function spanFactory(text: string): (start: number, end: number) => SourceSpan {
+  const starts = [0];
+  for (let i = 0; i < text.length; i++) {
+    if (text[i] === '\r' && text[i + 1] === '\n') i++;
+    if (text[i] === '\r' || text[i] === '\n') starts.push(i + 1);
+  }
+  const lineAt = (offset: number): number => {
+    let lo = 0;
+    let hi = starts.length;
+    while (lo + 1 < hi) {
+      const mid = (lo + hi) >>> 1;
+      if (required(starts[mid]) <= offset) lo = mid;
+      else hi = mid;
+    }
+    return lo + 1;
+  };
+  return (start, end) => ({ start, end, startLine: lineAt(start), endLine: lineAt(Math.max(start, end - 1)) });
+}
+
+/** Root nodes exclude examples in containers and raw HTML. Raw slices retain exact spelling and offsets. */
+function scanMarkdown(text: string, span: ReturnType<typeof spanFactory>) {
+  const blocks: { info: string; start: number; end: number }[] = [];
+  const definitions: RequirementDefinition[] = [];
+  const openDefinitions: { index: number; depth: number }[] = [];
+  const bom = text.startsWith('\uFEFF') ? 1 : 0;
+  const tree = fromMarkdown(text.slice(bom));
+  let regionLevel: number | undefined;
+  for (const node of tree.children) {
+    const from = node.position?.start.offset;
+    const to = node.position?.end.offset;
+    if (from === undefined || to === undefined) throw new Error('Markdown node has no source span');
+    const start = from + bom;
+    const end = to + bom;
+    const raw = text.slice(start, end);
+    if (node.type === 'code') {
+      const opening = /^(`{3,}|~{3,})([^\r\n]*)(?:\r\n|\r|\n|$)/.exec(raw);
+      if (!opening) continue;
+      const info = required(opening[2]).trim();
+      if (!info.startsWith('exarchos-plan') && !node.lang?.startsWith('exarchos-plan')) continue;
+      const lastLine = raw.slice(Math.max(raw.lastIndexOf('\r'), raw.lastIndexOf('\n')) + 1);
+      const closing = /^ {0,3}(`{3,}|~{3,})[ \t]*$/.exec(lastLine);
+      if (!closing || required(closing[1])[0] !== required(opening[1])[0] || required(closing[1]).length < required(opening[1]).length
+        || opening[0].length === raw.length) throw new Error('Unterminated typed plan fence');
+      blocks.push({ info, start: start + opening[0].length, end: end - lastLine.length });
+    } else if (node.type === 'heading') {
+      while (openDefinitions.length > 0 && required(openDefinitions[openDefinitions.length - 1]).depth >= node.depth) {
+        const open = required(openDefinitions.pop());
+        const definition = required(definitions[open.index]);
+        definitions[open.index] = { ...definition, bodySpan: span(definition.span.end, start) };
+      }
+      const title = raw.replace(/^#{1,6}[ \t]+/, '').replace(/(?:\r\n|\r|\n)[ \t]*[=-]+[ \t]*$/, '')
+        .replace(/[ \t]+#+[ \t]*$/, '').trim();
+      if (regionLevel !== undefined && node.depth <= regionLevel) regionLevel = undefined;
+      if (title === 'Design & Rationale') regionLevel = node.depth;
+      else if (regionLevel !== undefined) {
+        const requirement = /^(DR-[1-9][0-9]*)(?=[: \t]|$)/.exec(title);
+        if (requirement) {
+          openDefinitions.push({ index: definitions.length, depth: node.depth });
+          definitions.push({ id: required(requirement[1]), title, span: span(start, end), bodySpan: span(end, text.length) });
+        }
+      }
+    }
+  }
+  return { blocks, definitions };
+}
+
+/** Strict JSON syntax is checked first. This walk rejects decoded duplicate keys and records task spans. */
+function jsonTaskSpans(body: string, start: number, maxDepth: number, span: ReturnType<typeof spanFactory>): SourceSpan[] {
+  const token = /\s*("(?:[^"\\]|\\.)*"|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?|true|false|null|[{}\[\]:,])/y;
+  let offset = 0;
+  const tasks: SourceSpan[] = [];
+  const next = (): string => {
+    token.lastIndex = offset;
+    const match = token.exec(body);
+    if (!match) throw new Error('Invalid JSON token');
+    offset = token.lastIndex;
+    return required(match[1]);
+  };
+  const walk = (keys: readonly (string | number)[], depth: number): void => {
+    if (depth > maxDepth) throw new Error('Plan exceeds the JSON depth limit');
+    while (/\s/.test(body[offset] ?? '') && offset < body.length) offset++;
+    const from = offset;
+    const value = next();
+    if (value === '{') {
+      const seen = new Set<string>();
+      let key = next();
+      while (key !== '}') {
+        const decoded: unknown = JSON.parse(key);
+        if (typeof decoded !== 'string') throw new Error('Invalid JSON key');
+        if (seen.has(decoded)) throw new Error(`Duplicate JSON key: ${decoded}`);
+        seen.add(decoded);
+        next();
+        walk([...keys, decoded], depth + 1);
+        if (next() === '}') break;
+        key = next();
+      }
+    } else if (value === '[') {
+      const saved = offset;
+      if (next() !== ']') {
+        offset = saved;
+        let index = 0;
+        do { walk([...keys, index++], depth + 1); } while (next() !== ']');
+      }
+    }
+    if (keys.length === 2 && keys[0] === 'tasks' && typeof keys[1] === 'number') {
+      tasks[keys[1]] = span(start + from, start + offset);
+    }
+  };
+  walk([], 0);
+  return tasks;
+}
+
+/** Classify bytes without reading task prose or changing identifiers. */
+export function readDesignRecord(bytes: Uint8Array, reference: string, limits: DesignRecordLimits = {}): DesignRecordReadResult {
+  try {
+    const maxBytes = limits.maxBytes ?? DEFAULT_MAX_BYTES;
+    const maxDepth = limits.maxDepth ?? DEFAULT_MAX_DEPTH;
+    if (!Number.isSafeInteger(maxBytes) || maxBytes < 1 || !Number.isSafeInteger(maxDepth) || maxDepth < 1) {
+      throw new Error('Invalid design record limits');
+    }
+    if (bytes.length > maxBytes) throw new Error('Design record exceeds the byte limit');
+    const owned = Uint8Array.from(bytes);
+    const text = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(owned);
+    const span = spanFactory(text);
+    const { blocks, definitions } = scanMarkdown(text, span);
+    if (blocks.length === 0) return { kind: 'legacy', reference };
+    if (blocks.length !== 1) throw new Error('Expected exactly one typed plan block');
+    const block = required(blocks[0]);
+    if (block.info !== 'exarchos-plan-v1') throw new Error('Unsupported typed plan fence');
+    const body = text.slice(block.start, block.end);
+    const value: unknown = JSON.parse(body);
+    const spans = jsonTaskSpans(body, block.start, maxDepth, span);
+    const plan = DesignPlanSchema.parse(value);
+    return freeze({
+      kind: 'typed',
+      snapshot: {
+        reference,
+        digest: createHash('sha256').update(owned).digest('hex'),
+        rawBytes: Array.from(owned),
+        version: plan.version,
+        requirements: plan.requirements,
+        tasks: plan.tasks.map((task, index) => ({ ...task, span: required(spans[index]) })),
+        definitions,
+        planSpan: span(block.start, block.end),
+      },
+    });
+  } catch (error) {
+    return { kind: 'invalid', reference, message: error instanceof Error ? error.message : 'Cannot read design record' };
+  }
+}
+
+type ValidatedDesignRecordReadResult =
+  | Exclude<DesignRecordReadResult, { kind: 'invalid' }>
+  | (Extract<DesignRecordReadResult, { kind: 'invalid' }> & { readonly findings?: readonly PlanFinding[] });
+
+/** Classify captured bytes and reject a typed record with any whole-plan finding. */
+export function readValidatedDesignRecord(bytes: Uint8Array, reference: string): ValidatedDesignRecordReadResult {
+  const record = readDesignRecord(bytes, reference);
+  if (record.kind !== 'typed') return record;
+  const { findings } = validateDesignRecord(record.snapshot);
+  if (findings.length === 0) return record;
+  const message = findings.map((finding) => `${finding.code}: ${finding.message}`).join('\n');
+  return { kind: 'invalid', reference, message, findings };
+}
+
+/** Read at most the byte limit plus one from a lexically contained reference. */
+export async function readDesignRecordAt(
+  checkout: string, reference: string, limits: DesignRecordLimits = {},
+): Promise<DesignRecordReadResult> {
+  try {
+    const root = path.resolve(checkout);
+    const target = path.resolve(root, reference);
+    const relative = path.relative(root, target);
+    if (relative === '' || relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
+      throw new Error('Design reference leaves the checkout');
+    }
+    const maxBytes = limits.maxBytes ?? DEFAULT_MAX_BYTES;
+    if (!Number.isSafeInteger(maxBytes) || maxBytes < 1) throw new Error('Invalid design record byte limit');
+    const handle = await open(target, 'r');
+    try {
+      const bytes = Buffer.alloc(maxBytes + 1);
+      let length = 0;
+      while (length < bytes.length) {
+        const read = await handle.read(bytes, length, bytes.length - length, null);
+        if (read.bytesRead === 0) break;
+        length += read.bytesRead;
+      }
+      return readDesignRecord(bytes.subarray(0, length), reference, limits);
+    } finally {
+      await handle.close();
+    }
+  } catch (error) {
+    return { kind: 'invalid', reference, message: error instanceof Error ? error.message : 'Cannot read design record' };
+  }
+}
+
+/** Classify both captured sources. Typed plans require one byte-identical unified record. */
+export function readDesignRecordPair(
+  designBytes: Uint8Array, designReference: string, planBytes: Uint8Array, planReference: string,
+): DesignRecordReadResult {
+  const design = readDesignRecord(designBytes, designReference);
+  const plan = readDesignRecord(planBytes, planReference);
+  if (design.kind === 'invalid') return design;
+  if (plan.kind === 'invalid') return plan;
+  if (design.kind === 'legacy' && plan.kind === 'legacy') return design;
+  if (design.kind !== 'typed' || plan.kind !== 'typed'
+    || designBytes.length !== planBytes.length || !designBytes.every((byte, index) => byte === planBytes[index])) {
+    return { kind: 'invalid', reference: designReference, message: 'Typed inputs require one byte-identical unified design record.' };
+  }
+  return design;
+}

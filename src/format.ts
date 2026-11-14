@@ -12,6 +12,7 @@ import { STABLE_PREFIX_KEYS } from './projections/rehydration/serialize.js';
 import { UNSPECIFIED_FAILURE_CODE } from './contract/error-families.js';
 import { ConcurrencyError } from './events/concurrency-error.js';
 import type { BundleRefV1 } from './events/bundle/digest-references.js';
+import type { PlanFinding } from './workflow/design-record/validate.js';
 import type { SettlementReceipt } from './verbs/settle/types.js';
 import type { SettlementReceiptSummary } from './verbs/settle/economy.js';
 import { StorageBusyError } from './events/storage-busy-error.js';
@@ -116,6 +117,7 @@ export interface ToolResult {
      * capped, so a receipt over the budget of `settle` goes as its summary.
      */
     settlementReceipt?: SettlementReceipt | SettlementReceiptSummary;
+    planFindings?: readonly PlanFinding[];
   };
   readonly warnings?: readonly string[];
   readonly _meta?: unknown;
@@ -395,6 +397,7 @@ const ERROR_CARRIER_KEYS: { readonly [K in Exclude<keyof ToolResultError, BuiltE
   intentReceipt: 'intentReceipt',
   mergeResult: 'mergeResult',
   settlementReceipt: 'settlementReceipt',
+  planFindings: 'planFindings',
 };
 
 /**

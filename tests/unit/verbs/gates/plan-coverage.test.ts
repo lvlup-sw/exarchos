@@ -1282,3 +1282,11 @@ describe('handlePlanCoverage', () => {
     });
   });
 });
+
+/** Preserve the legacy keyword and report contract without a typed block. */
+it('Coverage_LegacyFixture_PreservesContract', () => {
+  const result = computeCoverage(['Cache Layer'], [{ id: '1', title: 'Cache Layer' }], '### Task 1: Cache Layer', []);
+  expect(result.passed).toBe(true);
+  expect(result.coverage).toEqual({ covered: 1, gaps: 0, deferred: 0, total: 1 });
+  expect(result.report).toContain('| Cache Layer | Cache Layer | Covered |');
+});

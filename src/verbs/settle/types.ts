@@ -126,6 +126,7 @@ export type PhaseMove =
         | 'unpinned-definition'
         | 'skip-phases-config'
         | 'fold-failed'
+        | 'prepared-authority-mismatch'
         | 'off-batch-step';
     };
 

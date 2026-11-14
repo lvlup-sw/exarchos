@@ -6,8 +6,18 @@
  *
  * @oracle-sources: ../../../src/workflow/phase-attempt-id.ts, hand-seeded stream rows
  */
+import { WorkflowDefinitionV1Schema } from '@lvlup-sw/strategos-contracts';
+import { hsmTransitionGuard } from '../../../src/workflow/hsm-transition-guard.js';
+import { decide } from '../../../src/workflow/decide/decide.js';
+import { compileDecideDefinition } from '../../../src/workflow/decide/edges.js';
+import { kernelOf, builtInDefinition } from '../../../src/workflow/definitions/built-in.js';
+import { contentDigest } from '../../../src/contract/capsule/capsule-digest.js';
+import { fixture, prepared, task, textOf } from '../../helpers/capsule/prepared-authority.js';
+import { encodePreparedBundle } from '../../../src/contract/capsule/prepared-bundle.js';
+import type { PreparedBundleV1 } from '../../../src/contract/capsule/prepared-bundle.js';
 import { OperationDigestMismatchError, type DecideOnceContext, type DecideOnceDecision } from '../../../src/events/atomic-appender.js';
 import path from 'node:path';
+import { isDeepStrictEqual } from 'node:util';
 import { Database } from 'bun:sqlite';
 import * as stateStore from '../../../src/workflow/state-store.js';
 
@@ -1078,5 +1088,1176 @@ describe('authoritative patch candidates', () => {
     expect(result.success).toBe(true);
     expect(await rowsOf(store, FEATURE_ID)).toEqual(before);
     expect(await documentOf(store, FEATURE_ID)).toMatchObject({ artifacts: { plan: PLAN_ARTIFACT } });
+  });
+});
+
+/** Stores immutable custody and a complete prepared envelope in the real ledger. */
+async function pinPlan(store: DecideStore, ids: string[], changes?: (bundle: PreparedBundleV1) => PreparedBundleV1): Promise<void> {
+  const original = fixture(textOf(ids.map(id => task(id))));
+  let bundle = { ...original, capsule: { ...original.capsule, identity: { ...original.capsule.identity, workflowId: FEATURE_ID } } };
+  if (changes) bundle = changes(bundle);
+  const digest = await store.eventStore.bundleStore.put(encodePreparedBundle(bundle));
+  const event = prepared(bundle);
+  await store.eventStore.append(FEATURE_ID, { ...event, streamId: FEATURE_ID,
+    operationId: 'prepare-operation-1', correlationId: 'prepare-correlation-1', causationId: 'prepare-parent-1',
+    data: { ...event.data, workflowType: bundle.definition.name.replace(/^exarchos\./, ''), bundleRefs: [{ artifactId: 'run-bundle:fixture', digest }] } });
+}
+
+describe('prepared transition authority', () => {
+  it.each([false, true])('PinnedWholePlan_DroppedPendingTaskDenies_Combined_%s', async combined => {
+    const store = await openStore();
+    await featureAtDelegate(store, ['t1', 't2'], ['t1']);
+    await pinPlan(store, ['t1', 't2']);
+    const updates = { tasks: [{ id: 't1', title: 'task t1', status: 'complete' }] };
+    if (!combined) await update(store, FEATURE_ID, updates);
+    const before = await rowsOf(store, FEATURE_ID);
+    const result = await handleSet({ featureId: FEATURE_ID, phase: 'review', ...(combined ? { updates } : {}) }, store.stateDir, store.eventStore);
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('GUARD_FAILED');
+    const added = (await rowsOf(store, FEATURE_ID)).slice(before.length);
+    expect(added.filter(row => ['workflow.transition', 'state.patched'].includes(row.type))).toEqual([]);
+    await appendRow(store, FEATURE_ID, 'task.completed', { taskId: 't2' });
+    expect((await handleSet({ featureId: FEATURE_ID, phase: 'review' }, store.stateDir, store.eventStore)).success).toBe(true);
+  });
+
+  it('PinnedMetadata_UnchangedAuthorityLoadsOnce_AndCommitsOnce', async () => {
+    const store = await openStore();
+    await featureAtDelegate(store, ['t1'], ['t1']);
+    await pinPlan(store, ['t1']);
+    let inside = false;
+    const resolver = store.eventStore.bundleStore.resolve.bind(store.eventStore.bundleStore);
+    const resolve = vi.spyOn(store.eventStore.bundleStore, 'resolve').mockImplementation((...args) => {
+      expect(inside).toBe(false);
+      return resolver(...args);
+    });
+    const appender = store.eventStore.getAppender();
+    const commit = appender.decideOnce.bind(appender);
+    const decideOnce = vi.spyOn(appender, 'decideOnce').mockImplementation((id, digest, closure) => commit(id, digest, tx => {
+      inside = true;
+      try { return closure(tx); } finally { inside = false; }
+    }));
+    const result = await handleSet({ featureId: FEATURE_ID, phase: 'review' }, store.stateDir, store.eventStore);
+    expect(result.success).toBe(true);
+    expect(resolve).toHaveBeenCalledTimes(1);
+    expect(decideOnce).toHaveBeenCalledTimes(1);
+    expect((await rowsOf(store, FEATURE_ID)).filter(row => row.type === 'workflow.transition' && row.data?.to === 'review')).toHaveLength(1);
+  });
+
+  it('PinnedAuthority_NewerSameEdgeWithPendingTask_ReloadsAndDenies', async () => {
+    const store = await openStore();
+    await featureAtDelegate(store, ['t1'], ['t1']);
+    await pinPlan(store, ['t1']);
+    const appender = store.eventStore.getAppender();
+    const original = appender.decideOnce.bind(appender);
+    let fired = false;
+    vi.spyOn(appender, 'decideOnce').mockImplementation(async (id, digest, closure) => {
+      if (!fired) {
+        fired = true;
+        await pinPlan(store, ['t1', 't2']);
+      }
+      return original(id, digest, closure);
+    });
+    const resolve = vi.spyOn(store.eventStore.bundleStore, 'resolve');
+    const result = await handleSet({ featureId: FEATURE_ID, phase: 'review', updates: { tasks: [] } }, store.stateDir, store.eventStore);
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('GUARD_FAILED');
+    expect(resolve).toHaveBeenCalledTimes(2);
+    expect((await rowsOf(store, FEATURE_ID)).filter(row => row.type === 'workflow.transition' && row.data?.to === 'review')).toHaveLength(0);
+  });
+
+  it.each(['task.failed', 'task.completed'])('PinnedAuthority_FreshCompletionRows_%s', async type => {
+    const store = await openStore();
+    await featureAtDelegate(store, ['t1'], ['t1']);
+    await pinPlan(store, ['t1']);
+    const appender = store.eventStore.getAppender();
+    const original = appender.decideOnce.bind(appender);
+    let fired = false;
+    vi.spyOn(appender, 'decideOnce').mockImplementation(async (id, digest, closure) => {
+      if (!fired) { fired = true; await appendRow(store, FEATURE_ID, type, { taskId: 't1' }); }
+      return original(id, digest, closure);
+    });
+    const result = await handleSet({ featureId: FEATURE_ID, phase: 'review' }, store.stateDir, store.eventStore);
+    expect(result.success).toBe(type === 'task.completed');
+  });
+
+  it('PinnedAuthority_CustodyFailureRefusesWithoutPatch', async () => {
+    const store = await openStore();
+    await featureAtDelegate(store, ['t1'], ['t1']);
+    await pinPlan(store, ['t1']);
+    vi.spyOn(store.eventStore.bundleStore, 'resolve').mockRejectedValue(new Error('missing custody'));
+    const before = await rowsOf(store, FEATURE_ID);
+    const result = await handleSet({ featureId: FEATURE_ID, phase: 'review', updates: { tasks: [] } }, store.stateDir, store.eventStore);
+    expect(result.success).toBe(false);
+    expect(await rowsOf(store, FEATURE_ID)).toEqual(before);
+  });
+});
+
+describe('prepared transition policy and retries', () => {
+  it('PinnedPolicy_EmptySkipsIgnoreNewConfig', async () => {
+    const store = await openStore();
+    await init(store, FEATURE_ID);
+    await update(store, FEATURE_ID, { 'artifacts.plan': PLAN_ARTIFACT });
+    await pinPlan(store, ['t1']);
+    const result = await handleSet({ featureId: FEATURE_ID, phase: 'plan-review' }, store.stateDir, store.eventStore, { skipPhases: ['plan-review'] });
+    expect(result.success).toBe(true);
+    expect(phaseOf(result)).toBe('plan-review');
+  });
+
+  it('PinnedUserDefinition_PrecedesBuiltInTypeDiscriminator', async () => {
+    const store = await openStore();
+    await featureAtDelegate(store, ['t1'], ['t1']);
+    await pinPlan(store, ['t1'], bundle => {
+      const definition = { ...bundle.definition, name: 'local-pinned' };
+      return { ...bundle, definition, capsule: { ...bundle.capsule, identity: { ...bundle.capsule.identity,
+        definitionVersion: contentDigest(definition) } } };
+    });
+    const rows = await rowsOf(store, FEATURE_ID);
+    const preparedRow = rows.at(-1)!;
+    await store.eventStore.append(FEATURE_ID, { ...preparedRow, data: { ...preparedRow.data, workflowType: 'local-pinned' } });
+    extendWorkflowTypeEnum('local-pinned');
+    releases.push(() => unextendWorkflowTypeEnum('local-pinned'));
+    await forgeDocument(store, FEATURE_ID, document => ({ ...document, workflowType: 'local-pinned' }));
+    expect((await handleSet({ featureId: FEATURE_ID, phase: 'review' }, store.stateDir, store.eventStore)).success).toBe(true);
+  });
+
+  it.each([false, true])('PinnedClaim_WinnerBeforeCustodyFailure_Replays_%s', late => {
+    return (async () => {
+      const store = await openStore();
+      await featureAtDelegate(store, ['t1'], ['t1']);
+      await pinPlan(store, ['t1']);
+      const input = { featureId: FEATURE_ID, phase: 'review', updates: { 'artifacts.plan': 'accepted.md' } };
+      const originalQuery = store.eventStore.query.bind(store.eventStore);
+      const appender = store.eventStore.getAppender();
+      const original = appender.decideOnce.bind(appender);
+      let fired = false;
+      let loserClosures = 0;
+      const winner = async () => {
+        fired = true;
+        requireSuccess('winner', await handleSet(input, store.stateDir, store.eventStore));
+        await update(store, FEATURE_ID, { tasks: [] });
+        vi.spyOn(store.eventStore.bundleStore, 'resolve').mockRejectedValue(new Error('removed after winner'));
+      };
+      if (!late) vi.spyOn(store.eventStore, 'query').mockImplementation(async (id, filters) => {
+        const rows = await originalQuery(id, filters);
+        if (!fired && id === FEATURE_ID) await winner();
+        return rows;
+      });
+      else vi.spyOn(appender, 'decideOnce').mockImplementation(async (id, digest, closure) => {
+        if (!fired) { await winner(); return original(id, digest, tx => { loserClosures++; return closure(tx); }); }
+        return original(id, digest, closure);
+      });
+      const result = await handleSet(input, store.stateDir, store.eventStore);
+      expect(result).toMatchObject({ success: true, data: { idempotent: true } });
+      expect(loserClosures).toBe(0);
+      expect((await rowsOf(store, FEATURE_ID)).filter(row => row.type === 'workflow.transition' && row.data?.to === 'review')).toHaveLength(1);
+      expect((await documentOf(store, FEATURE_ID)).tasks).toEqual([]);
+    })();
+  });
+
+  it('PinnedOwnMove_DocumentRepairDoesNotReloadMissingCustody', async () => {
+    const store = await openStore();
+    await featureAtDelegate(store, ['t1'], ['t1']);
+    await pinPlan(store, ['t1']);
+    const original = store.backend.setState.bind(store.backend);
+    let failed = false;
+    vi.spyOn(store.backend, 'setState').mockImplementation((id, state, version) => {
+      if (!failed) {
+        failed = true;
+        vi.spyOn(store.eventStore.bundleStore, 'resolve').mockRejectedValue(new Error('removed after commit'));
+        throw new BackendVersionConflictError(id, version ?? 0, (version ?? 0) + 1);
+      }
+      return original(id, state, version);
+    });
+    expect((await handleSet({ featureId: FEATURE_ID, phase: 'review' }, store.stateDir, store.eventStore)).success).toBe(true);
+    expect((await rowsOf(store, FEATURE_ID)).filter(row => row.type === 'workflow.transition' && row.data?.to === 'review')).toHaveLength(1);
+  });
+
+  it('PinnedCompletionProperty_DocumentMembershipAndForgedStatusCannotCompleteMissingIds', async () => {
+    for (const documents of [[], ['t1'], ['t2'], ['t2', 't1'], ['unknown']]) {
+      for (const trace of [[], ['task.completed'], ['task.completed', 'task.failed'], ['task.completed', 'task.failed', 'task.completed']]) {
+        const store = await openStore();
+        await featureAtDelegate(store, ['t1', 't2'], ['t1']);
+        await pinPlan(store, ['t1', 't2']);
+        for (const type of trace) await appendRow(store, FEATURE_ID, type, { taskId: 't2' });
+        const result = await handleSet({ featureId: FEATURE_ID, phase: 'review', updates: {
+          tasks: documents.map(id => ({ id, title: id, status: 'complete' })),
+        } }, store.stateDir, store.eventStore);
+        expect(result.success, JSON.stringify({ documents, trace })).toBe(trace.at(-1) === 'task.completed');
+      }
+    }
+  });
+});
+
+describe('prepared transition failure boundaries', () => {
+  it('PinnedType_DocumentTypeCannotChangeEntryPolicy', async () => {
+    const store = await openStore();
+    await featureAtDelegate(store, ['t1'], ['t1']);
+    await pinPlan(store, ['t1']);
+    extendWorkflowTypeEnum('forged-type');
+    releases.push(() => unextendWorkflowTypeEnum('forged-type'));
+    await forgeDocument(store, FEATURE_ID, document => ({ ...document, workflowType: 'forged-type' }));
+    const result = await handleSet({ featureId: FEATURE_ID, phase: 'review' }, store.stateDir, store.eventStore);
+    expect(result.success).toBe(true);
+    expect(enteredGatesOf(await rowsOf(store, FEATURE_ID), 'review')).toEqual(['review']);
+  });
+
+  it('PinnedAuthority_ChangedEveryPass_ExhaustsWithoutMoveOrPatch', async () => {
+    const store = await openStore();
+    await featureAtDelegate(store, ['t1'], ['t1']);
+    await pinPlan(store, ['t1']);
+    const appender = store.eventStore.getAppender();
+    const original = appender.decideOnce.bind(appender);
+    vi.spyOn(appender, 'decideOnce').mockImplementation(async (id, digest, closure) => {
+      await pinPlan(store, ['t1']);
+      return original(id, digest, closure);
+    });
+    const before = await rowsOf(store, FEATURE_ID);
+    await expect(handleSet({ featureId: FEATURE_ID, phase: 'review', updates: { tasks: [] } }, store.stateDir, store.eventStore)).rejects.toMatchObject({ code: 'VERSION_CONFLICT' });
+    expect((await rowsOf(store, FEATURE_ID)).slice(before.length).map(row => row.type)).toEqual(Array(4).fill('workflow.prepared'));
+  });
+
+  it('PinnedClaim_WinnerDuringFailedCustody_RechecksActualClaim', async () => {
+    const store = await openStore();
+    await featureAtDelegate(store, ['t1'], ['t1']);
+    await pinPlan(store, ['t1']);
+    const input = { featureId: FEATURE_ID, phase: 'review', updates: { 'artifacts.plan': 'accepted.md' } };
+    const resolve = store.eventStore.bundleStore.resolve.bind(store.eventStore.bundleStore);
+    let fired = false;
+    vi.spyOn(store.eventStore.bundleStore, 'resolve').mockImplementation(async (...args) => {
+      if (fired) return resolve(...args);
+      fired = true;
+      requireSuccess('winner', await handleSet(input, store.stateDir, store.eventStore));
+      await update(store, FEATURE_ID, { tasks: [] });
+      throw new Error('custody disappeared during preflight');
+    });
+    expect(await handleSet(input, store.stateDir, store.eventStore)).toMatchObject({ success: true, data: { idempotent: true } });
+  });
+
+  it('PinnedRawCandidate_InvalidIndexCannotBeSanitizedByMembership', async () => {
+    const store = await openStore();
+    await featureAtDelegate(store, ['t1'], ['t1']);
+    await pinPlan(store, ['t1']);
+    const before = await rowsOf(store, FEATURE_ID);
+    const result = await handleSet({ featureId: FEATURE_ID, phase: 'review', updates: { 'tasks[2].status': 'complete' } }, store.stateDir, store.eventStore);
+    expect(result).toMatchObject({ success: false, error: { code: 'INVALID_INPUT' } });
+    expect(await rowsOf(store, FEATURE_ID)).toEqual(before);
+  });
+});
+
+/** Historical kernel pins retain the built-in operator policy without typed membership authority. */
+describe('kernel operator compatibility', () => {
+  it.each([false, true])('LegacyKernel_BuiltInOperatorUsesCurrentSkips_%s', skip => {
+    return (async () => {
+      const store = await openStore();
+      await init(store, FEATURE_ID);
+      await update(store, FEATURE_ID, { 'artifacts.plan': PLAN_ARTIFACT, planReview: { approved: true } });
+      await pinPlan(store, ['t1'], bundle => {
+        const definition = WorkflowDefinitionV1Schema.parse(kernelOf(builtInDefinition('feature')));
+        const { designRecord: _record, ...legacy } = bundle;
+        return { ...legacy, definition, capsule: { ...legacy.capsule,
+          identity: { ...legacy.capsule.identity, definitionVersion: contentDigest(definition) },
+          provenance: { ...legacy.capsule.provenance, compilerVersion: 'exarchos-prepare-5' } } };
+      });
+      const result = await handleSet({ featureId: FEATURE_ID, phase: skip ? 'delegate' : 'plan-review' }, store.stateDir, store.eventStore,
+        { skipPhases: skip ? ['plan-review'] : [] });
+      expect(result.success).toBe(true);
+      expect(phaseOf(result)).toBe(skip ? 'delegate' : 'plan-review');
+    })();
+  });
+});
+
+/** Frozen policy controls both edge selection and final-target behavior. */
+describe('frozen transition policy', () => {
+  it('PinnedOrderedSkips_OverrideCurrentConfig', async () => {
+    const store = await openStore();
+    await init(store, FEATURE_ID);
+    await update(store, FEATURE_ID, { 'artifacts.plan': PLAN_ARTIFACT, planReview: { approved: true } });
+    await pinPlan(store, ['t1'], bundle => ({ ...bundle, capsule: { ...bundle.capsule,
+      settlementContract: { ...bundle.capsule.settlementContract, skipPhases: ['unknown', 'plan-review', 'plan-review', 'unknown'] } } }));
+    const result = await handleSet({ featureId: FEATURE_ID, phase: 'delegate' }, store.stateDir, store.eventStore, { skipPhases: [] });
+    expect(result.success).toBe(true);
+    expect(phaseOf(result)).toBe('delegate');
+  });
+
+  it('PinnedPendingTasks_DoNotBlockUniversalCancel', () => {
+    const definition = compileDecideDefinition('feature', builtInDefinition('feature'));
+    expect(decide(definition, { phase: 'delegate', tasks: [{ id: 't1', status: 'pending' }] }, { kind: 'cancel' }).kind).toBe('admit');
+  });
+});
+
+/** Kernel fixtures use the historical registry and document route. */
+async function pinKernel(store: DecideStore, workflowType = 'feature'): Promise<void> {
+  await pinPlan(store, ['t1'], bundle => {
+    const definition = { ...WorkflowDefinitionV1Schema.parse(kernelOf(builtInDefinition('feature'))), name: workflowType };
+    const { designRecord: _record, ...legacy } = bundle;
+    return { ...legacy, definition, capsule: { ...legacy.capsule,
+      identity: { ...legacy.capsule.identity, definitionVersion: contentDigest(definition) },
+      provenance: { ...legacy.capsule.provenance, compilerVersion: 'exarchos-prepare-5' } } };
+  });
+}
+
+describe('historical document kernel commits', () => {
+  it('KernelCustom_CombinedPatchAndTrailCommitOnce', async () => {
+    registerWorkflowType(CUSTOM_TYPE, { phases: ['plan', 'plan-review'], initialPhase: 'plan',
+      transitions: [{ from: 'plan', to: 'plan-review', event: 'review' }] });
+    extendWorkflowTypeEnum(CUSTOM_TYPE);
+    releases.push(() => { unextendWorkflowTypeEnum(CUSTOM_TYPE); unregisterWorkflowType(CUSTOM_TYPE); });
+    const store = await openStore();
+    await init(store, FEATURE_ID, CUSTOM_TYPE);
+    await pinKernel(store, CUSTOM_TYPE);
+    const before = await rowsOf(store, FEATURE_ID);
+    const result = await handleSet({ featureId: FEATURE_ID, phase: 'plan-review', updates: { 'artifacts.plan': 'custom.md' } }, store.stateDir, store.eventStore);
+    expect(result.success).toBe(true);
+    const added = (await rowsOf(store, FEATURE_ID)).slice(before.length);
+    expect(added.filter(row => row.type === 'state.patched')).toHaveLength(1);
+    expect(added.filter(row => row.type === 'workflow.transition')).toHaveLength(1);
+    expect(lastDataOf(added, 'workflow.transition').phaseAttemptId).toEqual(expect.any(String));
+    expect((await documentOf(store, FEATURE_ID))._eventSequence).toBe((await rowsOf(store, FEATURE_ID)).at(-1)?.sequence);
+  });
+
+  it('KernelNoStart_CombinedCommitAndCASRepairUseIncrementalRows', async () => {
+    const store = await openStore();
+    await init(store, FEATURE_ID, 'feature', false);
+    await pinKernel(store);
+    failSetState(store, 1);
+    const result = await handleSet({ featureId: FEATURE_ID, phase: 'plan-review', updates: { 'artifacts.plan': PLAN_ARTIFACT } }, store.stateDir, store.eventStore);
+    expect(result.success).toBe(true);
+    const rows = await rowsOf(store, FEATURE_ID);
+    expect(rows.some(row => row.type === 'workflow.started')).toBe(false);
+    expect(rows.filter(row => row.type === 'state.patched')).toHaveLength(1);
+    expect(rows.filter(row => row.type === 'workflow.transition')).toHaveLength(1);
+    expect(await documentOf(store, FEATURE_ID)).toMatchObject({ phase: 'plan-review', _eventSequence: rows.at(-1)?.sequence });
+  });
+
+  it('KernelNoStart_AheadCursorRefusesBeforeCommit', async () => {
+    const store = await openStore();
+    await init(store, FEATURE_ID, 'feature', false);
+    await pinKernel(store);
+    await forgeDocument(store, FEATURE_ID, document => ({ ...document, _eventSequence: 999 }));
+    const result = await handleSet({ featureId: FEATURE_ID, phase: 'plan-review', updates: { 'artifacts.plan': PLAN_ARTIFACT } }, store.stateDir, store.eventStore);
+    expect(result.success).toBe(false);
+    expect((await rowsOf(store, FEATURE_ID)).filter(row => row.type === 'workflow.transition')).toHaveLength(0);
+  });
+});
+
+describe('legacy kernel transaction fences', () => {
+  it('LegacyKernelPin_StaleDocument_RefusesObsoleteSourceAndContinuesFromLedger', async () => {
+    registerWorkflowType(CUSTOM_TYPE, {
+      phases: ['plan', 'plan-review', 'delegate', 'review'], initialPhase: 'plan',
+      transitions: [{ from: 'plan', to: 'plan-review', event: 'obsolete' },
+        { from: 'plan', to: 'delegate', event: 'delegate' },
+        { from: 'delegate', to: 'review', event: 'review' }],
+    });
+    extendWorkflowTypeEnum(CUSTOM_TYPE);
+    releases.push(() => { unextendWorkflowTypeEnum(CUSTOM_TYPE); unregisterWorkflowType(CUSTOM_TYPE); });
+    const store = await openStore();
+    await init(store, FEATURE_ID, CUSTOM_TYPE, false);
+    await pinKernel(store, CUSTOM_TYPE);
+    await forgeDocument(store, FEATURE_ID, document => ({
+      ...document, phase: 'plan', phaseAttemptId: 'stale-plan', notes: { items: {} },
+    }));
+    const raw = await documentOf(store, FEATURE_ID);
+    failSetState(store, 4);
+    await expect(handleSet({ featureId: FEATURE_ID, phase: 'delegate', updates: { 'notes.items': [] } },
+      store.stateDir, store.eventStore)).rejects.toMatchObject({ code: 'VERSION_CONFLICT' });
+    const before = await rowsOf(store, FEATURE_ID);
+    const predecessor = allocatePhaseAttemptId(FEATURE_ID, 'plan', 'delegate', 'stale-plan', 0);
+    expect(lastDataOf(before, 'workflow.transition')).toMatchObject({
+      from: 'plan', to: 'delegate', phaseAttemptId: predecessor,
+    });
+    expect(await documentOf(store, FEATURE_ID)).toEqual(raw);
+    expect(before.some(row => row.type === 'workflow.started')).toBe(false);
+    const obsolete = await handleSet({ featureId: FEATURE_ID, phase: 'plan-review', updates: { 'notes.obsolete': true } },
+      store.stateDir, store.eventStore);
+    expect(obsolete).toMatchObject({ success: false, error: {
+      code: 'INVALID_TRANSITION', message: "No transition from 'delegate' to 'plan-review'", validTargets: expect.arrayContaining([{ phase: 'review' }]),
+    } });
+    expect(await documentOf(store, FEATURE_ID)).toEqual(raw);
+    expect(await rowsOf(store, FEATURE_ID)).toEqual(before);
+
+    const appender = store.eventStore.getAppender();
+    const commit = appender.decideOnce.bind(appender);
+    const operationIds: string[] = [];
+    vi.spyOn(appender, 'decideOnce').mockImplementation(async (id, digest, closure) => {
+      operationIds.push(id);
+      if (operationIds.length === 1) {
+        await appendRow(store, FEATURE_ID, 'workflow.transition', {
+          featureId: FEATURE_ID, from: 'delegate', to: 'delegate', trigger: 'concurrent-cycle', phaseAttemptId: 'later-delegate',
+        });
+      }
+      return commit(id, digest, closure);
+    });
+    const patch = { 'notes.items[0].value': 'accepted' };
+    const result = await handleSet({ featureId: FEATURE_ID, phase: 'review', updates: patch },
+      store.stateDir, store.eventStore);
+    const staleAttempt = allocatePhaseAttemptId(FEATURE_ID, 'delegate', 'review', predecessor, 0);
+    const attempt = allocatePhaseAttemptId(FEATURE_ID, 'delegate', 'review', 'later-delegate', 0);
+    expect(result).toMatchObject({ success: true, data: { phase: 'review', phaseAttemptId: attempt } });
+    expect(operationIds).toEqual([staleAttempt, attempt].map(id => `transition:${FEATURE_ID}:${id}`));
+    expect(store.backend.lookupOperationClaim(operationIds[0]!)).toBeUndefined();
+    expect(store.backend.lookupOperationClaim(operationIds[1]!)).toBeDefined();
+    const rows = await rowsOf(store, FEATURE_ID);
+    const added = rows.slice(before.length);
+    expect(rowsOfType(added, 'state.patched').map(row => row.data?.patch)).toEqual([patch]);
+    expect(rowsOfType(added, 'workflow.transition').map(row => row.data)).toEqual([
+      expect.objectContaining({ from: 'delegate', to: 'delegate', phaseAttemptId: 'later-delegate' }),
+      expect.objectContaining({ from: 'delegate', to: 'review', phaseAttemptId: attempt }),
+    ]);
+    expect(await documentOf(store, FEATURE_ID)).toMatchObject({
+      phase: 'review', phaseAttemptId: attempt, notes: { items: [{ value: 'accepted' }] }, _eventSequence: rows.at(-1)?.sequence,
+    });
+  });
+  it('LegacyKernelPin_ProjectedKeyWinner_ReplaysBeforeGuard', async () => {
+    registerWorkflowType(CUSTOM_TYPE, {
+      phases: ['plan', 'delegate', 'review'], initialPhase: 'plan',
+      transitions: [{ from: 'delegate', to: 'review', event: 'review' }],
+    });
+    extendWorkflowTypeEnum(CUSTOM_TYPE);
+    releases.push(() => { unextendWorkflowTypeEnum(CUSTOM_TYPE); unregisterWorkflowType(CUSTOM_TYPE); });
+    const store = await openStore();
+    await init(store, FEATURE_ID, CUSTOM_TYPE, false);
+    await pinKernel(store, CUSTOM_TYPE);
+    await appendRow(store, FEATURE_ID, 'workflow.transition', {
+      featureId: FEATURE_ID, from: 'plan', to: 'delegate', trigger: 'seed', phaseAttemptId: 'delegate-source',
+    });
+    const input = { featureId: FEATURE_ID, phase: 'review', updates: { 'notes.winner': true } };
+    const bundles = store.eventStore.bundleStore;
+    const resolve = bundles.resolve.bind(bundles);
+    const guard = vi.spyOn(hsmTransitionGuard, 'attempt');
+    let won = false;
+    vi.spyOn(bundles, 'resolve').mockImplementationOnce(async (...args) => {
+      const custody = await resolve(...args);
+      requireSuccess('winner at projected key', await handleSet(input, store.stateDir, store.eventStore));
+      won = true;
+      await appendRow(store, FEATURE_ID, 'state.patched', {
+        featureId: FEATURE_ID, fields: ['notes.later'], patch: { 'notes.later': true },
+      });
+      return custody;
+    });
+    const result = await handleSet(input, store.stateDir, store.eventStore);
+    const attempt = allocatePhaseAttemptId(FEATURE_ID, 'delegate', 'review', 'delegate-source', 0);
+    expect(won).toBe(true);
+    expect(result).toMatchObject({ success: true, data: { phase: 'review', phaseAttemptId: attempt, idempotent: true } });
+    expect(guard).toHaveBeenCalledTimes(1);
+    expect(store.backend.lookupOperationClaim(`transition:${FEATURE_ID}:${attempt}`)).toBeDefined();
+    const rows = await rowsOf(store, FEATURE_ID);
+    expect(rowsOfType(rows, 'state.patched').map(row => row.data?.patch)).toEqual([input.updates, { 'notes.later': true }]);
+    expect(rowsOfType(rows, 'workflow.transition')).toHaveLength(2);
+    expect(await documentOf(store, FEATURE_ID)).toMatchObject({
+      phase: 'review', phaseAttemptId: attempt, notes: { winner: true, later: true }, _eventSequence: rows.at(-1)?.sequence,
+    });
+  });
+
+  it('LegacyKernelPin_PatchCommittedBeforeCasRetry_IsNotAppendedAgain', async () => {
+    registerWorkflowType(CUSTOM_TYPE, {
+      phases: ['plan', 'delegate'], initialPhase: 'plan',
+      transitions: [{ from: 'delegate', to: 'plan', event: 'return' }],
+    });
+    extendWorkflowTypeEnum(CUSTOM_TYPE);
+    releases.push(() => { unextendWorkflowTypeEnum(CUSTOM_TYPE); unregisterWorkflowType(CUSTOM_TYPE); });
+    const store = await openStore();
+    await init(store, FEATURE_ID, CUSTOM_TYPE, false);
+    await pinKernel(store, CUSTOM_TYPE);
+    const set = store.backend.setState.bind(store.backend);
+    vi.spyOn(store.backend, 'setState').mockImplementationOnce((id, state, version) => {
+      const next = store.backend.getSequence(FEATURE_ID) + 1;
+      store.backend.appendEvent(FEATURE_ID, {
+        streamId: FEATURE_ID, sequence: next, type: 'workflow.transition', schemaVersion: '1.0',
+        timestamp: '2026-11-13T12:00:00.000Z',
+        data: { from: 'plan', to: 'delegate', trigger: 'concurrent', phaseAttemptId: 'delegate-source' },
+      });
+      store.backend.appendEvent(FEATURE_ID, {
+        streamId: FEATURE_ID, sequence: next + 1, type: 'state.patched', schemaVersion: '1.0',
+        timestamp: '2026-11-13T12:00:01.000Z', data: { patch: { 'notes.status': 'later' } },
+      });
+      set(id, { ...state, _version: (version ?? 0) + 1 }, version);
+      return set(id, state, version);
+    });
+
+    const patch = { 'notes.status': 'accepted' };
+    const result = await handleSet({ featureId: FEATURE_ID, phase: 'plan', updates: patch }, store.stateDir, store.eventStore);
+    const attempt = allocatePhaseAttemptId(FEATURE_ID, 'delegate', 'plan', 'delegate-source', 0);
+    expect(result).toMatchObject({ success: true, data: { phase: 'plan', phaseAttemptId: attempt } });
+    const rows = await rowsOf(store, FEATURE_ID);
+    expect(rowsOfType(rows, 'state.patched').map(row => row.data?.patch)).toEqual([patch, { 'notes.status': 'later' }]);
+    expect(rowsOfType(rows, 'workflow.transition').map(row => row.data)).toEqual([
+      expect.objectContaining({ from: 'plan', to: 'delegate', phaseAttemptId: 'delegate-source' }),
+      expect.objectContaining({ from: 'delegate', to: 'plan', phaseAttemptId: attempt }),
+    ]);
+    expect(await documentOf(store, FEATURE_ID)).toMatchObject({
+      phase: 'plan', phaseAttemptId: attempt, notes: { status: 'later' }, _eventSequence: rows.at(-1)?.sequence,
+    });
+  });
+
+  it('KernelCustom_NewerTypedPinAtCommit_DeniesWithoutOldTrail', async () => {
+    registerWorkflowType(CUSTOM_TYPE, { phases: ['delegate', 'review'], initialPhase: 'delegate',
+      transitions: [{ from: 'delegate', to: 'review', event: 'review' }] });
+    extendWorkflowTypeEnum(CUSTOM_TYPE);
+    releases.push(() => { unextendWorkflowTypeEnum(CUSTOM_TYPE); unregisterWorkflowType(CUSTOM_TYPE); });
+    const store = await openStore();
+    await init(store, FEATURE_ID, CUSTOM_TYPE);
+    await appendRow(store, FEATURE_ID, 'workflow.transition', { featureId: FEATURE_ID, from: 'plan', to: 'delegate', trigger: 'seed', phaseAttemptId: 'delegate-source' });
+    await forgeDocument(store, FEATURE_ID, document => ({ ...document, phase: 'delegate', phaseAttemptId: 'delegate-source' }));
+    await pinKernel(store, CUSTOM_TYPE);
+    const appender = store.eventStore.getAppender();
+    const commit = appender.decideOnce.bind(appender);
+    let fired = false;
+    vi.spyOn(appender, 'decideOnce').mockImplementation(async (id, digest, closure) => {
+      if (!fired) {
+        fired = true;
+        await pinPlan(store, ['t1'], bundle => {
+          const definition = { ...bundle.definition, name: CUSTOM_TYPE };
+          return { ...bundle, definition, capsule: { ...bundle.capsule,
+            identity: { ...bundle.capsule.identity, definitionVersion: contentDigest(definition) } } };
+        });
+      }
+      return commit(id, digest, closure);
+    });
+    const before = await rowsOf(store, FEATURE_ID);
+    const result = await handleSet({ featureId: FEATURE_ID, phase: 'review', updates: { 'artifacts.plan': 'loser.md' } }, store.stateDir, store.eventStore);
+    expect(result).toMatchObject({ success: false, error: { code: 'GUARD_FAILED' } });
+    expect((await rowsOf(store, FEATURE_ID)).slice(before.length).filter(row => row.type === 'state.patched' || row.type === 'workflow.transition')).toEqual([]);
+  });
+
+  it('KernelNoStart_IncrementalRepairDoesNotRepeatRevisionCounts', async () => {
+    const store = await openStore();
+    await init(store, FEATURE_ID, 'feature', false);
+    await pinKernel(store);
+    await appendRow(store, FEATURE_ID, 'workflow.plan-revision', { featureId: FEATURE_ID, count: 1 });
+    const cursor = (await rowsOf(store, FEATURE_ID)).at(-1)!.sequence;
+    await forgeDocument(store, FEATURE_ID, document => ({ ...document, planReview: { revisionCount: 1 }, _eventSequence: cursor,
+      _checkpoint: { ...recordOf(document._checkpoint), summary: 'keep summary', staleAfterMinutes: 77 },
+      _compensationCheckpoint: { completedActions: ['keep-action'] } }));
+    await appendRow(store, FEATURE_ID, 'workflow.plan-revision', { featureId: FEATURE_ID, count: 2 });
+    let priorVersion: unknown;
+    let priorUpdatedAt: unknown;
+    for (let pass = 0; pass < 2; pass++) {
+      expect((await handleSet({ featureId: FEATURE_ID, phase: 'plan' }, store.stateDir, store.eventStore)).success).toBe(true);
+      const repaired = await documentOf(store, FEATURE_ID);
+      expect(repaired.planReview).toMatchObject({ revisionCount: 2 });
+      expect(repaired._checkpoint).toMatchObject({ summary: 'keep summary', staleAfterMinutes: 77 });
+      expect(repaired._compensationCheckpoint).toEqual({ completedActions: ['keep-action'] });
+      if (pass === 1) { expect(repaired._version).toBe(priorVersion); expect(repaired.updatedAt).toBe(priorUpdatedAt); }
+      priorVersion = repaired._version;
+      priorUpdatedAt = repaired.updatedAt;
+    }
+    expect((await rowsOf(store, FEATURE_ID)).filter(row => row.type === 'workflow.transition')).toEqual([]);
+  });
+
+  it('KernelNoStart_AfterCASLoss_LaterMoveWinsRepair', async () => {
+    const store = await openStore();
+    await init(store, FEATURE_ID, 'feature', false);
+    await pinKernel(store);
+    const query = store.eventStore.query.bind(store.eventStore);
+    let fired = false;
+    vi.spyOn(store.eventStore, 'query').mockImplementation(async (id, filters) => {
+      const rows = await query(id, filters);
+      if (!fired && filters === undefined && rows.some(row => row.type === 'workflow.transition')) {
+        fired = true;
+        await appendRow(store, FEATURE_ID, 'workflow.transition', { featureId: FEATURE_ID, from: 'plan-review', to: 'delegate', trigger: 'later', phaseAttemptId: 'later-attempt' });
+        await appendRow(store, FEATURE_ID, 'state.patched', { featureId: FEATURE_ID, fields: ['artifacts.plan'], patch: { 'artifacts.plan': 'later.md' } });
+      }
+      return rows;
+    });
+    failSetState(store, 1);
+    const result = await handleSet({ featureId: FEATURE_ID, phase: 'plan-review', updates: { 'artifacts.plan': PLAN_ARTIFACT } }, store.stateDir, store.eventStore);
+    expect(result).toMatchObject({ success: true, data: { phase: 'plan-review' } });
+    expect(await documentOf(store, FEATURE_ID)).toMatchObject({ phase: 'delegate', phaseAttemptId: 'later-attempt', artifacts: { plan: 'later.md' } });
+    expect((await rowsOf(store, FEATURE_ID)).filter(row => row.type === 'state.patched')).toHaveLength(2);
+    expect((await documentOf(store, FEATURE_ID))._eventSequence).toBe((await rowsOf(store, FEATURE_ID)).at(-1)?.sequence);
+  });
+
+  it('KernelNoStart_SamePhasePatchRechecksNewAuthority', async () => {
+    const store = await openStore();
+    await init(store, FEATURE_ID, 'feature', false);
+    await pinKernel(store);
+    const query = store.eventStore.query.bind(store.eventStore);
+    let reads = 0;
+    vi.spyOn(store.eventStore, 'query').mockImplementation(async (id, filters) => {
+      if (id === FEATURE_ID && filters === undefined && ++reads === 2) await pinPlan(store, ['pending']);
+      return query(id, filters);
+    });
+    const result = await handleSet({ featureId: FEATURE_ID, phase: 'plan', updates: { 'artifacts.plan': 'same.md' } }, store.stateDir, store.eventStore);
+    expect(result.success).toBe(false);
+    expect((await rowsOf(store, FEATURE_ID)).filter(row => row.type === 'state.patched')).toHaveLength(0);
+  });
+});
+
+describe('legacy kernel replay boundaries', () => {
+  it.each([false, true])('KernelClaim_ActualWinnerPrecedesCustodyAndGuard_DifferentPatch_%s', async different => {
+    const store = await openStore();
+    await init(store, FEATURE_ID, 'feature', false);
+    await pinKernel(store);
+    const guard = vi.spyOn(hsmTransitionGuard, 'attempt');
+    const query = store.eventStore.query.bind(store.eventStore);
+    let fired = false;
+    vi.spyOn(store.eventStore, 'query').mockImplementation(async (id, filters) => {
+      const rows = await query(id, filters);
+      if (!fired && id === FEATURE_ID && filters === undefined) {
+        fired = true;
+        requireSuccess('kernel winner', await handleSet({ featureId: FEATURE_ID, phase: 'plan-review',
+          updates: { 'artifacts.plan': different ? 'other.md' : PLAN_ARTIFACT } }, store.stateDir, store.eventStore));
+        vi.spyOn(store.eventStore.bundleStore, 'resolve').mockRejectedValue(new Error('removed after winner'));
+      }
+      return rows;
+    });
+    const call = handleSet({ featureId: FEATURE_ID, phase: 'plan-review', updates: { 'artifacts.plan': PLAN_ARTIFACT } }, store.stateDir, store.eventStore);
+    if (different) await expect(call).rejects.toBeInstanceOf(OperationDigestMismatchError);
+    else expect(await call).toMatchObject({ success: true, data: { idempotent: true } });
+    expect(guard).toHaveBeenCalledTimes(1);
+    expect((await rowsOf(store, FEATURE_ID)).filter(row => row.type === 'workflow.transition')).toHaveLength(1);
+  });
+
+  it('KernelNoStart_MalformedPresentStartNeverUsesLegacyRepair', async () => {
+    const store = await openStore();
+    await init(store, FEATURE_ID, 'feature', false);
+    await pinKernel(store);
+    store.backend.appendEvent(FEATURE_ID, { streamId: FEATURE_ID, sequence: 2, type: 'workflow.started',
+      schemaVersion: '1.1', timestamp: new Date().toISOString(), data: { featureId: FEATURE_ID, workflowType: 'feature', initialPhase: 7 } });
+    const result = await handleSet({ featureId: FEATURE_ID, phase: 'plan-review', updates: { 'artifacts.plan': PLAN_ARTIFACT } }, store.stateDir, store.eventStore);
+    expect(result.success).toBe(false);
+    expect((await rowsOf(store, FEATURE_ID)).filter(row => row.type === 'workflow.transition')).toHaveLength(0);
+  });
+});
+
+describe('scratch patch replay precedence', () => {
+  it.each([false, true])('Claim_IndexedContainerChangedBeforePreflight_DifferentPayload_%s', async different => {
+    const store = await openStore();
+    await featureAtDelegate(store, ['t1'], ['t1']);
+    await pinPlan(store, ['t1']);
+    await update(store, FEATURE_ID, { notes: { items: {} } });
+    const input = { featureId: FEATURE_ID, phase: 'review', updates: { 'notes.items[0].value': 'accepted' } };
+    const query = store.eventStore.query.bind(store.eventStore);
+    let fired = false;
+    vi.spyOn(store.eventStore, 'query').mockImplementation(async (id, filters) => {
+      const rows = await query(id, filters);
+      if (!fired && id === FEATURE_ID && filters === undefined) {
+        fired = true;
+        await update(store, FEATURE_ID, { 'notes.items': [] });
+        requireSuccess('indexed winner', await handleSet({ ...input,
+          updates: { 'notes.items[0].value': different ? 'other' : 'accepted' } }, store.stateDir, store.eventStore));
+        await update(store, FEATURE_ID, { 'notes.items': {} });
+        vi.spyOn(store.eventStore.bundleStore, 'resolve').mockRejectedValue(new Error('missing after indexed winner'));
+      }
+      return rows;
+    });
+    const call = handleSet(input, store.stateDir, store.eventStore);
+    if (different) await expect(call).rejects.toBeInstanceOf(OperationDigestMismatchError);
+    else expect(await call).toMatchObject({ success: true, data: { idempotent: true } });
+    expect(fired).toBe(true);
+    expect((await documentOf(store, FEATURE_ID)).notes).toEqual({ items: {} });
+    expect((await rowsOf(store, FEATURE_ID)).filter(row => row.type === 'workflow.transition' && row.data?.to === 'review')).toHaveLength(1);
+  });
+
+  it('Claim_IndexedContainerErrorWithoutClaim_RefusesNoWrites', async () => {
+    const store = await openStore();
+    await featureAtDelegate(store, ['t1'], ['t1']);
+    await pinPlan(store, ['t1']);
+    await update(store, FEATURE_ID, { notes: { items: {} } });
+    const before = await rowsOf(store, FEATURE_ID);
+    const result = await handleSet({ featureId: FEATURE_ID, phase: 'review', updates: { 'notes.items[0].value': 'invalid' } }, store.stateDir, store.eventStore);
+    expect(result).toMatchObject({ success: false, error: { code: 'INVALID_INPUT' } });
+    expect(await rowsOf(store, FEATURE_ID)).toEqual(before);
+  });
+});
+
+describe('commit coordinate and cursor fences', () => {
+  it.each(['plan', 'plan-review'])('KernelNoStart_OneAheadCursorCannotHidePendingPatch_%s', async phase => {
+    const store = await openStore();
+    await init(store, FEATURE_ID, 'feature', false);
+    await pinKernel(store);
+    const before = await rowsOf(store, FEATURE_ID);
+    await forgeDocument(store, FEATURE_ID, document => ({ ...document, _eventSequence: before.at(-1)!.sequence + 1 }));
+    const result = await handleSet({ featureId: FEATURE_ID, phase, updates: { 'artifacts.plan': PLAN_ARTIFACT } }, store.stateDir, store.eventStore);
+    expect(result.success).toBe(false);
+    expect(await rowsOf(store, FEATURE_ID)).toEqual(before);
+    const raw = new Database(path.join(store.stateDir, 'exarchos.db'));
+    try { expect(raw.prepare('SELECT * FROM idempotency_claims WHERE idempotencyKey LIKE ?').all(`transition:${FEATURE_ID}:%`)).toHaveLength(0); }
+    finally { raw.close(); }
+  });
+
+  it.each(['pending', 'compatible', 'skips', 'definition'])('PinnedAuthority_IndependentConnectionReplacement_%s', async mode => {
+    const store = await openStore();
+    await featureAtDelegate(store, ['t1'], ['t1']);
+    await pinPlan(store, ['t1']);
+    const backend = new SqliteBackend(path.join(store.stateDir, 'exarchos.db'));
+    backend.initialize();
+    releases.push(() => backend.close());
+    const eventStore = new EventStore(store.stateDir, { backend });
+    await eventStore.initialize();
+    releases.push(() => eventStore.close());
+    const appender = store.eventStore.getAppender();
+    const commit = appender.decideOnce.bind(appender);
+    let oldOperation = '';
+    let inside = false;
+    let closures = 0;
+    const resolver = store.eventStore.bundleStore.resolve.bind(store.eventStore.bundleStore);
+    const resolve = vi.spyOn(store.eventStore.bundleStore, 'resolve').mockImplementation((...args) => {
+      expect(inside).toBe(false);
+      return resolver(...args);
+    });
+    vi.spyOn(appender, 'decideOnce').mockImplementation(async (id, digest, closure) => {
+      if (!oldOperation) {
+        oldOperation = id;
+        await pinPlan({ ...store, eventStore, backend }, mode === 'pending' ? ['t1', 't2'] : ['t1'], bundle => {
+          if (mode === 'skips') return { ...bundle, capsule: { ...bundle.capsule,
+            settlementContract: { ...bundle.capsule.settlementContract, skipPhases: ['review'] } } };
+          if (mode !== 'definition') return bundle;
+          const original = builtInDefinition('feature');
+          const definition = { ...original, exarchos: { ...original.exarchos, edges: { ...original.exarchos.edges,
+            'delegate->review': { ...original.exarchos.edges['delegate->review']!,
+              route: { kind: 'factEquals' as const, field: 'tasks.allComplete' as const, value: false } } } } };
+          return { ...bundle, definition, capsule: { ...bundle.capsule,
+            identity: { ...bundle.capsule.identity, definitionVersion: contentDigest(definition) } } };
+        });
+      }
+      return commit(id, digest, tx => { closures++; inside = true; try { return closure(tx); } finally { inside = false; } });
+    });
+    const before = await rowsOf(store, FEATURE_ID);
+    const result = await handleSet({ featureId: FEATURE_ID, phase: 'review', updates: { tasks: [] } }, store.stateDir, store.eventStore);
+    expect(result.success, JSON.stringify(result)).toBe(mode === 'compatible');
+    expect(resolve).toHaveBeenCalledTimes(2);
+    expect(closures).toBe(mode === 'compatible' ? 2 : 1);
+    const added = (await rowsOf(store, FEATURE_ID)).slice(before.length);
+    expect(added.filter(row => row.type === 'state.patched')).toHaveLength(mode === 'compatible' ? 1 : 0);
+    expect(added.filter(row => row.type === 'workflow.transition')).toHaveLength(mode === 'compatible' ? 1 : 0);
+    const claim = appender.ensureSqliteBackendSync().lookupOperationClaim(oldOperation);
+    if (mode === 'compatible') expect(claim).toBeDefined();
+    else expect(claim).toBeUndefined();
+  });
+
+  it('PinnedAuthority_SamePhaseAfterRealCycleUsesNewPredecessor', async () => {
+    const store = await openStore();
+    await featureAtPlanReview(store);
+    await pinPlan(store, ['t1']);
+    const appender = store.eventStore.getAppender();
+    const commit = appender.decideOnce.bind(appender);
+    let oldOperation = '';
+    vi.spyOn(appender, 'decideOnce').mockImplementation(async (id, digest, closure) => {
+      if (!oldOperation) {
+        oldOperation = id;
+        await update(store, FEATURE_ID, { planReview: { approved: false, gapsFound: true, revisionCount: 0 } });
+        await transition(store, FEATURE_ID, 'plan');
+        await transition(store, FEATURE_ID, 'plan-review');
+        await update(store, FEATURE_ID, { planReview: { approved: true } });
+      }
+      return commit(id, digest, closure);
+    });
+    const result = await handleSet({ featureId: FEATURE_ID, phase: 'delegate' }, store.stateDir, store.eventStore);
+    expect(result.success, JSON.stringify(result)).toBe(true);
+    expect(appender.ensureSqliteBackendSync().lookupOperationClaim(oldOperation)).toBeUndefined();
+    const moves = (await rowsOf(store, FEATURE_ID)).filter(row => row.type === 'workflow.transition');
+    const predecessor = moves.at(-2)!.data?.phaseAttemptId;
+    expect(recordOf(result.data).phaseAttemptId).toBe(allocatePhaseAttemptId(FEATURE_ID, 'plan-review', 'delegate', String(predecessor), 0));
+  });
+});
+
+describe('legacy custody await replay', () => {
+  it.each([false, true])('KernelClaim_WinnerDuringSuccessfulCustody_DifferentPayload_%s', async different => {
+    registerWorkflowType(CUSTOM_TYPE, { phases: ['plan', 'plan-review'], initialPhase: 'plan',
+      transitions: [{ from: 'plan', to: 'plan-review', event: 'review' }] });
+    extendWorkflowTypeEnum(CUSTOM_TYPE);
+    releases.push(() => { unextendWorkflowTypeEnum(CUSTOM_TYPE); unregisterWorkflowType(CUSTOM_TYPE); });
+    const store = await openStore();
+    await init(store, FEATURE_ID, CUSTOM_TYPE);
+    await pinKernel(store, CUSTOM_TYPE);
+    const guard = vi.spyOn(hsmTransitionGuard, 'attempt');
+    const resolve = store.eventStore.bundleStore.resolve.bind(store.eventStore.bundleStore);
+    let fired = false;
+    vi.spyOn(store.eventStore.bundleStore, 'resolve').mockImplementation(async (...args) => {
+      const bytes = await resolve(...args);
+      if (!fired) {
+        fired = true;
+        requireSuccess('custody winner', await handleSet({ featureId: FEATURE_ID, phase: 'plan-review',
+          updates: { 'artifacts.plan': different ? 'other.md' : PLAN_ARTIFACT } }, store.stateDir, store.eventStore));
+        guard.mockImplementation(async () => { throw new Error('The legacy guard must not repeat'); });
+      }
+      return bytes;
+    });
+    const call = handleSet({ featureId: FEATURE_ID, phase: 'plan-review', updates: { 'artifacts.plan': PLAN_ARTIFACT } }, store.stateDir, store.eventStore);
+    if (different) await expect(call).rejects.toBeInstanceOf(OperationDigestMismatchError);
+    else expect(await call).toMatchObject({ success: true, data: { idempotent: true } });
+    expect(guard).toHaveBeenCalledTimes(1);
+  });
+
+  it('KernelNoStart_LaterCountedRowKeepsSnapshotCursorAcrossRepair', async () => {
+    const store = await openStore();
+    await init(store, FEATURE_ID, 'feature', false);
+    await pinKernel(store);
+    const query = store.eventStore.query.bind(store.eventStore);
+    let fired = false;
+    vi.spyOn(store.eventStore, 'query').mockImplementation(async (id, filters) => {
+      const rows = await query(id, filters);
+      if (!fired && filters === undefined && rows.some(row => row.type === 'workflow.transition')) {
+        fired = true;
+        await appendRow(store, FEATURE_ID, 'workflow.plan-revision', { featureId: FEATURE_ID, count: 1 });
+        return query(id, filters);
+      }
+      return rows;
+    });
+    expect((await handleSet({ featureId: FEATURE_ID, phase: 'plan-review', updates: { 'artifacts.plan': PLAN_ARTIFACT } }, store.stateDir, store.eventStore)).success).toBe(true);
+    expect((await documentOf(store, FEATURE_ID)).planReview).toMatchObject({ revisionCount: 1 });
+    expect((await documentOf(store, FEATURE_ID))._eventSequence).toBe((await rowsOf(store, FEATURE_ID)).at(-1)?.sequence);
+    expect((await handleSet({ featureId: FEATURE_ID, phase: 'plan-review' }, store.stateDir, store.eventStore)).success).toBe(true);
+    expect((await documentOf(store, FEATURE_ID)).planReview).toMatchObject({ revisionCount: 1 });
+  });
+});
+
+/** A failed document publication keeps the original source version for a later claim lookup. */
+describe('no-start claim recovery across calls', () => {
+  it.each(['exact', 'digest-mismatch', 'later-move', 'document-advanced', 'custody-race', 'unclaimed-row', 'mismatched-member', 'patched-predecessor', 'ambiguous'] as const)(
+    'LegacyKernelPin_ProjectedCommitPublicationFailure_ReplaysFromActualClaim %s', async mode => {
+      registerWorkflowType(CUSTOM_TYPE, {
+        phases: ['plan', 'delegate', 'review', 'plan-review'], initialPhase: 'plan',
+        transitions: [{ from: 'plan', to: 'delegate', event: 'delegate' },
+          { from: 'delegate', to: 'review', event: 'review' },
+          { from: 'review', to: 'delegate', event: 'return' },
+          { from: 'review', to: 'plan-review', event: 'loop' },
+          { from: 'plan-review', to: 'review', event: 'review-again' }],
+      });
+      extendWorkflowTypeEnum(CUSTOM_TYPE);
+      releases.push(() => { unextendWorkflowTypeEnum(CUSTOM_TYPE); unregisterWorkflowType(CUSTOM_TYPE); });
+      const store = await openStore();
+      await init(store, FEATURE_ID, CUSTOM_TYPE, false);
+      await pinKernel(store, CUSTOM_TYPE);
+      const raw = await documentOf(store, FEATURE_ID);
+      const guard = vi.spyOn(hsmTransitionGuard, 'attempt');
+      const input = { featureId: FEATURE_ID, phase: 'review', updates: {
+        'notes.accepted': 'original',
+        ...(mode === 'patched-predecessor' ? { phaseAttemptId: 'pending-attempt' } : {}),
+      } };
+      const call = (args: Parameters<typeof handleSet>[0]) => handleSet(args, store.stateDir, store.eventStore);
+      const failPublication = async (args: Parameters<typeof handleSet>[0]) => {
+        failSetState(store, 4);
+        await expect(call(args)).rejects.toMatchObject({ code: 'VERSION_CONFLICT' });
+      };
+      await failPublication({ featureId: FEATURE_ID, phase: 'delegate' });
+      const first = lastDataOf(await rowsOf(store, FEATURE_ID), 'workflow.transition');
+      if (mode === 'patched-predecessor') {
+        await appendRow(store, FEATURE_ID, 'state.patched', {
+          featureId: FEATURE_ID, fields: ['phaseAttemptId'], patch: { phaseAttemptId: 'ledger-predecessor' },
+        });
+      }
+      const predecessor = mode === 'patched-predecessor' ? 'ledger-predecessor' : first.phaseAttemptId;
+      const reviewAttempt = allocatePhaseAttemptId(FEATURE_ID, 'delegate', 'review', predecessor, 0);
+      const bundles = store.eventStore.bundleStore;
+      const custody = vi.spyOn(bundles, 'resolve');
+      if (mode === 'unclaimed-row') {
+        await appendRow(store, FEATURE_ID, 'workflow.transition', {
+          featureId: FEATURE_ID, from: 'delegate', to: 'review', trigger: 'unclaimed', phaseAttemptId: reviewAttempt,
+        });
+      } else if (mode !== 'custody-race') {
+        await failPublication(input);
+        if (mode === 'later-move') await failPublication({ featureId: FEATURE_ID, phase: 'plan-review' });
+        if (mode === 'ambiguous') {
+          requireSuccess('publish first review', await call(input));
+          requireSuccess('publish intermediate move', await call({ featureId: FEATURE_ID, phase: 'plan-review' }));
+          await failPublication({ ...input, updates: { 'notes.accepted': 'second' } });
+          store.backend.deleteState(FEATURE_ID);
+          store.backend.setState(FEATURE_ID, raw as Parameters<SqliteBackend['setState']>[1]);
+        }
+      }
+      expect(await documentOf(store, FEATURE_ID)).toEqual(raw);
+      const held = store.backend.lookupOperationClaim(`transition:${FEATURE_ID}:${reviewAttempt}`);
+      if (mode === 'unclaimed-row' || mode === 'custody-race') expect(held).toBeUndefined();
+      else expect(held?.result).toMatchObject({ newPhase: 'review', phaseAttemptId: reviewAttempt });
+      if (mode === 'document-advanced') {
+        expect(await call(input)).toMatchObject({ success: true, data: { phase: 'review', idempotent: true } });
+        requireSuccess('advance the document', await call({ featureId: FEATURE_ID, phase: 'delegate' }));
+        expect(await documentOf(store, FEATURE_ID)).toMatchObject({ phase: 'delegate' });
+      }
+      if (mode === 'mismatched-member') {
+        const transition = (await rowsOf(store, FEATURE_ID)).find(row => row.type === 'workflow.transition' && row.data?.phaseAttemptId === reviewAttempt);
+        expect(transition).toBeDefined();
+        const db = new Database(path.join(store.stateDir, 'exarchos.db'));
+        releases.push(() => db.close());
+        db.query("UPDATE events SET payload = json_set(payload, '$.eventId', ?) WHERE streamId = ? AND sequence = ?")
+          .run('unrelated-event-id', FEATURE_ID, transition!.sequence);
+      }
+      await appendRow(store, FEATURE_ID, 'state.patched', {
+        featureId: FEATURE_ID, fields: ['notes.later'], patch: { 'notes.later': 'preserve' },
+      });
+      const before = await rowsOf(store, FEATURE_ID);
+      const guards = guard.mock.calls.length;
+      custody.mockClear();
+      if (mode === 'custody-race') {
+        custody.mockImplementationOnce(async () => {
+          await failPublication(input);
+          throw new Error('custody removed after concurrent winner');
+        });
+      } else {
+        custody.mockRejectedValue(new Error('custody missing'));
+      }
+      if (mode === 'later-move') {
+        await expect(call({ ...input, updates: { 'notes.accepted': 'changed' } })).rejects.toBeInstanceOf(OperationDigestMismatchError);
+        expect(await documentOf(store, FEATURE_ID)).toEqual(raw);
+      }
+      const retry = call(mode === 'digest-mismatch' ? { ...input, updates: { 'notes.accepted': 'changed' } } : input);
+      if (mode === 'digest-mismatch') {
+        await expect(retry).rejects.toBeInstanceOf(OperationDigestMismatchError);
+        expect(await documentOf(store, FEATURE_ID)).toEqual(raw);
+      } else if (mode === 'exact' || mode === 'custody-race' || mode === 'later-move' || mode === 'patched-predecessor') {
+        const phase = mode === 'later-move' ? 'plan-review' : 'review';
+        const phaseAttemptId = mode === 'later-move' ? lastDataOf(before, 'workflow.transition').phaseAttemptId : reviewAttempt;
+        expect(await retry).toMatchObject({ success: true, data: { phase, phaseAttemptId, idempotent: true } });
+        expect(await documentOf(store, FEATURE_ID)).toMatchObject({
+          phase, phaseAttemptId, notes: { accepted: 'original', later: 'preserve' },
+          _eventSequence: (await rowsOf(store, FEATURE_ID)).at(-1)?.sequence,
+        });
+      } else {
+        expect(await retry).toMatchObject({ success: false, error: {
+          code: 'PROJECTION_REPLAY_FAILED', message: expect.stringContaining(mode === 'ambiguous' ? 'Multiple unrepresented transitions' : 'custody missing'),
+        } });
+      }
+      const custodyReads = mode === 'custody-race' ? 2 : ['unclaimed-row', 'mismatched-member', 'document-advanced'].includes(mode) ? 1 : 0;
+      expect(custody).toHaveBeenCalledTimes(custodyReads);
+      expect(guard).toHaveBeenCalledTimes(guards + (mode === 'custody-race' ? 1 : 0));
+      const after = await rowsOf(store, FEATURE_ID);
+      if (mode === 'custody-race') {
+        expect(rowsOfType(after.slice(before.length), 'workflow.transition')).toHaveLength(1);
+        expect(rowsOfType(after.slice(before.length), 'state.patched')).toHaveLength(1);
+      } else {
+        expect(after).toEqual(before);
+        expect(store.backend.lookupOperationClaim(`transition:${FEATURE_ID}:${reviewAttempt}`)).toEqual(held);
+      }
+    },
+  );
+  it.each([false, true])('LegacyKernelPin_ExactRetry_ReplaysWithoutCustody differentPayload=%s', async different => {
+    const store = await openStore();
+    await init(store, FEATURE_ID, 'feature', false);
+    await pinKernel(store);
+    await forgeDocument(store, FEATURE_ID, document => {
+      const { phaseAttemptId: _attempt, ...withoutAttempt } = document;
+      return withoutAttempt;
+    });
+    const before = await documentOf(store, FEATURE_ID);
+    expect(before).not.toHaveProperty('phaseAttemptId');
+    const guard = vi.spyOn(hsmTransitionGuard, 'attempt');
+    const input = { featureId: FEATURE_ID, phase: 'plan-review', updates: { 'artifacts.plan': PLAN_ARTIFACT } };
+    failSetState(store, 4);
+    await expect(handleSet(input, store.stateDir, store.eventStore)).rejects.toMatchObject({ code: 'VERSION_CONFLICT' });
+    expect(await documentOf(store, FEATURE_ID)).toEqual(before);
+    expect(guard).toHaveBeenCalledTimes(1);
+    const committedRows = await rowsOf(store, FEATURE_ID);
+    expect(committedRows.filter(row => row.type === 'workflow.transition')).toHaveLength(1);
+    expect(committedRows.filter(row => row.type === 'state.patched')).toHaveLength(1);
+    const raw = new Database(path.join(store.stateDir, 'exarchos.db'));
+    releases.push(() => raw.close());
+    const claims = () => raw.prepare('SELECT * FROM idempotency_claims WHERE idempotencyKey LIKE ? ORDER BY idempotencyKey').all(`transition:${FEATURE_ID}:%`);
+    const heldClaims = claims();
+    expect(heldClaims).toHaveLength(1);
+    await appendRow(store, FEATURE_ID, 'state.patched', { featureId: FEATURE_ID, fields: ['notes.afterCommit'], patch: { 'notes.afterCommit': 'later row' } });
+    const beforeRetry = await rowsOf(store, FEATURE_ID);
+    const custody = vi.spyOn(store.eventStore.bundleStore, 'resolve').mockRejectedValue(new Error('custody removed after accepted move'));
+    guard.mockImplementation(async () => { throw new Error('The accepted guard must not repeat'); });
+    const retry = handleSet({ ...input, updates: { 'artifacts.plan': different ? 'different.md' : PLAN_ARTIFACT } }, store.stateDir, store.eventStore);
+    if (different) {
+      await expect(retry).rejects.toBeInstanceOf(OperationDigestMismatchError);
+      expect(await documentOf(store, FEATURE_ID)).toEqual(before);
+    } else {
+      expect(await retry).toMatchObject({ success: true, data: { phase: 'plan-review', idempotent: true } });
+      expect(await documentOf(store, FEATURE_ID)).toMatchObject({ phase: 'plan-review', artifacts: { plan: PLAN_ARTIFACT },
+        notes: { afterCommit: 'later row' }, _eventSequence: beforeRetry.at(-1)?.sequence });
+    }
+    expect(guard).toHaveBeenCalledTimes(1);
+    expect(custody).not.toHaveBeenCalled();
+    expect(claims()).toEqual(heldClaims);
+    expect(await rowsOf(store, FEATURE_ID)).toEqual(beforeRetry);
+  });
+});
+
+/** Compare a publication with the single accepted patch and the expected suffix effects. */
+function fieldPatchPublicationMatches(
+  rows: readonly WorkflowEvent[], document: Record<string, unknown>, patch: Record<string, unknown>,
+  notes: Record<string, unknown>, revisionCount: number,
+): boolean {
+  const own = rows.filter(row => row.type === 'state.patched' && isDeepStrictEqual(row.data?.patch, patch));
+  return own.length === 1 && document._eventSequence === rows.at(-1)?.sequence
+    && isDeepStrictEqual(document.notes, notes) && recordOf(document.planReview).revisionCount === revisionCount;
+}
+
+/** Open a no-start document with verified historical custody. */
+async function fieldPatchKernelStore(workflowType = 'feature'): Promise<DecideStore> {
+  if (workflowType === CUSTOM_TYPE) {
+    registerWorkflowType(CUSTOM_TYPE, { phases: ['plan', 'plan-review'], initialPhase: 'plan',
+      transitions: [{ from: 'plan', to: 'plan-review', event: 'review' }] });
+    extendWorkflowTypeEnum(CUSTOM_TYPE);
+    releases.push(() => { unextendWorkflowTypeEnum(CUSTOM_TYPE); unregisterWorkflowType(CUSTOM_TYPE); });
+  }
+  const store = await openStore();
+  await init(store, FEATURE_ID, workflowType, false);
+  await pinKernel(store, workflowType);
+  return store;
+}
+
+describe('historical field-only patches', () => {
+  it.each(['feature', CUSTOM_TYPE])('KernelNoStart_FieldOnlyPatch_UsesCurrentProjection %s', async workflowType => {
+    const store = await fieldPatchKernelStore(workflowType);
+    await forgeDocument(store, FEATURE_ID, state => ({ ...state, notes: { items: {} } }));
+    await appendRow(store, FEATURE_ID, 'state.patched', {
+      featureId: FEATURE_ID, fields: ['notes.items', 'notes.keep'], patch: { 'notes.items': [], 'notes.keep': 'ledger' },
+    });
+    await appendRow(store, FEATURE_ID, 'workflow.plan-revision', { featureId: FEATURE_ID, count: 1 });
+    const before = await rowsOf(store, FEATURE_ID);
+    const key = await candidatePatchKey(store, { 'notes.items[0].name': 'pending' });
+    const resolve = vi.spyOn(store.eventStore.bundleStore, 'resolve');
+    const patch = { 'notes.items[0].name': 'pending' };
+    const result = await handleSet({ featureId: FEATURE_ID, updates: patch }, store.stateDir, store.eventStore);
+    expect(result).toMatchObject({ success: true, data: { phase: 'plan', workflowType } });
+    const rows = await rowsOf(store, FEATURE_ID);
+    const published = await documentOf(store, FEATURE_ID);
+    const notes = { items: [{ name: 'pending' }], keep: 'ledger' };
+    expect(rows.slice(0, before.length)).toEqual(before);
+    expect(rows.slice(before.length).map(row => row.type)).toEqual(['state.patched']);
+    expect(fieldPatchPublicationMatches(rows, published, patch, notes, 1)).toBe(true);
+    expect(fieldPatchPublicationMatches([...rows, { ...rows.at(-1)!, sequence: rows.length + 1 }],
+      { ...published, _eventSequence: rows.length + 1 }, patch, notes, 1)).toBe(false);
+    expect(fieldPatchPublicationMatches(rows, { ...published, notes: { items: {} } }, patch, notes, 1)).toBe(false);
+    expect(store.backend.lookupIdempotencyClaim(FEATURE_ID, key)?.sequences).toEqual([rows.at(-1)?.sequence]);
+    expect(resolve).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(['held', 'cas', 'missing', 'newer', 'different', 'mismatched-member', 'read-fault'])(
+    'KernelNoStart_FieldOnlyPatch_HeldClaimAndCasRetryPreserveLaterRows %s', async mode => {
+      const store = await fieldPatchKernelStore();
+      const patch = { 'notes.value': 'own' };
+      const key = await candidatePatchKey(store, patch);
+      const resolve = vi.spyOn(store.eventStore.bundleStore, 'resolve');
+      const later = async () => {
+        await appendRow(store, FEATURE_ID, 'state.patched', {
+          featureId: FEATURE_ID, fields: ['notes.value', 'notes.keep'], patch: { 'notes.value': 'later', 'notes.keep': 'ledger' },
+        });
+        await appendRow(store, FEATURE_ID, 'workflow.plan-revision', { featureId: FEATURE_ID, count: 1 });
+      };
+      const append = store.eventStore.appendValidated.bind(store.eventStore);
+      const writer = vi.spyOn(store.eventStore, 'appendValidated');
+      const query = store.eventStore.query.bind(store.eventStore);
+      if (mode === 'cas' || mode === 'newer' || mode === 'read-fault') {
+        failSetState(store, mode === 'cas' ? 1 : 0);
+        writer.mockImplementationOnce(async (...args) => {
+          const event = await append(...args);
+          await later();
+          if (mode === 'newer') await pinPlan(store, ['t2']);
+          if (mode === 'read-fault') vi.spyOn(store.eventStore, 'query').mockRejectedValueOnce(new Error('publication read failed'));
+          return event;
+        });
+      } else {
+        await store.eventStore.append(FEATURE_ID, {
+          type: 'state.patched', data: { featureId: FEATURE_ID, fields: ['notes.value'], patch },
+        }, { idempotencyKey: key });
+        await later();
+        if (mode === 'mismatched-member') {
+          const sequence = store.backend.lookupIdempotencyClaim(FEATURE_ID, key)?.sequences[0];
+          expect(sequence).toBeDefined();
+          const db = new Database(path.join(store.stateDir, 'exarchos.db'));
+          releases.push(() => db.close());
+          db.query("UPDATE events SET payload = json_set(payload, '$.eventId', ?) WHERE streamId = ? AND sequence = ?")
+            .run('unrelated-field-patch-event', FEATURE_ID, sequence!);
+        }
+        if (mode === 'missing') resolve.mockRejectedValue(new Error('kernel custody missing'));
+      }
+      const raw = persistenceOf(store);
+      const before = await rowsOf(store, FEATURE_ID);
+      const request = handleSet({ featureId: FEATURE_ID, updates: mode === 'different' ? { 'notes.value': 'other' } : patch },
+        store.stateDir, store.eventStore);
+      if (mode === 'different') {
+        await expect(request).rejects.toMatchObject({ code: 'VERSION_CONFLICT' });
+      } else {
+        expect(await request).toMatchObject(['missing', 'newer', 'mismatched-member', 'read-fault'].includes(mode)
+          ? { success: false, error: { code: 'PROJECTION_REPLAY_FAILED' } } : { success: true });
+      }
+      const rows = await query(FEATURE_ID);
+      if (mode === 'cas' || mode === 'held') {
+        expect(fieldPatchPublicationMatches(rows, await documentOf(store, FEATURE_ID), patch,
+          { value: 'later', keep: 'ledger' }, 1)).toBe(true);
+      } else {
+        expect(persistenceOf(store).document).toEqual(raw.document);
+        if (mode === 'newer' || mode === 'read-fault') {
+          expect(rows.slice(0, before.length)).toEqual(before);
+          expect(rows.slice(before.length).map(row => row.type)).toEqual([
+            'state.patched', 'state.patched', 'workflow.plan-revision', ...(mode === 'newer' ? ['workflow.prepared'] : []),
+          ]);
+        } else {
+          expect(rows).toEqual(before);
+          expect(persistenceOf(store).claims).toEqual(raw.claims);
+        }
+      }
+      expect(rowsOfType(rows, 'state.patched').filter(row => isDeepStrictEqual(row.data?.patch, patch))).toHaveLength(1);
+      expect(store.backend.lookupIdempotencyClaim(FEATURE_ID, key)?.sequences).toHaveLength(1);
+      expect(resolve).toHaveBeenCalledTimes(mode === 'newer' ? 2 : 1);
+      expect(writer.mock.calls.filter(([, event]) => event.type === 'state.patched')).toHaveLength(
+        ['cas', 'newer', 'read-fault'].includes(mode) ? 1 : 0);
+    },
+  );
+
+  it('KernelNoStart_FieldOnlyPatch_NewerPinRefusesBeforeAppend', async () => {
+    const store = await fieldPatchKernelStore();
+    const before = await rowsOf(store, FEATURE_ID);
+    const raw = persistenceOf(store);
+    const append = store.eventStore.appendValidated.bind(store.eventStore);
+    const write = vi.spyOn(store.eventStore, 'appendValidated').mockImplementationOnce(async (...args) => {
+      await pinPlan(store, ['t2']);
+      return append(...args);
+    });
+    const result = await handleSet({ featureId: FEATURE_ID, updates: { 'notes.value': 'loser' } }, store.stateDir, store.eventStore);
+    expect(result).toMatchObject({ success: false, error: { code: 'PROJECTION_REPLAY_FAILED' } });
+    expect(write.mock.calls[0]?.[2]?.expectedSequence).toBe(before.at(-1)?.sequence);
+    expect((await rowsOf(store, FEATURE_ID)).slice(before.length).map(row => row.type)).toEqual(['workflow.prepared']);
+    expect(persistenceOf(store)).toEqual(raw);
+  });
+
+  it.each(['ahead', 'typed', 'full', 'unrecognized', 'missing', 'malformed', 'present-start', 'reserved', 'raw-candidate'])(
+    'KernelNoStart_FieldOnlyPatch_InvalidCursorOrAuthorityWritesNothing %s', async mode => {
+      const store = await fieldPatchKernelStore();
+      if (mode === 'ahead') {
+        const rows = await rowsOf(store, FEATURE_ID);
+        await forgeDocument(store, FEATURE_ID, state => ({ ...state, _eventSequence: rows.length + 1 }));
+      }
+      if (mode === 'typed') await pinPlan(store, ['t2']);
+      if (mode === 'full' || mode === 'unrecognized') {
+        await pinPlan(store, ['t2'], bundle => {
+          const { designRecord: _record, ...legacy } = bundle;
+          const definition = mode === 'full' ? bundle.definition : WorkflowDefinitionV1Schema.parse(kernelOf(builtInDefinition('feature')));
+          return { ...legacy, definition, capsule: { ...legacy.capsule,
+            identity: { ...legacy.capsule.identity, definitionVersion: contentDigest(definition) },
+            provenance: { ...legacy.capsule.provenance, compilerVersion: mode === 'full' ? 'exarchos-prepare-6' : 'future-compiler' },
+          } };
+        });
+      }
+      if (mode === 'malformed' || mode === 'present-start') {
+        const sequence = store.backend.getSequence(FEATURE_ID) + 1;
+        store.backend.appendEvent(FEATURE_ID, {
+          streamId: FEATURE_ID, sequence, timestamp: '2026-11-13T00:00:00.000Z',
+          schemaVersion: mode === 'malformed' ? '1.0' : '1.1',
+          type: mode === 'malformed' ? 'workflow.prepared' : 'workflow.started', data: { featureId: FEATURE_ID },
+        });
+      }
+      if (mode === 'reserved') await forgeDocument(store, FEATURE_ID, state => ({ ...state, notes: { items: {} } }));
+      if (mode === 'raw-candidate') await appendRow(store, FEATURE_ID, 'state.patched', {
+        featureId: FEATURE_ID, fields: ['notes.items'], patch: { 'notes.items': {} },
+      });
+      const resolve = vi.spyOn(store.eventStore.bundleStore, 'resolve');
+      if (mode === 'missing') resolve.mockRejectedValue(new Error('kernel custody missing'));
+      const updates = mode === 'reserved' ? { 'notes.items[0].name': 'bad', phase: 'review' }
+        : mode === 'raw-candidate' ? { 'notes.items[0].name': 'bad' } : { 'notes.value': 'unpublished' };
+      const before = await rowsOf(store, FEATURE_ID);
+      const raw = persistenceOf(store);
+      const result = await handleSet({ featureId: FEATURE_ID, updates }, store.stateDir, store.eventStore);
+      const code = mode === 'reserved' ? 'RESERVED_FIELD' : mode === 'raw-candidate' ? 'INVALID_INPUT' : 'PROJECTION_REPLAY_FAILED';
+      expect(result).toMatchObject({ success: false, error: { code } });
+      expect(await rowsOf(store, FEATURE_ID)).toEqual(before);
+      expect(persistenceOf(store)).toEqual(raw);
+      if (['present-start', 'reserved'].includes(mode)) expect(resolve).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(['unprepared', 'started'])('KernelFieldOnlyPatch_OrdinaryRoutesUseNoCustody %s', async mode => {
+    const store = await openStore();
+    await init(store, FEATURE_ID, 'feature', mode === 'started');
+    if (mode === 'started') await pinPlan(store, ['t1']);
+    const resolve = vi.spyOn(store.eventStore.bundleStore, 'resolve').mockRejectedValue(new Error('unexpected custody read'));
+    await update(store, FEATURE_ID, { 'notes.value': 'ordinary' });
+    expect(resolve).not.toHaveBeenCalled();
+    expect(await documentOf(store, FEATURE_ID)).toMatchObject({ notes: { value: 'ordinary' } });
   });
 });

@@ -19,7 +19,7 @@ import { WorkflowDefinitionV1Schema } from '@lvlup-sw/strategos-contracts';
 
 import type { CapsuleScope, ExarchosCapsuleV1 } from '../../../../src/contract/capsule/exarchos-capsule.js';
 import {
-  baseValidCapsule,
+  baseValidCapsule as corpusCapsule,
   baseValidDefinition,
 } from '../../../../src/contract/capsule/exarchos-capsule-fixtures.js';
 import {
@@ -49,6 +49,12 @@ import { execFileAsync } from '../../../../tools/test-helpers/spawn.js';
 import { inScopeObserver, scopeOfCheckout, withScope } from '../../../helpers/scoped-capsule.js';
 
 const STREAM = 'feat-settle-blocking-gate';
+
+/** Bind the corpus fixture to the stream that records its custody. */
+function baseValidCapsule() {
+  const capsule = corpusCapsule();
+  return { ...capsule, identity: { ...capsule.identity, workflowId: STREAM } };
+}
 const CAPSULE_VERSION = 9;
 const CAPABILITIES = ['fs:read', 'fs:write', 'shell:exec', 'mcp:exarchos', 'admission:issue-gate-evidence'];
 /** The cheapest npm script that exits 0. */
@@ -129,7 +135,7 @@ async function seedPrepared(capsule: ExarchosCapsuleV1): Promise<void> {
       streamId: STREAM,
       operationId: `seed:${capsule.identity.capsuleVersion}`,
       requestDigest: `sha256:seed-${capsule.identity.capsuleVersion}`,
-      workflowType: 'feature',
+      workflowType: WorkflowDefinitionV1Schema.parse(baseValidDefinition()).name,
       capsule: withScope(capsule, scope),
       definition: WorkflowDefinitionV1Schema.parse(baseValidDefinition()),
     }),

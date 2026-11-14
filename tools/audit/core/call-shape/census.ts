@@ -111,6 +111,7 @@ export interface IntentModel {
   readonly source: string;
   readonly boundary: { readonly label: string; readonly cite: Cite };
   readonly normal: readonly Step[];
+  readonly authoringOnly?: true;
   readonly exceptions: readonly ExceptionModel[];
   /** Calls prescribed only under a condition that is on neither path, such as a fallback. */
   readonly conditional: readonly Step[];
@@ -387,7 +388,9 @@ export function buildCallShapeCensus(
     }
     texts.set(key, text);
     const sites = extractSites(text, registry);
-    if (sites.length === 0) fail(`EMPTY_SOURCE ${file}: the extractor located no call sites`);
+    const sourceIntents = model.intents.filter((intent) => intent.source === key);
+    const authoringOnly = sourceIntents.length > 0 && sourceIntents.every((intent) => intent.authoringOnly);
+    if (sites.length === 0 && !authoringOnly) fail(`EMPTY_SOURCE ${file}: the extractor located no call sites`);
     sitesBySource.set(key, sites);
   }
 
@@ -573,12 +576,18 @@ export function buildCallShapeCensus(
     const fetches: Fetch[] = [];
     const normalCalls = intent.normal.flatMap((step) => expand(step, 'once', `${intent.id}:normal`, [intent.id], fetches));
     const normalCounts = tallyPath(normalCalls);
-    if (normalCounts.exarchos.atUnit === 0) {
+    if (intent.authoringOnly) {
+      const sourceSites = sitesBySource.get(intent.source) ?? [];
+      if (sourceSites.some((site) => site.status !== 'harness') || normalCalls.some((call) => call.role !== 'native')
+        || intent.exceptions.length > 0 || intent.conditional.length > 0) {
+        fail(`AUTHORING_EXARCHOS_CALL ${intent.id}: authoring must use only harness calls`);
+      }
+    } else if (normalCounts.exarchos.atUnit === 0) {
       fail(
         `EMPTY_NORMAL_PATH ${intent.id}: no Exarchos work call resolved on the normal path, and a census that counts nothing cannot tell zero calls from a broken extractor`,
       );
     }
-    if (!normalCalls.some((call) => call.via === 'site' || call.via.endsWith('/site'))) {
+    if (!intent.authoringOnly && !normalCalls.some((call) => call.via === 'site' || call.via.endsWith('/site'))) {
       fail(
         `NORMAL_PATH_UNLOCATED ${intent.id}: no call on the normal path was located in its source, so the count does not depend on the extractor reading it`,
       );

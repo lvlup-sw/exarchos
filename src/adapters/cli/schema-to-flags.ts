@@ -123,6 +123,9 @@ function resolveType(schema: z.ZodType): FieldMeta['type'] {
   if (unwrapped instanceof z.ZodEnum) return 'enum';
   if (unwrapped instanceof z.ZodArray) return 'array';
   if (unwrapped instanceof z.ZodObject) return 'object';
+  if (unwrapped instanceof z.ZodDiscriminatedUnion && unwrapped.options.every((option) => option instanceof z.ZodObject)) {
+    return 'object';
+  }
   if (unwrapped instanceof z.ZodRecord) return 'object';
   if (unwrapped instanceof z.ZodUnion) return 'unknown';
   return 'unknown';

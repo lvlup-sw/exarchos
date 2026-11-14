@@ -1,15 +1,25 @@
 /**
  * The refusal codes of `prepare` and the receipt it returns.
- * Each refusal occurs before any effect, so a refused compilation writes nothing.
+ * Document synchronization can fail after a bootstrap claim commits.
  * The message of a refusal names its cause and the recovery.
  */
 
 import type { ExarchosCapsuleV1 } from '../../contract/capsule/exarchos-capsule.js';
 import type { BundleRefV1 } from '../../events/bundle/digest-references.js';
+import type { PlanFinding } from '../../workflow/design-record/validate.js';
 
 export const PREPARE_REFUSAL_CODES = [
   /** No workflow is recorded for the subject. */
   'WORKFLOW_NOT_FOUND',
+  'BOOTSTRAP_UNSUPPORTED',
+  'BOOTSTRAP_CONFLICT',
+  'BOOTSTRAP_INTEGRITY',
+  'STATE_SYNC_FAILED',
+  'PREPARE_INTENT_REQUIRED',
+  'DESIGN_APPROVAL_MISMATCH',
+  'PLAN_UNSOUND',
+  'PREPARED_AUTHORITY_INVALID',
+  'INTERNAL_ERROR',
   /** The workflow type has no definition this compiler can lower. */
   'WORKFLOW_TYPE_UNSUPPORTED',
   /** The workflow is not in a phase whose work this compiler knows how to batch. */
@@ -47,6 +57,7 @@ export type PrepareRefusalCode = (typeof PREPARE_REFUSAL_CODES)[number];
 export interface PrepareRefusal {
   readonly code: PrepareRefusalCode;
   readonly message: string;
+  readonly planFindings?: readonly PlanFinding[];
 }
 
 /**

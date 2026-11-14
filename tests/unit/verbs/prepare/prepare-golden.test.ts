@@ -2,7 +2,7 @@
 // once, before the compile path became generic over the registered definitions. No test writes it.
 //
 // Each case seeds the inputs that the golden holds and runs `prepare` on the live code. The live wave differs
-// from the golden at exactly the 14 named paths of the full-definition pin and of the compiler name. No other path moves.
+// from the golden at the named paths of the full definition pin, compiler name and frozen skips.
 // A recapture runs on main only, never on a feature branch.
 //
 // The capture uses a fake git at a fixed absent checkout, a fixed clock and a fixed catalog.
@@ -111,6 +111,7 @@ const NAMED_DELTA: readonly string[] = [
   '.capsule.identity.definitionVersion',
   '.capsule.provenance.compilerVersion',
   '.capsule.provenance.sources[0].digest',
+  '.capsule.settlementContract',
   '.capsuleDigest',
   '.definition',
   '.definitionVersion',
@@ -275,7 +276,7 @@ function kernelPart(definition: unknown): Record<string, unknown> {
 
 describe('the golden of one feature wave of prepare', () => {
   /**
-   * The capsule that the call returns differs from the golden capsule only at its three named paths.
+   * The capsule that the call returns differs from the golden capsule at the named paths.
    * The capsule names the compiler of this build and the pinned digest of the full definition.
    */
   it('PrepareGolden_AFeatureWave_CompilesTheGoldenCapsule', async () => {
@@ -285,6 +286,8 @@ describe('the golden of one feature wave of prepare', () => {
     );
     const capsule = ExarchosCapsuleV1Schema.parse(receipt.capsule);
     expect(capsule.provenance.compilerVersion).toBe(PREPARE_COMPILER_VERSION);
+    expect(capsule.settlementContract.skipPhases).toStrictEqual([]);
+    await expect(preparedRows().then(([row]) => row?.planRecordDigest)).resolves.toBeUndefined();
     expect(capsule.identity.definitionVersion).toBe(receipt.definitionVersion);
     expect(capsule.provenance.sources[0]).toStrictEqual({ sourceId: 'workflow-definition', digest: receipt.definitionVersion });
   });

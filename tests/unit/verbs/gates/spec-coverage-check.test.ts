@@ -114,7 +114,7 @@ describe('handleSpecCoverageCheck', () => {
       if (path === '/repo/src/utils.test.ts') return true;
       return false;
     });
-    mockedReadFileSync.mockReturnValue(PLAN_WITH_TWO_TESTS);
+    mockedReadFileSync.mockReturnValue(Buffer.from(PLAN_WITH_TWO_TESTS));
     mockedExecFileSync.mockReturnValue(Buffer.from(''));
 
     const result = await runSpecCoverageCheck({
@@ -147,7 +147,7 @@ describe('handleSpecCoverageCheck', () => {
       if (path === '/repo/src/utils.test.ts') return false;
       return false;
     });
-    mockedReadFileSync.mockReturnValue(PLAN_WITH_TWO_TESTS);
+    mockedReadFileSync.mockReturnValue(Buffer.from(PLAN_WITH_TWO_TESTS));
 
     const result = await runSpecCoverageCheck({
       planFile: '/repo/plan.md',
@@ -172,7 +172,7 @@ describe('handleSpecCoverageCheck', () => {
       if (path === '/repo') return true;
       return false;
     });
-    mockedReadFileSync.mockReturnValue(PLAN_WITHOUT_TESTS);
+    mockedReadFileSync.mockReturnValue(Buffer.from(PLAN_WITHOUT_TESTS));
 
     const result = await runSpecCoverageCheck({
       planFile: '/repo/plan.md',
@@ -199,7 +199,7 @@ describe('handleSpecCoverageCheck', () => {
       if (path === '/repo/src/utils.test.ts') return true;
       return false;
     });
-    mockedReadFileSync.mockReturnValue(PLAN_WITH_TWO_TESTS);
+    mockedReadFileSync.mockReturnValue(Buffer.from(PLAN_WITH_TWO_TESTS));
     mockedExecFileSync.mockImplementation((_cmd: unknown, args?: unknown) => {
       const argsArr = args as readonly string[];
       if (argsArr && argsArr.some((a: string) => a.includes('utils.test.ts'))) {
@@ -232,7 +232,7 @@ describe('handleSpecCoverageCheck', () => {
       if (path === '/repo/src/utils.test.ts') return true;
       return false;
     });
-    mockedReadFileSync.mockReturnValue(PLAN_WITH_TWO_TESTS);
+    mockedReadFileSync.mockReturnValue(Buffer.from(PLAN_WITH_TWO_TESTS));
 
     const result = await runSpecCoverageCheck({
       planFile: '/repo/plan.md',
@@ -285,7 +285,7 @@ describe('handleSpecCoverageCheck', () => {
       if (path === '/repo/src/c.test.ts') return true;
       return false;
     });
-    mockedReadFileSync.mockReturnValue(planContent);
+    mockedReadFileSync.mockReturnValue(Buffer.from(planContent));
 
     const result = await runSpecCoverageCheck({
       planFile: '/repo/plan.md',
@@ -335,7 +335,7 @@ describe('handleSpecCoverageCheck', () => {
       if (path === '/repo/src/utils.test.ts') return true;
       return false;
     });
-    mockedReadFileSync.mockReturnValue(PLAN_WITH_TWO_TESTS);
+    mockedReadFileSync.mockReturnValue(Buffer.from(PLAN_WITH_TWO_TESTS));
     mockedExecFileSync.mockReturnValue(Buffer.from(''));
 
     const result = await runSpecCoverageCheck({
@@ -425,7 +425,7 @@ describe('handleSpecCoverageCheck — plan-syntax phase (WFQ-010)', () => {
       if (path === '/repo/plan.md') return true;
       return false;
     });
-    mockedReadFileSync.mockReturnValue(PLAN_WITH_TWO_TESTS);
+    mockedReadFileSync.mockReturnValue(Buffer.from(PLAN_WITH_TWO_TESTS));
 
     const result = await runSpecCoverageCheck({
       planFile: '/repo/plan.md',
@@ -459,7 +459,7 @@ describe('handleSpecCoverageCheck — plan-syntax phase (WFQ-010)', () => {
       probed.push(path);
       return path === '/repo/plan.md';
     });
-    mockedReadFileSync.mockReturnValue(PLAN_WITH_TWO_TESTS);
+    mockedReadFileSync.mockReturnValue(Buffer.from(PLAN_WITH_TWO_TESTS));
 
     await runSpecCoverageCheck({
       planFile: '/repo/plan.md',
@@ -475,7 +475,7 @@ describe('handleSpecCoverageCheck — plan-syntax phase (WFQ-010)', () => {
   /** The plan-time check runs before the worktree exists, so a missing repo root is not an error. */
   it('planPhase_RepoRootNeedNotExist', async () => {
     mockedExistsSync.mockImplementation((p: unknown) => String(p) === '/repo/plan.md');
-    mockedReadFileSync.mockReturnValue(PLAN_WITH_TWO_TESTS);
+    mockedReadFileSync.mockReturnValue(Buffer.from(PLAN_WITH_TWO_TESTS));
 
     const result = await runSpecCoverageCheck({
       planFile: '/repo/plan.md',
@@ -490,9 +490,9 @@ describe('handleSpecCoverageCheck — plan-syntax phase (WFQ-010)', () => {
   /** A declared path that is not a valid test path fails at plan time. */
   it('planPhase_MalformedTestPath_Fails', async () => {
     mockedExistsSync.mockImplementation((p: unknown) => String(p) === '/repo/plan.md');
-    mockedReadFileSync.mockReturnValue(
+    mockedReadFileSync.mockReturnValue(Buffer.from(
       ['### Task: build widget', '**Test file:** `src/widget.ts`'].join('\n'),
-    );
+    ));
 
     const result = await runSpecCoverageCheck({
       planFile: '/repo/plan.md',
@@ -508,7 +508,7 @@ describe('handleSpecCoverageCheck — plan-syntax phase (WFQ-010)', () => {
 
   it('planPhase_NoTestFilesDeclared_Fails', async () => {
     mockedExistsSync.mockImplementation((p: unknown) => String(p) === '/repo/plan.md');
-    mockedReadFileSync.mockReturnValue(PLAN_WITHOUT_TESTS);
+    mockedReadFileSync.mockReturnValue(Buffer.from(PLAN_WITHOUT_TESTS));
 
     const result = await runSpecCoverageCheck({
       planFile: '/repo/plan.md',
@@ -537,7 +537,7 @@ describe('handleSpecCoverageCheck — post-implementation phase (WFQ-010)', () =
       if (path === '/repo') return true;
       return false;
     });
-    mockedReadFileSync.mockReturnValue(PLAN_WITH_TWO_TESTS);
+    mockedReadFileSync.mockReturnValue(Buffer.from(PLAN_WITH_TWO_TESTS));
 
     const result = await runSpecCoverageCheck({
       planFile: '/repo/plan.md',
@@ -567,7 +567,7 @@ describe('handleSpecCoverageCheck — post-implementation phase (WFQ-010)', () =
       if (path === '/repo/src/utils.test.ts') return true;
       return false;
     });
-    mockedReadFileSync.mockReturnValue(PLAN_WITH_TWO_TESTS);
+    mockedReadFileSync.mockReturnValue(Buffer.from(PLAN_WITH_TWO_TESTS));
     mockedExecFileSync.mockReturnValue(Buffer.from(''));
 
     const result = await runSpecCoverageCheck({
@@ -591,7 +591,7 @@ describe('handleSpecCoverageCheck — post-implementation phase (WFQ-010)', () =
       if (path === '/repo/src/utils.test.ts') return true;
       return false;
     });
-    mockedReadFileSync.mockReturnValue(PLAN_WITH_TWO_TESTS);
+    mockedReadFileSync.mockReturnValue(Buffer.from(PLAN_WITH_TWO_TESTS));
     mockedExecFileSync.mockImplementation((_cmd: unknown, args?: unknown) => {
       const argsArr = args as readonly string[];
       if (argsArr && argsArr.some((a: string) => a.includes('utils.test.ts'))) {
@@ -618,7 +618,7 @@ describe('handleSpecCoverageCheck — post-implementation phase (WFQ-010)', () =
       if (path === '/repo') return true;
       return false;
     });
-    mockedReadFileSync.mockReturnValue(PLAN_WITH_TWO_TESTS);
+    mockedReadFileSync.mockReturnValue(Buffer.from(PLAN_WITH_TWO_TESTS));
 
     const result = await runSpecCoverageCheck({
       planFile: '/repo/plan.md',

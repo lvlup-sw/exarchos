@@ -3639,10 +3639,10 @@ describe('Task 022 — registry schema batch (DR-1/DR-3/DR-8)', () => {
      * The test names that set of events, so the property has a denominator.
      * An event with two routes to one meaning, such as `worktree.released`, has a declaration for each route.
      * `task.completed` is not in the set: `settle` runs `task_complete` as a leaf and does not declare the events of its leaves.
-     * `workflow.transition` has two declarers with the owner `workflow`: `transition`, and `settle` for its phase move.
+     * The workflow transition, settlement and bootstrap actions declare phase moves with owner `workflow`.
      *
-     * The declarers of one event must all name one owner, or each name a different owner with at most one `primary`.
-     * `gate.executed` shows many declarers in one area. `state.patched` shows two areas, where `update` is the primary edge.
+     * All primary declarations for one event name the same owner.
+     * The `state.patched` declarations from update and bootstrap share the workflow owner.
      */
     it('EmissionRoles_MultiDeclarerEvent_IsConforming', () => {
       const byEvent = new Map<string, { tool: string; action: string; emission: AutoEmission }[]>();
@@ -3658,8 +3658,11 @@ describe('Task 022 — registry schema batch (DR-1/DR-3/DR-8)', () => {
         'gate.executed',
         'onboard.executed',
         'onboard.requested',
+        'phase.entered',
+        'phase.exited',
         'state.patched',
         'task.assigned',
+        'workflow.started',
         'workflow.transition',
         'worktree.merge_executed',
         'worktree.released',
@@ -3667,24 +3670,10 @@ describe('Task 022 — registry schema batch (DR-1/DR-3/DR-8)', () => {
 
       const violations: string[] = [];
       for (const [event, edges] of multiDeclarer) {
-        const owners = edges.map((e) => e.emission.owner);
-        const distinct = new Set(owners);
-        if (distinct.size === 1) continue;
-        if (distinct.size !== owners.length) {
-          violations.push(
-            `${event}: ${owners.length} edges over ${distinct.size} owners [${[...distinct].join(
-              ', ',
-            )}] — owners must be all-identical or all-distinct`,
-          );
-          continue;
-        }
-        const primaries = edges.filter((e) => e.emission.role === 'primary');
-        if (primaries.length > 1) {
-          violations.push(
-            `${event}: ${primaries.length} primary edges across distinct owners [${primaries
-              .map((e) => `${e.tool}.${e.action}`)
-              .join(', ')}] — at most one may be primary`,
-          );
+        const primaries = edges.filter((edge) => edge.emission.role === 'primary');
+        const primaryOwners = new Set(primaries.map((edge) => edge.emission.owner));
+        if (primaryOwners.size > 1) {
+          violations.push(`${event}: multiple primary owners [${[...primaryOwners].join(', ')}]`);
         }
       }
       expect(violations, `owner-set inconsistency:\n${violations.join('\n')}`).toEqual([]);
@@ -3694,16 +3683,11 @@ describe('Task 022 — registry schema batch (DR-1/DR-3/DR-8)', () => {
       expect([...new Set(gateExecuted.map((e) => e.emission.owner))]).toEqual(['orchestrate']);
 
       const statePatched = byEvent.get('state.patched') ?? [];
-      expect(statePatched).toHaveLength(2);
-      expect([...new Set(statePatched.map((e) => e.emission.owner))].sort()).toEqual([
-        'orchestrate',
-        'workflow',
+      expect(statePatched.map(({ action, emission }) => [action, emission.owner, emission.role]).sort()).toEqual([
+        ['discover_bridge', 'orchestrate', 'recovery'],
+        ['prepare', 'workflow', 'primary'],
+        ['update', 'workflow', 'primary'],
       ]);
-      expect(statePatched.filter((e) => e.emission.role === 'primary')).toHaveLength(1);
-      expect(
-        statePatched.find((e) => e.emission.role === 'primary')?.action,
-        'the canonical state-mutation surface must be the primary edge',
-      ).toBe('update');
     });
   });
 });

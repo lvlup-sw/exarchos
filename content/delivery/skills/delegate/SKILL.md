@@ -80,11 +80,40 @@ Before dispatching, query decision runbooks to classify the work and select the 
 
 ### Step 1 — Compile the batch
 
+For the first typed preparation of a new feature, use the approved handoff from plan. The coordinator supplies `approvedFileSha256`, the bare lowercase SHA-256 hex of the entire approved file as raw bytes. Use the checkout-relative `designRef` and the selected depth. Replace the example values with the approved handoff values. The example uses `standard`.
+
 ```typescript
-exarchos_orchestrate({ action: "prepare", featureId: "<featureId>", repoRoot: "<absolute path of the worktree that holds baseRef>" })
+exarchos_orchestrate({
+  action: "prepare", featureId: "add-email-validation", repoRoot: "/project",
+  intent: {
+    mode: "bootstrap", workflowType: "feature", baseRef: "feat/add-email-validation",
+    designDepth: "standard", designRef: "docs/specs/2026-02-28-add-email-validation.md",
+    approval: { decision: "approved", designDigest: approvedFileSha256 }
+  }
+})
 ```
 
-`prepare` reads the workflow's plan and compiles its **ready frontier** — every task not yet complete whose `blockedBy` tasks are all complete — into one capsule, in custody, pinned by digest, and announces each of them (`task.assigned`) in the same commit as its record — no call precedes it. Keep the receipt: `capsuleVersion` is what `settle` is keyed by, and the `capsule` is what every subagent's packet is built from.
+For a new user task-batch workflow, supply its registered type. For refactor bootstrap, supply `workflowType: "refactor"` and `refactor: { track: "overhaul", scopeAssessment: "<assessment>" }` inside the intent. For CLI, pass the intent object as JSON via `--intent`.
+
+**Bootstrap retry:** Save the original request. To recover its accepted receipt or repair its state document after `STATE_SYNC_FAILED`, resend the identical saved bootstrap request. Keep the original approval and depth, feature ID, absolute checkout, workflow type, design reference, base and any overhaul terms. The reply is the original receipt even if the checkout has since advanced. Select retry or continuation by the operation you intend to perform. A stream's presence alone cannot distinguish them.
+
+**Compile continuation:** Use `mode: "compile"` for a new frontier, a later design revision, or a newly approved edit on an existing stream. Keep the approved depth and reference. An unchanged file uses its existing approval. After an edit, obtain approval for the new whole-file bytes and use their digest, even if the ready frontier is unchanged. The example uses the recorded workflow type and base.
+
+```typescript
+exarchos_orchestrate({
+  action: "prepare", featureId: "add-email-validation", repoRoot: "/project",
+  intent: {
+    mode: "compile", designDepth: "standard", designRef: "docs/specs/2026-02-28-add-email-validation.md",
+    approval: { decision: "approved", designDigest: approvedCurrentFileSha256 }
+  }
+})
+```
+
+For a refactor continuation, also carry `refactor: { track: "overhaul", scopeAssessment: "<assessment>" }` in the compile intent.
+
+Existing streams still on a legacy prose plan use the existing no-intent route. Once a stream uses a typed plan, every continuation carries typed intent.
+
+`prepare` reads the workflow's plan and compiles its **ready frontier** — every task not yet complete whose `blockedBy` tasks are all complete — into one capsule, in custody, pinned by digest, and announces each of them (`task.assigned`) in the same commit as its record. Keep the receipt: `capsuleVersion` is what `settle` is keyed by, and the `capsule` is what every subagent's packet is built from.
 
 `repoRoot` is required, and it must be an absolute path. Pass the tree that holds `baseRef`: the worktree where the integration branch is checked out. `prepare` reads the repository, the config and the invariant catalogs from that checkout, never from the directory of the server. It pins the repository and the checkout in the capsule (`settlementContract.scope`), and the commit of `baseRef` for each task (`baseCommit`).
 
@@ -109,14 +138,16 @@ exarchos_orchestrate({ action: "prepare", featureId: "<featureId>", repoRoot: "<
 | `PHASE_NOT_PREPARABLE` | The phase is not a task-batch step (the message names the finding and the compilable steps) | Transition to a compilable step that the message names. A single-agent step (`single-agent-step`) takes the primitive path (appendix) |
 | `NOTHING_TO_PREPARE` | Every planned task is complete | Transition to review |
 | `NO_READY_TASKS` | Tasks are pending, but each waits on a task that is not complete (the message names them) | Settle or fix the blocking tasks first; tasks that wait on each other are a cycle to break in the plan |
-| `BASE_UNRESOLVED` | The workflow records no integration branch (or not a safe ref name), so no task has a base | `exarchos_workflow({ action: "update", featureId: "<featureId>", updates: { "synthesis.integrationBranch": "<branch the tasks fork from>" } })`, then `prepare` again |
+| `BASE_UNRESOLVED` | No usable integration branch was supplied or recorded, or the supplied compile base conflicts with the recorded base | For bootstrap, supply the actual integration branch in `intent.baseRef`. For compile, use the recorded base. If the stream has no base, supply the integration branch in `intent.baseRef`. A legacy no-intent stream uses its recorded integration branch |
 | `BASE_UNRESOLVED` | The repository of the checkout holds no commit of the integration branch, or a completed blocker of a batch task landed on a commit that the base does not hold (both named in the message) | Create the branch, or pass a `repoRoot` that holds it. Land the blocker, then `prepare` again. A blocker that landed by a squash or a rebase outside `serialize_merge` needs a recorded `merge.executed` row (`references/troubleshooting.md`) |
 | `SCOPE_UNRESOLVED` | `repoRoot` is not in a git work tree or is in another repository than the latest capsule, the config of the checkout does not load, a registered catalog does not resolve, or the config does not make `check_static_analysis` blocking (named in the message) | Correct the cause that the message names, then `prepare` again (`references/troubleshooting.md`) |
-| `UNKNOWN_DEPENDENCY`, `INVALID_TASK_ID`, `INVALID_TASK_STAMP`, `CAPSULE_UNSOUND` | The plan cannot be expressed as a batch | Fix the plan, `prepare` again |
+| `UNKNOWN_DEPENDENCY`, `INVALID_TASK_ID`, `INVALID_TASK_STAMP`, `CAPSULE_UNSOUND` | The plan cannot be expressed as a batch | Fix the plan, approve the edited bytes, and submit the appropriate intent |
+| `DESIGN_APPROVAL_MISMATCH`, `PLAN_UNSOUND` | The approved bytes differ from the file, or the typed plan is invalid | Correct the source, obtain approval for its exact bytes, and submit the appropriate typed intent |
+| `BOOTSTRAP_CONFLICT`, `BOOTSTRAP_INTEGRITY` | The stream has a different entry or its accepted receipt cannot be validated | Check the saved request and report an integrity failure for investigation |
 | `RUNTIME_UNFIT` | This runtime lacks a capability settlement needs to verify the batch (named in the message) | Stop; do not dispatch — the batch could never settle here |
 | `REVISION_UNREADABLE` | The capsule would state the accepted changes of a design revision, and the settlement bundle that holds them (named in the message) cannot be read, or lacks a deviation or an accepted decision the revision names | Restore the bundle in the run-bundle store, then `prepare` again. There is no bypass: the workflow stops here until the bundle is restored |
 
-A retry with unchanged inputs returns the recorded capsule; a changed plan, a changed integration branch or base commit, another checkout, an edit of a config file or of the design record, or a design revision recorded since compiles the next version, stamped with the design version it was compiled at (`identity.designVersion`, `design-v<N>`). **Prepare before every wave**, never once per workflow: a capsule holds only the ready frontier, so the second wave's capsule is compiled once the first wave has settled.
+A compile with unchanged inputs returns its recorded capsule. A valid compile with changed inputs records the next version, stamped with the design version it was compiled at (`identity.designVersion`, `design-v<N>`). **Prepare before every wave**, never once per workflow: a capsule holds only the ready frontier, so the second wave's capsule is compiled once the first wave has settled.
 
 ### Worktrees
 
@@ -126,12 +157,12 @@ The worker starts from `<baseCommit>`. After its entry checks and before any fil
 
 ### Task Extraction
 
-The capsule pins the **terms**; the plan carries the **body**. From the implementation plan, extract for each capsule task:
-- Full task description (paste inline; never reference external files)
+The capsule pins the **terms**. Read the approved plan bytes that match the capsule, and use each capsule task ID to select its object in the typed block:
+- The `title`, `instructions` and `acceptance` criteria. Include them inline in the worker prompt.
 - Files to create/modify as **worktree-relative paths rooted inside the worktree** (e.g. `src/foo.ts`) — never an absolute parent-repo path, and never a `..` sequence that escapes the worktree root. Either form resolves outside the agent's worktree cwd and silently writes into the main worktree. This is the platform-agnostic line of defense — it must hold on every runtime.
-- Test file paths (worktree-relative) and expected test names
+- Paths from `testFiles` and any expected test names in the instructions
 - Dependencies on other tasks — from the plan's `blockedBy`. The capsule holds only the ready frontier, so `graph.dependencies` is empty
-- Property-based testing flag (`testingStrategy.propertyTests`)
+- Additional verification specified in `instructions`. The legacy prose path can carry its former `testingStrategy.propertyTests` flag.
 
 For a complete worked example of this flow, see `references/worked-example.md`.
 
@@ -454,7 +485,7 @@ If a task is still not completed, claim it with its status and reason again. Tha
 
 If a summary omits unresolved entries (`counts.unresolvedOmitted` is more than 0), claim every required task again. Settlement runs no gate again for a complete task, and returns that task as `already-complete`.
 
-If the receipt also carries `designRevision`, call `prepare` first (see `designRevision`, below). Then settle under the capsule that `prepare` returns. Claim each task that this capsule requires and that is not complete. A blocked task that its own deviation named takes this path. The revision names the task, so a new batch on the earlier capsule is `recompile-required`.
+If the receipt also carries `designRevision`, compile a continuation first (see `designRevision`, below). Then settle under the capsule that `prepare` returns. Claim each task that this capsule requires and that is not complete. A blocked task that its own deviation named takes this path. The revision names the task, so a new batch on the earlier capsule is `recompile-required`.
 
 The tasks of `acceptedTasks` are complete, so `prepare` can compile a task that waits on one of them. A worktree forks from the `baseRef` of its task, the integration branch, and that branch holds only landed work. Land each task of `acceptedTasks` (Step 4, item 1) before you create the worktree of a task that waits on it.
 
@@ -501,36 +532,36 @@ Settlement records an `accepted` decision (`deviation.decided`). Then it verifie
 
 **A blocked task that its own deviation names.** The held batch reports the task as `blocked`, and the deviation names that task. After an `accepted` decision, settlement verifies the completed claims of the batch. The blocked task is unresolved, so the outcome is `corrective-capsule` with the cause `task-blocked`.
 
-If the deviation kind is material, the receipt also carries `designRevision`, and the revision names the blocked task. Call `prepare` first. The continuation compiles the task under the new design version, and its capsule states the accepted change. Land each task of `acceptedTasks` (Step 4, item 1) before you create the worktree of a task that waits on it. Dispatch the task from the new packet, and settle it under the new capsule. A batch on the earlier capsule is `recompile-required`, whether it claims the task, reports it again or omits it.
+If the deviation kind is material, the receipt also carries `designRevision`, and the revision names the blocked task. Compile a continuation first. It compiles the task under the new design version, and its capsule states the accepted change. Land each task of `acceptedTasks` (Step 4, item 1) before you create the worktree of a task that waits on it. Dispatch the task from the new packet, and settle it under the new capsule. A batch on the earlier capsule is `recompile-required`, whether it claims the task, reports it again or omits it.
 
 If the deviation kind is not material, the receipt carries no `designRevision`. Remove the block. Then settle the task in a new batch on the same capsule.
 
-Settlement records a `rejected` decision too. The outcome is `rejected` with a `deviation-rejected` finding, and settlement verifies nothing at its read. The work that stood on the deviation is not accepted. Correct that work, and settle it under a new batch id without the deviation. If the plan holds a rework task for the refused deviation, remove that task. Then `prepare` again, and settle under the capsule that `prepare` returns.
+Settlement records a `rejected` decision too. The outcome is `rejected` with a `deviation-rejected` finding, and settlement verifies nothing at its read. The work that stood on the deviation is not accepted. Correct that work, and settle it under a new batch id without the deviation. If the plan holds a rework task for the refused deviation, remove that task, obtain approval for the edited bytes, and compile a continuation. Settle under the new capsule.
 
 Settlement records a decision once. The same decision sent again returns its verdict. Settlement refuses a different decision on a decided batch.
 
-**`designRevision` on the receipt** — the round accepted at least one deviation of a material kind and recorded one design revision for it (`design.revised`, design version N to N+1), whatever the round's verdict. The receipt names the two versions and the deviations (`priorDesignVersion`, `nextDesignVersion`, `deviationIds`). After a receipt that carries a design revision, revise the plan if the accepted change needs it, then `prepare` again — the tasks the revision names settle only under a capsule compiled after it. A `recompile-required` receipt calls for the same `prepare`.
+**`designRevision` on the receipt** — the round accepted at least one deviation of a material kind and recorded one design revision for it (`design.revised`, design version N to N+1), whatever the round's verdict. The receipt names the two versions and the deviations (`priorDesignVersion`, `nextDesignVersion`, `deviationIds`). After a receipt that carries a design revision, revise the plan and obtain approval for the new bytes if the accepted change needs an edit, then compile a continuation — the tasks the revision names settle only under a capsule compiled after it. A `recompile-required` receipt also calls for a compile continuation.
 
-The first `prepare` after the revision is the **continuation**: the same call as in Step 1, which compiles the ready frontier as always, under the new design version, and records the recompile (`capsule.recompiled`) in the same commit as its record. The receipt that comes back carries `recompile` — the capsule version it follows and the design versions it spans (`priorCapsuleVersion`, `priorDesignVersion`, `nextDesignVersion`), the tasks the revision named (`declaredTasks`), and the tasks the revision invalidated (`invalidatedTasks`): each unfinished task it named and each unfinished task that waits on one of those, directly or through other unfinished tasks. Finished work stands, and so does a task that waits on finished work alone. Its capsule carries the accepted change (`knowledge.rationale[]`). An invalidated task that is not ready yet is on that list and not in that capsule: a later `prepare` compiles it, under the same design version, once its blockers are complete. A replayed receipt repeats the recompile it recorded; it is not a new one, and nothing is appended.
+The first `prepare` after the revision is the **continuation**: use the compile intent from Step 1. It compiles the ready frontier as always, under the new design version, and records the recompile (`capsule.recompiled`) in the same commit as its record. The receipt that comes back carries `recompile` — the capsule version it follows and the design versions it spans (`priorCapsuleVersion`, `priorDesignVersion`, `nextDesignVersion`), the tasks the revision named (`declaredTasks`), and the tasks the revision invalidated (`invalidatedTasks`): each unfinished task it named and each unfinished task that waits on one of those, directly or through other unfinished tasks. Finished work stands, and so does a task that waits on finished work alone. Its capsule carries the accepted change (`knowledge.rationale[]`). An invalidated task that is not ready yet is on that list and not in that capsule: a later `prepare` compiles it, under the same design version, once its blockers are complete. A replayed receipt repeats the recompile it recorded; it is not a new one, and nothing is appended.
 
 **`recompile-required`** — the capsule was stale when the batch arrived. The stream recorded a design revision after the capsule. That revision names a task that the batch claims, or a required task that is not complete. The finding is `claim-superseded-by-revision`. A revision that commits while settlement works gives this outcome too. At its read, settlement verified nothing, and the unfinished tasks of the batch stay unfinished. A task that a segment verified before the revision committed stays complete, and `verification[]` lists it. A capsule with an unfinished required task that the revision names settles no new batch. A decision round can return this outcome too, and its decision stays recorded.
 
-Call `prepare` again. Then settle under the capsule that `prepare` returns. Claim each task that this capsule requires and that is not complete. The work of a task that the revision names used the earlier terms. The new capsule states the accepted change (`knowledge.rationale[]`), so read that change before you claim the work again.
+Compile a continuation. Then settle under the capsule that `prepare` returns. Claim each task that this capsule requires and that is not complete. The work of a task that the revision names used the earlier terms. The new capsule states the accepted change (`knowledge.rationale[]`), so read that change before you claim the work again.
 
-Say that a revision that names a task commits while the segment of that task runs. Then `task_complete`, the last leaf of the segment, refuses the task with `TASK_SUPERSEDED_BY_REVISION`. The read after the segments then gives `recompile-required`. A direct call of `task_complete` refuses a task that a revision names after its capsule in the same way. Then `prepare` again, and complete the task under the new capsule.
+Say that a revision that names a task commits while the segment of that task runs. Then `task_complete`, the last leaf of the segment, refuses the task with `TASK_SUPERSEDED_BY_REVISION`. The read after the segments then gives `recompile-required`. A direct call of `task_complete` refuses a task that a revision names after its capsule in the same way. Then compile a continuation and complete the task under the new capsule.
 
 **Errors** (nothing adjudicated). Each of these codes is a failed call that adjudicated nothing:
 
 - `CAPSULE_INVALID`: a submitted capsule does not satisfy the capsule contract.
 - `CAPSULE_NOT_PREPARED`: no `prepare` call recorded this capsule version here.
 - `CAPSULE_DIGEST_MISMATCH`: a submitted capsule is not the recorded one.
-- `CAPSULE_UNRESOLVED`: settlement cannot apply the recorded capsule. If a task has no verification terms, `prepare` again. A batch that needs a segment gets it for three more causes. The capsule pins no scope, or a task of the batch has no `baseCommit`: `prepare` again, then claim the tasks in a new batch. The capsule pins no verification profile, because a compiler before `exarchos-prepare-5` compiled it: `prepare` again with this build, then claim the tasks in a new batch. So decide or reject each held batch before you upgrade the binary. The config files of the checkout changed after `prepare`: `prepare` again with the same `repoRoot`, then claim the tasks in a new batch. On a decision round a new `prepare` does not help, because a held batch stays on its capsule version, so the message names other routes (`references/troubleshooting.md`).
+- `CAPSULE_UNRESOLVED`: settlement cannot apply the recorded capsule. If a task has no verification terms, compile a continuation. A batch that needs a segment gets it for three more causes. The capsule pins no scope, or a task of the batch has no `baseCommit`: compile a continuation, then claim the tasks in a new batch. The capsule pins no verification profile, because a compiler before `exarchos-prepare-5` compiled it: compile a continuation with this build, then claim the tasks in a new batch. So decide or reject each held batch before you upgrade the binary. The config files of the checkout changed after `prepare`: compile a continuation with the same `repoRoot`, then claim the tasks in a new batch. On a decision round a new `prepare` does not help, because a held batch stays on its capsule version, so the message names other routes (`references/troubleshooting.md`).
 - `OPERATION_DIGEST_MISMATCH`: the batch id has a verdict for a different request, or a different decision stands. Use a new batch id, or send the decision that stands. A batch with no verdict whose segments an earlier build ran gets this code too, because this build adds `capsuleVersion` to the request of each segment. Settle the claims of such a batch under a new batch id.
 - `CONCURRENCY_CONFLICT`: the reads that decide the verdict changed before each of three commits, so the call recorded no verdict. Settle the same batch id again. The retry replays the segments that verified tasks and runs none of their gates again.
 - `BATCH_NOT_HELD`: the decisions name a batch that has no verdict, or a batch that is not held. No deviation waits for a decision.
 - `DECISION_INCOMPLETE`: the decision answers fewer deviations than the batch waits on.
 - `STATE_SYNC_FAILED`: the write of the state document failed, and the facts on the stream stand. Run `exarchos_workflow reconcile`, then settle the same batch again. If the refusal comes back, stop and report it to a person. A version gap in the stored document makes each retry fail. On a retry of a batch that has a verdict, `error.settlementReceipt` holds that verdict. Over the receipt budget, it holds the capped summary.
-- `INTENT_SEGMENT_FAILED` or `INTENT_EMISSION_CONTRACT_VIOLATED`: the segment of a task halted, and the halt is not a gate verdict. The leaf is not a gate, or the leaf broke its contract. The completion leaf halts so when `task_complete` refuses the task, or after eight sequence conflicts in a row. That halt fails the call only when the batch still verifies at the read after the segments. The message names the task and the leaf. The segment record stays, so a retry of the same batch id gets the same halt, unless the stream then records the task complete. Correct the cause, then settle the claims once under a new batch id. If the same halt comes back, stop and report it to a person. A static-analysis gate that skips (`profile-unresolved`) does not halt the segment. `task_complete` then refuses with `GATE_NOT_PASSED`. That is such a halt, and a new batch id under the same capsule gets it again: set the check at the checkout, `prepare` again, then claim the task in a new batch. A commit or a switch of the branch in the worktree while the segment runs also makes `task_complete` refuse (`other-tree`, `tree-out-of-scope`): leave each task worktree alone until a verdict returns.
+- `INTENT_SEGMENT_FAILED` or `INTENT_EMISSION_CONTRACT_VIOLATED`: the segment of a task halted, and the halt is not a gate verdict. The leaf is not a gate, or the leaf broke its contract. The completion leaf halts so when `task_complete` refuses the task, or after eight sequence conflicts in a row. That halt fails the call only when the batch still verifies at the read after the segments. The message names the task and the leaf. The segment record stays, so a retry of the same batch id gets the same halt, unless the stream then records the task complete. Correct the cause, then settle the claims once under a new batch id. If the same halt comes back, stop and report it to a person. A static-analysis gate that skips (`profile-unresolved`) does not halt the segment. `task_complete` then refuses with `GATE_NOT_PASSED`. That is such a halt, and a new batch id under the same capsule gets it again: set the check at the checkout, compile a continuation, then claim the task in a new batch. A commit or a switch of the branch in the worktree while the segment runs also makes `task_complete` refuse (`other-tree`, `tree-out-of-scope`): leave each task worktree alone until a verdict returns.
 - `INVALID_INPUT`: settlement cannot build the segment from a claim (typically no `worktreePath`), a submitted batch carries no claim, or a decision carries claims or names no pending deviation. A claim that breaks a rule of its `status`, `reason` or `rationale` gets this code too (Build the batch, above). Correct the request and use the **same** batch id.
 
 <!-- requires:team:agent-teams -->
@@ -824,7 +855,7 @@ still fails after rebase:
 2. **Plan the rework as a new task.** The task is already complete on the
    stream: its completion row started this merge. A claim on it comes back
    `already-complete`, and no gate runs again. Finished work is not
-   reopened. Add a new task for the rework to the plan, run `prepare`, and
+   reopened. Add a new task for the rework to the plan, obtain approval for the edited bytes, compile a continuation, and
    dispatch a fixer for the new task (see the Failure Recovery section
    above). Do **not** delete the worktree — the fixer needs the original
    branch state to diagnose the conflict.

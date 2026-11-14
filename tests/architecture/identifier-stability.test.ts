@@ -24,10 +24,14 @@ import { allocatePhaseAttemptId } from '../../src/workflow/phase-attempt-id.js';
 import { zodToJsonSchema } from '../../src/utils/json-schema.js';
 import { requestDigest } from '../../src/contract/request-context.js';
 import { SCHEMA_VERSION } from '../../src/storage/sqlite/schema.js';
-import { ExecutionSettledData } from '../../src/events/schemas.js';
+import { WorkflowStartedData, WorkflowStartedV11Data, WorkflowPreparedData, ExecutionSettledData } from '../../src/events/schemas.js';
 import { SettlementBundleV1Schema } from '../../src/verbs/settle/settlement-bundle.js';
 import { ClaimTraceSchema } from '../../src/verbs/settle/claim-codec.js';
 import { PreparedBundleV1Schema } from '../../src/verbs/prepare/prepared-record.js';
+
+import { WorkflowStateSchema, CustomWorkflowStateSchema, DurableWorkflowTypeSchema } from '../../src/workflow/schemas.js';
+import { CapsuleSettlementContractSchema, ExarchosCapsuleV1Schema } from '../../src/contract/capsule/exarchos-capsule.js';
+import { SettlementReceiptData } from '../../src/verbs/settle/schemas.js';
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '../..');
 
@@ -66,6 +70,9 @@ const STORED_SHAPES: Readonly<Record<string, z.ZodType>> = {
   ExecutionSettledData,
   PreparedBundleV1Schema,
   SettlementBundleV1Schema,
+  WorkflowStartedData, WorkflowStartedV11Data, WorkflowPreparedData, WorkflowStateSchema,
+  CustomWorkflowStateSchema, DurableWorkflowTypeSchema, CapsuleSettlementContractSchema,
+  ExarchosCapsuleV1Schema, SettlementReceiptData,
 };
 
 /**
@@ -103,6 +110,25 @@ const RECORDED_SHAPE_DECISIONS: readonly Pick<StoredShapeDecision, 'date' | 'sch
       SettlementBundleV1Schema: 'sha256:9c0905e482fc576e15cc79210a2bc1b788b3750817ed17cd97ab8ccab3ec1ac7',
     },
   },
+  {
+  "date": "2026-11-13",
+  "schemaVersion": 6,
+  "shapes": {
+    "ClaimTraceSchema": "sha256:581254550be83ddc6b066a5879225821589320e29505e0ab9c87779acc7f8ea1",
+    "ExecutionSettledData": "sha256:0d27cbe85f1071d6e8f00a7e9ad1953de6310f82f1e94f47a8f3dedfea9fccd8",
+    "PreparedBundleV1Schema": "sha256:a9449d8eaacb8bbe862150ab91c9ab2a20433a85bc71e12a0c550d85424b4610",
+    "SettlementBundleV1Schema": "sha256:9c0905e482fc576e15cc79210a2bc1b788b3750817ed17cd97ab8ccab3ec1ac7",
+    "WorkflowStartedData": "sha256:fd2a08020c3475cefa6fd924d05684e70ace3c480af0a8f205967cd68372b41c",
+    "WorkflowStartedV11Data": "sha256:ef52bb4bbd2b169ab574426f472357826a69627881c538fbc1f6e0c0a3493278",
+    "WorkflowPreparedData": "sha256:62ff8cc651d0e796ad3e0667402a9d368221311437b9ddc5de3d2c99015f5e64",
+    "WorkflowStateSchema": "sha256:f6b3edd9f7cf8281bdbcf41ce310530781f896d9aab0b9744b5b65cdd4da9299",
+    "CustomWorkflowStateSchema": "sha256:9beae5747f617543876721509e5cebbf1aca0dd21b5e2ca2953525634ae7ff2d",
+    "DurableWorkflowTypeSchema": "sha256:8a5c8b3a04cb3ffd7ae3a08086dec6e5a4a9ed6cb0545baa0c343ee7508e328a",
+    "CapsuleSettlementContractSchema": "sha256:c3d5fb1c362316060e8f17c8c28c77fedfc5a81b2ebb56177949e14c20f67de5",
+    "ExarchosCapsuleV1Schema": "sha256:72381c09521c02845b431f14a62d3540f632bee7f7bd9329d64dbf8b8a1ce044",
+    "SettlementReceiptData": "sha256:f554a6008101142bfe696d980fe7a9b6b5742b049060a70aaedd5d15272d9456"
+  }
+},
 ];
 
 /** A copy of a JSON Schema with each description removed. A description is text for a reader and not part of the stored shape. */

@@ -10,12 +10,32 @@ import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
 const writeFileCalls: { path: string; data: string }[] = [];
 let renameFailOnce = false;
 
+/** A test-controlled promise that uses no clock or polling. */
+function signal() {
+  let release = () => {};
+  const promise = new Promise<void>((resolve) => { release = resolve; });
+  return { promise, release };
+}
+
+type MkdirBarrier = { ready: ReturnType<typeof signal>; proceed: ReturnType<typeof signal> };
+let mkdirBarriers: MkdirBarrier[] = [];
+let onWrite: (() => void) | undefined;
+
 vi.mock('node:fs/promises', async () => {
   const actual = await vi.importActual<typeof import('node:fs/promises')>('node:fs/promises');
   return {
     ...actual,
+    mkdir: vi.fn(async (...args: Parameters<typeof actual.mkdir>) => {
+      const barrier = mkdirBarriers.shift();
+      const result = await actual.mkdir(...args);
+      barrier?.ready.release();
+      if (barrier) await barrier.proceed.promise;
+      return result;
+    }),
     writeFile: vi.fn(async (filePath: string, data: string, encoding?: string) => {
       writeFileCalls.push({ path: filePath, data: typeof data === 'string' ? data : '' });
+      onWrite?.();
+      onWrite = undefined;
       return actual.writeFile(filePath, data, encoding as BufferEncoding);
     }),
     rename: vi.fn(async (oldPath: string, newPath: string) => {
@@ -40,6 +60,8 @@ describe('SnapshotStore atomic writes', () => {
     store = new SnapshotStore(tempDir);
     writeFileCalls.length = 0;
     renameFailOnce = false;
+    mkdirBarriers = [];
+    onWrite = undefined;
   });
 
   afterEach(async () => {
@@ -79,20 +101,56 @@ describe('SnapshotStore atomic writes', () => {
     expect(lastWrite.path).toContain('.tmp');
   });
 
-  /** Two saves in one millisecond once shared a temp path, so the second rename found it gone. */
+  /**
+   * Two saves in one millisecond once shared a temp path, so the second rename found it gone.
+   * Both mkdir barriers finish before either save enters atomicReplace. The first staged write proves entry before the other barrier opens.
+   */
   it('snapshotSave_TwoSavesInOneMillisecond_BothResolveAndTheLastIsPublished', async () => {
     const now = vi.spyOn(Date, 'now').mockReturnValue(Date.now());
     try {
-      const results = await Promise.allSettled([
-        store.save('test-stream', 'myview', { writer: 'a' }, 1),
-        store.save('test-stream', 'myview', { writer: 'b' }, 2),
-      ]);
-
-      expect(results.map((r) => r.status)).toEqual(['fulfilled', 'fulfilled']);
-      const saved = JSON.parse(
-        await readFile(path.join(tempDir, 'test-stream.myview.snapshot.json'), 'utf-8'),
-      );
-      expect(saved.view).toEqual({ writer: 'b' });
+      for (const reverse of [false, true]) {
+        const a = { ready: signal(), proceed: signal() };
+        const b = { ready: signal(), proceed: signal() };
+        mkdirBarriers = [a, b];
+        writeFileCalls.length = 0;
+        const entered = signal();
+        onWrite = entered.release;
+        const saves = [
+          store.save('test-stream', 'myview', { writer: 'a' }, 1),
+          store.save('test-stream', 'myview', { writer: 'b' }, 2),
+        ];
+        const settled = Promise.allSettled(saves);
+        try {
+          await Promise.all([a.ready.promise, b.ready.promise]);
+          const first = reverse ? b : a;
+          const last = reverse ? a : b;
+          first.proceed.release();
+          await entered.promise;
+          last.proceed.release();
+          const results = await settled;
+          expect(results.map((r) => r.status)).toEqual(['fulfilled', 'fulfilled']);
+          const target = path.join(tempDir, 'test-stream.myview.snapshot.json');
+          const saved = JSON.parse(await readFile(target, 'utf-8'));
+          expect({ view: saved.view, highWaterMark: saved.highWaterMark }).toEqual(
+            reverse ? { view: { writer: 'a' }, highWaterMark: 1 } : { view: { writer: 'b' }, highWaterMark: 2 },
+          );
+          expect(saved.schemaVersion).toBe(EVENT_SCHEMA_VERSION);
+          expect(Number.isFinite(Date.parse(saved.savedAt))).toBe(true);
+          expect(writeFileCalls).toHaveLength(2);
+          expect(new Set(writeFileCalls.map((write) => write.path)).size).toBe(2);
+          for (const write of writeFileCalls) {
+            expect(write.path).not.toBe(target);
+            expect(write.path).toContain('.tmp');
+          }
+          expect(await readdir(tempDir)).toEqual(['test-stream.myview.snapshot.json']);
+        } finally {
+          a.proceed.release();
+          b.proceed.release();
+          await settled;
+          mkdirBarriers = [];
+          onWrite = undefined;
+        }
+      }
     } finally {
       now.mockRestore();
     }

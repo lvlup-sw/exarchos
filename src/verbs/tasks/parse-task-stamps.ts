@@ -1,14 +1,6 @@
-/**
- * Reads the per-task routing stamps of the planner (`**Risk Tier:**`, `**Boundary Touching:**`,
- * `**Test Layer:**`) from a decomposition markdown document. The stamps then reach
- * `prepare_delegation` and `classifyTask`, where an explicit planner value wins over the heuristic.
- * The parse is deterministic and uses no LLM.
- *
- * This module owns the stamp regexes for the dispatch path. The plan-coverage gate
- * (`extractTaskRiskTier` in `task-decomposition.ts`) keeps its own regex, and both accept the same spellings.
- * This parser accepts `###` and `####` task headers and a wider id token than `parseTaskBlocks`.
- */
+/** Reads the verification stamps of typed and legacy plans. */
 
+import { readValidatedDesignRecord } from '../../workflow/design-record/read.js';
 import type { RiskTier } from '../../workflow/verification-policy.js';
 import {
   canonicaliseTaskId,
@@ -32,8 +24,9 @@ export function normalizeTaskId(id: string): string {
 export interface TaskStamp {
   /** The task id exactly as the plan header writes it. */
   readonly id: string;
-  /** `normalizeTaskId(id)` — the form used to match against caller task ids. */
+  /** The normalized legacy id or the exact typed id. */
   readonly canonicalId: string;
+  readonly matchExactId?: true;
   /** The header title text after the id. */
   readonly title: string;
   /** `**Risk Tier:**` stamp, if present. */
@@ -72,7 +65,7 @@ const TEST_LAYER_STAMP =
  * A block runs from its `#### Task <id>:` header to the next task header or the
  * next top-level (`#`/`##`) section header, whichever comes first.
  */
-export function parseTaskStamps(planMarkdown: string): TaskStamp[] {
+function parseLegacyTaskStamps(planMarkdown: string): TaskStamp[] {
   const lines = planMarkdown.split('\n');
   const headers: Array<{ idx: number; id: string; title: string }> = [];
   lines.forEach((line, idx) => {
@@ -114,14 +107,45 @@ export function parseTaskStamps(planMarkdown: string): TaskStamp[] {
   return stamps;
 }
 
-/**
- * Finds the stamp of a task by its canonical id, so a caller can pass any id form that
- * {@link normalizeTaskId} collapses. It returns `undefined` when the plan has no such task.
- */
+type StampReadResult =
+  | Extract<ReturnType<typeof readValidatedDesignRecord>, { kind: 'invalid' }>
+  | { readonly kind: 'typed' | 'legacy'; readonly stamps: TaskStamp[] };
+
+/** Read stamps from a single capture of the plan bytes. */
+export function readTaskStamps(bytes: Buffer, reference: string): StampReadResult {
+  const record = readValidatedDesignRecord(bytes, reference);
+  if (record.kind === 'invalid') return record;
+  if (record.kind === 'legacy') {
+    return { kind: 'legacy', stamps: parseLegacyTaskStamps(bytes.toString('utf8')) };
+  }
+  return {
+    kind: 'typed',
+    stamps: record.snapshot.tasks.map((task) => ({
+      id: task.id,
+      canonicalId: task.id,
+      matchExactId: true,
+      title: task.title,
+      riskTier: task.riskTier,
+      boundaryTouching: task.boundaryTouching,
+      testLayer: task.testLayer,
+      files: [...task.files],
+      blockedBy: [...task.blockedBy],
+    })),
+  };
+}
+
+/** Read stamps from text and throw if the design record is invalid. */
+export function parseTaskStamps(planMarkdown: string): TaskStamp[] {
+  const result = readTaskStamps(Buffer.from(planMarkdown), 'plan');
+  if (result.kind === 'invalid') throw new Error(result.message);
+  return result.stamps;
+}
+
+/** Match typed ids exactly and normalize legacy ids before matching. */
 export function stampForTask(
   stamps: readonly TaskStamp[],
   taskId: string,
 ): TaskStamp | undefined {
   const canonical = normalizeTaskId(taskId);
-  return stamps.find((s) => s.canonicalId === canonical);
+  return stamps.find((stamp) => stamp.matchExactId ? stamp.id === taskId : stamp.canonicalId === canonical);
 }

@@ -296,7 +296,8 @@ async function prepareBatch(
 ): Promise<number> {
   const featureId = options.featureId ?? STREAM;
   const capsuleVersion = options.capsuleVersion ?? 1;
-  const capsule = capsuleOf(store, options.definition, options.taskIds, options.stepId, capsuleVersion, options.materialKinds);
+  const batch = capsuleOf(store, options.definition, options.taskIds, options.stepId, capsuleVersion, options.materialKinds);
+  const capsule = { ...batch, identity: { ...batch.identity, workflowId: featureId } };
   await runWithDispatchContext(correlation(), () =>
     commitPreparedCapsule(wiring(store), {
       streamId: featureId,
@@ -1008,7 +1009,8 @@ describe('settle levels the state document after a move', () => {
     const args = { capsuleVersion, batchId: 'batch-1', claims: [completedClaim('task-a')] };
     const first = receiptOf(await settle(store, args));
     expect((await handleSet({ featureId: STREAM, updates: { reviews: { bugbot: { passed: false } } } }, store.stateDir, store.eventStore)).success).toBe(true);
-    expect((await handleSet({ featureId: STREAM, phase: 'delegate' }, store.stateDir, store.eventStore)).success).toBe(true);
+    const laterMove = await handleSet({ featureId: STREAM, phase: 'delegate' }, store.stateDir, store.eventStore);
+    expect(laterMove.success, JSON.stringify(laterMove.error)).toBe(true);
     const later = documentOf(store);
     const tail = await tailOf(store);
     const replayed = receiptOf(await settle(store, args));
@@ -1079,4 +1081,144 @@ describe('the summary of a settle receipt', () => {
 
     expect(summary.phaseMove).toEqual({ kind: 'stayed', phase: 'delegate', reason: 'no-edge-admits' });
   });
+});
+
+
+describe('settle authority races preserve executed segments', () => {
+  it.each([1, 3])('Settle_PreparedRace_PreservesSegmentClaimsAcrossCalls: %s', async changes => {
+    const store = await openStore();
+    await seedStream(store, { phase: 'delegate', tasks: [pending('task-a')] });
+    const definition = pinnedBuiltIn('feature');
+    await prepareBatch(store, { definition, taskIds: ['task-a'], stepId: 'delegate' });
+    const appender = store.eventStore.getAppender();
+    const original = appender.decideOnce.bind(appender);
+    let attempts = 0;
+    vi.spyOn(appender, 'decideOnce').mockImplementation(async (id, digest, closure) => {
+      if (id.startsWith('settle:') && ++attempts <= changes) {
+        await prepareBatch(store, { definition, taskIds: ['task-a'], stepId: 'delegate', capsuleVersion: attempts + 1 });
+      }
+      return original(id, digest, closure);
+    });
+    const args = { capsuleVersion: 1, batchId: 'race-batch', claims: [completedClaim('task-a')] };
+    const first = await settle(store, args);
+    const completions = await store.eventStore.query(STREAM, { type: 'task.completed' });
+    const segments = await store.eventStore.query(STREAM, { type: 'orchestrate.intent_executed' });
+    expect(completions).toHaveLength(1);
+    expect(segments).toHaveLength(1);
+    expect(store.backend.lookupOperationClaim(String(segments[0]?.data?.operationId))).toBeDefined();
+    if (changes === 3) {
+      expect(first.error?.code).toBe('CONCURRENCY_CONFLICT');
+      expect(await store.eventStore.query(STREAM, { type: 'execution.settled' })).toHaveLength(0);
+      vi.restoreAllMocks();
+      expect(receiptOf(await settle(store, args)).phaseMove).toMatchObject({ kind: 'moved' });
+    } else expect(receiptOf(first).phaseMove).toMatchObject({ kind: 'moved' });
+    expect(await store.eventStore.query(STREAM, { type: 'task.completed' })).toEqual(completions);
+    expect(await store.eventStore.query(STREAM, { type: 'orchestrate.intent_executed' })).toEqual(segments);
+  });
+  it('Settle_PersistentPublicationFailure_FreshRetryUsesReceiptWithoutCustody', async () => {
+    const store = await openStore();
+    await seedStream(store, { phase: 'delegate', tasks: [pending('task-a')], document: true });
+    const current = store.backend.getState(STREAM);
+    if (current === null) throw new Error('Missing document');
+    store.backend.setState(STREAM, { ...current, phase: 'delegate', tasks: [pending('task-a')], _version: (current._version ?? 1) + 1 });
+    await prepareBatch(store, { definition: pinnedBuiltIn('feature'), taskIds: ['task-a'], stepId: 'delegate' });
+    const appender = store.eventStore.getAppender();
+    const original = appender.decideOnce.bind(appender);
+    const write = store.backend.setState.bind(store.backend);
+    let committed = false;
+    const reads: string[] = [];
+    const readDocument = store.backend.getState.bind(store.backend);
+    const readRows = store.eventStore.query.bind(store.eventStore);
+    vi.spyOn(store.backend, 'getState').mockImplementation((featureId) => {
+      if (committed && featureId === STREAM) reads.push('document');
+      return readDocument(featureId);
+    });
+    vi.spyOn(store.eventStore, 'query').mockImplementation((featureId, filters) => {
+      if (committed && featureId === STREAM && filters === undefined) reads.push('ledger');
+      return readRows(featureId, filters);
+    });
+    const failWrite = vi.spyOn(store.backend, 'setState').mockImplementation((...args) => {
+      const [featureId, state, expectedVersion] = args;
+      if (committed && state.phase === 'review') {
+        reads.push('conflict');
+        const version = expectedVersion ?? 0;
+        throw new BackendVersionConflictError(featureId, version, version + 1);
+      }
+      return write(...args);
+    });
+    vi.spyOn(appender, 'decideOnce').mockImplementation(async (id, digest, closure) => {
+      const result = await original(id, digest, closure);
+      if (id.startsWith('settle:')) committed = true;
+      return result;
+    });
+    const args = { capsuleVersion: 1, batchId: 'publication', claims: [completedClaim('task-a')] };
+    const first = await settle(store, args);
+    const accepted = receiptOf(first);
+    expect(first).toMatchObject({ success: true, warnings: [expect.stringContaining('PHASE_LEVEL_FAILED')] });
+    expect(reads.slice(-9)).toEqual(Array.from({ length: 3 }, () => ['document', 'ledger', 'conflict']).flat());
+    expect(reads.filter(kind => kind === 'conflict')).toHaveLength(3);
+    expect(documentOf(store).phase).toBe('delegate');
+    failWrite.mockRestore();
+    const rows = await store.eventStore.query(STREAM);
+    const segmentCount = rows.filter(row => row.type === 'orchestrate.intent_executed').length;
+    expect(segmentCount).toBe(1);
+    await store.eventStore.append(STREAM, { type: 'state.patched', data: { patch: { revisionNote: 'later' } } });
+    vi.spyOn(store.eventStore.bundleStore, 'resolve').mockRejectedValue(new Error('custody unavailable'));
+    const retry = await settle(store, args);
+    expect(receiptOf(retry)).toEqual(accepted);
+    expect(documentOf(store)).toMatchObject({ phase: 'review', revisionNote: 'later', _eventSequence: await tailOf(store) });
+    expect((await settle(store, { ...args, claims: [{ ...completedClaim('task-a'), fields: { changed: true } }] })).error?.code).toBe('OPERATION_DIGEST_MISMATCH');
+    expect((await store.eventStore.query(STREAM)).filter(row => row.type === 'orchestrate.intent_executed')).toHaveLength(segmentCount);
+    expect(await store.eventStore.query(STREAM, { type: 'execution.settled' })).toHaveLength(1);
+  });
+});
+
+
+it('Settle_LateMissingCustody_PreservesSegmentAndNoMove', async () => {
+  const store = await openStore();
+  await seedStream(store, { phase: 'delegate', tasks: [pending('task-a')] });
+  const definition = pinnedBuiltIn('feature');
+  await prepareBatch(store, { definition, taskIds: ['task-a'], stepId: 'delegate' });
+  const appender = store.eventStore.getAppender();
+  const original = appender.decideOnce.bind(appender);
+  vi.spyOn(appender, 'decideOnce').mockImplementation(async (id, digest, closure) => {
+    if (id.startsWith('settle:')) {
+      await prepareBatch(store, { definition, taskIds: ['task-a'], stepId: 'delegate', capsuleVersion: 2 });
+      vi.spyOn(store.eventStore.bundleStore, 'resolve').mockRejectedValue(new Error('latest custody unavailable'));
+    }
+    return original(id, digest, closure);
+  });
+  const args = { capsuleVersion: 1, batchId: 'missing-latest', claims: [completedClaim('task-a')] };
+  expect((await settle(store, args)).error?.code).toBe('CAPSULE_UNRESOLVED');
+  expect(await store.eventStore.query(STREAM, { type: 'execution.settled' })).toHaveLength(0);
+  const segments = await store.eventStore.query(STREAM, { type: 'orchestrate.intent_executed' });
+  expect(segments).toHaveLength(1);
+  expect(store.backend.lookupOperationClaim(String(segments[0]?.data?.operationId))).toBeDefined();
+  const gates = await store.eventStore.query(STREAM, { type: 'gate.executed' });
+  vi.restoreAllMocks();
+  const accepted = receiptOf(await settle(store, args));
+  expect(accepted.phaseMove).toMatchObject({ kind: 'moved' });
+  expect(await store.eventStore.query(STREAM, { type: 'orchestrate.intent_executed' })).toEqual(segments);
+  expect(await store.eventStore.query(STREAM, { type: 'gate.executed' })).toEqual(gates);
+});
+
+/** The measured fixture keeps its correctness assertions here. Elapsed-time evidence is recorded separately. */
+it('Settle_BoundedExistingFixtureBenchmark_SeparatesGateRuntime', async () => {
+  let gateRuns = 0;
+  for (let iteration = 0; iteration < 5; iteration += 1) {
+    const store = await openStore();
+    await seedStream(store, { phase: 'delegate', tasks: [pending('task-a')] });
+    await prepareBatch(store, { definition: pinnedBuiltIn('feature'), taskIds: ['task-a'], stepId: 'delegate' });
+    const execute = executeDeps();
+    const gate: LeafHandler = async (...args) => {
+      gateRuns += 1;
+      return liveHandler('check_mock_boundary')(...args);
+    };
+    const result = await runWithDispatchContext(correlation(), () => handleSettle(
+      { featureId: STREAM, capsuleVersion: 1, batchId: 'benchmark', claims: [completedClaim('task-a')] },
+      store.stateDir, wiring(store), { execute: { ...execute, handlers: { ...execute.handlers, check_mock_boundary: gate } } },
+    ));
+    expect(receiptOf(result).phaseMove).toMatchObject({ kind: 'moved' });
+  }
+  expect(gateRuns).toBe(5);
 });

@@ -10,13 +10,34 @@ Feature: `add-email-validation` with two plan tasks:
 
 ## 1. Prepare
 
-Compile the batch — the commit announces both tasks (`task.assigned`) ahead of its record, so nothing precedes this call. `repoRoot` is the absolute path of the worktree that holds the integration branch `feat/add-email-validation`:
+This first request bootstraps the new feature with the approved checkout-relative record and the absolute checkout of its integration branch. Set `approvedFileSha256` to the bare lowercase SHA-256 hex of the entire approved file in raw bytes. The commit announces both tasks (`task.assigned`) ahead of its prepare record.
 
 ```typescript
-exarchos_orchestrate({ action: "prepare", featureId: "add-email-validation", repoRoot: "/project" })
+exarchos_orchestrate({
+  action: "prepare", featureId: "add-email-validation", repoRoot: "/project",
+  intent: {
+    mode: "bootstrap", workflowType: "feature", baseRef: "feat/add-email-validation",
+    designDepth: "standard", designRef: "docs/specs/2026-02-28-add-email-validation.md",
+    approval: { decision: "approved", designDigest: approvedFileSha256 }
+  }
+})
 ```
 
-Response (abridged):
+To recover the initial receipt, resend the identical saved bootstrap request, including its original approval and depth. If the plan changes later, have the user approve its new raw bytes and use their digest as `approvedCurrentFileSha256` in a compile request. Use compile for the next frontier even when the file did not change. A refactor bootstrap instead supplies its `refactor` workflow type and the `overhaul` track with the scope assessment.
+
+```typescript
+exarchos_orchestrate({
+  action: "prepare", featureId: "add-email-validation", repoRoot: "/project",
+  intent: {
+    mode: "compile", designDepth: "standard", designRef: "docs/specs/2026-02-28-add-email-validation.md",
+    approval: { decision: "approved", designDigest: approvedCurrentFileSha256 }
+  }
+})
+```
+
+For a refactor continuation, also carry `refactor: { track: "overhaul", scopeAssessment: "<assessment>" }` in the compile intent.
+
+The bootstrap response in this example is abridged:
 ```json
 {
   "capsuleVersion": 1,

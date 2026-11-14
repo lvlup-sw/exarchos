@@ -455,13 +455,14 @@ describe('settle — the read after the segments', () => {
     scope = await scopeOfCheckout(path.join(stateDir, 'checkout'));
     await seedStaticAnalysisVerdict(store, { streamId: STREAM, taskId: VERIFY, stateDir, phaseAttemptId, worktreePath: worktreeOf(VERIFY) });
     await seedStaticAnalysisVerdict(store, { streamId: STREAM, taskId: SECOND, stateDir, phaseAttemptId, worktreePath: worktreeOf(SECOND) });
-    const capsule = withScope(twoTaskCapsule(), scope);
+    const scoped = withScope(twoTaskCapsule(), scope);
+    const capsule = { ...scoped, identity: { ...scoped.identity, workflowId: STREAM } };
     await runWithDispatchContext(correlation(), () =>
       commitPreparedCapsule(wiring(), {
         streamId: STREAM,
         operationId: `seed:${capsule.identity.capsuleVersion}`,
         requestDigest: `sha256:seed-${capsule.identity.capsuleVersion}`,
-        workflowType: 'feature',
+        workflowType: 'capsule-corpus',
         capsule,
         definition: WorkflowDefinitionV1Schema.parse(baseValidDefinition()),
       }),

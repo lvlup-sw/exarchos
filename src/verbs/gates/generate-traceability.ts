@@ -4,6 +4,8 @@
  * matches `### Task N` headers in the plan and shows a coverage status.
  */
 
+import { readDesignRecordPair } from '../../workflow/design-record/read.js';
+import { evaluatePlanTraceability } from '../../workflow/design-record/plan-checks.js';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import type { ToolResult } from '../../format.js';
 import { designRegion } from '../pure/provenance-chain.js';
@@ -174,8 +176,19 @@ export function handleGenerateTraceability(args: GenerateTraceabilityArgs): Tool
     };
   }
 
-  const designContent = readFileSync(args.designFile, 'utf-8') as string;
-  const planContent = readFileSync(args.planFile, 'utf-8') as string;
+  const designBytes = Buffer.from(readFileSync(args.designFile));
+  const planBytes = args.designFile === args.planFile ? designBytes : Buffer.from(readFileSync(args.planFile));
+  const read = readDesignRecordPair(designBytes, args.designFile, planBytes, args.planFile);
+  if (read.kind === 'invalid') return { success: false, error: { code: 'INVALID_DESIGN_RECORD', message: read.message } };
+  if (read.kind === 'typed') {
+    const result = evaluatePlanTraceability(read.snapshot);
+    const coveredCount = read.snapshot.requirements.filter((id) => result.edges.some((edge) => edge.requirementId === id)).length;
+    if (args.outputFile) writeFileSync(args.outputFile, result.report, 'utf-8');
+    return { success: true, data: { ...result, sections: read.snapshot.requirements.length,
+      coveredCount, uncoveredCount: read.snapshot.requirements.length - coveredCount } };
+  }
+  const designContent = designBytes.toString('utf8');
+  const planContent = planBytes.toString('utf8');
 
   const sections = extractDesignSections(designRegion(designContent));
   if (sections.length === 0) {

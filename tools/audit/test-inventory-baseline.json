@@ -4,11 +4,11 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1460,
-    "parsedFiles": 1415,
+    "testFiles": 1480,
+    "parsedFiles": 1435,
     "shellFiles": 45,
-    "cases": 16060,
-    "dynamicTitles": 233,
+    "cases": 16409,
+    "dynamicTitles": 288,
     "unparseableFiles": 0
   },
   "unparseable": [],
@@ -7470,6 +7470,37 @@
         }
       ]
     },
+    "tests/architecture/typed-plan-authoring.test.ts": {
+      "file": "tests/architecture/typed-plan-authoring.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "",
+          "name": "Authoring_AllReferencedPlanPaths_HaveZeroExarchosCalls",
+          "dynamic": false
+        },
+        {
+          "suite": "",
+          "name": "Authoring_RejectsUnsupportedTaskKeyRecipesInReferencedGuide",
+          "dynamic": false
+        },
+        {
+          "suite": "",
+          "name": "Templates_AuthoredTypedExample_Parses",
+          "dynamic": false
+        },
+        {
+          "suite": "",
+          "name": "Delegate_BootstrapRetry_KeepsEntryIntent",
+          "dynamic": false
+        },
+        {
+          "suite": "",
+          "name": "Delegate_PlanEdit_UsesCompileMode",
+          "dynamic": false
+        }
+      ]
+    },
     "tests/architecture/type-test-coverage.test.ts": {
       "file": "tests/architecture/type-test-coverage.test.ts",
       "runner": "vitest:root",
@@ -10211,6 +10242,72 @@
         {
           "suite": "action replay binding",
           "name": "Replay_ExistingInv8Tests_RemainGreen",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/integration/bootstrap-source-gates.test.ts": {
+      "file": "tests/integration/bootstrap-source-gates.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "bootstrap source checks",
+          "name": "Bootstrap_Feature_EvaluatesBothPlanSources",
+          "dynamic": false
+        },
+        {
+          "suite": "bootstrap source checks",
+          "name": "Bootstrap_Overhaul_EvaluatesThreePlanSources",
+          "dynamic": false
+        },
+        {
+          "suite": "bootstrap source checks",
+          "name": "Bootstrap_SecondSourceFailsAt_%s",
+          "dynamic": false
+        },
+        {
+          "suite": "bootstrap source checks",
+          "name": "<dynamic-case-1>",
+          "dynamic": true
+        },
+        {
+          "suite": "bootstrap source checks",
+          "name": "Bootstrap_RequiredSkipIsARefusal",
+          "dynamic": false
+        },
+        {
+          "suite": "bootstrap source checks",
+          "name": "Bootstrap_DeepRequiresExplorationCitations_%s",
+          "dynamic": false
+        },
+        {
+          "suite": "bootstrap source checks",
+          "name": "<dynamic-case-2>",
+          "dynamic": true
+        },
+        {
+          "suite": "bootstrap source checks",
+          "name": "Bootstrap_DeepChecksExplorationOnBothSources",
+          "dynamic": false
+        },
+        {
+          "suite": "bootstrap source checks",
+          "name": "Bootstrap_ThinChecksTheThinSequenceOnly",
+          "dynamic": false
+        },
+        {
+          "suite": "bootstrap source checks",
+          "name": "Bootstrap_StandardUsesResolvedCustomGlobs",
+          "dynamic": false
+        },
+        {
+          "suite": "bootstrap source checks",
+          "name": "Bootstrap_UnresolvedGlobsAndEmptyDeclarationsRefuse",
+          "dynamic": false
+        },
+        {
+          "suite": "bootstrap source checks",
+          "name": "Bootstrap_WholePlanRefusesBeforeRouting",
           "dynamic": false
         }
       ]
@@ -28172,7 +28269,7 @@
         },
         {
           "suite": "WorkflowStartedData",
-          "name": "should reject unregistered workflow type",
+          "name": "StoredWorkflowType_ColdDecodeAcceptsButWriterAdmissionRefuses",
           "dynamic": false
         },
         {
@@ -58209,6 +58306,11 @@
           "suite": "handlePlanCoverage > no tasks in plan",
           "name": "handlePlanCoverage_NoTasks_ReturnsFailResult",
           "dynamic": false
+        },
+        {
+          "suite": "",
+          "name": "Coverage_LegacyFixture_PreservesContract",
+          "dynamic": false
         }
       ]
     },
@@ -67587,6 +67689,21 @@
         },
         {
           "suite": "prepare_delegation reads the repository of the caller",
+          "name": "applies typed stamps by exact id through the delegation handler",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare_delegation reads the repository of the caller",
+          "name": "refuses malformed and unsound typed plans before announcing tasks or passing coverage",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare_delegation reads the repository of the caller",
+          "name": "keeps the heuristic fallback when the plan file cannot be read",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare_delegation reads the repository of the caller",
           "name": "PrepareDelegation_ARelativeRepoRoot_IsRefusedAndRecordsNothing",
           "dynamic": false
         }
@@ -76354,6 +76471,167 @@
         }
       ]
     },
+    "tests/unit/workflow/design-record/bootstrap-plan.test.ts": {
+      "file": "tests/unit/workflow/design-record/bootstrap-plan.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "bootstrap prefix routing",
+          "name": "Bootstrap_ZeroHopEntry_FreezesWithoutTransition",
+          "dynamic": false
+        },
+        {
+          "suite": "bootstrap prefix routing",
+          "name": "Bootstrap_ReviewPrefix_Refuses",
+          "dynamic": false
+        },
+        {
+          "suite": "bootstrap prefix routing",
+          "name": "Bootstrap_UnsupportedPrefix_%s_Refuses",
+          "dynamic": false
+        },
+        {
+          "suite": "bootstrap prefix routing",
+          "name": "<dynamic-case-1>",
+          "dynamic": true
+        },
+        {
+          "suite": "bootstrap prefix routing",
+          "name": "Bootstrap_SingleAgentImplement_Refuses",
+          "dynamic": false
+        },
+        {
+          "suite": "bootstrap prefix routing",
+          "name": "Bootstrap_SkipRemovesApproval_Refuses",
+          "dynamic": false
+        },
+        {
+          "suite": "bootstrap prefix routing",
+          "name": "Bootstrap_SkipCannotRemoveInitialOrBatchEntry",
+          "dynamic": false
+        },
+        {
+          "suite": "bootstrap prefix routing",
+          "name": "Bootstrap_UnrelatedOrderedSkipsPreservePrefix",
+          "dynamic": false
+        },
+        {
+          "suite": "bootstrap prefix routing",
+          "name": "Bootstrap_OneAdmittedBranchPasses",
+          "dynamic": false
+        },
+        {
+          "suite": "bootstrap prefix routing",
+          "name": "Bootstrap_NegatedUnsupportedUserPredicateRefuses",
+          "dynamic": false
+        },
+        {
+          "suite": "bootstrap prefix routing",
+          "name": "Bootstrap_UnsupportedDeniedAlternativeRefuses",
+          "dynamic": false
+        },
+        {
+          "suite": "bootstrap prefix routing",
+          "name": "Bootstrap_NoAdmittedEdgeRefuses",
+          "dynamic": false
+        },
+        {
+          "suite": "bootstrap prefix routing",
+          "name": "Bootstrap_LoopRefuses",
+          "dynamic": false
+        },
+        {
+          "suite": "bootstrap prefix routing",
+          "name": "Bootstrap_UniversalOrHistoryTarget_%s_Refuses",
+          "dynamic": false
+        },
+        {
+          "suite": "bootstrap prefix routing",
+          "name": "<dynamic-case-2>",
+          "dynamic": true
+        },
+        {
+          "suite": "bootstrap prefix routing",
+          "name": "Bootstrap_NonPlainEdge_%s_Refuses",
+          "dynamic": false
+        },
+        {
+          "suite": "bootstrap prefix routing",
+          "name": "<dynamic-case-3>",
+          "dynamic": true
+        },
+        {
+          "suite": "bootstrap prefix routing",
+          "name": "Bootstrap_UnsupportedGroupEffect_%s_Refuses",
+          "dynamic": false
+        },
+        {
+          "suite": "bootstrap prefix routing",
+          "name": "<dynamic-case-4>",
+          "dynamic": true
+        },
+        {
+          "suite": "bootstrap prefix routing",
+          "name": "Bootstrap_LogDescriptorsKeepDuplicatesAndOrder",
+          "dynamic": false
+        },
+        {
+          "suite": "bootstrap prefix routing",
+          "name": "Bootstrap_GroupExitRefusesWithoutDurableHistory",
+          "dynamic": false
+        },
+        {
+          "suite": "bootstrap prefix routing",
+          "name": "Bootstrap_AcyclicPrefixesDischargeEverySourceAndRefuseAmbiguity",
+          "dynamic": false
+        },
+        {
+          "suite": "bootstrap frozen entry association",
+          "name": "Bootstrap_UnknownFrozenGate_Refuses",
+          "dynamic": false
+        },
+        {
+          "suite": "bootstrap frozen entry association",
+          "name": "Bootstrap_MalformedInitialEntry_%s_Refuses",
+          "dynamic": false
+        },
+        {
+          "suite": "bootstrap frozen entry association",
+          "name": "<dynamic-case-5>",
+          "dynamic": true
+        },
+        {
+          "suite": "bootstrap frozen entry association",
+          "name": "Bootstrap_DuplicateEntryRefuses",
+          "dynamic": false
+        },
+        {
+          "suite": "bootstrap frozen entry association",
+          "name": "Bootstrap_PrecedingEntryCannotBelongToTheNewAttempt",
+          "dynamic": false
+        },
+        {
+          "suite": "bootstrap frozen entry association",
+          "name": "Bootstrap_StaleSamePhaseEntryCannotProveTheNewAttempt",
+          "dynamic": false
+        },
+        {
+          "suite": "bootstrap frozen entry association",
+          "name": "Bootstrap_ReducedResolverCannotEraseFrozenRequirements",
+          "dynamic": false
+        },
+        {
+          "suite": "bootstrap frozen entry association",
+          "name": "Bootstrap_FinalEntryIsRequired",
+          "dynamic": false
+        },
+        {
+          "suite": "bootstrap frozen entry association",
+          "name": "Bootstrap_SeedRequiresExactApprovalAndAttempt",
+          "dynamic": false
+        }
+      ]
+    },
     "tests/unit/workflow/event-injection.test.ts": {
       "file": "tests/unit/workflow/event-injection.test.ts",
       "runner": "vitest:root",
@@ -77902,6 +78180,21 @@
           "suite": "HSM emission boundary schema-validates event data (T-03, #1339)",
           "name": "LegacyAppendPath_SchemaInvalidWorkflowEvent_IsRejected",
           "dynamic": false
+        },
+        {
+          "suite": "atomic legacy success hook",
+          "name": "SuccessHook_StagesPrefixOrdinals_AndObservesOnlyOwned_%s",
+          "dynamic": false
+        },
+        {
+          "suite": "atomic legacy success hook",
+          "name": "<dynamic-case-1>",
+          "dynamic": true
+        },
+        {
+          "suite": "atomic legacy success hook",
+          "name": "SuccessHook_ConflictRunsNoSuccessfulObserver",
+          "dynamic": false
         }
       ]
     },
@@ -78532,6 +78825,11 @@
         {
           "suite": "the census of the decide primitive",
           "name": "PhaseMutationOwnership_TheDecidePrimitive_HasOnlyItsDeclaredOwners",
+          "dynamic": false
+        },
+        {
+          "suite": "the census of the decide primitive",
+          "name": "PhaseMutationOwnership_BootstrapPlannerHasNoAppendDependency",
           "dynamic": false
         },
         {
@@ -88405,12 +88703,12 @@
         },
         {
           "suite": "static call-shape census",
-          "name": "CallShapeCensus_EveryNamedIntent_CountsAnExarchosCallOnItsNormalPath",
+          "name": "CallShapeCensus_NormalPaths_MatchAuthoringAndDeliveryCounts",
           "dynamic": false
         },
         {
           "suite": "static call-shape census",
-          "name": "CallShapeCensus_EverySource_YieldsLocatedCallsAndEveryRunbookIsRead",
+          "name": "CallShapeCensus_AuthorsHaveNoExarchosSitesAndOtherSourcesHaveCalls",
           "dynamic": false
         },
         {
@@ -89756,7 +90054,7 @@
       "cases": [
         {
           "suite": "the packaged chain of prepare and settle",
-          "name": "PackagedChain_PrepareSixThenSettle_RefusesAHighTierTaskThatBreaksAnotherTest",
+          "name": "PackagedChain_PrepareSevenThenSettle_RefusesAHighTierTaskThatBreaksAnotherTest",
           "dynamic": false
         }
       ]
@@ -90177,6 +90475,41 @@
       "file": "tests/process/parity-prepare-settle.test.ts",
       "runner": "vitest:root",
       "cases": [
+        {
+          "suite": "packaged bootstrap parity",
+          "name": "Prepare_BootstrapStartsOn_%s_AndReplaysOnTheOtherTransport",
+          "dynamic": false
+        },
+        {
+          "suite": "packaged bootstrap parity",
+          "name": "<dynamic-case-1>",
+          "dynamic": true
+        },
+        {
+          "suite": "packaged bootstrap parity",
+          "name": "Prepare_BootstrapApprovalRefusal_MatchesAcrossTransports",
+          "dynamic": false
+        },
+        {
+          "suite": "packaged bootstrap parity",
+          "name": "Prepare_PublicationFailure_RepairsOnTheOtherTransport",
+          "dynamic": false
+        },
+        {
+          "suite": "packaged bootstrap parity",
+          "name": "Dispatch_ColdUserType_UsesRecordedEntry",
+          "dynamic": false
+        },
+        {
+          "suite": "parity: exarchos orchestrate prepare and settle — CLI ↔ MCP",
+          "name": "Prepare_TypedMcpIntentAndCliFlag_ReplayOneAcceptedCapsule",
+          "dynamic": false
+        },
+        {
+          "suite": "parity: exarchos orchestrate prepare and settle — CLI ↔ MCP",
+          "name": "Prepare_TypedCliIntent_ReplaysOverMcp",
+          "dynamic": false
+        },
         {
           "suite": "parity: exarchos orchestrate prepare and settle — CLI ↔ MCP",
           "name": "prepare_cliRetryOfMcpPrepare_envelopesMatchAfterNormalize",
@@ -90808,6 +91141,428 @@
         {
           "suite": "the live registry reads the built-in definitions",
           "name": "RegistrySource_EachInitialPhase_IsTheEntryStep",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/integration/prepare-bootstrap-identity.test.ts": {
+      "file": "tests/integration/prepare-bootstrap-identity.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "bootstrap receipt identity",
+          "name": "Bootstrap_StartV11_EqualsValidatedEntry",
+          "dynamic": false
+        },
+        {
+          "suite": "bootstrap receipt identity",
+          "name": "Bootstrap_RefactorOverhaul_UsesOnlyValidatedScopeFacts",
+          "dynamic": false
+        },
+        {
+          "suite": "bootstrap receipt identity",
+          "name": "Bootstrap_ChangedHeadAfterCommit_ReplaysOriginal",
+          "dynamic": false
+        },
+        {
+          "suite": "bootstrap receipt identity",
+          "name": "Bootstrap_MissingFileAndBundle_ReplaysClaim",
+          "dynamic": false
+        },
+        {
+          "suite": "bootstrap receipt identity",
+          "name": "Bootstrap_ForgedMarkerWithoutClaim_Refuses",
+          "dynamic": false
+        },
+        {
+          "suite": "bootstrap receipt identity",
+          "name": "Bootstrap_Corrupt_%s_RefusesTheReplay",
+          "dynamic": false
+        },
+        {
+          "suite": "bootstrap receipt identity",
+          "name": "<dynamic-case-1>",
+          "dynamic": true
+        },
+        {
+          "suite": "bootstrap receipt identity",
+          "name": "Bootstrap_LegacyNoMarker_Conflicts",
+          "dynamic": false
+        },
+        {
+          "suite": "bootstrap receipt identity",
+          "name": "Bootstrap_PathUnsafeSubject_RefusesBeforeReads",
+          "dynamic": false
+        },
+        {
+          "suite": "bootstrap receipt identity",
+          "name": "Bootstrap_InvalidStartRow_CommitsNothing",
+          "dynamic": false
+        },
+        {
+          "suite": "bootstrap receipt identity",
+          "name": "Bootstrap_UserEntryAndDefinitionLoss_ReplayWithoutRegistration",
+          "dynamic": false
+        },
+        {
+          "suite": "bootstrap receipt identity",
+          "name": "Bootstrap_LexicalContainment_AllowsMountedPlanAndRefusesEscape",
+          "dynamic": false
+        },
+        {
+          "suite": "bootstrap receipt identity",
+          "name": "Bootstrap_ChangedApprovalRequiresCompile_OriginalEntryStillReplays",
+          "dynamic": false
+        },
+        {
+          "suite": "bootstrap receipt identity",
+          "name": "Bootstrap_BoundedPlan_%i_MeasuresCommitAndReplay",
+          "dynamic": false
+        },
+        {
+          "suite": "bootstrap receipt identity",
+          "name": "<dynamic-case-2>",
+          "dynamic": true
+        }
+      ]
+    },
+    "tests/process/prepare-bootstrap-races.test.ts": {
+      "file": "tests/process/prepare-bootstrap-races.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "packaged bootstrap schedules",
+          "name": "Race_SameEntryDifferentObservations_OneWinningReceipt",
+          "dynamic": false
+        },
+        {
+          "suite": "packaged bootstrap schedules",
+          "name": "Race_SameEntrySameObservations_OneWinningReceipt",
+          "dynamic": false
+        },
+        {
+          "suite": "packaged bootstrap schedules",
+          "name": "Race_DifferentEntry_LoserConflicts",
+          "dynamic": false
+        },
+        {
+          "suite": "packaged bootstrap schedules",
+          "name": "Race_BoundedSchedules_MatchSingleCommitModel",
+          "dynamic": false
+        },
+        {
+          "suite": "packaged bootstrap schedules",
+          "name": "Race_PrecommitLookupError_RechecksOnlyForAnAcceptedWinner (winner %s)",
+          "dynamic": false
+        },
+        {
+          "suite": "packaged bootstrap schedules",
+          "name": "<dynamic-case-2>",
+          "dynamic": true
+        },
+        {
+          "suite": "packaged bootstrap schedules",
+          "name": "Race_ApprovedFileEdit_UsesCapturedBytesAndRequiresNewApproval",
+          "dynamic": false
+        },
+        {
+          "suite": "packaged compatibility document repair",
+          "name": "Race_RepairAfterLaterMove_KeepsLaterAttempt",
+          "dynamic": false
+        },
+        {
+          "suite": "packaged compatibility document repair",
+          "name": "Race_BootstrapReplay_RefusesADamagedAttemptChain",
+          "dynamic": false
+        },
+        {
+          "suite": "packaged compatibility document repair",
+          "name": "Acceptance_PackagedHistoricalConstructor_DecodesColdAndRequiresRegistrationForNewStarts",
+          "dynamic": false
+        },
+        {
+          "suite": "packaged compatibility document repair",
+          "name": "Race_BoundedBootstrapContention_RecordsFreshAndReplayTimings",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/process/pinned-plan-races.test.ts": {
+      "file": "tests/process/pinned-plan-races.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "packaged prepared authority",
+          "name": "Race_NewPinDuringTransition_RejectsOldPlanAdmission",
+          "dynamic": false
+        },
+        {
+          "suite": "packaged prepared authority",
+          "name": "<dynamic-case-1>",
+          "dynamic": true
+        },
+        {
+          "suite": "packaged prepared authority",
+          "name": "Race_NewPinAfterTaskSegment_NoUnsafeMove (changed pin %s)",
+          "dynamic": false
+        },
+        {
+          "suite": "packaged prepared authority",
+          "name": "<dynamic-case-2>",
+          "dynamic": true
+        }
+      ]
+    },
+    "tests/acceptance/s6-plan-compile-input.test.ts": {
+      "file": "tests/acceptance/s6-plan-compile-input.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "",
+          "name": "Acceptance_TypedFeature_PrepareAndSettleUsesApprovedPlan",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/integration/s6-dispatch-contract.test.ts": {
+      "file": "tests/integration/s6-dispatch-contract.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "registered prepare",
+          "name": "Dispatch_BootstrapThenReplay_NoExtraEmissionDebt",
+          "dynamic": false
+        },
+        {
+          "suite": "registered prepare",
+          "name": "Dispatch_ApprovalRefusal_WritesNothing",
+          "dynamic": false
+        },
+        {
+          "suite": "registered prepare",
+          "name": "Dispatch_DeepRequiredCheckRunsBeforeCustody",
+          "dynamic": false
+        },
+        {
+          "suite": "registered prepare",
+          "name": "Dispatch_BootstrapEconomy_KeepsReceiptIdentityAndCustody",
+          "dynamic": false
+        },
+        {
+          "suite": "bootstrap claim replay",
+          "name": "Replay_CopiedBootstrapMarkerWithoutOperationClaim_Refuses",
+          "dynamic": false
+        },
+        {
+          "suite": "bootstrap claim replay",
+          "name": "Replay_ReopenedOriginalStore_ReturnsOriginalBootstrapReceipt",
+          "dynamic": false
+        },
+        {
+          "suite": "mixed stored histories",
+          "name": "Replay_MixedLegacyAndTypedRows_PreservesEvidenceCustodyAndMembership",
+          "dynamic": false
+        },
+        {
+          "suite": "mixed stored histories",
+          "name": "Replay_LegacyUnknownExtras_RetainFallbacks",
+          "dynamic": false
+        },
+        {
+          "suite": "mixed stored histories",
+          "name": "Dispatch_GenericStartEpochAndOwnPhase_RefuseZeroWrite",
+          "dynamic": false
+        },
+        {
+          "suite": "committing snapshots",
+          "name": "Replay_V11Envelope_SurvivesAllAdapters",
+          "dynamic": false
+        },
+        {
+          "suite": "committing snapshots",
+          "name": "Replay_MalformedV11_ColdReadersAndRecoveryRefuse",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/integration/prepare-bootstrap-repair.test.ts": {
+      "file": "tests/integration/prepare-bootstrap-repair.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "bootstrap repair",
+          "name": "Bootstrap_AppendFailsAtEachRow_RollsBackBatch",
+          "dynamic": false
+        },
+        {
+          "suite": "bootstrap repair",
+          "name": "Bootstrap_%s_FaultRollsBackTheStore",
+          "dynamic": false
+        },
+        {
+          "suite": "bootstrap repair",
+          "name": "<dynamic-case-1>",
+          "dynamic": true
+        },
+        {
+          "suite": "bootstrap repair",
+          "name": "Bootstrap_LegacyDiskCollision_DoesNotMigrate_WithBackend_%s",
+          "dynamic": false
+        },
+        {
+          "suite": "bootstrap repair",
+          "name": "<dynamic-case-2>",
+          "dynamic": true
+        },
+        {
+          "suite": "bootstrap repair",
+          "name": "Bootstrap_LegacyBackendCollision_DoesNotWrite",
+          "dynamic": false
+        },
+        {
+          "suite": "bootstrap repair",
+          "name": "Bootstrap_CorruptBackendRow_RefusesWithoutDecoding",
+          "dynamic": false
+        },
+        {
+          "suite": "bootstrap repair",
+          "name": "Repair_LaterPhaseWins_PreservesEffects",
+          "dynamic": false
+        },
+        {
+          "suite": "bootstrap repair",
+          "name": "Repair_CollisionAfterCasConflict_RefusesFreshDocument",
+          "dynamic": false
+        },
+        {
+          "suite": "bootstrap repair",
+          "name": "BootstrapRepair_EqualVersionDifferentIdentity_RefusesReplacement",
+          "dynamic": false
+        },
+        {
+          "suite": "bootstrap repair",
+          "name": "Repair_MalformedV11_NeverFallsBack",
+          "dynamic": false
+        },
+        {
+          "suite": "bootstrap repair",
+          "name": "Repair_Committed_%s_FaultReturnsAcceptedIdentity",
+          "dynamic": false
+        },
+        {
+          "suite": "bootstrap repair",
+          "name": "<dynamic-case-3>",
+          "dynamic": true
+        },
+        {
+          "suite": "bootstrap repair",
+          "name": "Bootstrap_SameEntryRace_ReplaysDifferentFullKeyWinner",
+          "dynamic": false
+        },
+        {
+          "suite": "bootstrap repair",
+          "name": "Bootstrap_SameEntryWinner_RecoversFromLosingCustodyFailure",
+          "dynamic": false
+        },
+        {
+          "suite": "bootstrap repair",
+          "name": "Bootstrap_DifferentEntryRace_RefusesTheLoser",
+          "dynamic": false
+        },
+        {
+          "suite": "bootstrap repair",
+          "name": "Bootstrap_DifferentEntryWinner_PreservesOriginalCustodyFailure",
+          "dynamic": false
+        },
+        {
+          "suite": "bootstrap repair",
+          "name": "Bootstrap_RealStoreMatchesReducedModel",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/integration/prepare-typed-plan.test.ts": {
+      "file": "tests/integration/prepare-typed-plan.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "typed prepare",
+          "name": "Prepare_ApprovalAndParser_ShareBytes",
+          "dynamic": false
+        },
+        {
+          "suite": "typed prepare",
+          "name": "Prepare_MountedDocsPath_Works",
+          "dynamic": false
+        },
+        {
+          "suite": "typed prepare",
+          "name": "Prepare_LexicalEscape_Refuses",
+          "dynamic": false
+        },
+        {
+          "suite": "typed prepare",
+          "name": "Prepare_TypedThenLegacy_RefusesDowngrade",
+          "dynamic": false
+        },
+        {
+          "suite": "typed prepare",
+          "name": "Prepare_ChangedApprovedBytes_CompilesNext",
+          "dynamic": false
+        },
+        {
+          "suite": "typed prepare",
+          "name": "Prepare_UnchangedFullInputs_Replays",
+          "dynamic": false
+        },
+        {
+          "suite": "typed prepare",
+          "name": "Prepare_DurableRowsAndExactIds_DetermineReadyTasks",
+          "dynamic": false
+        },
+        {
+          "suite": "typed prepare",
+          "name": "Prepare_WholeGraphRefusesBeforeOverlay_AndFindingsReachEnvelope",
+          "dynamic": false
+        },
+        {
+          "suite": "typed prepare",
+          "name": "Prepare_ConflictingBootstrapTypeBaseAndPolicy_LeaveNoWrites",
+          "dynamic": false
+        },
+        {
+          "suite": "typed prepare",
+          "name": "Prepare_CorruptNewerMarker_RefusesEvenOnReplay",
+          "dynamic": false
+        },
+        {
+          "suite": "typed prepare",
+          "name": "Prepare_ConfigWorkflowCollision_RefusesBeforeCheckout",
+          "dynamic": false
+        },
+        {
+          "suite": "typed prepare",
+          "name": "Prepare_ChangedLedgerTail_LeavesOnlyWinnerRows",
+          "dynamic": false
+        },
+        {
+          "suite": "typed prepare",
+          "name": "Prepare_UnexpectedSoundnessFailure_RefusesBeforeEffects",
+          "dynamic": false
+        },
+        {
+          "suite": "typed prepare",
+          "name": "Prepare_IntentSchemaAndFlags_ExposeBothClosedModes",
+          "dynamic": false
+        },
+        {
+          "suite": "typed prepare",
+          "name": "Prepare_GeneratedDocumentChangesAndRawBytes_PreserveOnlyApprovedIdentity",
+          "dynamic": false
+        },
+        {
+          "suite": "typed prepare",
+          "name": "Prepare_BoundedCompleteCompileBenchmark_ReportsFreshAndReplay",
           "dynamic": false
         }
       ]
@@ -92411,6 +93166,11 @@
           "suite": "a settle moves the phase of the stream",
           "name": "SettleMovesThePhase_AReplayWithNoPhaseMove_ThenTransition_Moves",
           "dynamic": false
+        },
+        {
+          "suite": "",
+          "name": "SettleMovesThePhase_ActualReceiptSurvivesUnavailableCustody",
+          "dynamic": false
         }
       ]
     },
@@ -92725,6 +93485,11 @@
         },
         {
           "suite": "settle levels the state document after a move",
+          "name": "<dynamic-case-4>",
+          "dynamic": true
+        },
+        {
+          "suite": "settle levels the state document after a move",
           "name": "LevelDocument_AMissingDocument_Skips",
           "dynamic": false
         },
@@ -92746,6 +93511,31 @@
         {
           "suite": "the summary of a settle receipt",
           "name": "SettleSummary_KeepsThePhaseMoveWithoutItsEdges",
+          "dynamic": false
+        },
+        {
+          "suite": "settle authority races preserve executed segments",
+          "name": "Settle_PreparedRace_PreservesSegmentClaimsAcrossCalls: %s",
+          "dynamic": false
+        },
+        {
+          "suite": "settle authority races preserve executed segments",
+          "name": "<dynamic-case-5>",
+          "dynamic": true
+        },
+        {
+          "suite": "settle authority races preserve executed segments",
+          "name": "Settle_PersistentPublicationFailure_FreshRetryUsesReceiptWithoutCustody",
+          "dynamic": false
+        },
+        {
+          "suite": "",
+          "name": "Settle_LateMissingCustody_PreservesSegmentAndNoMove",
+          "dynamic": false
+        },
+        {
+          "suite": "",
+          "name": "Settle_BoundedExistingFixtureBenchmark_SeparatesGateRuntime",
           "dynamic": false
         }
       ]
@@ -93245,6 +94035,296 @@
           "suite": "authoritative patch candidates",
           "name": "HandleSet_NoStartHeldPatchClaim_PreservesLegacyDocumentRoute",
           "dynamic": false
+        },
+        {
+          "suite": "prepared transition authority",
+          "name": "PinnedWholePlan_DroppedPendingTaskDenies_Combined_%s",
+          "dynamic": false
+        },
+        {
+          "suite": "prepared transition authority",
+          "name": "<dynamic-case-11>",
+          "dynamic": true
+        },
+        {
+          "suite": "prepared transition authority",
+          "name": "PinnedMetadata_UnchangedAuthorityLoadsOnce_AndCommitsOnce",
+          "dynamic": false
+        },
+        {
+          "suite": "prepared transition authority",
+          "name": "PinnedAuthority_NewerSameEdgeWithPendingTask_ReloadsAndDenies",
+          "dynamic": false
+        },
+        {
+          "suite": "prepared transition authority",
+          "name": "PinnedAuthority_FreshCompletionRows_%s",
+          "dynamic": false
+        },
+        {
+          "suite": "prepared transition authority",
+          "name": "<dynamic-case-12>",
+          "dynamic": true
+        },
+        {
+          "suite": "prepared transition authority",
+          "name": "PinnedAuthority_CustodyFailureRefusesWithoutPatch",
+          "dynamic": false
+        },
+        {
+          "suite": "prepared transition policy and retries",
+          "name": "PinnedPolicy_EmptySkipsIgnoreNewConfig",
+          "dynamic": false
+        },
+        {
+          "suite": "prepared transition policy and retries",
+          "name": "PinnedUserDefinition_PrecedesBuiltInTypeDiscriminator",
+          "dynamic": false
+        },
+        {
+          "suite": "prepared transition policy and retries",
+          "name": "PinnedClaim_WinnerBeforeCustodyFailure_Replays_%s",
+          "dynamic": false
+        },
+        {
+          "suite": "prepared transition policy and retries",
+          "name": "<dynamic-case-13>",
+          "dynamic": true
+        },
+        {
+          "suite": "prepared transition policy and retries",
+          "name": "PinnedOwnMove_DocumentRepairDoesNotReloadMissingCustody",
+          "dynamic": false
+        },
+        {
+          "suite": "prepared transition policy and retries",
+          "name": "PinnedCompletionProperty_DocumentMembershipAndForgedStatusCannotCompleteMissingIds",
+          "dynamic": false
+        },
+        {
+          "suite": "prepared transition failure boundaries",
+          "name": "PinnedType_DocumentTypeCannotChangeEntryPolicy",
+          "dynamic": false
+        },
+        {
+          "suite": "prepared transition failure boundaries",
+          "name": "PinnedAuthority_ChangedEveryPass_ExhaustsWithoutMoveOrPatch",
+          "dynamic": false
+        },
+        {
+          "suite": "prepared transition failure boundaries",
+          "name": "PinnedClaim_WinnerDuringFailedCustody_RechecksActualClaim",
+          "dynamic": false
+        },
+        {
+          "suite": "prepared transition failure boundaries",
+          "name": "PinnedRawCandidate_InvalidIndexCannotBeSanitizedByMembership",
+          "dynamic": false
+        },
+        {
+          "suite": "kernel operator compatibility",
+          "name": "LegacyKernel_BuiltInOperatorUsesCurrentSkips_%s",
+          "dynamic": false
+        },
+        {
+          "suite": "kernel operator compatibility",
+          "name": "<dynamic-case-14>",
+          "dynamic": true
+        },
+        {
+          "suite": "frozen transition policy",
+          "name": "PinnedOrderedSkips_OverrideCurrentConfig",
+          "dynamic": false
+        },
+        {
+          "suite": "frozen transition policy",
+          "name": "PinnedPendingTasks_DoNotBlockUniversalCancel",
+          "dynamic": false
+        },
+        {
+          "suite": "historical document kernel commits",
+          "name": "KernelCustom_CombinedPatchAndTrailCommitOnce",
+          "dynamic": false
+        },
+        {
+          "suite": "historical document kernel commits",
+          "name": "KernelNoStart_CombinedCommitAndCASRepairUseIncrementalRows",
+          "dynamic": false
+        },
+        {
+          "suite": "historical document kernel commits",
+          "name": "KernelNoStart_AheadCursorRefusesBeforeCommit",
+          "dynamic": false
+        },
+        {
+          "suite": "legacy kernel transaction fences",
+          "name": "LegacyKernelPin_StaleDocument_RefusesObsoleteSourceAndContinuesFromLedger",
+          "dynamic": false
+        },
+        {
+          "suite": "legacy kernel transaction fences",
+          "name": "LegacyKernelPin_ProjectedKeyWinner_ReplaysBeforeGuard",
+          "dynamic": false
+        },
+        {
+          "suite": "legacy kernel transaction fences",
+          "name": "LegacyKernelPin_PatchCommittedBeforeCasRetry_IsNotAppendedAgain",
+          "dynamic": false
+        },
+        {
+          "suite": "legacy kernel transaction fences",
+          "name": "KernelCustom_NewerTypedPinAtCommit_DeniesWithoutOldTrail",
+          "dynamic": false
+        },
+        {
+          "suite": "legacy kernel transaction fences",
+          "name": "KernelNoStart_IncrementalRepairDoesNotRepeatRevisionCounts",
+          "dynamic": false
+        },
+        {
+          "suite": "legacy kernel transaction fences",
+          "name": "KernelNoStart_AfterCASLoss_LaterMoveWinsRepair",
+          "dynamic": false
+        },
+        {
+          "suite": "legacy kernel transaction fences",
+          "name": "KernelNoStart_SamePhasePatchRechecksNewAuthority",
+          "dynamic": false
+        },
+        {
+          "suite": "legacy kernel replay boundaries",
+          "name": "KernelClaim_ActualWinnerPrecedesCustodyAndGuard_DifferentPatch_%s",
+          "dynamic": false
+        },
+        {
+          "suite": "legacy kernel replay boundaries",
+          "name": "<dynamic-case-15>",
+          "dynamic": true
+        },
+        {
+          "suite": "legacy kernel replay boundaries",
+          "name": "KernelNoStart_MalformedPresentStartNeverUsesLegacyRepair",
+          "dynamic": false
+        },
+        {
+          "suite": "scratch patch replay precedence",
+          "name": "Claim_IndexedContainerChangedBeforePreflight_DifferentPayload_%s",
+          "dynamic": false
+        },
+        {
+          "suite": "scratch patch replay precedence",
+          "name": "<dynamic-case-16>",
+          "dynamic": true
+        },
+        {
+          "suite": "scratch patch replay precedence",
+          "name": "Claim_IndexedContainerErrorWithoutClaim_RefusesNoWrites",
+          "dynamic": false
+        },
+        {
+          "suite": "commit coordinate and cursor fences",
+          "name": "KernelNoStart_OneAheadCursorCannotHidePendingPatch_%s",
+          "dynamic": false
+        },
+        {
+          "suite": "commit coordinate and cursor fences",
+          "name": "<dynamic-case-17>",
+          "dynamic": true
+        },
+        {
+          "suite": "commit coordinate and cursor fences",
+          "name": "PinnedAuthority_IndependentConnectionReplacement_%s",
+          "dynamic": false
+        },
+        {
+          "suite": "commit coordinate and cursor fences",
+          "name": "<dynamic-case-18>",
+          "dynamic": true
+        },
+        {
+          "suite": "commit coordinate and cursor fences",
+          "name": "PinnedAuthority_SamePhaseAfterRealCycleUsesNewPredecessor",
+          "dynamic": false
+        },
+        {
+          "suite": "legacy custody await replay",
+          "name": "KernelClaim_WinnerDuringSuccessfulCustody_DifferentPayload_%s",
+          "dynamic": false
+        },
+        {
+          "suite": "legacy custody await replay",
+          "name": "<dynamic-case-19>",
+          "dynamic": true
+        },
+        {
+          "suite": "legacy custody await replay",
+          "name": "KernelNoStart_LaterCountedRowKeepsSnapshotCursorAcrossRepair",
+          "dynamic": false
+        },
+        {
+          "suite": "no-start claim recovery across calls",
+          "name": "LegacyKernelPin_ProjectedCommitPublicationFailure_ReplaysFromActualClaim %s",
+          "dynamic": false
+        },
+        {
+          "suite": "no-start claim recovery across calls",
+          "name": "<dynamic-case-20>",
+          "dynamic": true
+        },
+        {
+          "suite": "no-start claim recovery across calls",
+          "name": "LegacyKernelPin_ExactRetry_ReplaysWithoutCustody differentPayload=%s",
+          "dynamic": false
+        },
+        {
+          "suite": "no-start claim recovery across calls",
+          "name": "<dynamic-case-21>",
+          "dynamic": true
+        },
+        {
+          "suite": "historical field-only patches",
+          "name": "KernelNoStart_FieldOnlyPatch_UsesCurrentProjection %s",
+          "dynamic": false
+        },
+        {
+          "suite": "historical field-only patches",
+          "name": "<dynamic-case-22>",
+          "dynamic": true
+        },
+        {
+          "suite": "historical field-only patches",
+          "name": "KernelNoStart_FieldOnlyPatch_HeldClaimAndCasRetryPreserveLaterRows %s",
+          "dynamic": false
+        },
+        {
+          "suite": "historical field-only patches",
+          "name": "<dynamic-case-23>",
+          "dynamic": true
+        },
+        {
+          "suite": "historical field-only patches",
+          "name": "KernelNoStart_FieldOnlyPatch_NewerPinRefusesBeforeAppend",
+          "dynamic": false
+        },
+        {
+          "suite": "historical field-only patches",
+          "name": "KernelNoStart_FieldOnlyPatch_InvalidCursorOrAuthorityWritesNothing %s",
+          "dynamic": false
+        },
+        {
+          "suite": "historical field-only patches",
+          "name": "<dynamic-case-24>",
+          "dynamic": true
+        },
+        {
+          "suite": "historical field-only patches",
+          "name": "KernelFieldOnlyPatch_OrdinaryRoutesUseNoCustody %s",
+          "dynamic": false
+        },
+        {
+          "suite": "historical field-only patches",
+          "name": "<dynamic-case-25>",
+          "dynamic": true
         }
       ]
     },
@@ -93560,6 +94640,791 @@
         {
           "suite": "admitted targets in capped settlement output",
           "name": "SettleSummary_AnOversizedImmutableCore_KeepsItsIndependentLimit",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/workflow/design-record/read.test.ts": {
+      "file": "tests/unit/workflow/design-record/read.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "design record reader",
+          "name": "Read_T01AndT1_PreservesDistinctIds",
+          "dynamic": false
+        },
+        {
+          "suite": "design record reader",
+          "name": "Read_EquivalentEscapedDuplicateKeys_Refuses",
+          "dynamic": false
+        },
+        {
+          "suite": "design record reader",
+          "name": "Read_NestedFenceExample_IsNotPlan",
+          "dynamic": false
+        },
+        {
+          "suite": "design record reader",
+          "name": "ignores list, blockquote and indented code examples",
+          "dynamic": false
+        },
+        {
+          "suite": "design record reader",
+          "name": "ends a list fence at container exit before reading a top-level plan",
+          "dynamic": false
+        },
+        {
+          "suite": "design record reader",
+          "name": "excludes all HTML block forms from plan and requirement authority",
+          "dynamic": false
+        },
+        {
+          "suite": "design record reader",
+          "name": "resumes Markdown at HTML block endings and container exits",
+          "dynamic": false
+        },
+        {
+          "suite": "design record reader",
+          "name": "refuses a task without its required test layer",
+          "dynamic": false
+        },
+        {
+          "suite": "design record reader",
+          "name": "keeps tab-indented list content inside its fence",
+          "dynamic": false
+        },
+        {
+          "suite": "design record reader",
+          "name": "keeps type-seven HTML after a thematic break outside authority",
+          "dynamic": false
+        },
+        {
+          "suite": "design record reader",
+          "name": "uses raw fence info and requires a closing fence at EOF",
+          "dynamic": false
+        },
+        {
+          "suite": "design record reader",
+          "name": "Read_InvalidUtf8_Refuses",
+          "dynamic": false
+        },
+        {
+          "suite": "design record reader",
+          "name": "Read_MalformedTypedBlock_NeverLegacy: %s",
+          "dynamic": false
+        },
+        {
+          "suite": "design record reader",
+          "name": "<dynamic-case-1>",
+          "dynamic": true
+        },
+        {
+          "suite": "design record reader",
+          "name": "refuses ambiguous, unsupported and unterminated typed blocks",
+          "dynamic": false
+        },
+        {
+          "suite": "design record reader",
+          "name": "retains spans across Unicode and CRLF without normalizing the digest",
+          "dynamic": false
+        },
+        {
+          "suite": "design record reader",
+          "name": "recognizes setext requirements and ignores headings outside their region",
+          "dynamic": false
+        },
+        {
+          "suite": "design record reader",
+          "name": "owns frozen bytes and deeply frozen task arrays",
+          "dynamic": false
+        },
+        {
+          "suite": "design record reader",
+          "name": "refuses invalid task structure %j",
+          "dynamic": false
+        },
+        {
+          "suite": "design record reader",
+          "name": "<dynamic-case-2>",
+          "dynamic": true
+        },
+        {
+          "suite": "design record reader",
+          "name": "requires every task key and closes the root keys",
+          "dynamic": false
+        },
+        {
+          "suite": "design record reader",
+          "name": "enforces exact byte and depth limits and explicit overrides",
+          "dynamic": false
+        },
+        {
+          "suite": "design record reader",
+          "name": "reads a mounted reference once and rejects lexical escape or missing files",
+          "dynamic": false
+        },
+        {
+          "suite": "design record reader",
+          "name": "preserves generated exact IDs and edges",
+          "dynamic": false
+        },
+        {
+          "suite": "design record reader",
+          "name": "refuses generated escape-equivalent duplicate keys",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/workflow/design-record/validate.test.ts": {
+      "file": "tests/unit/workflow/design-record/validate.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "typed plan soundness",
+          "name": "Plan_CompletedDisconnectedCycle_Refuses",
+          "dynamic": false
+        },
+        {
+          "suite": "typed plan soundness",
+          "name": "Coverage_TitleMentionsDr_DoesNotCover",
+          "dynamic": false
+        },
+        {
+          "suite": "typed plan soundness",
+          "name": "keeps exact task identity and refuses unknown aliases",
+          "dynamic": false
+        },
+        {
+          "suite": "typed plan soundness",
+          "name": "refuses self dependencies and disconnected cycles",
+          "dynamic": false
+        },
+        {
+          "suite": "typed plan soundness",
+          "name": "refuses missing, duplicate and unlisted definitions",
+          "dynamic": false
+        },
+        {
+          "suite": "typed plan soundness",
+          "name": "refuses unknown implements and prose deferral",
+          "dynamic": false
+        },
+        {
+          "suite": "typed plan soundness",
+          "name": "Structure_HighRiskWithoutTests_Refuses",
+          "dynamic": false
+        },
+        {
+          "suite": "typed plan soundness",
+          "name": "reuses the strict schema for empty files, instructions and acceptance",
+          "dynamic": false
+        },
+        {
+          "suite": "typed plan soundness",
+          "name": "refuses duplicate task identities even for a constructed snapshot",
+          "dynamic": false
+        },
+        {
+          "suite": "typed plan soundness",
+          "name": "Parallel_SharedFile_Refuses",
+          "dynamic": false
+        },
+        {
+          "suite": "typed plan soundness",
+          "name": "sorts findings by code, source position and exact identity",
+          "dynamic": false
+        },
+        {
+          "suite": "typed plan soundness",
+          "name": "permuting generated DAGs preserves soundness and exact edges",
+          "dynamic": false
+        },
+        {
+          "suite": "typed plan soundness",
+          "name": "generated backedges outside the ready component always fail",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/integration/design-record-checks.test.ts": {
+      "file": "tests/integration/design-record-checks.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "shared typed plan checks",
+          "name": "Coverage_GwtWithoutAcceptanceTask_AdvisoryOnly",
+          "dynamic": false
+        },
+        {
+          "suite": "shared typed plan checks",
+          "name": "finds GWT under deeper and setext authoritative headings",
+          "dynamic": false
+        },
+        {
+          "suite": "shared typed plan checks",
+          "name": "does not leak GWT from adjacent prose or a later design boundary",
+          "dynamic": false
+        },
+        {
+          "suite": "shared typed plan checks",
+          "name": "keeps section bounds across fenced, HTML and container pseudoheadings",
+          "dynamic": false
+        },
+        {
+          "suite": "shared typed plan checks",
+          "name": "uses exact edges and the same digest for coverage, traceability and provenance",
+          "dynamic": false
+        },
+        {
+          "suite": "shared typed plan checks",
+          "name": "all evaluators return whole-plan failures instead of canned passes",
+          "dynamic": false
+        },
+        {
+          "suite": "shared typed plan checks",
+          "name": "keeps semantic plausibility challenges advisory on typed fields",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/events/versioned-start.test.ts": {
+      "file": "tests/unit/events/versioned-start.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "versioned start contract",
+          "name": "Decode_ColdUserType_AndLegacyConstructor_AcceptsWithoutRegistration",
+          "dynamic": false
+        },
+        {
+          "suite": "versioned start contract",
+          "name": "Start_LegacyUnknownPhaseAnyJson_Ignored",
+          "dynamic": false
+        },
+        {
+          "suite": "versioned start contract",
+          "name": "Fold_RecordedUserEntry_PreservesPhase_ThroughTransitions",
+          "dynamic": false
+        },
+        {
+          "suite": "versioned start contract",
+          "name": "Start_ExactV11_MalformedDataRefuses %j",
+          "dynamic": false
+        },
+        {
+          "suite": "versioned start contract",
+          "name": "<dynamic-case-1>",
+          "dynamic": true
+        },
+        {
+          "suite": "versioned start contract",
+          "name": "LegacyRegistry_ThirdArgument_AndAbsentData_AreUnchanged",
+          "dynamic": false
+        },
+        {
+          "suite": "versioned start contract",
+          "name": "GenericStart_OwnPhaseOrRawV11_OrColdTypeRefuses %j",
+          "dynamic": false
+        },
+        {
+          "suite": "versioned start contract",
+          "name": "<dynamic-case-2>",
+          "dynamic": true
+        },
+        {
+          "suite": "versioned start contract",
+          "name": "GenericStart_RegisteredConstructorAdmitted_AndAbsentDataUnknownKeysPreserved",
+          "dynamic": false
+        },
+        {
+          "suite": "versioned start contract",
+          "name": "ColdRecovery_RecordedEntry_AndCheckpointAgree",
+          "dynamic": false
+        },
+        {
+          "suite": "versioned start contract",
+          "name": "ColdRecovery_MalformedEpochRefusesBeforeMissingDataReturn %j",
+          "dynamic": false
+        },
+        {
+          "suite": "versioned start contract",
+          "name": "<dynamic-case-3>",
+          "dynamic": true
+        },
+        {
+          "suite": "versioned start contract",
+          "name": "Recovery_LegacyExtraUsesOriginalBuiltinEntry %s",
+          "dynamic": false
+        },
+        {
+          "suite": "versioned start contract",
+          "name": "<dynamic-case-4>",
+          "dynamic": true
+        },
+        {
+          "suite": "versioned start contract",
+          "name": "Migration_OldStartsNeverUpcast_AndLegacyMissingDataKeepsFallback",
+          "dynamic": false
+        },
+        {
+          "suite": "versioned start contract",
+          "name": "ExplicitEntry_RefusesConflictingDocumentOrCheckpoint",
+          "dynamic": false
+        },
+        {
+          "suite": "versioned start contract",
+          "name": "Init_UnregisteredCallerType_Refuses_AndRegisteredConstructorKeepsVersion10",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/integration/prepared-bundle-compatibility.test.ts": {
+      "file": "tests/integration/prepared-bundle-compatibility.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "prepared bundle compatibility",
+          "name": "Codec_OldBundle_RoundTrips",
+          "dynamic": false
+        },
+        {
+          "suite": "prepared bundle compatibility",
+          "name": "Codec_GeneratedStructures_PreserveAbsenceAndEmptySkipList",
+          "dynamic": false
+        },
+        {
+          "suite": "prepared bundle compatibility",
+          "name": "Receipt_OldAbsentAndPreviousReasons_StillDecode %s",
+          "dynamic": false
+        },
+        {
+          "suite": "prepared bundle compatibility",
+          "name": "<dynamic-case-1>",
+          "dynamic": true
+        }
+      ]
+    },
+    "tests/unit/workflow/capsule/prepared-custody.test.ts": {
+      "file": "tests/unit/workflow/capsule/prepared-custody.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "prepared custody",
+          "name": "Legacy_NamedAndLatestUtilities_KeepSkippedMalformedRows",
+          "dynamic": false
+        },
+        {
+          "suite": "prepared custody",
+          "name": "Legacy_MissingReference_IsUndefined_AndMissingBlobThrows",
+          "dynamic": false
+        },
+        {
+          "suite": "prepared custody",
+          "name": "Custody_WholePlanExceedsFrontier_AndReferenceIsMetadata",
+          "dynamic": false
+        },
+        {
+          "suite": "prepared custody",
+          "name": "Custody_MissingTypedRecord_FailsClosed",
+          "dynamic": false
+        },
+        {
+          "suite": "prepared custody",
+          "name": "Custody_DuplicateDesignSource_Refuses",
+          "dynamic": false
+        },
+        {
+          "suite": "prepared custody",
+          "name": "Authority_LaterMissingMarker_RefusesDowngrade_%s",
+          "dynamic": false
+        },
+        {
+          "suite": "prepared custody",
+          "name": "<dynamic-case-1>",
+          "dynamic": true
+        },
+        {
+          "suite": "prepared custody",
+          "name": "Authority_HighestSequenceWins_AndMalformedLatestRefuses",
+          "dynamic": false
+        },
+        {
+          "suite": "prepared custody",
+          "name": "Authority_RecheckIsPure_AndTracksPreparedIdentity",
+          "dynamic": false
+        },
+        {
+          "suite": "prepared custody",
+          "name": "Custody_RowIdentityMismatch_%s",
+          "dynamic": false
+        },
+        {
+          "suite": "prepared custody",
+          "name": "<dynamic-case-2>",
+          "dynamic": true
+        },
+        {
+          "suite": "prepared custody",
+          "name": "Custody_StreamAndEnvelopeMismatch_Refuses",
+          "dynamic": false
+        },
+        {
+          "suite": "prepared custody",
+          "name": "Custody_InvalidWholeTextOrGraph_Refuses_%s",
+          "dynamic": false
+        },
+        {
+          "suite": "prepared custody",
+          "name": "<dynamic-case-3>",
+          "dynamic": true
+        },
+        {
+          "suite": "prepared custody",
+          "name": "Custody_FullDefinitionAndSourceDigest_RefusesDamage",
+          "dynamic": false
+        },
+        {
+          "suite": "prepared custody",
+          "name": "Custody_LegacyAbsentSkipsAndPinnedEmptySkipsRemainDistinct",
+          "dynamic": false
+        },
+        {
+          "suite": "prepared custody",
+          "name": "Custody_OrderedRepeatedAndUnknownSkipsRemainExact",
+          "dynamic": false
+        },
+        {
+          "suite": "prepared custody",
+          "name": "Custody_InvalidEntryOrFinalSkip_Refuses_%s",
+          "dynamic": false
+        },
+        {
+          "suite": "prepared custody",
+          "name": "<dynamic-case-4>",
+          "dynamic": true
+        },
+        {
+          "suite": "prepared custody",
+          "name": "Custody_KernelOnlyLegacyRemainsUnsupported_AndNewPinCannotDisappear",
+          "dynamic": false
+        },
+        {
+          "suite": "prepared custody",
+          "name": "Custody_MarkerAndSourceCannotHideChangedRawText",
+          "dynamic": false
+        },
+        {
+          "suite": "prepared custody",
+          "name": "Custody_UserDefinitionUsesItsStoredType",
+          "dynamic": false
+        },
+        {
+          "suite": "prepared custody",
+          "name": "Authority_NamedLegacyPrefix_RemainsSeparateFromLatestTypedAuthority",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/integration/prepared-plan-authority.test.ts": {
+      "file": "tests/integration/prepared-plan-authority.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "prepared plan authority",
+          "name": "Membership_ProjectDeletesPendingTask_KeepsIt",
+          "dynamic": false
+        },
+        {
+          "suite": "prepared plan authority",
+          "name": "Membership_LastFailureRow_Wins",
+          "dynamic": false
+        },
+        {
+          "suite": "prepared plan authority",
+          "name": "Membership_GeneratedDocumentEdits_DoNotChangeMembershipOrCompletion",
+          "dynamic": false
+        },
+        {
+          "suite": "prepared plan authority",
+          "name": "Membership_ProseEditRetainsCompletionByExactId",
+          "dynamic": false
+        },
+        {
+          "suite": "prepared plan authority",
+          "name": "Custody_LoadOutsideCommit_ThenPureRecheckAndCurrentCompletion",
+          "dynamic": false
+        },
+        {
+          "suite": "prepared plan authority",
+          "name": "Custody_MissingOrCorruptBytes_NeverFallback",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/integration/settle-plan-authority.test.ts": {
+      "file": "tests/integration/settle-plan-authority.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "settle whole-plan authority",
+          "name": "Settle_DroppedPendingTask_DoesNotAdvance",
+          "dynamic": false
+        },
+        {
+          "suite": "settle whole-plan authority",
+          "name": "Settle_NewerCompatibleFrontier_CanAdvance",
+          "dynamic": false
+        },
+        {
+          "suite": "settle whole-plan authority",
+          "name": "Settle_StableDifferentPlanDefinitionOrSkips_PersistsMismatchOnce: %s",
+          "dynamic": false
+        },
+        {
+          "suite": "settle whole-plan authority",
+          "name": "<dynamic-case-1>",
+          "dynamic": true
+        },
+        {
+          "suite": "settle whole-plan authority",
+          "name": "Settle_UnchangedPreparedEnvelopeMetadata_CommitsFirstAttempt",
+          "dynamic": false
+        },
+        {
+          "suite": "settle whole-plan authority",
+          "name": "Settle_NewPreparedEnvelopeAfterRead_ReloadsOutsideCommit: %s",
+          "dynamic": false
+        },
+        {
+          "suite": "settle whole-plan authority",
+          "name": "<dynamic-case-2>",
+          "dynamic": true
+        },
+        {
+          "suite": "settle whole-plan authority",
+          "name": "Settle_LateMissingCustody_PreservesCompletionAndNoMove",
+          "dynamic": false
+        },
+        {
+          "suite": "settle whole-plan authority",
+          "name": "Settle_FrozenSkips_IgnoreCurrentConfig",
+          "dynamic": false
+        },
+        {
+          "suite": "settle whole-plan authority",
+          "name": "Settle_CorruptCustody_RefusesWithoutReceipt: %s",
+          "dynamic": false
+        },
+        {
+          "suite": "settle whole-plan authority",
+          "name": "<dynamic-case-3>",
+          "dynamic": true
+        },
+        {
+          "suite": "settle whole-plan authority",
+          "name": "Settle_GeneratedPolicyAndCompletionTraces_NeverMixAuthorities",
+          "dynamic": false
+        },
+        {
+          "suite": "settle actual receipt replay",
+          "name": "Settle_UnavailableCustody_ReplaysReceiptAndRejectsChangedPayload",
+          "dynamic": false
+        },
+        {
+          "suite": "settle actual receipt replay",
+          "name": "Settle_SubmittedCapsuleDigest_IsStillCheckedOnReplay",
+          "dynamic": false
+        },
+        {
+          "suite": "settle actual receipt replay",
+          "name": "Settle_WinnerDuringCustody_ReplaysBeforeFreshValidation: fails=%s",
+          "dynamic": false
+        },
+        {
+          "suite": "settle actual receipt replay",
+          "name": "<dynamic-case-4>",
+          "dynamic": true
+        },
+        {
+          "suite": "settle actual receipt replay",
+          "name": "Settle_CopiedSettlementRow_IsNotAClaim",
+          "dynamic": false
+        },
+        {
+          "suite": "settle actual receipt replay",
+          "name": "Settle_BoundedCustodySelectionBenchmark_ReportsSeparateCosts",
+          "dynamic": false
+        },
+        {
+          "suite": "settle bounded legacy task repair",
+          "name": "Settle_RequiredOnlyCompletion_RepairDependsOnVerifiedCustody: %s",
+          "dynamic": false
+        },
+        {
+          "suite": "settle bounded legacy task repair",
+          "name": "<dynamic-case-5>",
+          "dynamic": true
+        },
+        {
+          "suite": "settle bounded legacy task repair",
+          "name": "Settle_MandatoryRepairFailure_KeepsReceipt: custody=%s",
+          "dynamic": false
+        },
+        {
+          "suite": "settle bounded legacy task repair",
+          "name": "<dynamic-case-6>",
+          "dynamic": true
+        },
+        {
+          "suite": "settle bounded legacy task repair",
+          "name": "Settle_OwnedCommitTaskPublicationFailure_RetriesFromActualClaim",
+          "dynamic": false
+        },
+        {
+          "suite": "settle receipt integrity",
+          "name": "Settle_LateWinnerDifferentPayload_PreservesDigestRefusal: %s",
+          "dynamic": false
+        },
+        {
+          "suite": "settle receipt integrity",
+          "name": "<dynamic-case-7>",
+          "dynamic": true
+        },
+        {
+          "suite": "settle receipt integrity",
+          "name": "Settle_ReceiptDigestDisagreesWithClaim_RefusesReplay",
+          "dynamic": false
+        },
+        {
+          "suite": "",
+          "name": "Settle_ActualClaimStreamDiffers_RefusesReceiptWithoutRepair",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/integration/design-record-consumers.test.ts": {
+      "file": "tests/integration/design-record-consumers.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "typed consumer adoption; prepare remains deferred to its own task",
+          "name": "Consumers_T01WithMisleadingTitle_AgreeOnEdges",
+          "dynamic": false
+        },
+        {
+          "suite": "typed consumer adoption; prepare remains deferred to its own task",
+          "name": "generated relations agree across real wrappers and shared evaluators",
+          "dynamic": false
+        },
+        {
+          "suite": "typed consumer adoption; prepare remains deferred to its own task",
+          "name": "Consumers_InvalidTypedBlock_AllRefuse: %s",
+          "dynamic": false
+        },
+        {
+          "suite": "typed consumer adoption; prepare remains deferred to its own task",
+          "name": "<dynamic-case-1>",
+          "dynamic": true
+        },
+        {
+          "suite": "typed consumer adoption; prepare remains deferred to its own task",
+          "name": "whole graph refuses %s despite full coverage",
+          "dynamic": false
+        },
+        {
+          "suite": "typed consumer adoption; prepare remains deferred to its own task",
+          "name": "<dynamic-case-2>",
+          "dynamic": true
+        },
+        {
+          "suite": "typed consumer adoption; prepare remains deferred to its own task",
+          "name": "TypedTraceability_Uncovered_ReplacesPassingReport",
+          "dynamic": false
+        },
+        {
+          "suite": "typed consumer adoption; prepare remains deferred to its own task",
+          "name": "TypedDecomposition_ExplicitBaseline_ControlsAdvisory",
+          "dynamic": false
+        },
+        {
+          "suite": "typed consumer adoption; prepare remains deferred to its own task",
+          "name": "TypedTestPath_WhitespaceRejectedBeforeGlobOrExistence",
+          "dynamic": false
+        },
+        {
+          "suite": "typed consumer adoption; prepare remains deferred to its own task",
+          "name": "TypedTestPath_PinnedProfileControlsBothCoveragePhases",
+          "dynamic": false
+        },
+        {
+          "suite": "typed consumer adoption; prepare remains deferred to its own task",
+          "name": "classifies both sources and refuses different typed or legacy bytes",
+          "dynamic": false
+        },
+        {
+          "suite": "typed consumer adoption; prepare remains deferred to its own task",
+          "name": "unified absolute paths are captured once by coverage traceability and pure provenance",
+          "dynamic": false
+        },
+        {
+          "suite": "typed consumer adoption; prepare remains deferred to its own task",
+          "name": "typed coverage and decomposition advisories do not block a sound graph",
+          "dynamic": false
+        },
+        {
+          "suite": "typed consumer adoption; prepare remains deferred to its own task",
+          "name": "Provenance_FileChangesAfterRead_DigestMatchesVerdict typed=%s",
+          "dynamic": false
+        },
+        {
+          "suite": "typed consumer adoption; prepare remains deferred to its own task",
+          "name": "<dynamic-case-3>",
+          "dynamic": true
+        }
+      ]
+    },
+    "tests/integration/design-record-adapters.test.ts": {
+      "file": "tests/integration/design-record-adapters.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "typed task adapters",
+          "name": "Stamps_TypedT01_UsesExactId",
+          "dynamic": false
+        },
+        {
+          "suite": "typed task adapters",
+          "name": "Extract_TypedTask_RendersCurrentStringContract",
+          "dynamic": false
+        },
+        {
+          "suite": "typed task adapters",
+          "name": "SpecCoverage_ForwardDeclaredProfilePath_PassesWithoutExecution",
+          "dynamic": false
+        },
+        {
+          "suite": "typed task adapters",
+          "name": "uses the resolved probe for each on-disk typed declaration",
+          "dynamic": false
+        },
+        {
+          "suite": "typed task adapters",
+          "name": "keeps a typed path outside the resolved globs as malformed in both phases",
+          "dynamic": false
+        },
+        {
+          "suite": "typed task adapters",
+          "name": "Adapter_InvalidTypedRecord_NeverProseFallback",
+          "dynamic": false
+        },
+        {
+          "suite": "typed task adapters",
+          "name": "rejects an unsound task outside the selected task and keeps the completeness verdict",
+          "dynamic": false
+        },
+        {
+          "suite": "typed task adapters",
+          "name": "preserves generated exact ids and declared fields across task adapters",
           "dynamic": false
         }
       ]

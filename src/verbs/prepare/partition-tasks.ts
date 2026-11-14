@@ -12,6 +12,7 @@
  */
 
 import { SharedStableIdSchema } from '../../contract/ir/admission-ir.js';
+import type { DesignRecordSnapshot } from '../../workflow/design-record/schema.js';
 import type { RiskTier } from '../../workflow/verification-policy.js';
 import {
   deriveBoundaryTouching,
@@ -143,6 +144,11 @@ export function readPlannedTask(entry: unknown, index: number): PlannedTask | Pr
   const verification = readVerification(entry, id);
   if ('code' in verification) return verification;
   return { id, title, complete, blockedBy, verification };
+}
+
+/** Overlay ledger status on the approved task list in its authored order. */
+export function typedPlanTasks(snapshot: DesignRecordSnapshot, statuses: ReadonlyMap<string, string>) {
+  return snapshot.tasks.map((task) => ({ ...task, status: statuses.get(task.id) ?? 'pending' }));
 }
 
 /** What each pending task waits on that is not yet complete, as a refusal names it. */
