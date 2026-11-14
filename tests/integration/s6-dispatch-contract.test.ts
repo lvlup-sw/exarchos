@@ -168,7 +168,7 @@ describe('registered prepare', () => {
     const first = receipt(await call('exarchos_orchestrate', 'prepare', args));
     expect(estimateOutputTokens(first)).toBeLessThan(PREPARE_ECONOMY_BUDGET_TOKENS);
     expect(first.capsule.graph.tasks.map(({ taskId, stepId }) => [taskId, stepId])).toEqual([[TASK, 'delegate']]);
-    expect(first.capsule.provenance.compilerVersion).toBe('exarchos-prepare-7');
+    expect(first.capsule.provenance.compilerVersion).toBe('exarchos-prepare-8');
     await vi.waitFor(async () => expect((await s.store.query(stream)).filter(telemetryRow)).toHaveLength(1));
     const before = (await s.store.query(stream)).filter(row => !telemetryRow(row));
     expect(before.map(({ type }) => type)).toEqual(PREFIX);
@@ -232,7 +232,7 @@ describe('registered prepare', () => {
 
   it('Dispatch_BootstrapEconomy_KeepsReceiptIdentityAndCustody', async () => {
     const tasks = Array.from({ length: 42 }, (_, i) => task(`T-${i + 1}`, {
-      title: `Task ${i + 1} ${'long text '.repeat(360)}`, testFiles: [`tests/task-${i}.test.ts`],
+      title: `Task ${i + 1}`, instructions: 'long approved instructions '.repeat(240), testFiles: [`tests/task-${i}.test.ts`],
     }));
     const s = await fixture(tasks);
     const stream = 'bootstrap-economy';
@@ -366,7 +366,7 @@ async function assertMixedReplay(s: Fixture, membershipSize: number, legacyExtra
     testFiles: [`tests/${id}.test.ts`],
   }))));
   const typedReceipt = receipt(await call('exarchos_orchestrate', 'prepare', await bootstrapArgs(s, typed)));
-  expect(typedReceipt.capsule.graph.tasks.map(t => t.taskId)).toEqual([TASK]);
+  expect(typedReceipt.capsule.graph.tasks.map(t => t.taskId)).toEqual(ids);
   const worktreePath = await s.repository.worktreeFor(TASK, { 'src/task.ts': 'export const task = true;\n' });
   const evidenceResult = await call('exarchos_orchestrate', 'check_static_analysis', {
     featureId: typed, taskId: TASK, repoRoot: 'auto', worktreePath,

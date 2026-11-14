@@ -2,6 +2,8 @@
  * Composite handler for the `exarchos_orchestrate` tool. It routes the `action` field to the matching handler.
  */
 
+import { canonicalJson } from '../contract/request-context.js';
+import { TaskVerificationCoordinateSchema } from '../contract/capsule/exarchos-capsule.js';
 import { type ToolResult } from '../format.js';
 import type { DispatchContext } from '../dispatch/core/dispatch.js';
 import type { EventType } from '../events/schemas.js';
@@ -108,8 +110,10 @@ import type { HandleAddArgs } from './invariants/add.js';
 import { realScaffoldDeps } from './invariants/fs-deps.js';
 import { withGateSeverity, type GateSeverityDescriptor } from './gates/gate-severity.js';
 import { resolveWorkflowState } from './resolve-state.js';
-import { handleExecuteIntent, productionExecuteDeps } from './execute/executor.js';
+import { TASK_COMPLETION } from '../runbooks/definitions.js';
+import { handleExecuteIntent, productionExecuteDeps, derivedLeafOperationId } from './execute/executor.js';
 import { handlePrepare } from './prepare/handler.js';
+import { handleReadPreparedCapsule } from './prepare/read-prepared-capsule.js';
 import { handleSettle } from './settle/handler.js';
 
 type ActionHandler = (args: Record<string, unknown>, stateDir: string, ctx?: DispatchContext) => Promise<ToolResult>;
@@ -215,6 +219,22 @@ async function resolveWorkflowTypeForGate(
   }
 }
 
+/** Refuses unbound or mismatched coordinate inputs before provider effects. */
+function coordinateRefusal(args: Record<string, unknown>, ctx: DispatchContext | undefined, coordinateAware: boolean): ToolResult | undefined {
+  const supplied = args.coordinate;
+  const trusted = ctx?.verificationInput;
+  if (supplied !== undefined || (coordinateAware && trusted !== undefined)) {
+    const parsed = TaskVerificationCoordinateSchema.safeParse(supplied);
+    if (!coordinateAware || trusted === undefined || !parsed.success
+      || trusted.segmentOperationId.length === 0
+      || parsed.data.taskId !== args.taskId || parsed.data.capsule.workflowId !== args.featureId
+      || canonicalJson(parsed.data) !== canonicalJson(trusted.coordinate)) {
+      return { success: false, error: { code: 'TASK_COORDINATE_REFUSED', message: 'The leaf coordinate requires matching bound segment authority.' } };
+    }
+  }
+  return undefined;
+}
+
 /**
  * Adapter for a verification-ladder gate. It copies `ctx.projectConfig` into the args when the args carry none.
  * The self-skip routing of the handler thus reads the dispatch config. An explicit `projectConfig` in the args, such as from a test, wins.
@@ -226,6 +246,7 @@ async function resolveWorkflowTypeForGate(
  */
 export function adaptLadderGate<T>(
   handler: (args: T, stateDir: string, eventStore: EventStore) => Promise<ToolResult>,
+  coordinateAware = false,
 ): ActionHandler {
   return async (args, stateDir, ctx) => {
     if (!ctx?.eventStore) {
@@ -233,6 +254,8 @@ export function adaptLadderGate<T>(
         `${handler.name}: ctx.eventStore required (handler dispatched without DispatchContext)`,
       );
     }
+    const refusal = coordinateRefusal(args, ctx, coordinateAware);
+    if (refusal !== undefined) return refusal;
     const enrichedArgs =
       ctx.projectConfig !== undefined &&
       (args as { projectConfig?: unknown }).projectConfig === undefined
@@ -243,7 +266,9 @@ export function adaptLadderGate<T>(
       ctx.verificationProfile === undefined
         ? unprofiledArgs
         : { ...unprofiledArgs, verificationProfile: ctx.verificationProfile };
-    return handler(gateArgs as unknown as T, stateDir, ctx.eventStore);
+    const selectedArgs = coordinateAware && ctx.verificationInput !== undefined
+      ? { ...gateArgs, coordinate: ctx.verificationInput.coordinate } : gateArgs;
+    return handler(selectedArgs as unknown as T, stateDir, ctx.eventStore);
   };
 }
 
@@ -388,7 +413,22 @@ const ACTION_HANDLERS_TOOL = 'exarchos_orchestrate';
  */
 export const ACTION_HANDLERS: Readonly<Record<string, ActionHandler>> = {
   task_claim: adaptWithEventStore(handleTaskClaim),
-  task_complete: adaptWithEventStore(handleTaskComplete, (ctx) => ctx.treeObserver),
+  task_complete: async (args, stateDir, ctx) => {
+    if (ctx === undefined) throw new Error('Task completion requires dispatch context');
+    const refusal = coordinateRefusal(args, ctx, true);
+    if (refusal !== undefined) return refusal;
+    const trusted = ctx.verificationInput;
+    if (trusted === undefined) return adaptWithEventStore(handleTaskComplete, (context) => context.treeObserver)(args, stateDir, ctx);
+    const staticSteps = TASK_COMPLETION.steps.flatMap((step, index) => step.action === 'check_static_analysis' ? [index] : []);
+    const staticIndex = staticSteps[0];
+    if (staticSteps.length !== 1 || staticIndex === undefined
+      || (args.streamId ?? args.featureId) !== trusted.coordinate.capsule.workflowId) {
+      return { success: false, error: { code: 'TASK_COORDINATE_REFUSED', message: 'Completion requires one selected static leaf and the bound stream.' } };
+    }
+    const authority = { ...trusted, staticOperationId: derivedLeafOperationId(trusted.segmentOperationId, staticIndex, 'check_static_analysis') };
+    return adaptWithEventStore((typedArgs: Parameters<typeof handleTaskComplete>[0], dir, store) =>
+      handleTaskComplete(typedArgs, dir, store, ctx.treeObserver, authority))(args, stateDir, ctx);
+  },
   task_fail: adaptWithEventStore(handleTaskFail),
   review_triage: adaptWithEventStore(handleReviewTriage),
   prepare_delegation: adaptWithCtx(handlePrepareDelegation),
@@ -402,9 +442,9 @@ export const ACTION_HANDLERS: Readonly<Record<string, ActionHandler>> = {
    */
   check_exploration_depth: adaptWithEventStore(handleCheckExplorationDepth),
   /** Verification-ladder gate. {@link adaptLadderGate} copies the dispatch config into the args, and the severity wrapper applies the severity. */
-  check_test_adequacy: adaptLadderGate(handleTestAdequacy),
-  check_contract_drift: adaptLadderGate(handleContractDrift),
-  check_mock_boundary: adaptLadderGate(handleMockBoundary),
+  check_test_adequacy: adaptLadderGate(handleTestAdequacy, true),
+  check_contract_drift: adaptLadderGate(handleContractDrift, true),
+  check_mock_boundary: adaptLadderGate(handleMockBoundary, true),
   /**
    * Action of the mutation-adequacy review dimension. It is advisory by default, because its seeded gate default is warning-only.
    * A score under the threshold shows survivor `next_actions` and does not block.
@@ -412,8 +452,8 @@ export const ACTION_HANDLERS: Readonly<Record<string, ActionHandler>> = {
    */
   [MUTATION_GATE_NAME]: adaptLadderGate(handleMutationAdequacy),
   check_post_merge: adaptWithEventStore(handlePostMerge),
-  check_static_analysis: adaptLadderGate(handleStaticAnalysis),
-  check_integration_suite: adaptLadderGate(handleCheckIntegrationSuite),
+  check_static_analysis: adaptLadderGate(handleStaticAnalysis, true),
+  check_integration_suite: adaptLadderGate(handleCheckIntegrationSuite, true),
   check_security_scan: adaptWithEventStore(handleSecurityScan),
   check_context_economy: adaptWithEventStore(handleContextEconomy),
   check_operational_resilience: adaptWithEventStore(handleOperationalResilience),
@@ -528,6 +568,10 @@ export const ACTION_HANDLERS: Readonly<Record<string, ActionHandler>> = {
     return handleSettle(args, stateDir, ctx, {
       execute: productionExecuteDeps(ACTION_HANDLERS, ACTION_HANDLERS_TOOL),
     });
+  },
+  read_prepared_capsule: async (args, stateDir, ctx) => {
+    if (!ctx) throw new Error('DispatchContext required for read_prepared_capsule');
+    return handleReadPreparedCapsule(args, stateDir, ctx, ctx.preparedDetailWarnings);
   },
   /** The compilation endpoint, the pair of `settle`. It reads the workflow and commits through the store, so it needs the real context. */
   prepare: async (args, stateDir, ctx) => {

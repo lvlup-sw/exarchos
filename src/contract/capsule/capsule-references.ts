@@ -32,6 +32,7 @@ export const CapsuleReferenceViolationKindSchema = z.enum([
   'unadjudicable-required-result',
   'dangling-step-ref',
   'unsound-kernel-definition',
+  'compiler-semantics',
 ]);
 
 /** The roster, in declaration order. */
@@ -185,6 +186,85 @@ function findDependencyCycles(
   return cycles;
 }
 
+/** Compiler-specific completeness does not change the historical structural decoder. */
+function compilerSemantics(capsule: ExarchosCapsuleV1): CapsuleReferenceViolation[] {
+  if (capsule.provenance.compilerVersion !== 'exarchos-prepare-8') return [];
+  const violations: CapsuleReferenceViolation[] = [];
+  const fail = (ref: string, at: string, message: string): void => {
+    violations.push({ kind: 'compiler-semantics', ref, at, message });
+  };
+  const terms = capsule.settlementContract;
+  const sources = capsule.provenance.sources.filter(source => source.sourceId === 'design-record');
+  if (terms.verificationMode !== 'immutable-task-diff-v1' || terms.scope === undefined
+      || terms.verificationProfile === undefined || terms.skipPhases === undefined || sources.length !== 1) {
+    fail('exarchos-prepare-8', 'provenance.compilerVersion', 'Compiler 8 requires typed source, scope, profile, frozen skips and immutable verification.');
+  }
+  const taskIds = new Set(capsule.graph.tasks.map(task => task.taskId));
+  const edgeKeys = new Set<string>();
+  for (const edge of capsule.graph.dependencies) {
+    const key = JSON.stringify([edge.from, edge.to]);
+    if (edgeKeys.has(key)) fail(edge.to, 'graph.dependencies', 'A dependency occurs more than once.');
+    edgeKeys.add(key);
+  }
+  const incoming = new Map<string, string[]>();
+  for (const edge of capsule.graph.dependencies) incoming.set(edge.to, [...(incoming.get(edge.to) ?? []), edge.from]);
+  const byDependent = new Map<string, typeof capsule.graph.joins>();
+  for (const join of capsule.graph.joins) {
+    if (join.forTaskId !== undefined) byDependent.set(join.forTaskId, [...(byDependent.get(join.forTaskId) ?? []), join]);
+  }
+  const stages = new Set<string>();
+  const bases = new Set<string>();
+  for (const [index, task] of capsule.graph.tasks.entries()) {
+    const at = `graph.tasks[${index}]`;
+    const context = task.taskContext;
+    const verification = terms.taskVerification?.[task.taskId];
+    if (task.stage === undefined || task.stepId !== task.stage.stepId || context === undefined
+        || verification?.baseCommit === undefined) {
+      fail(task.taskId, at, 'Compiler 8 requires a located stage, context and pinned task base.');
+      continue;
+    }
+    stages.add(task.stage.stepId);
+    const blockers = incoming.get(task.taskId) ?? [];
+    bases.add(JSON.stringify([verification.baseRef, verification.baseCommit]));
+    const result = capsule.contracts.taskResults[task.taskId];
+    if (context.taskId !== task.taskId || context.title !== task.title || context.resultContractRef !== task.taskId
+        || result === undefined || JSON.stringify(context.blockedBy) !== JSON.stringify(blockers)
+        || context.riskTier !== verification.riskTier || context.boundaryTouching !== verification.boundaryTouching
+        || context.source.digest !== sources[0]?.digest) {
+      fail(task.taskId, at, 'The context must match its task, blockers, source, result contract and verification terms.');
+    }
+    const span = context.source.span;
+    if (span.end <= span.start || span.endLine < span.startLine) fail(task.taskId, at, 'The source span must be nonempty and ordered.');
+    const byteTerms: readonly [readonly string[], number][] = [
+      [[context.title], 256], [[context.instructions], 8192], [context.acceptance, 2048],
+      [[...context.files, ...context.testFiles, context.source.reference,
+        ...Object.values(context.knowledgeSlice).flat()], 512],
+    ];
+    if (byteTerms.some(([values, limit]) => values.some(value => !value.trim() || Buffer.byteLength(value, 'utf8') > limit))
+        || Buffer.byteLength(JSON.stringify({ context, resultContract: result }), 'utf8') > 24000) {
+      fail(task.taskId, at, 'The full context and result contract exceed their UTF-8 byte bounds or contain blank text.');
+    }
+    if (blockers.length > 0 && !result?.some(field => field.name === 'forkCommit' && field.type === 'string' && field.required)) {
+      fail(task.taskId, at, 'A dependent result must require its fork commit.');
+    }
+    const joins = byDependent.get(task.taskId) ?? [];
+    if (blockers.length > 1) {
+      const [join] = joins;
+      if (joins.length !== 1 || join?.mode !== 'all' || JSON.stringify(join.waitsFor) !== JSON.stringify(blockers)) {
+        fail(task.taskId, 'graph.joins', 'A fan-in requires exactly one all-mode join with its ordered direct blockers.');
+      }
+    } else if (joins.length !== 0) fail(task.taskId, 'graph.joins', 'Roots and single-blocker tasks have no fan-in join.');
+  }
+  if (bases.size !== 1) fail('base', 'settlementContract.taskVerification', 'All tasks share one pinned base coordinate.');
+  if (stages.size !== 1) fail('stage', 'graph.tasks', 'All compiler-8 tasks belong to one implementation stage.');
+  for (const join of capsule.graph.joins) {
+    if (taskIds.has(join.joinId) || join.forTaskId === undefined || !taskIds.has(join.forTaskId)) {
+      fail(join.joinId, 'graph.joins', 'Join ids cannot collide with tasks and each join must name its dependent.');
+    }
+  }
+  return violations;
+}
+
 /**
  * Resolve every reference in a structurally valid capsule. It returns all violations, not only the
  * first. The function does not change the document and does no I/O.
@@ -193,7 +273,7 @@ export function resolveCapsuleReferences(
   capsule: ExarchosCapsuleV1,
   opts: ResolveCapsuleReferencesOptions = {},
 ): CapsuleReferenceVerdict {
-  const violations: CapsuleReferenceViolation[] = [];
+  const violations: CapsuleReferenceViolation[] = compilerSemantics(capsule);
 
   const taskIds = new Set<string>();
   capsule.graph.tasks.forEach((task, i) => {

@@ -127,7 +127,7 @@ export function readLedger(database: string, stream: string) {
     const stored = db.prepare('SELECT payload FROM events WHERE streamId = ? ORDER BY sequence').all(stream) as { payload: string }[];
     const rows = stored.map(({ payload }) => JSON.parse(payload) as LedgerRow);
     const claims = db.prepare(
-      "SELECT idempotencyKey, events_json, sequences FROM idempotency_claims WHERE json_extract(events_json, '$.streamId') = ? ORDER BY idempotencyKey",
+      "SELECT idempotencyKey, events_json, sequences FROM idempotency_claims WHERE streamId = '__decide_once_operations__' AND json_extract(events_json, '$.streamId') = ? ORDER BY idempotencyKey",
     ).all(stream) as { idempotencyKey: string; events_json: string; sequences: string }[];
     const operations: Operation[] = claims.map(row => ({
       key: row.idempotencyKey, result: record(record(JSON.parse(row.events_json)).result),

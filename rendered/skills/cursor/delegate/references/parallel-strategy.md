@@ -2,7 +2,7 @@
 
 ## Identifying Parallel Groups
 
-From implementation plan:
+For compiler 8, group ready nodes from the pinned graph and respect all fan-in blockers. Use authored order for ties. A dependent starts from a clean fork containing the direct blocker heads; record its full `forkCommit`. Partial batches keep the same applicable capsule, while corrected claims use a new batchId. For compiler 7 and the primitive path, use the matching approved implementation plan:
 ```markdown
 ## Parallel Groups
 

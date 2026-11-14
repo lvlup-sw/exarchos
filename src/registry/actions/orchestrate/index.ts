@@ -20,6 +20,7 @@ import { worktreeActions } from './worktree.js';
 import { cutoverActions } from './cutover.js';
 import { executeActions } from './execute.js';
 import { prepareActions } from './prepare.js';
+import { readPreparedCapsuleActions } from './read-prepared-capsule.js';
 import { settleActions } from './settle.js';
 
 export const orchestrateActions: readonly BuiltinToolAction[] = [
@@ -36,6 +37,7 @@ export const orchestrateActions: readonly BuiltinToolAction[] = [
   ...cutoverActions,
   ...executeActions,
   ...prepareActions,
+  ...readPreparedCapsuleActions,
   ...settleActions,
   makeDescribeAction('exarchos_orchestrate.describe'),
 ];

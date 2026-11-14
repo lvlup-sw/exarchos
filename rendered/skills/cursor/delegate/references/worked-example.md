@@ -23,7 +23,7 @@ exarchos_orchestrate({
 })
 ```
 
-To recover the initial receipt, resend the identical saved bootstrap request, including its original approval and depth. If the plan changes later, have the user approve its new raw bytes and use their digest as `approvedCurrentFileSha256` in a compile request. Use compile for the next frontier even when the file did not change. A refactor bootstrap instead supplies its `refactor` workflow type and the `overhaul` track with the scope assessment.
+To recover the initial receipt, resend the identical saved bootstrap request, including its original approval and depth. If the plan changes later, have the user approve its new raw bytes and use their digest as `approvedCurrentFileSha256` in a compile request. This example follows compiler 7: use compile for the next frontier even when the file did not change. With compiler 8, retain the full graph capsule across waves and use a new batchId for the next partial submission; recompile only when the terms require it. A refactor bootstrap instead supplies its `refactor` workflow type and the `overhaul` track with the scope assessment.
 
 ```typescript
 exarchos_orchestrate({
@@ -60,7 +60,7 @@ The bootstrap response in this example is abridged:
 
 ## 2. Dispatch
 
-Build two self-contained prompts from `implementer-prompt.md` — the task body from the plan, the terms from the capsule — and dispatch in a single message. Each prompt names the `baseCommit` of its task. The worker starts a branch of its own at that commit in its own linked worktree, never in `/project`, which is the checkout that `prepare` read:
+Build two self-contained prompts from `implementer-prompt.md` — for compiler 7 the task body from the matching approved plan and terms from the capsule; for compiler 8 the full pinned taskContext and referenced result contract — and dispatch in a single message. Each prompt names the `baseCommit` of its task. The worker starts a branch of its own at that commit in its own linked worktree, never in `/project`, which is the checkout that `prepare` read:
 
 ```typescript
 Task({

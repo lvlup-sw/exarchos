@@ -15,6 +15,8 @@
  * in the user's home directory.
  */
 
+import type { z } from 'zod';
+import type { TaskVerificationCoordinateSchema } from '../../contract/capsule/exarchos-capsule.js';
 import type { ToolResult } from '../../format.js';
 import { logger } from '../../logger.js';
 import type { EventStore } from '../../events/store.js';
@@ -97,6 +99,8 @@ export interface DispatchContext {
   readonly stateDir: string;
   readonly eventStore: EventStore;
   readonly enableTelemetry: boolean;
+  /** Dispatch supplies these warnings before the prepared-detail reader measures its full carrier. */
+  readonly preparedDetailWarnings?: readonly string[];
   /**
    * The runtime-owned caller identity, with no PII. Adapters derive it from MCP session state or
    * the local installation, never from action args.
@@ -155,6 +159,11 @@ export interface DispatchContext {
    * The composition root sets no profile, and a caller over MCP or the CLI cannot set the field.
    */
   readonly verificationProfile?: PinnedVerificationProfile;
+  /** Only the bound executor supplies the winning coordinate and its stable segment identity. */
+  readonly verificationInput?: {
+    readonly coordinate: z.infer<typeof TaskVerificationCoordinateSchema>;
+    readonly segmentOperationId: string;
+  };
 }
 
 /**
@@ -257,6 +266,7 @@ export const READ_ONLY_ACTIONS = {
   exarchos_orchestrate: [
     'describe',
     'runbook',
+    'read_prepared_capsule',
     'agent_spec',
     'check_static_analysis',
     'check_security_scan',
@@ -490,6 +500,7 @@ export async function dispatch(
   args: Record<string, unknown>,
   ctx: DispatchContext,
 ): Promise<ToolResult> {
+  const preparedDetailRead = tool === 'exarchos_orchestrate' && args.action === 'read_prepared_capsule';
   const taskAugmented = isTaskAugmented(args);
   const taskOptionsRaw = taskAugmented ? (args as { task?: unknown }).task : undefined;
   if (taskAugmented) {
@@ -535,6 +546,9 @@ export async function dispatch(
     ? detectActiveStoreDivergence()
     : undefined;
 
+  const divergenceWarning = storeDivergence?.shouldWarn === true ? describeStoreDivergence(storeDivergence) : undefined;
+  const preparedDetailWarnings = preparedDetailRead && divergenceWarning !== undefined ? [divergenceWarning] : [];
+
   const attachMeta = (result: ToolResult): ToolResult => {
     const existingMeta =
       typeof (result as { _meta?: unknown })._meta === 'object' &&
@@ -552,8 +566,9 @@ export async function dispatch(
       ? { ...correlationMeta, ...existingMeta }
       : correlationMeta;
     const alreadyStated = result.error?.code === 'STORE_PATH_DIVERGENCE';
-    const warnings = storeDivergence?.shouldWarn === true && !alreadyStated
-      ? [...(result.warnings ?? []), describeStoreDivergence(storeDivergence)]
+    const warnings = divergenceWarning !== undefined && !alreadyStated &&
+      !(preparedDetailRead && result.warnings?.includes(divergenceWarning))
+      ? [...(result.warnings ?? []), divergenceWarning]
       : result.warnings;
     return {
       ...result,
@@ -564,6 +579,11 @@ export async function dispatch(
 
   return runWithDispatchContext(dispatchCtx, async () => {
   try {
+
+  if (preparedDetailRead && taskAugmented) {
+    return attachMeta({ success: false, error: { code: 'INVALID_INPUT',
+      message: 'read_prepared_capsule does not support task augmentation; call the read directly.' } });
+  }
 
   const isBuiltIn = Object.prototype.hasOwnProperty.call(COMPOSITE_HANDLERS, tool);
   if (isBuiltIn && registeredTool) {
@@ -612,6 +632,7 @@ export async function dispatch(
 
     if (
       !parsed.success &&
+      !preparedDetailRead &&
       ctx.capabilityResolver?.isElicitationDeclared() === true &&
       ctx.elicitationClient !== undefined
     ) {
@@ -732,7 +753,7 @@ export async function dispatch(
   }
 
   const coreHandler = builtInHandler
-    ? async (a: Record<string, unknown>) => builtInHandler(a, ctx)
+    ? async (a: Record<string, unknown>) => builtInHandler(a, preparedDetailRead ? { ...ctx, preparedDetailWarnings } : ctx)
     : createCustomToolHandler(tool);
 
   let result: ToolResult;
@@ -761,7 +782,7 @@ export async function dispatch(
       request,
       execute: augmentedHandler,
     });
-  } else if (ctx.enableTelemetry) {
+  } else if (ctx.enableTelemetry && !preparedDetailRead) {
     const { withTelemetry } = await import('../../projections/telemetry/middleware.js');
     const wrappedHandler = withTelemetry(coreHandler, tool, ctx.eventStore);
     result = await wrappedHandler(args);

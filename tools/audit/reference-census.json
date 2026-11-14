@@ -1,7 +1,7 @@
 {
-  "capturedAt": "2026-11-13",
-  "trackedFiles": 3479,
-  "scannedFiles": 3357,
+  "capturedAt": "2026-11-14",
+  "trackedFiles": 3529,
+  "scannedFiles": 3407,
   "namedFilesIncluded": [
     ".github/CODEOWNERS",
     ".gitattributes",
@@ -12,29 +12,29 @@
     "docs/designs": {
       "disposition": "delete",
       "ownFiles": 0,
-      "externalReferrers": 47,
+      "externalReferrers": 34,
       "referrersByKind": {
         "code": 20,
         "config": 0,
         "snapshot": 1,
-        "markdownLive": 24,
+        "markdownLive": 11,
         "markdownArchival": 1,
         "other": 1
       },
-      "liveReferrers": 46,
+      "liveReferrers": 33,
       "sampleReferrers": [
         ".exarchos/invariants.md",
         "CHANGELOG.md",
         "content/design/skills/discover/SKILL.md",
-        "content/design/skills/ideate/SKILL.md",
         "content/design/skills/plan/references/plan-document-template.md",
-        "content/design/skills/plan/references/spec-template.md",
-        "content/design/skills/plan/references/testing-strategy-guide.md",
         "content/governance/skills/invariants/SKILL.md",
         "content/remediation/skills/dogfood/SKILL.md",
         "docs/README.md",
-        "rendered/skills/claude/ideate/SKILL.md",
-        "rendered/skills/codex/ideate/SKILL.md"
+        "rendered/skills/standard/discover/SKILL.md",
+        "rendered/skills/standard/dogfood/SKILL.md",
+        "rendered/skills/standard/invariants/SKILL.md",
+        "src/config/artifacts.ts",
+        "src/workflow/playbooks.ts"
       ],
       "sampleLiveCodeReferrers": [
         "src/config/artifacts.ts",
@@ -50,29 +50,29 @@
     "docs/plans": {
       "disposition": "delete",
       "ownFiles": 0,
-      "externalReferrers": 34,
+      "externalReferrers": 27,
       "referrersByKind": {
         "code": 14,
         "config": 1,
-        "snapshot": 1,
-        "markdownLive": 18,
+        "snapshot": 0,
+        "markdownLive": 12,
         "markdownArchival": 0,
         "other": 0
       },
-      "liveReferrers": 34,
+      "liveReferrers": 27,
       "sampleReferrers": [
         ".claude-plugin/packaging-policy.json",
         "content/delivery/skills/delegate/references/worked-example.md",
-        "content/design/skills/plan/SKILL.md",
         "content/design/skills/plan/references/plan-document-template.md",
-        "content/design/skills/plan/references/spec-template.md",
         "content/remediation/skills/refactor/references/phases/overhaul-plan.md",
         "rendered/skills/claude/delegate/references/worked-example.md",
         "rendered/skills/codex/delegate/references/worked-example.md",
         "rendered/skills/copilot/delegate/references/worked-example.md",
         "rendered/skills/cursor/delegate/references/worked-example.md",
         "rendered/skills/generic/delegate/references/worked-example.md",
-        "rendered/skills/opencode/delegate/references/worked-example.md"
+        "rendered/skills/opencode/delegate/references/worked-example.md",
+        "src/architecture/vocabulary-lint.ts",
+        "src/config/vendor/package-manager-detector/README.md"
       ],
       "sampleLiveCodeReferrers": [
         "src/architecture/vocabulary-lint.ts",
@@ -88,33 +88,34 @@
     "docs/research": {
       "disposition": "delete",
       "ownFiles": 0,
-      "externalReferrers": 14,
+      "externalReferrers": 17,
       "referrersByKind": {
-        "code": 6,
+        "code": 7,
         "config": 0,
         "snapshot": 1,
-        "markdownLive": 7,
+        "markdownLive": 9,
         "markdownArchival": 0,
         "other": 0
       },
-      "liveReferrers": 14,
+      "liveReferrers": 17,
       "sampleReferrers": [
         ".exarchos/invariants.md",
         "CHANGELOG.md",
         "agent-principles.md",
         "content/design/skills/discover/SKILL.md",
+        "content/design/skills/plan/references/spec-template.md",
         "rendered/skills/standard/discover/SKILL.md",
+        "rendered/skills/standard/plan/references/spec-template.md",
         "src/architecture/vocabulary-lint.ts",
-        "src/verbs/gates/check-exploration-depth.ts",
+        "src/workflow/design-record/exploration-depth.ts",
+        "tests/integration/bootstrap-source-gates.test.ts",
         "tests/migration/__snapshots__/snapshots.test.ts.snap",
-        "tests/unit/verbs/gates/check-exploration-depth.test.ts",
-        "tests/unit/verbs/tasks/discover-bridge.test.ts",
-        "tests/unit/workflow/guards.artifact.test.ts",
-        "tests/unit/workflow/guards.test.ts"
+        "tests/unit/verbs/gates/check-exploration-depth.test.ts"
       ],
       "sampleLiveCodeReferrers": [
         "src/architecture/vocabulary-lint.ts",
-        "src/verbs/gates/check-exploration-depth.ts",
+        "src/workflow/design-record/exploration-depth.ts",
+        "tests/integration/bootstrap-source-gates.test.ts",
         "tests/unit/verbs/gates/check-exploration-depth.test.ts",
         "tests/unit/verbs/tasks/discover-bridge.test.ts",
         "tests/unit/workflow/guards.artifact.test.ts",

@@ -25,6 +25,7 @@ import { capsuleDigest } from '../../contract/capsule/capsule-digest.js';
 import { resolveCapsuleReferences } from '../../contract/capsule/capsule-references.js';
 import {
   ExarchosCapsuleV1Schema,
+  TaskVerificationCoordinateSchema,
   type CapsuleScope,
   type ExarchosCapsuleV1,
 } from '../../contract/capsule/exarchos-capsule.js';
@@ -51,8 +52,8 @@ import {
 } from '../../events/schemas.js';
 import type { ToolResult } from '../../format.js';
 import { orchestrateLogger } from '../../logger.js';
-import { foldGuardInput, foldWorkflowState } from '../../projections/guard-input/fold.js';
-import { canonicalPath, observeClaimedTree } from '../../utils/git-tree.js';
+import { rowStatusByTask, foldGuardInput, foldWorkflowState } from '../../projections/guard-input/fold.js';
+import { canonicalPath, observeClaimedTree, observeImmutableClaimedTree } from '../../utils/git-tree.js';
 import { evidenceArtifactResolver } from '../../workflow/admission/evidence-artifact.js';
 import { decide, type EdgeVerdict } from '../../workflow/decide/decide.js';
 import { compileDecideDefinition, type DecideDefinition, type DecideEdge } from '../../workflow/decide/edges.js';
@@ -68,18 +69,19 @@ import {
 } from '../../workflow/state-store.js';
 import type { VerificationProfile } from '../../workflow/verification/profile.js';
 import { compileIntent } from '../execute/compile.js';
-import { handleExecuteIntent, type ExecuteIntentDeps } from '../execute/executor.js';
+import { recoverSegmentInput, handleExecuteIntent, type ExecuteIntentDeps } from '../execute/executor.js';
 import type { IntentReceipt } from '../execute/types.js';
 import { readGateRowMarks, SKIPPED_BY_POLICY } from '../gates/gate-utils.js';
 import { DESIGN_REVISED_TYPE, designVersionOf } from '../prepare/design-version.js';
 import { readPlannedTask } from '../prepare/partition-tasks.js';
-import { checkoutProjectConfig, configDigestAt } from '../prepare/prepare-scope.js';
+import { checkoutProjectConfig, configDigestAt, GIT_SCOPE } from '../prepare/prepare-scope.js';
 import { preparedRecordOf } from '../prepare/prepared-record.js';
-import { loadPreparedCustody, recheckPreparedAuthority, selectPreparedAuthority, type PreparedAuthority } from '../../workflow/capsule/prepared-custody.js';
+import { currentStandingProofs, loadPreparedCustody, recheckPreparedAuthority, selectPreparedAuthority, type PreparedAuthority } from '../../workflow/capsule/prepared-custody.js';
 import { SettlementReceiptData } from './schemas.js';
 import { resolveWorkflowState } from '../resolve-state.js';
 import {
   outcomeVerifies,
+  adjudicateSettlement,
   type ProposedDeviation,
   type SettlementClaim,
   type SettlementEvidence,
@@ -98,8 +100,13 @@ import {
   SETTLEMENT_BUNDLE_VERSION,
   type SettlementBundleV1,
 } from './settlement-bundle.js';
-import type { ClaimedTree } from './settle-scope.js';
+import { worktreeBreach, type ClaimedTree } from './settle-scope.js';
+import { taskGraphOrder } from './dag-scheduler.js';
+import { resolveTaskStanding } from './task-standing.js';
 import {
+  type StandingProof,
+  settlementClaimKey,
+  verificationOperationId,
   completedTasksOf,
   haltIsGateVerdict,
   judgementKey,
@@ -166,25 +173,6 @@ function readString(raw: Record<string, unknown>, key: string): string | undefin
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-/**
- * The operation claim of one settlement. It covers only the subject and the
- * settlement key `(capsuleVersion, batchId)` of one workflow.
- *
- * The rest of the capsule identity goes in the request digest. So a reuse of
- * the key with different terms meets the persisted claim and is refused. The
- * decision round adds its round number to get its own claim.
- */
-function settlementClaimKey(streamId: string, identity: SettledCapsuleIdentity, round = 0): string {
-  const key = canonicalJson({
-    streamId,
-    workflowId: identity.workflowId,
-    capsuleVersion: identity.capsuleVersion,
-    batchId: identity.batchId,
-    ...(round > 0 ? { round } : {}),
-  });
-  return `settle:${createHash('sha256').update(key, 'utf8').digest('hex')}`;
 }
 
 /**
@@ -338,14 +326,87 @@ function designRevisionOf(
   };
 }
 
+type HeldOriginFence = (rows: readonly { readonly streamId: string; readonly sequence: number }[], lookup: (operationId: string) => unknown) => boolean;
+
 type HeldBatchLookup =
   | {
       readonly kind: 'held';
+      readonly recheck?: HeldOriginFence;
       readonly claims: SettlementClaim[];
       readonly deviations: ProposedDeviation[];
     }
   | { readonly kind: 'not-settled' }
   | { readonly kind: 'not-held'; readonly outcome: SettlementOutcome };
+
+/** Held input authority must come from one original claim, its actual members and its custody. */
+function requireHeld(condition: unknown, message: string): asserts condition {
+  if (!condition) throw new Error(`Invalid held origin: ${message}`);
+}
+
+/** Authenticate the original compiler-8 submission and retain its exact rows and claim for commit. */
+async function authenticatedHeldBatch(ctx: DispatchContext, streamId: string, identity: SettledCapsuleIdentity,
+  bundles: RunBundleStore): Promise<HeldBatchLookup> {
+  const rows = await ctx.eventStore.query(streamId);
+  const operationId = settlementClaimKey(streamId, identity);
+  const claim = ctx.eventStore.getAppender().ensureSqliteBackendSync().lookupOperationClaim(operationId);
+  if (claim === undefined) {
+    requireHeld(!rows.some(row => row.type === EXECUTION_SETTLED_SETTLEMENT.type
+      && isRecord(row.data) && row.data.workflowId === identity.workflowId
+      && row.data.capsuleVersion === identity.capsuleVersion && row.data.batchId === identity.batchId), 'the original operation claim is missing');
+    return { kind: 'not-settled' };
+  }
+  const receipt = SettlementReceiptData.parse(claim.result);
+  requireHeld(claim.streamId === streamId && receipt.streamId === streamId && receipt.operationId === operationId
+    && receipt.requestDigest === claim.requestDigest && canonicalJson(receipt.capsule) === canonicalJson(identity)
+    && (receipt.round ?? 0) === 0, 'the original receipt identity differs');
+  requireHeld(Array.isArray(claim.sequences) && Array.isArray(claim.eventIds) && Array.isArray(claim.timestamps)
+    && claim.sequences.length > 0 && claim.sequences.length === claim.eventIds.length && claim.sequences.length === claim.timestamps.length
+    && new Set(claim.sequences).size === claim.sequences.length && new Set(claim.eventIds).size === claim.eventIds.length,
+  'the original claim membership is invalid');
+  const members = claim.sequences.map((sequence, index) => {
+    const matching = rows.filter(row => row.streamId === streamId && row.sequence === sequence);
+    const row = matching[0]; const eventId = row !== undefined && 'eventId' in row ? row.eventId : undefined;
+    requireHeld(matching.length === 1 && row !== undefined && typeof eventId === 'string' && eventId.length > 0
+      && eventId === claim.eventIds[index] && row.timestamp === claim.timestamps[index], 'an original claim member is missing or changed');
+    return row;
+  });
+  const terminals = members.filter(row => row.type === EXECUTION_SETTLED_SETTLEMENT.type);
+  const terminal = terminals[0];
+  requireHeld(terminals.length === 1 && terminal !== undefined && receipt.tailSequence === terminal.sequence,
+    'the original terminal member is ambiguous');
+  const record = ExecutionSettledData.parse(terminal.data);
+  requireHeld(record.operationId === operationId && record.workflowId === identity.workflowId
+    && record.capsuleVersion === identity.capsuleVersion && record.batchId === identity.batchId
+    && record.definitionVersion === identity.definitionVersion && (record.round ?? 0) === 0
+    && record.outcome === receipt.outcome && record.requestDigest === claim.requestDigest
+    && canonicalJson(record.acceptedTasks) === canonicalJson(receipt.acceptedTasks)
+    && canonicalJson(record.adjudicated) === canonicalJson(receipt.adjudicated)
+    && canonicalJson(record.bundleRefs) === canonicalJson(receipt.bundleRefs), 'the terminal differs from its original receipt');
+  if (!SETTLEMENT_OUTCOME_RULES[receipt.outcome].holds) return { kind: 'not-held', outcome: receipt.outcome };
+  const ref = record.bundleRefs[0]; requireHeld(ref !== undefined, 'the original custody reference is missing');
+  const bundle = decodeSettlementBundle(await bundles.resolve(ref.digest));
+  requireHeld(bundle.streamId === streamId && bundle.operationId === operationId && bundle.round === undefined
+    && canonicalJson(bundle.capsule) === canonicalJson(identity) && bundle.outcome === receipt.outcome
+    && bundle.requestDigest === claim.requestDigest && bundle.settledAt === terminal.timestamp && canonicalJson(bundle.acceptedTasks) === canonicalJson(receipt.acceptedTasks)
+    && canonicalJson(bundle.findings) === canonicalJson(receipt.findings)
+    && canonicalJson(bundle.adjudicated) === canonicalJson(receipt.adjudicated)
+    && (bundle.decisions === undefined || bundle.decisions.length === 0), 'the original custody differs from its receipt');
+  const claims = bundle.claims.map(claimOfTrace);
+  const deviations = bundle.deviations.map(held => normalDeviation(held.deviationKind, held.statement, held.affectedTasks, held.proposedChange));
+  requireHeld(requestDigestOf(streamId, identity, claims, deviations) === claim.requestDigest
+    && canonicalJson(pendingDeviationsOf(identity, deviations)) === canonicalJson(receipt.pendingDeviations),
+  'the recovered original inputs do not reproduce the held request');
+  const capturedClaim = canonicalJson(claim);
+  const capturedRows = members.map(row => ({ sequence: row.sequence, value: canonicalJson(row) }));
+  return { kind: 'held', claims, deviations, recheck: (currentRows, lookup) => {
+    try {
+      return canonicalJson(lookup(operationId)) === capturedClaim && capturedRows.every(member => {
+        const matching = currentRows.filter(row => row.streamId === streamId && row.sequence === member.sequence);
+        return matching.length === 1 && canonicalJson(matching[0]) === member.value;
+      });
+    } catch { return false; }
+  } };
+}
 
 /**
  * The batch that a decision round adjudicates, read back from the record of the
@@ -574,6 +635,9 @@ class SettlementReadsChanged extends Error {
   }
 }
 
+/** Corrupt current standing cannot become an absent task or a new accepted outcome. */
+class SettlementStandingCorrupt extends Error {}
+
 /**
  * The blob checks of cited records, added to the checks that the call made before. A record is
  * intact when each blob that it names resolves in the evidence store. A record that names a missing
@@ -600,16 +664,6 @@ async function checkedEvidence(
     checks.set(key, { record, intact });
   }
   return checks;
-}
-
-/**
- * The operation for the verification segment of one task, derived from the
- * settlement claim key and the task. After a crash, a resubmission reaches the
- * committed segments through their claims and runs only the rest. The hash
- * keeps the id inside the executor length bound.
- */
-function verificationOperationId(operationId: string, taskId: string): string {
-  return `settle-task:${createHash('sha256').update(`${operationId}\u0000${taskId}`, 'utf8').digest('hex')}`;
 }
 
 /**
@@ -654,10 +708,14 @@ function verificationArgsOf(
   };
 }
 
+/** The coordinate stays internal until the executor binds the original segment input. */
+type VerificationCoordinate = NonNullable<NonNullable<ExecuteIntentDeps['verificationInput']>['coordinate']>;
+
 interface CompiledVerification {
   readonly taskId: string;
   readonly operationId: string;
   readonly args: Record<string, unknown>;
+  readonly coordinate?: VerificationCoordinate;
 }
 
 type CompiledSegments =
@@ -802,6 +860,7 @@ function bundleTraceOf(trace: SettlementVerificationTrace, run: VerificationRun 
     ...(trace.message === undefined ? {} : { message: trace.message }),
     ...(trace.bundleRefs === undefined ? {} : { bundleRefs: [...trace.bundleRefs] }),
     ...(treeCommit === undefined ? {} : { treeCommit }),
+    ...(trace.outcome === 'verified' && run?.kind === 'ran' && run.coordinate !== undefined ? { coordinate: run.coordinate } : {}),
   };
 }
 
@@ -837,6 +896,20 @@ async function verifyTask(
   if (isIntentReceipt(receipt)) {
     if (receipt.outcome === 'committed') {
       const reading = await traceQualifiersOf(receipt, ctx.eventStore);
+      const binding = execute.verificationInput;
+      let coordinate: VerificationCoordinate | undefined;
+      try {
+        if (binding !== undefined) {
+          const original = await recoverSegmentInput(compiled.operationId, streamId,
+            binding.callerDigest, ctx, execute.bundleStore ?? ctx.eventStore.bundleStore);
+          coordinate = TaskVerificationCoordinateSchema.parse(original?.args.coordinate);
+        }
+      } catch (error) {
+        return { kind: 'refused', halted: false, result: refused('SEGMENT_INPUT_REFUSED', error instanceof Error ? error.message : String(error)) };
+      }
+      if (coordinate !== undefined && reading.treeCommit !== coordinate.observedHeadCommit) {
+        return { kind: 'refused', halted: false, result: refused('SEGMENT_INPUT_REFUSED', 'Verified segment head differs from its original coordinate') };
+      }
       return {
         kind: 'ran',
         outcome: { kind: 'verified' },
@@ -848,6 +921,7 @@ async function verifyTask(
           ...qualifiersField(reading.qualifiers),
         },
         ...(reading.treeCommit === undefined ? {} : { treeCommit: reading.treeCommit }),
+        ...(coordinate === undefined ? {} : { coordinate }),
       };
     }
     const failedLeaf = receipt.failedLeaf ?? '<unknown>';
@@ -1054,7 +1128,8 @@ async function observeClaimedTrees(
   const { scope } = capsule.settlementContract;
   if (scope === undefined) return observed;
   const terms = capsule.settlementContract.taskVerification ?? {};
-  const observe = ctx.treeObserver ?? observeClaimedTree;
+  const observe = ctx.treeObserver ?? (capsule.provenance.compilerVersion === 'exarchos-prepare-8'
+    ? observeImmutableClaimedTree : observeClaimedTree);
   for (const claim of claims) {
     const { worktreePath, branch } = claim.fields;
     const baseCommit = terms[claim.taskId]?.baseCommit;
@@ -1107,13 +1182,17 @@ interface SettlementCall {
   readonly verificationTerms: Readonly<Record<string, VerificationTerms>>;
   readonly reads: SettlementReads;
   readonly runs: Map<string, VerificationRun>;
+  readonly recoveredInputs: Map<string, Record<string, unknown>>;
+  /** Exact proof closures selected for this call, retained for transaction fencing. */
+  readonly standingProofs: Map<string, StandingProof>;
+  readonly heldOrigin?: HeldOriginFence;
   inputs: SettlementInputs;
   checkout?: CheckoutReading;
 }
 
 /** Compiles the segments of the tasks from the claims of the call, so each segment gets the same arguments on each run. */
 function compileFor(call: SettlementCall, taskIds: readonly string[]): CompiledSegments {
-  return compileSegments(
+  const result = compileSegments(
     taskIds,
     call.inputs.claims,
     call.verificationTerms,
@@ -1122,6 +1201,63 @@ function compileFor(call: SettlementCall, taskIds: readonly string[]): CompiledS
     call.streamId,
     call.deps.execute,
   );
+  return result.ok ? { ok: true, compiled: result.compiled.map(task => ({ ...task, args: call.recoveredInputs.get(task.taskId) ?? task.args })) } : result;
+}
+
+/** Builds fresh coordinates from pinned terms, captured heads and authenticated direct blockers. */
+async function coordinateFor(call: SettlementCall, task: CompiledVerification): Promise<VerificationCoordinate> {
+  const capsule = call.namedAuthority.capsule;
+  const terms = capsule.settlementContract.taskVerification?.[task.taskId];
+  const scope = capsule.settlementContract.scope;
+  const claimed = call.inputs.observations?.get(task.taskId);
+  const tree = claimed?.observed;
+  if (scope === undefined || terms?.baseCommit === undefined || claimed === undefined || tree?.kind !== 'tree'
+    || tree.head === undefined || tree.repository !== scope.repository || tree.dirtyPaths.length !== 0) {
+    throw new Error(`Task ${task.taskId} needs an observable clean checkout in the pinned repository`);
+  }
+  const breach = worktreeBreach(claimed.path, claimed.branch, tree, { scope, baseRef: terms.baseRef, baseCommit: terms.baseCommit });
+  if (breach !== undefined) throw new Error(`Task ${task.taskId} is out of scope: ${breach.detail}`);
+  const blockers = capsule.graph.dependencies.filter(edge => edge.to === task.taskId).map(edge => edge.from);
+  const result = task.args.result;
+  const fork = blockers.length === 0 ? terms.baseCommit : isRecord(result) ? result.forkCommit : undefined;
+  if (typeof fork !== 'string' || !/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(fork)) {
+    throw new Error(`Task ${task.taskId} requires a canonical full forkCommit`);
+  }
+  const resolved = await GIT_SCOPE.commitOf(claimed.path, fork);
+  if (resolved.kind !== 'commit' || resolved.commit !== fork) throw new Error(`Task ${task.taskId} forkCommit is not an exact commit`);
+  const requireAncestor = async (ancestor: string, descendant: string) => {
+    const relation = await GIT_SCOPE.isAncestor(claimed.path, ancestor, descendant);
+    if (relation.kind !== 'ancestor') throw new Error(`Task ${task.taskId} requires ancestry ${ancestor} <= ${descendant}`);
+  };
+  await requireAncestor(terms.baseCommit, fork);
+  await requireAncestor(fork, tree.head);
+  const rows = await call.ctx.eventStore.query(call.streamId);
+  const backend = call.ctx.eventStore.getAppender().ensureSqliteBackendSync();
+  const references: VerificationCoordinate['blockers'] = [];
+  for (const taskId of blockers) {
+    const submitted = call.inputs.claims.find(claim => claim.taskId === taskId);
+    const predecessor = call.runs.get(taskId);
+    if (submitted !== undefined && (submitted.status !== undefined
+      || (predecessor !== undefined && (predecessor.kind !== 'ran' || predecessor.outcome.kind !== 'verified')))) {
+      throw new Error(`Task ${task.taskId} is blocked by submitted unsuccessful task ${taskId}`);
+    }
+    const sameOperation = backend.lookupOperationClaim(verificationOperationId(call.operationId, taskId)) !== undefined;
+    if (submitted !== undefined && !sameOperation && !call.inputs.acceptedStanding?.has(taskId)) {
+      throw new Error(`Task ${task.taskId} awaits committed submitted blocker ${taskId}`);
+    }
+    const standing = await resolveTaskStanding({ streamId: call.streamId, taskId, rows,
+      bundles: call.deps.execute.bundleStore ?? call.ctx.eventStore.bundleStore,
+      lookupClaim: id => backend.lookupOperationClaim(id),
+      ...(sameOperation ? { provisional: { outerOperationId: call.operationId, capsule: call.identity } } : {}) });
+    if ((standing.kind !== 'accepted' && standing.kind !== 'provisional') || standing.proof.reference === undefined) {
+      throw new Error(`Task ${task.taskId} lacks eligible standing for blocker ${taskId}`);
+    }
+    await requireAncestor(standing.proof.headCommit, fork);
+    call.standingProofs.set(standing.proof.segmentOperationId, standing.proof);
+    references.push(standing.proof.reference);
+  }
+  return { protocolVersion: '1', taskId: task.taskId, capsule: capsule.identity, repository: scope.repository,
+    rootBaseCommit: terms.baseCommit, diffBaseCommit: fork, observedHeadCommit: tree.head, blockers: references };
 }
 
 /**
@@ -1133,13 +1269,38 @@ async function runCompiled(
   call: SettlementCall,
   compiled: readonly CompiledVerification[],
   ctx: DispatchContext = call.ctx,
+  replayOnly = false,
 ): Promise<ToolResult | undefined> {
-  for (const task of compiled) {
-    const run = await verifyTask(task, call.streamId, call.batchLabel, call.stateDir, ctx, call.deps.execute);
+  const immutable = call.namedAuthority.capsule.provenance.compilerVersion === 'exarchos-prepare-8';
+  const graph = call.inputs.capsule.graph;
+  const byId = new Map(compiled.map(task => [task.taskId, task]));
+  const ready = immutable ? taskGraphOrder(graph.tasks.map(task => task.taskId), graph.dependencies)
+    .flatMap(taskId => { const task = byId.get(taskId); return task === undefined ? [] : [task]; }) : compiled;
+  let coordinateRefusal: ToolResult | undefined;
+  let attempted = 0;
+  for (const original of ready) {
+    let task = original;
+    if (immutable && !replayOnly && !call.recoveredInputs.has(task.taskId)) {
+      try { task = { ...task, coordinate: await coordinateFor(call, task) }; }
+      catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        coordinateRefusal ??= refused('TASK_COORDINATE_REFUSED', message);
+        call.runs.set(task.taskId, { kind: 'ran', outcome: { kind: 'failed', failedLeaf: 'dependency-coordinate', message },
+          trace: { taskId: task.taskId, outcome: 'failed', failedLeaf: 'dependency-coordinate', message } });
+        continue;
+      }
+    }
+    const execute = call.namedAuthority.capsule.provenance.compilerVersion === 'exarchos-prepare-8'
+      ? { ...call.deps.execute, verificationInput: { authority: call.namedAuthority, outerOperationId: call.operationId,
+        callerDigest: call.requestDigest, batchId: call.identity.batchId, round: call.inputs.round, replayOnly, ...(task.coordinate === undefined ? {} : { coordinate: task.coordinate }) } } : call.deps.execute;
+    attempted += 1;
+    const run = await verifyTask(task, call.streamId, call.batchLabel, call.stateDir, ctx, execute);
     if (run.kind === 'refused' && !run.halted) return run.result;
     call.runs.set(task.taskId, run);
   }
-  return undefined;
+  const actualRun = [...call.runs.values()].some(run => run.kind === 'ran' && run.trace.operationId !== undefined);
+  const reportedFailure = call.inputs.claims.some(claim => claim.status !== undefined);
+  return attempted === 0 && !actualRun && !reportedFailure && coordinateRefusal !== undefined ? coordinateRefusal : undefined;
 }
 
 /** The outcome of the three checks before the segments of an attempt: the context of the segments, or the refusal. */
@@ -1272,10 +1433,34 @@ async function replayCommittedSegments(call: SettlementCall): Promise<ToolResult
   const completed = new Set(
     call.inputs.claims.filter((claim) => claim.status === undefined).map((claim) => claim.taskId),
   );
-  const committed = [...completed]
-    .filter((taskId) => backend.lookupOperationClaim(verificationOperationId(call.operationId, taskId)) !== undefined)
+  let committed: string[];
+  try {
+    committed = [...completed]
+    .filter((taskId) => backend.lookupOperationClaim(verificationOperationId(call.operationId, taskId)) !== undefined
+      || (call.namedAuthority.capsule.provenance.compilerVersion === 'exarchos-prepare-8'
+        && backend.lookupSegmentInput(verificationOperationId(call.operationId, taskId)) !== undefined))
     .sort();
+  } catch (error) {
+    if (call.namedAuthority.capsule.provenance.compilerVersion !== 'exarchos-prepare-8') throw error;
+    return refused('SEGMENT_INPUT_REFUSED', error instanceof Error ? error.message : String(error));
+  }
   if (committed.length === 0) return undefined;
+  if (call.namedAuthority.capsule.provenance.compilerVersion === 'exarchos-prepare-8') {
+    const recovered: CompiledVerification[] = [];
+    try {
+      for (const taskId of committed) {
+        const operationId = verificationOperationId(call.operationId, taskId);
+        const input = await recoverSegmentInput(operationId, call.streamId, call.requestDigest, call.ctx,
+          call.deps.execute.bundleStore ?? call.ctx.eventStore.bundleStore);
+        if (input === undefined) throw new Error('Committed segment lacks its required immutable input');
+        const claim = call.inputs.claims.find(claim => claim.taskId === taskId);
+        if (claim === undefined || canonicalJson(claim.fields) !== canonicalJson(input.args.result)) throw new Error('Recovered input differs from caller fields');
+        if (backend.lookupOperationClaim(operationId) !== undefined) recovered.push({ taskId, operationId, args: input.args });
+        else call.recoveredInputs.set(taskId, input.args);
+      }
+    } catch (error) { return refused('SEGMENT_INPUT_REFUSED', error instanceof Error ? error.message : String(error)); }
+    return runCompiled(call, recovered, call.ctx, true);
+  }
   const segments = compileFor(call, committed);
   if (!segments.ok) return segments.refusal;
   return runCompiled(call, segments.compiled);
@@ -1287,12 +1472,62 @@ interface JudgedRead {
   readonly judgement: SettlementJudgement;
 }
 
+/** Resolves accepted custody before judgement. Compatibility completion rows confer no standing. */
+async function acceptedStandingFor(call: SettlementCall, rows: readonly WorkflowEvent[]): Promise<void> {
+  if (call.inputs.capsule.provenance.compilerVersion !== 'exarchos-prepare-8') return;
+  const backend = call.ctx.eventStore.getAppender().ensureSqliteBackendSync();
+  call.standingProofs.clear();
+  const accepted = new Map<string, StandingProof>();
+  const tasks = new Set([...call.inputs.capsule.graph.tasks, ...call.latestAuthority.capsule.graph.tasks].map(task => task.taskId));
+  for (const taskId of tasks) {
+    const task = { taskId };
+    const run = call.runs.get(task.taskId);
+    if (run !== undefined && (run.kind !== 'ran' || run.outcome.kind !== 'verified')) continue;
+    if (run === undefined && call.recoveredInputs.has(task.taskId)) continue;
+    let standing = await resolveTaskStanding({ streamId: call.streamId, taskId: task.taskId, rows,
+      bundles: call.deps.execute.bundleStore ?? call.ctx.eventStore.bundleStore,
+      lookupClaim: id => backend.lookupOperationClaim(id),
+      ...(run === undefined ? {} : { provisional: { outerOperationId: call.operationId, capsule: call.identity } }) });
+    if (run === undefined && standing.kind !== 'accepted' && standing.kind !== 'corrupt'
+      && backend.lookupOperationClaim(verificationOperationId(call.operationId, taskId)) !== undefined) {
+      standing = await resolveTaskStanding({ streamId: call.streamId, taskId: task.taskId, rows,
+        bundles: call.deps.execute.bundleStore ?? call.ctx.eventStore.bundleStore,
+        lookupClaim: id => backend.lookupOperationClaim(id),
+        provisional: { outerOperationId: call.operationId, capsule: call.identity } });
+    }
+    if (standing.kind === 'corrupt') throw new SettlementStandingCorrupt(standing.message);
+    if (run !== undefined) {
+      if (standing.kind !== 'provisional' || standing.proof.segmentOperationId !== run.trace.operationId
+        || canonicalJson(standing.proof.coordinate) !== canonicalJson(run.coordinate)) {
+        call.runs.set(task.taskId, { kind: 'refused', halted: false,
+          result: refused('SEGMENT_INPUT_REFUSED', `Task ${task.taskId} has no authenticated committed standing`) });
+      } else call.standingProofs.set(standing.proof.segmentOperationId, standing.proof);
+    } else if (standing.kind === 'accepted') {
+      accepted.set(task.taskId, standing.proof);
+      call.standingProofs.set(standing.proof.segmentOperationId, standing.proof);
+    } else if (standing.kind === 'provisional') {
+      call.standingProofs.set(standing.proof.segmentOperationId, standing.proof);
+    }
+  }
+  const selected = new Map([...call.standingProofs.values()].map(proof => [proof.taskId, proof]));
+  const current = currentStandingProofs(selected);
+  for (const [taskId, proof] of selected) {
+    if (current.has(taskId)) continue;
+    call.standingProofs.delete(proof.segmentOperationId); accepted.delete(taskId);
+    const run = call.runs.get(taskId);
+    if (run?.kind === 'ran' && run.outcome.kind === 'verified') call.runs.set(taskId, { kind: 'refused', halted: false,
+      result: refused('SEGMENT_INPUT_REFUSED', `Task ${taskId} retains a blocker proof that is no longer current`) });
+  }
+  call.inputs = { ...call.inputs, acceptedStanding: accepted };
+}
+
 /**
  * Reads the whole stream and judges the batch from its facts. When the judgement names a cited record
  * with no blob check, the call checks the record, keeps the check, and judges again.
  */
 async function readAndJudge(call: SettlementCall): Promise<JudgedRead> {
   const rows = await call.ctx.eventStore.query(call.streamId);
+  await acceptedStandingFor(call, rows);
   const facts = settlementFactsOf(rows, call.reads);
   const judgement = judgeSettlement(call.inputs, facts, call.runs);
   if (judgement.needsEvidenceCheck.length === 0) return { rows, judgement };
@@ -1476,6 +1711,12 @@ function phaseDecisionOf(input: PhaseDecisionInput): PhaseDecision {
     || canonicalJson(named.skipPhases ?? null) !== canonicalJson(latest.skipPhases ?? null)) {
     return notDecided('prepared-authority-mismatch');
   }
+  if (call.inputs.capsule.provenance.compilerVersion === 'exarchos-prepare-8'
+    && !latest.capsule.graph.tasks.every(task => {
+      const run = call.runs.get(task.taskId);
+      return run === undefined ? call.inputs.acceptedStanding?.has(task.taskId) === true
+        : run.kind === 'ran' && run.outcome.kind === 'verified';
+    })) return notDecided('outcome-does-not-move');
   const def = pinnedDecideDefinition(call.workflowType, call.pinnedDefinition, named.skipPhases);
   if (def === undefined) return notDecided('unpinned-definition');
   const options = transitionOptionsOf(call.ctx.projectConfig);
@@ -1490,8 +1731,12 @@ function phaseDecisionOf(input: PhaseDecisionInput): PhaseDecision {
   } catch {
     return notDecided('fold-failed');
   }
+  if (call.inputs.capsule.provenance.compilerVersion === 'exarchos-prepare-8') {
+    const statuses = rowStatusByTask(rows);
+    if (!latest.capsule.graph.tasks.every(task => statuses.get(task.taskId) === 'complete')) return notDecided('outcome-does-not-move');
+  }
   const from = typeof prior.phase === 'string' ? prior.phase : '';
-  if (!call.inputs.capsule.graph.tasks.every((task) => task.stepId === from)) return notDecided('off-batch-step');
+  if (!(call.inputs.capsule.provenance.compilerVersion === 'exarchos-prepare-8' ? latest.capsule : call.inputs.capsule).graph.tasks.every((task) => task.stepId === from)) return notDecided('off-batch-step');
   const decided = decide(def, guardInput, { kind: 'settle' });
   if (decided.kind === 'stay') {
     const admitted = decided.verdicts.filter((verdict) => verdict.verdict === 'allow').length;
@@ -1665,10 +1910,31 @@ async function commitJudgement(
           .getAppender()
           .decideOnce<SettlementReceipt>(operationId, requestDigest, (tx) => {
             const snapshot = tx.readStream(streamId);
-            if (!recheckPreparedAuthority(call.latestAuthority.selection, migrateEvents(snapshot.events))) {
+            const rows = migrateEvents(snapshot.events);
+            if (call.heldOrigin !== undefined && !call.heldOrigin(rows,
+              id => ctx.eventStore.getAppender().ensureSqliteBackendSync().lookupOperationClaim(id))) {
               throw new SettlementReadsChanged(batchLabel);
             }
-            const committed = judgeSettlement(inputs, settlementFactsOf(migrateEvents(snapshot.events), reads), runs);
+            if (!recheckPreparedAuthority(call.latestAuthority.selection, rows)) {
+              throw new SettlementReadsChanged(batchLabel);
+            }
+            if (call.namedAuthority.capsule.provenance.compilerVersion === 'exarchos-prepare-8') {
+              const backend = ctx.eventStore.getAppender().ensureSqliteBackendSync();
+              for (const [taskId, run] of runs) {
+                if (run.kind !== 'ran' || run.outcome.kind !== 'verified') continue;
+                const proof = run.trace.operationId === undefined ? undefined : call.standingProofs.get(run.trace.operationId);
+                if (proof === undefined || proof.taskId !== taskId || canonicalJson(proof.coordinate) !== canonicalJson(run.coordinate)) {
+                  throw new SettlementReadsChanged(batchLabel);
+                }
+              }
+              for (const proof of inputs.acceptedStanding?.values() ?? []) {
+                if (call.standingProofs.get(proof.segmentOperationId) !== proof) throw new SettlementReadsChanged(batchLabel);
+              }
+              for (const proof of call.standingProofs.values()) {
+                if (!proof.recheck(rows, id => backend.lookupOperationClaim(id))) throw new SettlementReadsChanged(batchLabel);
+              }
+            }
+            const committed = judgeSettlement(inputs, settlementFactsOf(rows, reads), runs);
             if (
               judgementKey(committed) !== key ||
               committed.needsSegment.length > 0 ||
@@ -2001,8 +2267,13 @@ export async function handleSettle(
 
     let claims: SettlementClaim[] = submittedClaims;
     let deviations: ProposedDeviation[] = submittedDeviations;
+    let heldOrigin: HeldOriginFence | undefined;
     if (deciding) {
-      const held = await heldBatch(ctx, streamId, identity, deps.bundleStore);
+      let held: HeldBatchLookup;
+      if (capsule.provenance.compilerVersion === 'exarchos-prepare-8') {
+        try { held = await authenticatedHeldBatch(ctx, streamId, identity, deps.bundleStore ?? ctx.eventStore.bundleStore); }
+        catch (error) { return (await replay()) ?? refused('CAPSULE_UNRESOLVED', `Held origin is unavailable or invalid: ${String(error)}`); }
+      } else held = await heldBatch(ctx, streamId, identity, deps.bundleStore);
       if (held.kind === 'not-settled') {
         return refused(
           'BATCH_NOT_HELD',
@@ -2019,6 +2290,7 @@ export async function handleSettle(
       }
       claims = held.claims;
       deviations = held.deviations;
+      heldOrigin = held.recheck;
       const pending = new Map(pendingDeviationsOf(identity, deviations).map((p) => [p.deviationId, p]));
       const unknown = decisions.filter((decision) => !pending.has(decision.deviationId));
       if (unknown.length > 0) {
@@ -2044,8 +2316,16 @@ export async function handleSettle(
     const decided = (deviation: ProposedDeviation): 'accepted' | 'rejected' | undefined =>
       decidedOf.get(deviationIdOf(identity, deviation));
 
+    if (capsule.provenance.compilerVersion === 'exarchos-prepare-8') {
+      const shape = adjudicateSettlement(capsule, claims, deviations, { evidenceResolves: () => true });
+      const invalidShape = shape.findings.filter(finding => ['unknown-task', 'duplicate-claim', 'undeclared-result-shape',
+        'missing-field', 'field-type-mismatch', 'undeclared-field'].includes(finding.kind));
+      if (invalidShape.length > 0) return invalid(invalidShape.map(finding => `${finding.at}: ${finding.message}`).join('; '));
+    }
+
     const reads = { pinnedSequence: pinned.sequence, cited: claims.flatMap((claim) => claim.evidence) };
-    const observations = await observeClaimedTrees(ctx, capsule, claims);
+    const observations = capsule.provenance.compilerVersion === 'exarchos-prepare-8' ? new Map<string, ClaimedTree>()
+      : await observeClaimedTrees(ctx, capsule, claims);
     let inputs: SettlementInputs = { capsule, claims, deviations, decided, round, evidenceChecks: new Map(), observations };
     if (deviations.some((deviation) => deviation.affectedTasks !== undefined)) {
       const standing = await planStandingLookup(ctx, streamId);
@@ -2070,14 +2350,34 @@ export async function handleSettle(
       verificationTerms,
       reads,
       runs: new Map(),
+      recoveredInputs: new Map(),
+      standingProofs: new Map(),
+      ...(heldOrigin === undefined ? {} : { heldOrigin }),
       inputs,
     };
     const replayRefusal = await replayCommittedSegments(call);
-    if (replayRefusal !== undefined) return replayRefusal;
+    if (replayRefusal !== undefined) {
+      return capsule.provenance.compilerVersion === 'exarchos-prepare-8' ? (await replay()) ?? replayRefusal : replayRefusal;
+    }
+    if (capsule.provenance.compilerVersion === 'exarchos-prepare-8') {
+      try { await acceptedStandingFor(call, await ctx.eventStore.query(streamId)); }
+      catch (error) {
+        if (!(error instanceof SettlementStandingCorrupt)) throw error;
+        return (await replay()) ?? refused('SEGMENT_INPUT_REFUSED', error.message);
+      }
+      call.inputs = { ...call.inputs, observations: await observeClaimedTrees(ctx, capsule,
+        claims.filter(claim => !call.runs.has(claim.taskId) && !call.recoveredInputs.has(claim.taskId)
+          && !call.inputs.acceptedStanding?.has(claim.taskId))) };
+    }
     for (let attempt = 1; attempt <= MAX_SETTLE_ATTEMPTS; attempt += 1) {
       try {
-        return await settleAttempt(call);
+        const result = await settleAttempt(call);
+        if (!result.success && capsule.provenance.compilerVersion === 'exarchos-prepare-8') {
+          return (await replay()) ?? result;
+        }
+        return result;
       } catch (error) {
+        if (error instanceof SettlementStandingCorrupt) return (await replay()) ?? refused('SEGMENT_INPUT_REFUSED', error.message);
         if (!(error instanceof SettlementReadsChanged)) throw error;
         const cached = await replay();
         if (cached !== undefined) return cached;

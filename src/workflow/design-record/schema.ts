@@ -1,5 +1,6 @@
 /** The closed file format for an authored plan. Graph rules belong to the snapshot validators. */
 import { z } from 'zod';
+import { CapsuleKnowledgeSliceSchema } from '../../contract/capsule/exarchos-capsule.js';
 import { SharedStableIdSchema } from '../../contract/ir/admission-ir.js';
 
 const TextSchema = z.string().refine((value) => value.trim().length > 0, 'Expected nonempty text');
@@ -29,7 +30,13 @@ export const DesignTaskSchema = z.object({
   acceptance: unique(TextSchema).min(1),
   instructions: TextSchema,
   parallelizable: z.boolean(),
+  knowledgeSlice: CapsuleKnowledgeSliceSchema.optional(),
 }).strict().superRefine((task, ctx) => {
+  for (const [key, values] of Object.entries(task.knowledgeSlice ?? {})) {
+    if (values.some(value => !value.trim() || Buffer.byteLength(value, 'utf8') > 512)) {
+      ctx.addIssue({ code: 'custom', path: ['knowledgeSlice', key], message: 'Knowledge references require nonblank text within 512 UTF-8 bytes' });
+    }
+  }
   if (task.riskTier === 'high' && task.testFiles.length === 0) {
     ctx.addIssue({ code: 'custom', path: ['testFiles'], message: 'High-risk tasks require test files' });
   }

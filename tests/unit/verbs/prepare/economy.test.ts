@@ -344,4 +344,18 @@ describe('the capped prepare receipt', () => {
     if (declared === undefined) throw new Error('the registry declares no output schema for prepare');
     expect(declared.safeParse(JSON.parse(JSON.stringify(toEnvelope(dispatched)))).success).toBe(true);
   });
+
+  /** Compiler-eight summary presentation preserves the full original receipt and exact historical read arguments. */
+  it('PrepareEconomy_Compiler8Invocation_PreservesOriginalReceipt', () => {
+    const receipt = receiptOf();
+    receipt.capsule.provenance.compilerVersion = 'exarchos-prepare-8';
+    const original = structuredClone(receipt);
+    const summary = summarizePreparedCapsuleReceipt(receipt);
+    expect(summary.detailRead).toEqual({ tool: 'exarchos_orchestrate', action: 'read_prepared_capsule',
+      arguments: { streamId: receipt.workflowId, capsuleVersion: receipt.capsuleVersion, offset: 0, limit: 10 } });
+    expect(estimateOutputTokens(summary)).toBeLessThanOrEqual(PREPARE_ECONOMY_BUDGET_TOKENS);
+    expect(summarizePreparedCapsuleReceipt(receipt)).toEqual(summary);
+    expect(receipt).toEqual(original);
+  });
+
 });

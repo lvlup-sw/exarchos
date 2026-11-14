@@ -12,6 +12,7 @@
  */
 
 import { z } from 'zod';
+import { preparedDetailDeliverable } from './economy.js';
 
 import { collectConditionRefs, resolveCapsuleReferences } from '../../contract/capsule/capsule-references.js';
 import { contentDigest } from '../../contract/capsule/capsule-digest.js';
@@ -473,7 +474,9 @@ export function compileDelegationCapsule(input: CompileCapsuleInput): CompileOut
     ),
   ];
 
+  const fullGraph = input.compilerVersion === 'exarchos-prepare-8';
   const resultFields = delegatedTaskResultFields();
+  const dependentTaskIds = new Set(batch.dependencies.map(edge => edge.to));
   const batchTaskIds = batch.tasks.map((task) => task.taskId);
 
   const designChanges = designChangeStatements(input, batchTaskIds);
@@ -516,9 +519,15 @@ export function compileDelegationCapsule(input: CompileCapsuleInput): CompileOut
     },
     authority,
     graph: {
-      tasks: batch.tasks.map((task) => ({ taskId: task.taskId, title: task.title, stepId: task.stepId })),
+      tasks: batch.tasks.map((task) => ({
+        taskId: task.taskId, title: task.title, stepId: task.stepId,
+        ...(fullGraph ? { stage: { kind: 'task-batch', stepId: task.stepId }, taskContext: task.taskContext } : {}),
+      })),
       dependencies: batch.dependencies.map((edge) => ({ ...edge })),
-      joins: batch.joins.map((join) => ({ joinId: join.joinId, waitsFor: [...join.waitsFor], mode: 'all' })),
+      joins: batch.joins.map((join) => ({
+        joinId: join.joinId, waitsFor: [...join.waitsFor], mode: 'all',
+        ...(fullGraph && join.forTaskId !== undefined ? { forTaskId: join.forTaskId } : {}),
+      })),
       completionPredicate: {
         condition,
         declares: { fields: declaredFields, events: [...new Set(events.map((event) => event.ref))] },
@@ -526,7 +535,11 @@ export function compileDelegationCapsule(input: CompileCapsuleInput): CompileOut
     },
     contracts: {
       taskInputs: {},
-      taskResults: Object.fromEntries(batchTaskIds.map((taskId) => [taskId, resultFields])),
+      taskResults: Object.fromEntries(batchTaskIds.map((taskId) => [taskId,
+        fullGraph && dependentTaskIds.has(taskId)
+          ? [...resultFields, { name: 'forkCommit', type: 'string', required: true }]
+          : resultFields,
+      ])),
       evidenceKinds: delegatedEvidenceKinds(),
       deviationEnvelope: {
         allowedDeviationKinds: [...DELEGATION_DEVIATION_KINDS],
@@ -556,6 +569,7 @@ export function compileDelegationCapsule(input: CompileCapsuleInput): CompileOut
     },
     settlementContract: {
       requiredResults: [...batch.requiredResults],
+      ...(fullGraph ? { verificationMode: 'immutable-task-diff-v1' } : {}),
       taskVerification: Object.fromEntries(
         batch.tasks.map((task) => [
           task.taskId,
@@ -567,7 +581,7 @@ export function compileDelegationCapsule(input: CompileCapsuleInput): CompileOut
         ]),
       ),
       ...(pin !== undefined ? { scope: { ...pin.scope } } : {}),
-      ...(input.skipPhases !== undefined || input.compilerVersion === PREPARE_COMPILER_VERSION
+      ...(input.skipPhases !== undefined || input.compilerVersion === PREPARE_COMPILER_VERSION || fullGraph
         ? { skipPhases: [...(input.skipPhases ?? [])] }
         : {}),
       ...(input.verificationProfile !== undefined ? { verificationProfile: input.verificationProfile } : {}),
@@ -600,5 +614,8 @@ export function compileDelegationCapsule(input: CompileCapsuleInput): CompileOut
     };
   }
 
+  if (fullGraph && !preparedDetailDeliverable(parsed.data)) {
+    return { ok: false, refusal: { code: 'CAPSULE_UNSOUND', message: 'A complete task cannot fit the bounded prepared detail response.' } };
+  }
   return { ok: true, capsule: parsed.data };
 }

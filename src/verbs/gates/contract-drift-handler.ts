@@ -172,6 +172,7 @@ export async function handleContractDrift(
 
   return runDurableGateProducer(
     {
+      coordinate: args.coordinate,
       gateClass: 'contract-drift',
       featureId: args.featureId,
       taskId: args.taskId,
@@ -222,10 +223,14 @@ export async function handleContractDrift(
         repoRoot,
         baseRef,
         contract: profileOf(args, repoRoot).contract,
+        coordinate: args.coordinate,
         gitExec,
         runCommand,
       });
 
+      if (drift.discriminant === 'PROFILE_DIFF_COORDINATE_UNBOUND') {
+        return { success: false, error: { code: drift.discriminant, message: drift.report } };
+      }
       return {
         success: true,
         data: {

@@ -31,6 +31,9 @@ import { PreparedBundleV1Schema } from '../../src/verbs/prepare/prepared-record.
 
 import { WorkflowStateSchema, CustomWorkflowStateSchema, DurableWorkflowTypeSchema } from '../../src/workflow/schemas.js';
 import { CapsuleSettlementContractSchema, ExarchosCapsuleV1Schema } from '../../src/contract/capsule/exarchos-capsule.js';
+import { ExecuteIntentRunBundleV1Schema, ExecuteIntentInputSchema, SegmentInputBindingV1Schema } from '../../src/verbs/execute/run-bundle.js';
+import { TaskVerificationCoordinateSchema, CapsuleTaskContextSchema, CapsuleKnowledgeSliceSchema } from '../../src/contract/capsule/exarchos-capsule.js';
+import { DesignTaskSchema } from '../../src/workflow/design-record/schema.js';
 import { SettlementReceiptData } from '../../src/verbs/settle/schemas.js';
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '../..');
@@ -73,6 +76,8 @@ const STORED_SHAPES: Readonly<Record<string, z.ZodType>> = {
   WorkflowStartedData, WorkflowStartedV11Data, WorkflowPreparedData, WorkflowStateSchema,
   CustomWorkflowStateSchema, DurableWorkflowTypeSchema, CapsuleSettlementContractSchema,
   ExarchosCapsuleV1Schema, SettlementReceiptData,
+  ExecuteIntentRunBundleV1Schema, ExecuteIntentInputSchema, SegmentInputBindingV1Schema,
+  TaskVerificationCoordinateSchema, CapsuleTaskContextSchema, CapsuleKnowledgeSliceSchema, DesignTaskSchema,
 };
 
 /**
@@ -127,6 +132,58 @@ const RECORDED_SHAPE_DECISIONS: readonly Pick<StoredShapeDecision, 'date' | 'sch
     "CapsuleSettlementContractSchema": "sha256:c3d5fb1c362316060e8f17c8c28c77fedfc5a81b2ebb56177949e14c20f67de5",
     "ExarchosCapsuleV1Schema": "sha256:72381c09521c02845b431f14a62d3540f632bee7f7bd9329d64dbf8b8a1ce044",
     "SettlementReceiptData": "sha256:f554a6008101142bfe696d980fe7a9b6b5742b049060a70aaedd5d15272d9456"
+  }
+},
+{
+  "date": "2026-11-14",
+  "schemaVersion": 6,
+  "shapes": {
+    "WorkflowStartedData": "sha256:fd2a08020c3475cefa6fd924d05684e70ace3c480af0a8f205967cd68372b41c",
+    "WorkflowStartedV11Data": "sha256:ef52bb4bbd2b169ab574426f472357826a69627881c538fbc1f6e0c0a3493278",
+    "WorkflowPreparedData": "sha256:62ff8cc651d0e796ad3e0667402a9d368221311437b9ddc5de3d2c99015f5e64",
+    "ExecutionSettledData": "sha256:0d27cbe85f1071d6e8f00a7e9ad1953de6310f82f1e94f47a8f3dedfea9fccd8",
+    "SettlementBundleV1Schema": "sha256:fc55a153696cbe54fb25cfa6d70dda3f34ec76d6b76a703bc1ba144f6428e128",
+    "ClaimTraceSchema": "sha256:581254550be83ddc6b066a5879225821589320e29505e0ab9c87779acc7f8ea1",
+    "PreparedBundleV1Schema": "sha256:955da5704aeb5e4c302d34d5d62887b4d123fc1bd3669dace8460abee8cdd1d7",
+    "WorkflowStateSchema": "sha256:f6b3edd9f7cf8281bdbcf41ce310530781f896d9aab0b9744b5b65cdd4da9299",
+    "CustomWorkflowStateSchema": "sha256:9beae5747f617543876721509e5cebbf1aca0dd21b5e2ca2953525634ae7ff2d",
+    "DurableWorkflowTypeSchema": "sha256:8a5c8b3a04cb3ffd7ae3a08086dec6e5a4a9ed6cb0545baa0c343ee7508e328a",
+    "CapsuleSettlementContractSchema": "sha256:735ff503dd7fd79698815a01ad1e788b79898c310fce0d4db52eeef72ebbece1",
+    "ExarchosCapsuleV1Schema": "sha256:9f04504fd2c976a45c08c07093f00178a045926d71654a990e9fc5959baba08c",
+    "TaskVerificationCoordinateSchema": "sha256:85679d7cf481553d05816f6177c9715ecbf033d2a47bb62df163ab87ca416a21",
+    "CapsuleTaskContextSchema": "sha256:a8d95bb4eda13b08d430540f8757ddf5df30179b62e4033c519700f30c434fe2",
+    "CapsuleKnowledgeSliceSchema": "sha256:7ea09d280cf1197b403f895da6a1ba23bb8856c4dbccd43c7755d2e2398d3741",
+    "SettlementReceiptData": "sha256:f554a6008101142bfe696d980fe7a9b6b5742b049060a70aaedd5d15272d9456",
+    "ExecuteIntentRunBundleV1Schema": "sha256:039c6678476aebf157e41f3fb09eb7dd831c49b990b193954710f5cb8f3b94fa",
+    "ExecuteIntentInputSchema": "sha256:9fd302b6602bdf4915b9c46aa34bec9aaa2a7d779cd985a07d0ffbf282c30b2d",
+    "SegmentInputBindingV1Schema": "sha256:9715620d94db0405f042db23d0967f91c10d424c8854bc3bd0b5da9ecd4f69fe",
+    "DesignTaskSchema": "sha256:2e96faec8fb9c904c7d6c46a3b8e666132e107375da8e724132199c34b7f02e5"
+  }
+},
+{
+  "date": "2026-11-14",
+  "schemaVersion": 6,
+  "shapes": {
+    "WorkflowStartedData": "sha256:fd2a08020c3475cefa6fd924d05684e70ace3c480af0a8f205967cd68372b41c",
+    "WorkflowStartedV11Data": "sha256:ef52bb4bbd2b169ab574426f472357826a69627881c538fbc1f6e0c0a3493278",
+    "WorkflowPreparedData": "sha256:62ff8cc651d0e796ad3e0667402a9d368221311437b9ddc5de3d2c99015f5e64",
+    "ExecutionSettledData": "sha256:0d27cbe85f1071d6e8f00a7e9ad1953de6310f82f1e94f47a8f3dedfea9fccd8",
+    "SettlementBundleV1Schema": "sha256:4db4b3a3300587e9d47064402bc5d33ead6b991be26386c17f80a7074764664a",
+    "ClaimTraceSchema": "sha256:581254550be83ddc6b066a5879225821589320e29505e0ab9c87779acc7f8ea1",
+    "PreparedBundleV1Schema": "sha256:955da5704aeb5e4c302d34d5d62887b4d123fc1bd3669dace8460abee8cdd1d7",
+    "WorkflowStateSchema": "sha256:f6b3edd9f7cf8281bdbcf41ce310530781f896d9aab0b9744b5b65cdd4da9299",
+    "CustomWorkflowStateSchema": "sha256:9beae5747f617543876721509e5cebbf1aca0dd21b5e2ca2953525634ae7ff2d",
+    "DurableWorkflowTypeSchema": "sha256:8a5c8b3a04cb3ffd7ae3a08086dec6e5a4a9ed6cb0545baa0c343ee7508e328a",
+    "CapsuleSettlementContractSchema": "sha256:735ff503dd7fd79698815a01ad1e788b79898c310fce0d4db52eeef72ebbece1",
+    "ExarchosCapsuleV1Schema": "sha256:9f04504fd2c976a45c08c07093f00178a045926d71654a990e9fc5959baba08c",
+    "TaskVerificationCoordinateSchema": "sha256:78b8638faa070a827ae879eca7f7091497e6b2f910eae596fb699176169f0de4",
+    "CapsuleTaskContextSchema": "sha256:a8d95bb4eda13b08d430540f8757ddf5df30179b62e4033c519700f30c434fe2",
+    "CapsuleKnowledgeSliceSchema": "sha256:7ea09d280cf1197b403f895da6a1ba23bb8856c4dbccd43c7755d2e2398d3741",
+    "SettlementReceiptData": "sha256:f554a6008101142bfe696d980fe7a9b6b5742b049060a70aaedd5d15272d9456",
+    "ExecuteIntentRunBundleV1Schema": "sha256:8acec00b234cf0aa0b496b1ecb188bd8c7343ad894edec04386ac3a452891e4e",
+    "ExecuteIntentInputSchema": "sha256:aa1d22d90266d49a6d4070a9d32a72fb2e1f67281479b97e8e4cdf3d7c0435be",
+    "SegmentInputBindingV1Schema": "sha256:9715620d94db0405f042db23d0967f91c10d424c8854bc3bd0b5da9ecd4f69fe",
+    "DesignTaskSchema": "sha256:2e96faec8fb9c904c7d6c46a3b8e666132e107375da8e724132199c34b7f02e5"
   }
 },
 ];
@@ -301,6 +358,7 @@ describe('identifier stability across decomposition', () => {
         'cutover_decide',
         'execute_intent',
         'prepare',
+        'read_prepared_capsule',
         'settle',
         'describe',
       ],

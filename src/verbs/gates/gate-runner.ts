@@ -1,3 +1,5 @@
+import { canonicalJson } from '../../contract/request-context.js';
+import { GateExecutedData, type WorkflowEvent } from '../../events/schemas.js';
 import { createHash } from 'node:crypto';
 
 import type { ContentAddressedStore } from '../../storage/artifacts/content-addressed-store.js';
@@ -619,4 +621,59 @@ export async function runPhaseGateWithEvidence(
       emitGateExecuted: false,
     },
   );
+}
+
+/** Authenticates one complete passing pair through its original SQLite claims without invoking the provider. */
+export async function passingGateReplay(request: GateRunRequest, eventStore: EventStore, operationId: string,
+  producerId: string): Promise<readonly WorkflowEvent[] | undefined> {
+  const resolution = BUILTIN_GATE_PROVIDER_REGISTRY.resolve(request.gateClass);
+  if (!resolution.success || request.gateClass !== 'test-adequacy') return undefined;
+  const provider = resolution.data.provider;
+  const id = evidenceIdFor(operationId, provider, request);
+  const signalKey = gateSignalIdempotencyKey(id);
+  const rows = await eventStore.query(request.streamId, { operationId });
+  const backend = eventStore.getAppender().ensureSqliteBackendSync();
+  if (rows.length === 0 && (backend.lookupIdempotencyClaim(request.streamId, id) !== undefined
+    || backend.lookupIdempotencyClaim(request.streamId, signalKey) !== undefined)) {
+    throw new Error('Adequacy claims exist without their original rows');
+  }
+  if (rows.length !== 2) return undefined;
+  const evidenceRow = rows.find(row => row.type === 'admission.evidence-recorded');
+  const signalRow = rows.find(row => row.type === 'gate.executed');
+  if (evidenceRow === undefined || signalRow === undefined || evidenceRow.sequence >= signalRow.sequence) return undefined;
+  const members: readonly (readonly [string, WorkflowEvent])[] = [[id, evidenceRow], [signalKey, signalRow]];
+  for (const [key, row] of members) {
+    const claim = backend.lookupIdempotencyClaim(request.streamId, key);
+    if (claim === undefined || claim.events.length !== 1 || claim.eventIds.length !== 1 || claim.sequences.length !== 1
+      || claim.timestamps.length !== 1 || row.idempotencyKey !== key || !('eventId' in row) || claim.eventIds[0] !== row.eventId
+      || claim.sequences[0] !== row.sequence || claim.timestamps[0] !== row.timestamp
+      || canonicalJson(claim.events[0]) !== canonicalJson(row)
+      || row.source !== gateRunnerObservationSource(request.gateClass)) return undefined;
+  }
+  const parsed = AdmissionEvidenceRecordedData.safeParse(evidenceRow.data);
+  const signal = GateExecutedData.safeParse(signalRow.data);
+  if (!parsed.success || !signal.success) return undefined;
+  const evidence = parsed.data.evidence;
+  const details = signal.data.details;
+  if (evidence.kind !== 'gate' || evidence.evidenceId !== id || evidence.verdict !== 'pass'
+    || evidence.requirementId !== request.requirementId || evidence.phaseAttemptId !== request.phaseAttemptId
+    || !sameSubject(evidence.subject, request.subject) || evidence.producer.invocationId !== operationId
+    || evidence.producer.producerId !== producerId || evidence.producer.providerRef !== provider.providerRef
+    || evidence.producer.providerVersion !== GATE_RUNNER_VERSION
+    || evidence.policyId !== (request.policy?.policyId ?? FALLBACK_POLICY_ID)
+    || digestKey(evidence.policyDigest) !== digestKey(request.policy?.policyDigest ?? FALLBACK_POLICY_DIGEST)
+    || signal.data.gateName !== request.gateClass || signal.data.layer !== GATE_RUNNER_GATE_LAYER || !signal.data.passed
+    || details?.evidenceId !== id || details.gateClass !== request.gateClass || details.providerRef !== provider.providerRef
+    || details.verdict !== 'pass' || details.phaseAttemptId !== request.phaseAttemptId || details.requirementId !== request.requirementId
+    || details.skipped !== undefined || details.discriminant !== undefined || details.completeness === 'degraded'
+    || details.advisorySkips !== undefined || request.subject.kind !== 'task' || details.taskId !== request.subject.taskId
+    || request.tree === undefined || details.worktree !== request.tree.worktree || details.head !== request.tree.head) return undefined;
+  const history = await eventStore.query(request.streamId, { type: 'admission.evidence-recorded' });
+  const records = history.flatMap(row => {
+    const result = AdmissionEvidenceRecordedData.safeParse(row.data);
+    return result.success ? [result.data] : [];
+  });
+  const active = activePredecessor(records, request, provider, request.policy?.policyDigest ?? FALLBACK_POLICY_DIGEST);
+  if (active?.evidence.evidenceId !== id || records.filter(record => record.evidence.evidenceId === id).length !== 1) return undefined;
+  return [evidenceRow, signalRow];
 }

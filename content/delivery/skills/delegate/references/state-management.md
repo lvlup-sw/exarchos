@@ -37,7 +37,7 @@ For the three-layer consistency model, drift recovery, and eventual consistency 
 
 ## Benchmark Label
 
-After extracting tasks from the plan, check if ANY task has `testingStrategy.benchmarks: true`. If so, record in state:
+On the legacy plan path, after extracting tasks from the matching approved plan, check if ANY task has `testingStrategy.benchmarks: true`. For compiler 8, carry the verification obligations in pinned taskContext instructions and acceptance into each packet instead of deriving new requirements from a mutable plan. If the legacy plan has that benchmark flag, record in state:
 
 ```text
 action: "update", featureId: "<id>", updates: {

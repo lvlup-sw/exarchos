@@ -39,6 +39,7 @@ import {
   WORKFLOW_TYPE_EXPR,
   SQLITE_BUSY_RETRY_POLICY,
   DECIDE_ONCE_CLAIM_STREAM,
+  SEGMENT_INPUT_CLAIM_STREAM,
 } from './sqlite/constants.js';
 import {
   SqliteBusyExhaustedError,
@@ -840,6 +841,7 @@ export class SqliteBackend implements StorageBackend {
    * payload JSON is the record, and the correlation columns only index it.
    */
   appendEvent(streamId: string, event: WorkflowEvent): void {
+    if (streamId === SEGMENT_INPUT_CLAIM_STREAM) throw new Error('Reserved input binding namespace');
     const data = event.data ? JSON.stringify(event.data) : null;
     const payload = JSON.stringify(event);
 
@@ -1075,6 +1077,7 @@ export class SqliteBackend implements StorageBackend {
         events: PublicPersistedEventLike[];
       }
     | undefined {
+    if (streamId === SEGMENT_INPUT_CLAIM_STREAM) throw new Error('Reserved input binding namespace');
     const row = this.stmts.selectIdempotencyClaim.get(streamId, idempotencyKey) as
       | { eventIds: string; sequences: string; timestamps: string; events_json: string }
       | undefined;
@@ -1085,6 +1088,32 @@ export class SqliteBackend implements StorageBackend {
       timestamps: JSON.parse(row.timestamps) as string[],
       events: JSON.parse(row.events_json) as PublicPersistedEventLike[],
     };
+  }
+
+  /** Read opaque input custody without interpreting it as an event or terminal claim. */
+  lookupSegmentInput(operationId: string): string | undefined {
+    const row = this.stmts.selectIdempotencyClaim.get(SEGMENT_INPUT_CLAIM_STREAM, operationId);
+    if (row === undefined || row === null) return undefined;
+    if (typeof row !== 'object' || row === null || !('events_json' in row) || typeof row.events_json !== 'string'
+      || !('eventIds' in row) || row.eventIds !== '[]' || !('sequences' in row) || row.sequences !== '[]'
+      || !('timestamps' in row) || row.timestamps !== '[]') throw new Error('Invalid zero-row input binding');
+    return row.events_json;
+  }
+
+  /** The validated producer publishes durable input bytes first. This transaction returns the immutable winner. */
+  bindSegmentInput(operationId: string, payload: string): string {
+    if (Buffer.byteLength(payload, 'utf8') > 4096) throw new Error('Input binding exceeds its storage bound');
+    let winner: string | undefined;
+    const transaction = this.db.transaction(() => {
+      const existing = this.lookupSegmentInput(operationId);
+      if (existing !== undefined) { winner = existing; return; }
+      this.stmts.insertIdempotencyClaim.run(SEGMENT_INPUT_CLAIM_STREAM, operationId, '[]', '[]', '[]', payload, new Date().toISOString());
+      winner = payload;
+    });
+    if (!hasImmediateTransaction(transaction)) throw new SqliteImmediateUnsupportedError();
+    transaction.immediate();
+    if (winner === undefined) throw new Error('Input publication produced no winner');
+    return winner;
   }
 
   /**
@@ -1261,6 +1290,7 @@ export class SqliteBackend implements StorageBackend {
       };
     };
   }): Promise<{ base: number; sequences: number[] }> {
+    if (args.streamId === SEGMENT_INPUT_CLAIM_STREAM) throw new Error('Reserved input binding namespace');
     if (args.n <= 0) {
       throw new Error('atomicAppend requires n >= 1');
     }
@@ -1378,6 +1408,7 @@ export class SqliteBackend implements StorageBackend {
       }
 
       const decision = args.decide();
+      if (decision.streamId === SEGMENT_INPUT_CLAIM_STREAM) throw new Error('Reserved input binding namespace');
       if (!decision.streamId) {
         throw new Error('decideOnce decision requires streamId');
       }
@@ -1479,6 +1510,7 @@ export class SqliteBackend implements StorageBackend {
    * workflow init handler calls it once for each new stream.
    */
   registerStream(streamId: string, workflowType: string): void {
+    if (streamId === SEGMENT_INPUT_CLAIM_STREAM) throw new Error('Reserved input binding namespace');
     this.db
       .prepare(
         `INSERT OR IGNORE INTO streams (streamId, workflow_type, createdAt)
@@ -1696,6 +1728,7 @@ export class SqliteBackend implements StorageBackend {
   }
 
   addOutboxEntry(streamId: string, event: WorkflowEvent): string {
+    if (streamId === SEGMENT_INPUT_CLAIM_STREAM) throw new Error('Reserved input binding namespace');
     this.outboxIdCounter++;
     const id = `outbox-${this.outboxIdCounter}-${Date.now()}`;
     this.stmts.insertOutbox.run(
@@ -1825,6 +1858,7 @@ export class SqliteBackend implements StorageBackend {
    * replaces an existing `workflow_type`.
    */
   deleteStream(streamId: string): void {
+    if (streamId === SEGMENT_INPUT_CLAIM_STREAM) throw new Error('Reserved input binding namespace');
     const deleteFn = this.db.transaction(() => {
       this.db.prepare('DELETE FROM events WHERE streamId = ?').run(streamId);
       this.db.prepare('DELETE FROM sequences WHERE streamId = ?').run(streamId);
@@ -1842,6 +1876,7 @@ export class SqliteBackend implements StorageBackend {
   }
 
   pruneEvents(streamId: string, beforeTimestamp: string): number {
+    if (streamId === SEGMENT_INPUT_CLAIM_STREAM) throw new Error('Reserved input binding namespace');
     const result = this.db
       .prepare('DELETE FROM events WHERE streamId = ? AND timestamp < ?')
       .run(streamId, beforeTimestamp);

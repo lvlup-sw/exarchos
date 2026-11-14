@@ -1,6 +1,7 @@
 import { coercedNonnegativeInt, coercedPositiveInt } from '../../../coerce.js';
 import { vacuityWaiver } from '../../../output-schema-declaration.js';
 import { z } from 'zod';
+import { TaskVerificationCoordinateSchema } from '../../../contract/capsule/exarchos-capsule.js';
 import { declared, none, withActionContract, type ActionContract } from '../../action-contract.js';
 import { LOCAL_MUTATION } from '../../annotations.js';
 import { DELEGATE_PHASES, PLAN_PHASES, REVIEW_PHASES, ROLE_LEAD, STACK_PHASES } from '../../phases.js';
@@ -42,6 +43,7 @@ export const gateActions: readonly BuiltinToolAction[] = [
       'Run static analysis gate (lint + typecheck) and persist canonical subject-bound evidence. ' +
       'A run with a taskId and no repoRoot scans nothing and records a repo-root-missing skip.',
     schema: z.object({
+      coordinate: TaskVerificationCoordinateSchema.optional(),
       featureId: z.string().min(1),
       /**
        * The text names the params of the static-analysis step of the completion runbooks. The registry cannot import
@@ -103,6 +105,7 @@ export const gateActions: readonly BuiltinToolAction[] = [
       'subject-bound evidence. Do NOT use for one task\'s scoped tests: use ' +
       'check_static_analysis / check_test_adequacy.',
     schema: z.object({
+      coordinate: TaskVerificationCoordinateSchema.optional(),
       featureId: z.string().min(1),
       repoRoot: z.string().optional(),
       worktreePath: z.string().optional(),
@@ -463,6 +466,7 @@ export const gateActions: readonly BuiltinToolAction[] = [
     schema: z.object({
       featureId: z.string().min(1),
       taskId: z.string().min(1),
+      coordinate: TaskVerificationCoordinateSchema.optional(),
       branch: z.string().optional(),
       baseBranch: z.string().optional(),
       repoRoot: z.string().optional(),
@@ -516,6 +520,7 @@ export const gateActions: readonly BuiltinToolAction[] = [
      * field name with two base types.
      */
     schema: z.object({
+      coordinate: TaskVerificationCoordinateSchema.optional(),
       featureId: z.string().min(1),
       taskId: z.string().min(1),
       branch: z.string().optional(),
@@ -575,6 +580,7 @@ export const gateActions: readonly BuiltinToolAction[] = [
     schema: z.object({
       featureId: z.string().min(1),
       taskId: z.string().min(1),
+      coordinate: TaskVerificationCoordinateSchema.optional(),
       branch: z.string().optional(),
       baseBranch: z.string().optional(),
       repoRoot: z.string().optional(),

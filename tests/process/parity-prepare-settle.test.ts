@@ -17,6 +17,11 @@ import { readFile, unlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 
+import { ContentDigestV1Schema } from '../../src/workflow/admission/types.js';
+import { RunBundleStore } from '../../src/events/bundle/run-bundle-store.js';
+import { decodeExecuteIntentBundle } from '../../src/verbs/execute/run-bundle.js';
+import { decodeSettlementBundle } from '../../src/verbs/settle/settlement-bundle.js';
+import { SettlementReceiptData } from '../../src/verbs/settle/schemas.js';
 import { STORE_DB_FILENAME } from '../../src/utils/paths.js';
 import { rmrfAsync } from '../../tools/test-helpers/temp-dir.js';
 import { runCli } from '../helpers/cli-runner.js';
@@ -104,6 +109,18 @@ function expectParity(cliEnvelope: Envelope, mcpEnvelope: Envelope, action: stri
 function dataOf(envelope: Envelope): Envelope {
   if (envelope.success !== true || !isRecord(envelope.data)) throw new Error(`the call failed: ${JSON.stringify(envelope)}`);
   return envelope.data;
+}
+
+/** Read the immutable operation claims of this isolated stream. */
+function operationClaims(fixture: Fixture): unknown[] {
+  const database = new Database(path.join(fixture.env.stateDir, STORE_DB_FILENAME), { readonly: true });
+  try {
+    return database.prepare(
+      "SELECT idempotencyKey, eventIds, sequences, timestamps, events_json FROM idempotency_claims WHERE json_extract(events_json, '$.streamId') = ? ORDER BY idempotencyKey",
+    ).all(fixture.featureId);
+  } finally {
+    database.close();
+  }
 }
 
 /** The claim that the task is complete in its worktree. */
@@ -224,7 +241,7 @@ describe('packaged bootstrap parity', () => {
         streamId: featureId, capsuleVersion: 1,
         capsule: {
           graph: { tasks: [{ taskId: 'T-01', stepId: 'delegate' }] },
-          provenance: { compilerVersion: 'exarchos-prepare-7' },
+          provenance: { compilerVersion: 'exarchos-prepare-8' },
         },
       });
       await unlink(path.join(checkout, PLAN_PATH));
@@ -458,13 +475,63 @@ describe('parity: exarchos orchestrate prepare and settle — CLI ↔ MCP', () =
    */
   it('settle_duplicateOnEachTransport_returnsThePriorDecision', async () => {
     await withDelegatingWorkflow(async (fixture, checkout) => {
-      const { capsuleVersion } = await prepareOverMcp(fixture, checkout);
+      const { capsuleVersion, envelope: preparedEnvelope } = await prepareOverMcp(fixture, checkout);
 
       const [first, mcpDuplicate] = await withMcp(fixture.env, async (call) => [
         await call('exarchos_orchestrate', settleCall(fixture, capsuleVersion)),
         await call('exarchos_orchestrate', settleCall(fixture, capsuleVersion)),
       ]);
       expect(dataOf(first)).toMatchObject({ outcome: 'settled', acceptedTasks: [TASK] });
+      const receipt = SettlementReceiptData.parse(dataOf(first));
+      const bundleStore = RunBundleStore.forStateDir(fixture.env.stateDir);
+      const ref = receipt.bundleRefs?.[0];
+      if (ref === undefined) throw new Error('Missing settlement custody');
+      const settlement = decodeSettlementBundle(await bundleStore.resolve(ContentDigestV1Schema.parse(ref.digest)));
+      const trace = settlement.verification?.[0];
+      const runRef = trace?.bundleRefs?.[0];
+      if (trace === undefined || runRef === undefined) throw new Error('Missing segment custody');
+      expect(trace).toMatchObject({ taskId: TASK, outcome: 'verified', treeCommit: expect.stringMatching(/^[a-f0-9]{40}$/) });
+      const runBytes = await bundleStore.resolve(runRef.digest);
+      const run = decodeExecuteIntentBundle(runBytes);
+      expect(run).toMatchObject({ kind: 'execute-intent-run', bundleVersion: '1.0', intent: 'task-completion', outcome: 'committed' });
+      expect(run.leaves.map(leaf => leaf.action)).toEqual([
+        'check_test_adequacy', 'check_contract_drift', 'check_mock_boundary',
+        'check_integration_suite', 'check_static_analysis', 'task_complete',
+      ]);
+      expect(run.leaves.slice(0, 4).map(leaf => leaf.args.baseBranch)).toEqual(Array(4).fill(INTEGRATION_BRANCH));
+      expect(run.leaves.at(-1)?.args).toMatchObject({
+        taskId: TASK, capsuleVersion, result: { worktreePath: fixture.worktree, files: [`src/${TASK}.ts`] },
+      });
+      expect(Object.hasOwn(run, 'args')).toBe(false);
+      expect(Object.hasOwn(run, 'input')).toBe(false);
+      expect(Object.hasOwn(run, 'inputBinding')).toBe(false);
+      expect(Object.hasOwn(trace, 'coordinate')).toBe(false);
+      const originalClaims = operationClaims(fixture);
+      expect(originalClaims).toEqual(expect.arrayContaining([
+        expect.objectContaining({ idempotencyKey: dataOf(preparedEnvelope).operationId }),
+        expect.objectContaining({ idempotencyKey: receipt.operationId }),
+        expect.objectContaining({ idempotencyKey: run.operationId }),
+      ]));
+      await rmrfAsync(fixture.worktree);
+      const replayedSegment = await withMcp(fixture.env, call => call('exarchos_orchestrate', {
+        action: 'execute_intent', intent: 'task-completion', featureId: fixture.featureId,
+        operationId: run.operationId,
+        args: {
+          taskId: TASK, worktreePath: fixture.worktree, riskTier: 'low', boundaryTouching: false,
+          baseRef: INTEGRATION_BRANCH, result: { worktreePath: fixture.worktree, files: [`src/${TASK}.ts`] }, capsuleVersion,
+        },
+      }));
+      expect(dataOf(replayedSegment)).toMatchObject({ operationId: run.operationId, outcome: 'committed', requestDigest: run.requestDigest });
+      expect(await bundleStore.resolve(runRef.digest)).toEqual(runBytes);
+      const changedSegment = await withMcp(fixture.env, call => call('exarchos_orchestrate', {
+        action: 'execute_intent', intent: 'task-completion', featureId: fixture.featureId,
+        operationId: run.operationId,
+        args: {
+          taskId: TASK, worktreePath: fixture.worktree, riskTier: 'low', boundaryTouching: false,
+          baseRef: INTEGRATION_BRANCH, result: { worktreePath: fixture.worktree, files: ['src/changed.ts'] }, capsuleVersion,
+        },
+      }));
+      expect(changedSegment).toMatchObject({ success: false, error: { code: 'INTENT_REPLAY_DIGEST_MISMATCH' } });
 
       const cliDuplicate = await cli(fixture.env, settleArgs(fixture, capsuleVersion));
       expect(cliDuplicate.exitCode).toBe(0);
@@ -472,6 +539,7 @@ describe('parity: exarchos orchestrate prepare and settle — CLI ↔ MCP', () =
       expectParity(cliDuplicate.envelope, first, 'orchestrate.settle');
       expect(await rowCount(fixture, 'execution.settled')).toBe(1);
       expect(await rowCount(fixture, 'task.completed')).toBe(1);
+      expect(operationClaims(fixture)).toEqual(originalClaims);
     });
   }, CASE_TIMEOUT_MS);
 

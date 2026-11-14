@@ -1,4 +1,6 @@
 /** Shared custody reads bind stored plans to their prepared rows. Legacy named lookup remains separate from strict latest authority. */
+import type { z } from 'zod';
+import type { TaskVerificationCoordinateSchema } from '../../contract/capsule/exarchos-capsule.js';
 import { capsuleDigest, contentDigest } from '../../contract/capsule/capsule-digest.js';
 import { decodePreparedBundle, type PreparedBundleV1 } from '../../contract/capsule/prepared-bundle.js';
 import type { RunBundleStore } from '../../events/bundle/run-bundle-store.js';
@@ -151,4 +153,46 @@ export async function capsuleOfRecord(
     );
   }
   return decoded;
+}
+
+/** Execution terms exclude source offsets so unrelated plan edits preserve eligible standing. */
+export function preparedTaskTerms(capsule: PreparedBundleV1['capsule'], snapshot: DesignRecordSnapshot, taskId: string): unknown {
+  const task = snapshot.tasks.find(entry => entry.id === taskId);
+  if (task === undefined) return undefined;
+  const { span: _span, ...terms } = task;
+  const node = capsule.graph.tasks.find(entry => entry.taskId === taskId);
+  return { terms, definitionVersion: capsule.identity.definitionVersion, stage: node?.stage, stepId: node?.stepId,
+    verificationMode: capsule.settlementContract.verificationMode, skipPhases: capsule.settlementContract.skipPhases,
+    verification: capsule.settlementContract.taskVerification?.[taskId], result: capsule.contracts.taskResults[taskId],
+    scope: capsule.settlementContract.scope, profile: capsule.settlementContract.verificationProfile };
+}
+
+/** The immutable segment identity is shared by accepted and provisional blocker references. */
+type SelectedSegment = Pick<z.infer<typeof TaskVerificationCoordinateSchema>['blockers'][number],
+  'taskId' | 'headCommit' | 'segmentOperationId' | 'segmentRecord' | 'runBundle' | 'completionSequence' | 'staticAnalysisSequence'>;
+
+/** Compares segment identity without changing a provisional reference after its outer acceptance. */
+function selectedSegmentKey(proof: SelectedSegment): string {
+  return contentDigest({ taskId: proof.taskId, headCommit: proof.headCommit, segmentOperationId: proof.segmentOperationId,
+    segmentRecord: proof.segmentRecord, runBundle: proof.runBundle, completionSequence: proof.completionSequence,
+    staticAnalysisSequence: proof.staticAnalysisSequence });
+}
+
+/** Removes proofs whose original blockers differ from current selections, including their descendants. */
+export function currentStandingProofs<T extends SelectedSegment & { readonly coordinate: { readonly blockers: readonly SelectedSegment[] } }>(
+  proofs: ReadonlyMap<string, T>,
+): Map<string, T> {
+  const current = new Map(proofs);
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const [taskId, proof] of current) {
+      if (proof.coordinate.blockers.every(blocker => {
+        const selected = current.get(blocker.taskId);
+        return selected !== undefined && selectedSegmentKey(selected) === selectedSegmentKey(blocker);
+      })) continue;
+      current.delete(taskId); changed = true;
+    }
+  }
+  return current;
 }

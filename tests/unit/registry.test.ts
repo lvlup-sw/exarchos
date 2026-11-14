@@ -674,7 +674,7 @@ describe('TOOL_REGISTRY', () => {
     it('should have 71 actions for task management, review triage, gate checks, validation handlers, runbooks, agent spec, oneshot/pruning, onboard (DR-2 task 011), doctor, VCS, classify_review_items (#1159), merge_orchestrate (DR-MO-1), check_integration_suite (#1329), check_invariant_conformance (DR-3), invariants_scaffold/invariants_add (invariants-catalog-wizard P2), check_test_adequacy + check_contract_drift + check_mock_boundary (verification-ladder slice 1), and composite actions', () => {
       const composite = findComposite('exarchos_orchestrate');
       expect(composite).toBeDefined();
-      expect(composite!.actions).toHaveLength(85);
+      expect(composite!.actions).toHaveLength(86);
 
       const actionNames = composite!.actions.map((a) => a.name);
       expect(actionNames).toEqual(
@@ -2816,6 +2816,7 @@ const EXPECTED_EFFECTIVE_BUDGETS: Readonly<Record<string, number>> = {
   'exarchos_orchestrate.cutover_decide': 2000,
   'exarchos_orchestrate.execute_intent': 1000,
   'exarchos_orchestrate.prepare': 8000,
+  'exarchos_orchestrate.read_prepared_capsule': 8000,
   'exarchos_orchestrate.settle': 1000,
   'exarchos_orchestrate.describe': 8000,
   'exarchos_view.pipeline': 2000,
@@ -2927,6 +2928,7 @@ describe('registry economy budgets (DR-1)', () => {
         'exarchos_orchestrate.describe',
         'exarchos_orchestrate.execute_intent',
         'exarchos_orchestrate.prepare',
+        'exarchos_orchestrate.read_prepared_capsule',
         'exarchos_orchestrate.runbook',
         'exarchos_orchestrate.settle',
         'exarchos_view.describe',
@@ -3172,6 +3174,90 @@ describe('Task 022 — registry schema batch (DR-1/DR-3/DR-8)', () => {
       adjudicated: { claims: 0, requiredResults: 0, fields: 0, evidence: 0, deviations: 0 },
       requestDigest: `sha256:${'a'.repeat(64)}`, tailSequence: 0,
     },
+    'exarchos_orchestrate.read_prepared_capsule': {
+      "operationId": "prepare:detail-fixture",
+      "capsule": {
+        "workflowId": "detail-fixture",
+        "capsuleVersion": 1,
+        "definitionVersion": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "designVersion": "design-v1"
+      },
+      "capsuleDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "bundleRefs": [
+        {
+          "artifactId": "run-bundle:detail-fixture",
+          "digest": {
+            "algorithm": "sha256",
+            "value": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+          }
+        }
+      ],
+      "total": 2,
+      "offset": 0,
+      "limit": 1,
+      "count": 1,
+      "items": [
+        {
+          "taskId": "task-a",
+          "stage": {
+            "kind": "task-batch",
+            "stepId": "delegate"
+          },
+          "context": {
+            "taskId": "task-a",
+            "title": "Add bounded detail reads",
+            "instructions": "Return the pinned task context.",
+            "files": [
+              "src/detail.ts"
+            ],
+            "testFiles": [
+              "tests/detail.test.ts"
+            ],
+            "acceptance": [
+              "The pinned context is returned without writes."
+            ],
+            "riskTier": "low",
+            "boundaryTouching": false,
+            "testLayer": "unit",
+            "blockedBy": [],
+            "source": {
+              "reference": "docs/specs/detail.md",
+              "digest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+              "span": {
+                "start": 0,
+                "end": 100,
+                "startLine": 1,
+                "endLine": 5
+              }
+            },
+            "resultContractRef": "task-a",
+            "knowledgeSlice": {
+              "invariantIds": [],
+              "adrRefs": [],
+              "symbols": [],
+              "files": []
+            }
+          },
+          "resultContract": [
+            {
+              "name": "worktreePath",
+              "type": "string",
+              "required": true
+            }
+          ]
+        }
+      ],
+      "continuation": {
+        "tool": "exarchos_orchestrate",
+        "action": "read_prepared_capsule",
+        "arguments": {
+          "streamId": "detail-fixture",
+          "capsuleVersion": 1,
+          "offset": 1,
+          "limit": 1
+        }
+      }
+    },
     'exarchos_orchestrate.prepare': {
       operationId: `prepare:${'a'.repeat(64)}`, streamId: 'feat-x', workflowId: 'feat-x',
       capsuleVersion: 1, capsuleDigest: 'a'.repeat(64), definitionVersion: 'a'.repeat(64),
@@ -3343,7 +3429,7 @@ describe('Task 022 — registry schema batch (DR-1/DR-3/DR-8)', () => {
      */
     it('every typed-output action validates a {summary,counts,firstPage} capped envelope', () => {
       const actions = typedOutputActions();
-      expect(actions.length).toBe(35);
+      expect(actions.length).toBe(36);
       for (const { tool, action } of actions) {
         const parsed = action.outputSchema.safeParse(cappedEnvelope());
         expect(

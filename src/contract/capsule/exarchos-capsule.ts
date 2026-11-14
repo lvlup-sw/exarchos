@@ -115,6 +115,40 @@ export const CapsuleIntentSchema = z
 /** The wait modes of a join. A consumer that needs the bare list reads `.options`. */
 export const CapsuleJoinModeSchema = z.enum(['all', 'any', 'quorum']);
 
+/** Relative authored paths preserve spelling and cannot escape their checkout. */
+const CapsuleContextPathSchema = z.string().min(1).max(512)
+  .regex(/^(?!\/)(?![A-Za-z]:)(?!.*\\)(?!.*\u0000)(?!.*(?:^|\/)\.\.(?:\/|$)).+$/);
+
+/** Authored knowledge references are bounded names, not resolved external contents. */
+export const CapsuleKnowledgeSliceSchema = z.object({
+  invariantIds: z.array(SharedStableIdSchema).max(64),
+  adrRefs: z.array(z.string().min(1).max(512)).max(64),
+  symbols: z.array(z.string().min(1).max(512)).max(64),
+  files: z.array(CapsuleContextPathSchema).max(64),
+}).strict();
+
+/** Source offsets use UTF-16 with an exclusive end and one-based line coordinates. */
+const CapsuleSourceSpanSchema = z.object({
+  start: z.number().int().nonnegative(), end: z.number().int().nonnegative(),
+  startLine: z.number().int().positive(), endLine: z.number().int().positive(),
+}).strict();
+
+/** The worker context is copied from approved custody. Byte limits are checked by reference validation. */
+export const CapsuleTaskContextSchema = z.object({
+  taskId: SharedStableIdSchema,
+  title: z.string().min(1).max(256), instructions: z.string().min(1).max(8192),
+  files: z.array(CapsuleContextPathSchema).min(1).max(64),
+  testFiles: z.array(CapsuleContextPathSchema).max(64),
+  acceptance: z.array(z.string().min(1).max(2048)).min(1).max(16),
+  riskTier: z.enum(['low', 'medium', 'high']), boundaryTouching: z.boolean(),
+  testLayer: z.enum(['acceptance', 'integration', 'unit', 'property']),
+  blockedBy: z.array(SharedStableIdSchema),
+  source: z.object({ reference: CapsuleContextPathSchema, digest: KernelDigestSchema, span: CapsuleSourceSpanSchema }).strict(),
+  /** The key in contracts.taskResults, which must equal this task id. */
+  resultContractRef: SharedStableIdSchema,
+  knowledgeSlice: CapsuleKnowledgeSliceSchema,
+}).strict();
+
 /** One unit of work, named by id. */
 export const CapsuleTaskSchema = z
   .object({
@@ -122,6 +156,8 @@ export const CapsuleTaskSchema = z
     title: z.string().min(1).max(256),
     /** The kernel step this task compiled from, when it compiled from one. */
     stepId: SharedStableIdSchema.optional(),
+    stage: z.object({ kind: z.literal('task-batch'), stepId: SharedStableIdSchema }).strict().optional(),
+    taskContext: CapsuleTaskContextSchema.optional(),
   })
   .strict();
 
@@ -132,6 +168,7 @@ export const CapsuleDependencySchema = z
 export const CapsuleJoinSchema = z
   .object({
     joinId: SharedStableIdSchema,
+    forTaskId: SharedStableIdSchema.optional(),
     waitsFor: z.array(SharedStableIdSchema).min(2),
     mode: CapsuleJoinModeSchema,
   })
@@ -285,6 +322,37 @@ const CapsuleAbsolutePathSchema = z
   .max(4096)
   .regex(/^(?:\/|[A-Za-z]:\/)/, 'a path starts with "/" or with a drive letter and "/"');
 
+/** A content-addressed proof reference uses the existing artifact id and digest grammar. */
+const CapsuleProofReferenceSchema = z.object({
+  artifactId: SharedStableIdSchema,
+  digest: z.object({ algorithm: z.literal('sha256'), value: KernelDigestSchema }).strict(),
+}).strict();
+
+/** Committed segment identity is shared by accepted and same-outer provisional proof. */
+const CapsuleBlockerSegmentSchema = z.object({
+  taskId: SharedStableIdSchema, headCommit: CapsuleCommitSchema, capsule: CapsuleIdentitySchema,
+  outerOperationId: SharedStableIdSchema, segmentOperationId: SharedStableIdSchema,
+  segmentRecord: z.object({ eventId: SharedStableIdSchema, sequence: z.number().int().positive(), timestamp: z.string().min(1) }).strict(),
+  runBundle: CapsuleProofReferenceSchema,
+  completionSequence: z.number().int().positive(), staticAnalysisSequence: z.number().int().positive(),
+});
+
+/** Provisional proof names no future outer artifact and remains bound to its original outer operation. */
+const CapsuleBlockerProofSchema = z.discriminatedUnion('kind', [
+  CapsuleBlockerSegmentSchema.extend({ kind: z.literal('accepted'),
+    outerRecordSequence: z.number().int().positive(), settlementBundle: CapsuleProofReferenceSchema }).strict(),
+  CapsuleBlockerSegmentSchema.extend({ kind: z.literal('provisional') }).strict(),
+]);
+
+/** A verification coordinate names immutable commits. Repository membership and ancestry require later Git observations. */
+export const TaskVerificationCoordinateSchema = z.object({
+  protocolVersion: z.literal('1'), taskId: SharedStableIdSchema, capsule: CapsuleIdentitySchema,
+  repository: CapsuleAbsolutePathSchema,
+  rootBaseCommit: CapsuleCommitSchema, diffBaseCommit: CapsuleCommitSchema, observedHeadCommit: CapsuleCommitSchema,
+  blockers: z.array(CapsuleBlockerProofSchema),
+}).strict();
+
+
 /**
  * The repository that a capsule was compiled in.
  * `repository` is the canonical git common dir, and `checkout` is the canonical root of the work tree that prepare read.
@@ -325,6 +393,7 @@ export const CapsuleTaskVerificationSchema = z
 export const CapsuleSettlementContractSchema = z
   .object({
     requiredResults: z.array(SharedStableIdSchema).min(1),
+    verificationMode: z.literal('immutable-task-diff-v1').optional(),
     skipPhases: z.array(z.string()).optional(),
     /**
      * Per-task verification terms, keyed by task id. The field is optional, because the contract derives for any kernel step.

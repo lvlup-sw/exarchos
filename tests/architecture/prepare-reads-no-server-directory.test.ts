@@ -25,7 +25,7 @@ const REPO_ROOT = path.resolve(import.meta.dirname, '../..');
 const PREPARE_ROOT = path.join(REPO_ROOT, 'src', 'verbs', 'prepare');
 
 /** The source modules under the directory today. A new module changes this pin in the same change. */
-const SCANNED_MODULE_COUNT = 18;
+const SCANNED_MODULE_COUNT = 19;
 
 /** One read of the server directory or its config, by name, with the pattern that finds it in code. */
 interface ServerDirectoryRead {
@@ -80,6 +80,7 @@ describe('prepare reads no server directory', () => {
       'src/verbs/prepare/bootstrap.ts',
       'src/verbs/prepare/handler.ts',
       'src/verbs/prepare/intent.ts',
+      'src/verbs/prepare/read-prepared-capsule.ts',
     ]));
     const found = modules.flatMap((module) => readsOf(relativeOf(module), readFileSync(module, 'utf8')));
     expect(found).toStrictEqual([]);

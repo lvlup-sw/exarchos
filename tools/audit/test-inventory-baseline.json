@@ -4,10 +4,10 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1480,
-    "parsedFiles": 1435,
+    "testFiles": 1493,
+    "parsedFiles": 1448,
     "shellFiles": 45,
-    "cases": 16409,
+    "cases": 16530,
     "dynamicTitles": 288,
     "unparseableFiles": 0
   },
@@ -21799,6 +21799,21 @@
         {
           "suite": "the capsule contract, validated both ways",
           "name": "Capsule_EveryFixtureName_IsDistinct",
+          "dynamic": false
+        },
+        {
+          "suite": "the capsule contract, validated both ways",
+          "name": "CoordinateInput_RoundtripAndClosedBinding_KeepDistinctDigests",
+          "dynamic": false
+        },
+        {
+          "suite": "the capsule contract, validated both ways",
+          "name": "NormalizedInput_BoundsDenseJsonBeforeNormalization",
+          "dynamic": false
+        },
+        {
+          "suite": "the capsule contract, validated both ways",
+          "name": "Compiler8_OptionalWireFields_AgreeAcrossValidatorsAndRejectUnknownKeys",
           "dynamic": false
         }
       ]
@@ -62467,6 +62482,11 @@
           "suite": "the capped prepare receipt",
           "name": "PrepareEconomy_ARecompileOverTheBudget_KeepsItsVersionsAndTheFirstPageOfEachList",
           "dynamic": false
+        },
+        {
+          "suite": "the capped prepare receipt",
+          "name": "PrepareEconomy_Compiler8Invocation_PreservesOriginalReceipt",
+          "dynamic": false
         }
       ]
     },
@@ -91517,6 +91537,21 @@
         },
         {
           "suite": "typed prepare",
+          "name": "Prepare_CompilerEightEmptyHistory_ReplaysWithoutCustody",
+          "dynamic": false
+        },
+        {
+          "suite": "typed prepare",
+          "name": "Prepare_CompilerEightReplay_RequiresSelectedClaimAndEmptyHistory",
+          "dynamic": false
+        },
+        {
+          "suite": "typed prepare",
+          "name": "Prepare_CompilerEightReplayMiss_PreservesPublicationTailFence",
+          "dynamic": false
+        },
+        {
+          "suite": "typed prepare",
           "name": "Prepare_DurableRowsAndExactIds_DetermineReadyTasks",
           "dynamic": false
         },
@@ -95001,6 +95036,26 @@
           "suite": "prepared bundle compatibility",
           "name": "<dynamic-case-1>",
           "dynamic": true
+        },
+        {
+          "suite": "prepared bundle compatibility",
+          "name": "Compiler8_CompleteCustody_RoundTripsWithoutLegacyFallback",
+          "dynamic": false
+        },
+        {
+          "suite": "prepared bundle compatibility",
+          "name": "Compiler8_ContextMustMatchApprovedTaskAndSpan",
+          "dynamic": false
+        },
+        {
+          "suite": "prepared bundle compatibility",
+          "name": "Compiler8_JoinModel_RejectsCollisionsAndReorderedWaiters",
+          "dynamic": false
+        },
+        {
+          "suite": "prepared bundle compatibility",
+          "name": "Compiler8_ContextUtf8AndAggregateBounds_RejectWithoutTruncation",
+          "dynamic": false
         }
       ]
     },
@@ -95425,6 +95480,634 @@
         {
           "suite": "typed task adapters",
           "name": "preserves generated exact ids and declared fields across task adapters",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/integration/prepare-full-dag.test.ts": {
+      "file": "tests/integration/prepare-full-dag.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "complete approved graph compilation",
+          "name": "ThreeWaves_OneGraph_PreservesOrderedEdgesJoinsAndForkContracts",
+          "dynamic": false
+        },
+        {
+          "suite": "complete approved graph compilation",
+          "name": "CompletedAncestor_RemainsReferencedWithoutGrantingStanding",
+          "dynamic": false
+        },
+        {
+          "suite": "complete approved graph compilation",
+          "name": "Context_ApprovedBytesOnly_SurvivesAnEditedSource",
+          "dynamic": false
+        },
+        {
+          "suite": "complete approved graph compilation",
+          "name": "UserStep_StageFromPin_DoesNotAssumeDelegate",
+          "dynamic": false
+        },
+        {
+          "suite": "complete approved graph compilation",
+          "name": "DefaultCompiler_KeepsTheHistoricalFrontier",
+          "dynamic": false
+        },
+        {
+          "suite": "complete approved graph compilation",
+          "name": "DefaultTypedCompiler_ActivatesCompleteApprovedGraph",
+          "dynamic": false
+        },
+        {
+          "suite": "complete approved graph compilation",
+          "name": "WholeGraph_InvalidDisconnectedComponent_RefusesWithoutCustody",
+          "dynamic": false
+        },
+        {
+          "suite": "complete approved graph compilation",
+          "name": "JoinIdentity_AnAuthoredCollision_UsesOneStableFreeId",
+          "dynamic": false
+        },
+        {
+          "suite": "complete approved graph compilation",
+          "name": "GraphModel_AuthoredChainsKeepEveryEdgeAndContext",
+          "dynamic": false
+        },
+        {
+          "suite": "complete approved graph compilation",
+          "name": "ThirtyTasks_CompileWithinTheBoundAndRetainEveryContext",
+          "dynamic": false
+        },
+        {
+          "suite": "complete approved graph compilation",
+          "name": "Context_ExactUtf8Limit_AndOneOver_Preflight",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/integration/s7-segment-replay.test.ts": {
+      "file": "tests/integration/s7-segment-replay.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "immutable segment input",
+          "name": "PrivateDecisionRound_WrongKeyRefusesBeforeBinding",
+          "dynamic": false
+        },
+        {
+          "suite": "immutable segment input",
+          "name": "SegmentRetry_DeletedTreeOriginalArgs",
+          "dynamic": false
+        },
+        {
+          "suite": "immutable segment input",
+          "name": "LeafCommittedBeforeCrash_OriginalCoordinate",
+          "dynamic": false
+        },
+        {
+          "suite": "immutable segment input",
+          "name": "InterruptedClaimRequiredLeaf_RefusesWithoutReplacement",
+          "dynamic": false
+        },
+        {
+          "suite": "immutable segment input",
+          "name": "PublicCoordinate_RefusesBeforeEffects",
+          "dynamic": false
+        },
+        {
+          "suite": "immutable segment input",
+          "name": "ChangedFork_DigestMismatch",
+          "dynamic": false
+        },
+        {
+          "suite": "immutable segment input",
+          "name": "MissingInput_NoExecution",
+          "dynamic": false
+        },
+        {
+          "suite": "immutable segment input",
+          "name": "TwoInitialObservations_OneInputBinding",
+          "dynamic": false
+        },
+        {
+          "suite": "immutable segment input",
+          "name": "InvalidCandidateOrCustodyFailure_NoBinding",
+          "dynamic": false
+        },
+        {
+          "suite": "immutable segment input",
+          "name": "TerminalAdvisoryAndHalt_ExactReplay",
+          "dynamic": false
+        },
+        {
+          "suite": "immutable segment input",
+          "name": "OverlappingObservations_IndependentSqlitePublishersKeepOneWinner",
+          "dynamic": false
+        },
+        {
+          "suite": "immutable segment input",
+          "name": "InterruptedBinding_ResumesOnlyAfterPinnedProfileEligibility",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/integration/s7-task-standing.test.ts": {
+      "file": "tests/integration/s7-task-standing.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "authenticated task standing",
+          "name": "AcceptedSubset_ExactHeadAndPureFence",
+          "dynamic": false
+        },
+        {
+          "suite": "authenticated task standing",
+          "name": "BareCompletion_AndOrphanBundle_NoStanding",
+          "dynamic": false
+        },
+        {
+          "suite": "authenticated task standing",
+          "name": "OuterCommitFailed_OnlySameOperation",
+          "dynamic": false
+        },
+        {
+          "suite": "authenticated task standing",
+          "name": "CopiedRows_NoActualClaim_AndHeldOutcome_NoExport",
+          "dynamic": false
+        },
+        {
+          "suite": "authenticated task standing",
+          "name": "TerminalClaimMembership_RejectsEveryChangedEnvelopeField",
+          "dynamic": false
+        },
+        {
+          "suite": "authenticated task standing",
+          "name": "LeafEffects_MissingForeignHeadAndPath_Refuse",
+          "dynamic": false
+        },
+        {
+          "suite": "authenticated task standing",
+          "name": "LaterGatePolicySkip_PreservesProof_ButActualFailureInvalidates",
+          "dynamic": false
+        },
+        {
+          "suite": "authenticated task standing",
+          "name": "LaterForeignCompletion_CannotReplaceOriginalHead",
+          "dynamic": false
+        },
+        {
+          "suite": "authenticated task standing",
+          "name": "MissingInputAndCustody_RefuseWithoutLegacyFallback",
+          "dynamic": false
+        },
+        {
+          "suite": "authenticated task standing",
+          "name": "Revision_InvalidatesDescendantsAndPreservesUnrelatedStanding",
+          "dynamic": false
+        },
+        {
+          "suite": "authenticated task standing",
+          "name": "ChangedPreparedTaskSemantics_InvalidateOnlyItsDescendants",
+          "dynamic": false
+        },
+        {
+          "suite": "authenticated task standing",
+          "name": "AlreadyComplete_RequiresAnAuthenticatedEarlierOrigin",
+          "dynamic": false
+        },
+        {
+          "suite": "authenticated task standing",
+          "name": "StandingFence_ModelIgnoresUnrelatedRowsAndRejectsRelevantFailure",
+          "dynamic": false
+        },
+        {
+          "suite": "authenticated task standing",
+          "name": "AcceptedDecision_OnlyItsActualHeldRoundCanSupplyTheSegment",
+          "dynamic": false
+        },
+        {
+          "suite": "authenticated task standing",
+          "name": "MixedBlockerModes_PinnedProvisionalSurvivesOuterAcceptance",
+          "dynamic": false
+        },
+        {
+          "suite": "authenticated task standing",
+          "name": "ProvisionalBlocker_WrongOuterRefuses",
+          "dynamic": false
+        },
+        {
+          "suite": "authenticated task standing",
+          "name": "ExplicitProvisional_IgnoresRevisedPriorAcceptance",
+          "dynamic": false
+        },
+        {
+          "suite": "authenticated task standing",
+          "name": "HeldPromotion_PreservesPinnedProvisionalHistory",
+          "dynamic": false
+        },
+        {
+          "suite": "authenticated task standing",
+          "name": "ReconvergentCustody_ThirtyTasksBoundedAcceptedAndProvisional",
+          "dynamic": false
+        },
+        {
+          "suite": "authenticated task standing",
+          "name": "SharedAncestor_DistinctOuterModesAndNamedReferences",
+          "dynamic": false
+        },
+        {
+          "suite": "authenticated task standing",
+          "name": "SharedAncestor_FullNamedReferenceDamageRefusesInEitherOrder",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/integration/s7-diff-leaves.test.ts": {
+      "file": "tests/integration/s7-diff-leaves.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "immutable diff leaves",
+          "name": "LandedRoot_NotEmptyAgainstMovedRef",
+          "dynamic": false
+        },
+        {
+          "suite": "immutable diff leaves",
+          "name": "DependentKillProbe_ExcludesBlocker",
+          "dynamic": false
+        },
+        {
+          "suite": "immutable diff leaves",
+          "name": "MockBoundary_ExactHeadNotHEAD",
+          "dynamic": false
+        },
+        {
+          "suite": "immutable diff leaves",
+          "name": "CoordinateAdapter_RejectsPublicAndMismatch_PreservesLegacy",
+          "dynamic": false
+        },
+        {
+          "suite": "immutable diff leaves",
+          "name": "Adequacy_SelectedCheckoutRequiredBeforeRevert",
+          "dynamic": false
+        },
+        {
+          "suite": "immutable diff leaves",
+          "name": "BoundExecutor_AuthenticatesActualLeaf_AndSuppressesFsmonitor",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/integration/s7-fork-coordinates.test.ts": {
+      "file": "tests/integration/s7-fork-coordinates.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "immutable task forks",
+          "name": "Root_UsesPinnedBase_RefMotion_CoordinateStable",
+          "dynamic": false
+        },
+        {
+          "suite": "immutable task forks",
+          "name": "Fork_MustContainEveryBlocker",
+          "dynamic": false
+        },
+        {
+          "suite": "immutable task forks",
+          "name": "Fork_MustPrecedeHead_AndHoldRoot",
+          "dynamic": false
+        },
+        {
+          "suite": "immutable task forks",
+          "name": "SameOuterProvisional_AndForeignOrOrphanRefusal",
+          "dynamic": false
+        },
+        {
+          "suite": "immutable task forks",
+          "name": "WrongRepo_ZeroSegments_AndDirtyScope",
+          "dynamic": false
+        },
+        {
+          "suite": "immutable task forks",
+          "name": "HiddenUntrackedInput_RefusesBeforeBinding_ThenCleanTwinAccepts",
+          "dynamic": false
+        },
+        {
+          "suite": "immutable task forks",
+          "name": "ImmutableObserver_ReadOnlyAndNoFsmonitor",
+          "dynamic": false
+        },
+        {
+          "suite": "immutable task forks",
+          "name": "CapturedHead_RejectsLaterHeadSubstitution",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/integration/s7-coordinate-execution.test.ts": {
+      "file": "tests/integration/s7-coordinate-execution.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "selected coordinate execution",
+          "name": "DriftTool_ConsumesExactCoordinate",
+          "dynamic": false
+        },
+        {
+          "suite": "selected coordinate execution",
+          "name": "ResolvedUnboundCommand_Refuses",
+          "dynamic": false
+        },
+        {
+          "suite": "selected coordinate execution",
+          "name": "PassingAdequacy_OriginalClaims_ReplayWithoutProvider",
+          "dynamic": false
+        },
+        {
+          "suite": "selected coordinate execution",
+          "name": "HeadMovesBeforeCompletion_NoStanding",
+          "dynamic": false
+        },
+        {
+          "suite": "selected coordinate execution",
+          "name": "OldCompletion_DoesNotBypassNewSegment",
+          "dynamic": false
+        },
+        {
+          "suite": "selected coordinate execution",
+          "name": "Completion_RequiresTrustedStreamAndNamedCheckout",
+          "dynamic": false
+        },
+        {
+          "suite": "selected coordinate execution",
+          "name": "AdequacyReplay_RejectsIncompleteAndMismatchedPairs",
+          "dynamic": false
+        },
+        {
+          "suite": "selected coordinate execution",
+          "name": "LiteralTokens_OptionalAndLegacyCommands",
+          "dynamic": false
+        },
+        {
+          "suite": "selected coordinate execution",
+          "name": "DirtyAdequacy_CannotPublishPassingReplayPair",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/integration/s7-dag-settlement.test.ts": {
+      "file": "tests/integration/s7-dag-settlement.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "partial DAG settlement",
+          "name": "HeldDecision_RoundOneDependenciesAndOriginalReplay",
+          "dynamic": false
+        },
+        {
+          "suite": "partial DAG settlement",
+          "name": "HeldOrigin_ClaimAndMembershipDamageRefusesBeforeEffects",
+          "dynamic": false
+        },
+        {
+          "suite": "partial DAG settlement",
+          "name": "HeldOrigin_NormalFormRationaleAndStatusSurviveDecision",
+          "dynamic": false
+        },
+        {
+          "suite": "partial DAG settlement",
+          "name": "HeldOrigin_CommitRaceRetainsSegmentsWithoutDecision",
+          "dynamic": false
+        },
+        {
+          "suite": "partial DAG settlement",
+          "name": "ReverseClaims_ThreeWaveFanIn",
+          "dynamic": false
+        },
+        {
+          "suite": "partial DAG settlement",
+          "name": "PartialThenRest_Accepts",
+          "dynamic": false
+        },
+        {
+          "suite": "partial DAG settlement",
+          "name": "FailedBlocker_NoDependentGates",
+          "dynamic": false
+        },
+        {
+          "suite": "partial DAG settlement",
+          "name": "DuplicateClaims_ZeroExecution",
+          "dynamic": false
+        },
+        {
+          "suite": "partial DAG settlement",
+          "name": "BareCompletion_AndHaltedSegment_NoStanding",
+          "dynamic": false
+        },
+        {
+          "suite": "partial DAG settlement",
+          "name": "OuterFailure_SegmentContinuation",
+          "dynamic": false
+        },
+        {
+          "suite": "partial DAG settlement",
+          "name": "ForeignCompletion_DoesNotReplaceHaltedRun",
+          "dynamic": false
+        },
+        {
+          "suite": "partial DAG settlement",
+          "name": "ConcurrentOuterWinner_OriginalReceipt",
+          "dynamic": false
+        },
+        {
+          "suite": "partial DAG settlement",
+          "name": "GraphModel_StableOrderAndBoundedWork",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/integration/s7-standing-races.test.ts": {
+      "file": "tests/integration/s7-standing-races.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "standing transaction fences",
+          "name": "SharedAncestorDiamond_CommitMutationRefusesAndCleanTwinMoves",
+          "dynamic": false
+        },
+        {
+          "suite": "standing transaction fences",
+          "name": "SelectedMember_SameSummary_Conflicts",
+          "dynamic": false
+        },
+        {
+          "suite": "standing transaction fences",
+          "name": "SelectedClaim_Missing_NoOuterAcceptance",
+          "dynamic": false
+        },
+        {
+          "suite": "standing transaction fences",
+          "name": "PriorOuterClaimLost_RefreshesWithoutMove",
+          "dynamic": false
+        },
+        {
+          "suite": "standing transaction fences",
+          "name": "NewRevisionAfterSegment_NoMixedMove",
+          "dynamic": false
+        },
+        {
+          "suite": "standing transaction fences",
+          "name": "FinalSubset_AcceptsAndMovesAtomically",
+          "dynamic": false
+        },
+        {
+          "suite": "standing transaction fences",
+          "name": "ConflictingBlockerHead_NoSubstitution",
+          "dynamic": false
+        },
+        {
+          "suite": "standing transaction fences",
+          "name": "Prepare_RetainsStandingAndBindsNewResults",
+          "dynamic": false
+        },
+        {
+          "suite": "standing transaction fences",
+          "name": "Prepare_ProofIdentityChangesKey",
+          "dynamic": false
+        },
+        {
+          "suite": "standing transaction fences",
+          "name": "Prepare_RevisionClosurePreservesUnrelatedStanding",
+          "dynamic": false
+        },
+        {
+          "suite": "standing transaction fences",
+          "name": "LatestStatus_DocumentCannotCompleteGraph",
+          "dynamic": false
+        },
+        {
+          "suite": "standing transaction fences",
+          "name": "CorruptAcceptedClaim_RefusesBeforeEffects",
+          "dynamic": false
+        },
+        {
+          "suite": "standing transaction fences",
+          "name": "Old567_RemainHistorical",
+          "dynamic": false
+        },
+        {
+          "suite": "standing transaction fences",
+          "name": "Recompile_DescendantsOnly",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/integration/s7-prepared-detail.test.ts": {
+      "file": "tests/integration/s7-prepared-detail.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "authenticated prepared detail",
+          "name": "ThirtyTasks_BoundedReceiptUsableDetail",
+          "dynamic": false
+        },
+        {
+          "suite": "authenticated prepared detail",
+          "name": "LongestPrefix_CompleteCarrierAndExactBoundary",
+          "dynamic": false
+        },
+        {
+          "suite": "authenticated prepared detail",
+          "name": "HistoricalCapsule_PageStable",
+          "dynamic": false
+        },
+        {
+          "suite": "authenticated prepared detail",
+          "name": "MissingBundle_NoRegeneration",
+          "dynamic": false
+        },
+        {
+          "suite": "authenticated prepared detail",
+          "name": "DetailRead_ZeroWrites",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/integration/s7-dispatch-contract.test.ts": {
+      "file": "tests/integration/s7-dispatch-contract.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "prepared detail public dispatch",
+          "name": "DetailRead_CliMcpParity_BothFrontEndsRecoverPinnedContext",
+          "dynamic": false
+        },
+        {
+          "suite": "prepared detail public dispatch",
+          "name": "TelemetryOn_DetailAndRefusalsHaveZeroWrites",
+          "dynamic": false
+        },
+        {
+          "suite": "prepared detail public dispatch",
+          "name": "Compiler8_DeclaredShapeParity_ClosedInputsAndReadAuthority",
+          "dynamic": false
+        },
+        {
+          "suite": "prepared detail public dispatch",
+          "name": "FinalCarrier_CorrelationAndAmbientWarningFitBeforeReturn",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/acceptance/s7-whole-capsule.test.ts": {
+      "file": "tests/acceptance/s7-whole-capsule.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "activated whole capsule",
+          "name": "Acceptance_ThreeWavesOnePrepare",
+          "dynamic": false
+        },
+        {
+          "suite": "activated whole capsule",
+          "name": "Acceptance_LandedMediumAndDependentDiff",
+          "dynamic": false
+        },
+        {
+          "suite": "activated whole capsule",
+          "name": "Acceptance_ThirtyTaskReceipt_ActivationCappedDetail",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/process/s7-dag-races.test.ts": {
+      "file": "tests/process/s7-dag-races.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "packaged S7 DAG races",
+          "name": "Process_RestartRecoversCoordinate",
+          "dynamic": false
+        },
+        {
+          "suite": "packaged S7 DAG races",
+          "name": "Process_InterruptedEvidenceDamage_RefusesReplacement",
+          "dynamic": false
+        },
+        {
+          "suite": "packaged S7 DAG races",
+          "name": "Process_StandingChangesAfterSegment_RefusesMove",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/scripts/lint-envelopes.test.ts": {
+      "file": "tests/scripts/lint-envelopes.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "",
+          "name": "EnvelopeAdapter_BooleanOptions_ResolveActualHandlersAndRefuseUnsupportedShapes",
           "dynamic": false
         }
       ]
