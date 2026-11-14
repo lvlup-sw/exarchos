@@ -4,7 +4,6 @@
  * Production callers will use this resolver for segment recovery and dependency scheduling.
  * Remove this reservation when those callers adopt it.
  */
-import { createHash } from 'node:crypto';
 import { z } from 'zod';
 import { canonicalJson, requestDigest as canonicalRequestDigest } from '../../contract/request-context.js';
 import { TaskVerificationCoordinateSchema } from '../../contract/capsule/exarchos-capsule.js';
@@ -12,7 +11,7 @@ import { BundleRefV1Schema } from '../../events/bundle/digest-references.js';
 import type { RunBundleStore } from '../../events/bundle/run-bundle-store.js';
 import { DesignRevisedData, ExecutionSettledData, OrchestrateIntentExecutedData } from '../../events/schemas.js';
 import { loadPreparedCustody, selectPreparedAuthority, type PreparedAuthority } from '../../workflow/capsule/prepared-custody.js';
-import { decodeExecuteIntentBundle } from '../execute/run-bundle.js';
+import { decodeExecuteIntentBundle, normalizedExecuteRequestDigest, receiptLeavesOfRun } from '../execute/run-bundle.js';
 import { IntentExecutedOutputSchema } from '../execute/schemas.js';
 import type { SettledCapsuleIdentity } from './types.js';
 import { SettlementReceiptData } from './schemas.js';
@@ -52,6 +51,8 @@ interface StandingRequest {
   readonly lookupClaim: ClaimLookup;
   readonly bundles: Pick<RunBundleStore, 'resolve'>;
   readonly provisional?: { readonly outerOperationId: string; readonly capsule: SettledCapsuleIdentity };
+  readonly acceptedOperationId?: string;
+  readonly pinnedProvisional?: { readonly outerOperationId: string; readonly capsule: SettledCapsuleIdentity };
 }
 
 /** A proof exports its original identities and a synchronous fence for the current transaction snapshot. */
@@ -63,6 +64,7 @@ interface StandingProof {
   readonly outerOperationId: string;
   readonly segmentOperationId: string;
   readonly segmentRecordSequence: number;
+  readonly segmentRecord: ProofReference['segmentRecord'];
   readonly completionSequence: number;
   readonly staticAnalysisSequence: number;
   readonly worktreePath: string;
@@ -225,8 +227,8 @@ async function segmentProof(request: StandingRequest, current: PreparedAuthority
   const run = decodeExecuteIntentBundle(await request.bundles.resolve(ref.digest));
   requireFact(run.operationId === segmentId && run.streamId === request.streamId && run.intent === receipt.intent
     && run.requestDigest === held.claim.requestDigest && run.outcome === 'committed', 'Run custody identity mismatch');
-  requireFact(same(run.leaves.map(leaf => ({ action: leaf.action, status: leaf.verdict.status, events: leaf.events })),
-    receipt.leaves.map(leaf => ({ action: leaf.action, status: leaf.status, events: leaf.events }))), 'Run leaves differ from receipt');
+  requireFact(same(receiptLeavesOfRun(run),
+    receipt.leaves), 'Run leaves differ from receipt');
   const origin = await originOf(request, identity);
   const coordinate = run.input?.args.coordinate;
   if (coordinate === undefined) throw new StandingFault(origin.capsule.provenance.compilerVersion === 'exarchos-prepare-8' ? 'corrupt' : 'missing', 'Segment lacks a complete immutable coordinate');
@@ -235,8 +237,7 @@ async function segmentProof(request: StandingRequest, current: PreparedAuthority
   const input = run.input;
   requireFact(input !== undefined, 'Missing segment input');
   if (trace !== undefined) requireFact(same(input.args.result, trace.fields), 'Segment result differs from accepted caller fields');
-  const ordered = Object.keys(input.args).sort().map(key => [key, input.args[key]]);
-  const digest = `sha256:${createHash('sha256').update(`{"intent":${JSON.stringify(input.intent)},"streamId":${JSON.stringify(input.streamId)},"args":${canonicalJson(ordered)}}`).digest('hex')}`;
+  const digest = normalizedExecuteRequestDigest(input.intent, input.streamId, input.args);
   requireFact(digest === held.claim.requestDigest, 'Stored segment input does not reproduce its request digest');
   for (const action of ['check_static_analysis', 'task_complete']) {
     const leaves = run.leaves.filter(leaf => leaf.action === action);
@@ -284,15 +285,19 @@ async function segmentProof(request: StandingRequest, current: PreparedAuthority
   requireFact(same(coordinate.blockers.map(proof => proof.taskId), blockers), 'Coordinate omits or reorders direct blocker proofs');
   const blockerChecks: StandingProof['recheck'][] = [];
   for (const blocker of coordinate.blockers) {
-    const resolved = await resolveTaskStanding({ ...request, taskId: blocker.taskId });
-    if (resolved.kind !== 'accepted' || !same(resolved.proof.reference, blocker)) {
+    if (blocker.kind === 'provisional') requireFact(blocker.outerOperationId === outerId, 'Provisional blocker belongs to another operation');
+    const { provisional: _provisional, pinnedProvisional: _pinned, acceptedOperationId: _accepted, ...childRequest } = request;
+    const resolved = await resolveTaskStanding({ ...childRequest, taskId: blocker.taskId,
+      ...(blocker.kind === 'provisional' ? { pinnedProvisional: { outerOperationId: outerId, capsule: identity } } : { acceptedOperationId: blocker.outerOperationId }) });
+    if ((resolved.kind !== 'accepted' && resolved.kind !== 'provisional') || !same(resolved.proof.reference, blocker)) {
       throw new StandingFault('invalidated', 'The pinned blocker proof is no longer eligible');
     }
     blockerChecks.push(resolved.proof.recheck);
   }
   const ownCheck = fence(request, claims, selected, relevant, origin.selection.sequence, completeRow.sequence);
   return { taskId: request.taskId, headCommit: coordinate.observedHeadCommit, coordinate, outerOperationId: outerId,
-    segmentOperationId: segmentId, segmentRecordSequence: terminal.sequence, completionSequence: completeRow.sequence,
+    segmentOperationId: segmentId, segmentRecordSequence: terminal.sequence,
+    segmentRecord: { eventId: z.string().min(1).parse(terminal.eventId), sequence: terminal.sequence, timestamp: terminal.timestamp }, completionSequence: completeRow.sequence,
     staticAnalysisSequence: staticRow.sequence, worktreePath: input.args.worktreePath, runBundle: ref,
     recheck: (rows, lookup) => ownCheck(rows, lookup) && blockerChecks.every(check => check(rows, lookup)) };
 }
@@ -301,15 +306,37 @@ async function segmentProof(request: StandingRequest, current: PreparedAuthority
 export async function resolveTaskStanding(request: StandingRequest): Promise<StandingResult> {
   try {
     requireFact(request.rows.every(row => row.streamId === request.streamId), 'Standing snapshot contains another stream');
+    if (request.pinnedProvisional !== undefined && request.lookupClaim(request.pinnedProvisional.outerOperationId) !== undefined) {
+      const { pinnedProvisional, provisional: _provisional, ...acceptedRequest } = request;
+      const accepted = await resolveTaskStanding({ ...acceptedRequest, acceptedOperationId: pinnedProvisional.outerOperationId });
+      if (accepted.kind !== 'accepted' || accepted.proof.reference?.kind !== 'accepted'
+        || accepted.proof.segmentOperationId !== verificationOperationId(pinnedProvisional.outerOperationId, request.taskId)) {
+        throw new StandingFault('invalidated', 'The terminal outer operation did not accept this pinned provisional blocker');
+      }
+      const { outerRecordSequence: _record, settlementBundle: _bundle, ...reference } = accepted.proof.reference;
+      return { kind: 'provisional', proof: { ...accepted.proof, outerOperationId: pinnedProvisional.outerOperationId,
+        reference: { ...reference, kind: 'provisional', outerOperationId: pinnedProvisional.outerOperationId } } };
+    }
     const selection = selectPreparedAuthority(request.rows, request.streamId);
     if (selection === undefined) throw new StandingFault('missing', 'No prepared authority exists');
     const current = await loadPreparedCustody(selection, request.bundles);
     requireFact(current.kind === 'typed', 'Current standing requires approved typed custody');
     let promotion: { operationId: string; receipt: z.infer<typeof SettlementReceiptData>; bundle: SettlementBundleV1;
       row: StandingRow; ref: z.infer<typeof BundleRefV1Schema>; rows: StandingRow[]; claims: Map<string, string> } | undefined;
-    const candidates = request.rows.filter(row => row.type === 'execution.settled').sort((a, b) => b.sequence - a.sequence);
+    let acceptingDecisionId: string | undefined;
+    if (request.acceptedOperationId !== undefined) {
+      const held = request.lookupClaim(request.acceptedOperationId);
+      if (held !== undefined) {
+        const receipt = SettlementReceiptData.parse(held.result);
+        if (receipt.operationId === request.acceptedOperationId && receipt.outcome === 'deviation-pending' && (receipt.round ?? 0) === 0) {
+          acceptingDecisionId = settlementClaimKey(request.streamId, receipt.capsule, 1);
+        }
+      }
+    }
+    const candidates = request.rows.filter(row => request.provisional === undefined && request.pinnedProvisional === undefined && row.type === 'execution.settled').sort((a, b) => b.sequence - a.sequence);
     for (const hint of candidates) {
       const raw = dataOf(hint);
+      if (request.acceptedOperationId !== undefined && raw.operationId !== request.acceptedOperationId && raw.operationId !== acceptingDecisionId && promotion?.operationId !== raw.operationId) continue;
       if (!Array.isArray(raw.acceptedTasks) || !raw.acceptedTasks.includes(request.taskId)) continue;
       requireFact(typeof raw.operationId === 'string', 'Settlement hint has no operation identity');
       const accepting = promotion?.operationId === raw.operationId ? promotion : undefined;
@@ -328,7 +355,7 @@ export async function resolveTaskStanding(request: StandingRequest): Promise<Sta
         && record.workflowId === receipt.capsule.workflowId && record.definitionVersion === receipt.capsule.definitionVersion
         && (record.round ?? 0) === (receipt.round ?? 0), 'Settlement record differs from its claim');
       if (receipt.outcome !== 'settled' && receipt.outcome !== 'accepted-with-rationale'
-        && !(accepting !== undefined && receipt.outcome === 'deviation-pending' && receipt.round === undefined)) continue;
+        && !(accepting !== undefined && receipt.outcome === 'deviation-pending' && (receipt.round ?? 0) === 0)) continue;
       const ref = BundleRefV1Schema.parse(record.bundleRefs[0]);
       const bundle = decodeSettlementBundle(await request.bundles.resolve(ref.digest));
       requireFact(bundle.operationId === receipt.operationId && bundle.streamId === request.streamId && bundle.requestDigest === held.claim.requestDigest
@@ -342,6 +369,7 @@ export async function resolveTaskStanding(request: StandingRequest): Promise<Sta
       requireFact(traces.length === 1, 'Accepted task has no unique verification trace');
       const trace = traces[0];
       requireFact(trace !== undefined, 'Missing verification trace');
+      if (request.acceptedOperationId !== undefined && raw.operationId === acceptingDecisionId && trace.outcome !== 'already-complete') continue;
       if (trace.outcome === 'already-complete') {
         if (receipt.round === 1) {
           requireFact(bundle.decisions !== undefined && bundle.decisions.length > 0, 'Accepting decision has no decisions');
@@ -362,21 +390,25 @@ export async function resolveTaskStanding(request: StandingRequest): Promise<Sta
         [...held.rows, ...(accepting?.rows ?? [])], { ...trace, fields: taskClaims[0]?.fields });
       const acceptance = accepting?.receipt ?? receipt;
       return { kind: 'accepted', proof: { ...proof, outerOperationId: acceptance.operationId,
-        reference: { taskId: request.taskId, headCommit: proof.headCommit,
+        reference: { kind: 'accepted', taskId: request.taskId, headCommit: proof.headCommit,
           capsule: proof.coordinate.capsule, outerOperationId: acceptance.operationId,
           outerRecordSequence: accepting?.row.sequence ?? hint.sequence, settlementBundle: accepting?.ref ?? ref,
-          segmentOperationId: proof.segmentOperationId, runBundle: proof.runBundle,
+          segmentOperationId: proof.segmentOperationId, segmentRecord: proof.segmentRecord, runBundle: proof.runBundle,
           completionSequence: proof.completionSequence, staticAnalysisSequence: proof.staticAnalysisSequence } } };
     }
-    if (request.provisional !== undefined) {
-      const { outerOperationId, capsule } = request.provisional;
+    const provisional = request.pinnedProvisional ?? request.provisional;
+    if (provisional !== undefined) {
+      const { outerOperationId, capsule } = provisional;
       requireFact(settlementClaimKey(request.streamId, capsule) === outerOperationId
         || settlementClaimKey(request.streamId, capsule, 1) === outerOperationId, 'Provisional outer identity mismatch');
       const claims = new Map<string, string>();
-      if (request.lookupClaim(outerOperationId) !== undefined) throw new StandingFault('missing', 'A terminal outer outcome cannot grant provisional standing');
+      if (request.pinnedProvisional === undefined && request.lookupClaim(outerOperationId) !== undefined) throw new StandingFault('missing', 'A terminal outer outcome cannot grant provisional standing');
       const proof = await segmentProof(request, current, capsule, outerOperationId, claims, []);
       const check = proof.recheck;
-      return { kind: 'provisional', proof: { ...proof, recheck: (rows, lookup) => lookup(outerOperationId) === undefined && check(rows, lookup) } };
+      return { kind: 'provisional', proof: { ...proof, reference: { kind: 'provisional', taskId: proof.taskId, headCommit: proof.headCommit,
+        capsule: proof.coordinate.capsule, outerOperationId, segmentOperationId: proof.segmentOperationId, segmentRecord: proof.segmentRecord,
+        runBundle: proof.runBundle, completionSequence: proof.completionSequence, staticAnalysisSequence: proof.staticAnalysisSequence },
+        recheck: (rows, lookup) => (request.pinnedProvisional !== undefined || lookup(outerOperationId) === undefined) && check(rows, lookup) } };
     }
     throw new StandingFault('missing', 'No eligible accepted origin exists for this task');
   } catch (error) {

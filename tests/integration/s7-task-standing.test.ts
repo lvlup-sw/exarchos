@@ -12,7 +12,7 @@ import { ExecutionSettledData, OrchestrateIntentExecutedData, type WorkflowEvent
 import { ArtifactIdSchema } from '../../src/workflow/admission/types.js';
 import { readDesignRecord } from '../../src/workflow/design-record/read.js';
 import { encodeExecuteIntentBundle } from '../../src/verbs/execute/run-bundle.js';
-import { encodeSettlementBundle } from '../../src/verbs/settle/settlement-bundle.js';
+import { encodeSettlementBundle, type SettlementBundleV1 } from '../../src/verbs/settle/settlement-bundle.js';
 import { fixture as preparedFixture, prepared, task, textOf } from '../helpers/capsule/prepared-authority.js';
 import { makeTempDir, rmrfAsync } from '../../tools/test-helpers/temp-dir.js';
 
@@ -39,11 +39,11 @@ function keys(streamId: string, capsule: { workflowId: string; capsuleVersion: n
 }
 
 /** The fixture stores complete approved custody, real leaf appends and actual terminal operation claims. */
-async function setup() {
+async function setup(chain = false) {
   const root = makeTempDir('standing-proof-');
   const events = new EventStore(root); await events.initialize();
   closes.push(async () => { events.close(); await rmrfAsync(root); });
-  const text = textOf([task('root'), task('child', { blockedBy: ['root'] }), task('spare')]);
+  const text = textOf([task('root'), task('child', { blockedBy: ['root'] }), task('spare', chain ? { blockedBy: ['child'] } : {})]);
   const bundle = preparedFixture(text);
   const streamId = bundle.capsule.identity.workflowId;
   const read = readDesignRecord(Buffer.from(text), bundle.designRecord?.reference ?? 'plan.md');
@@ -58,10 +58,10 @@ async function setup() {
       source: { reference: read.snapshot.reference, digest: read.snapshot.digest, span: { ...entry.span } },
       knowledgeSlice: { invariantIds: [], adrRefs: [], symbols: [], files: [] },
     } }));
-  capsule.graph.dependencies = [{ from: 'root', to: 'child' }]; capsule.graph.joins = [];
+  capsule.graph.dependencies = [{ from: 'root', to: 'child' }, ...(chain ? [{ from: 'child', to: 'spare' }] : [])]; capsule.graph.joins = [];
   capsule.contracts.taskInputs = {};
   capsule.contracts.taskResults = Object.fromEntries(['root', 'child', 'spare'].map(id => [id,
-    id === 'child' ? [{ name: 'forkCommit', type: 'string' as const, required: true }] : [{ name: 'passed', type: 'boolean' as const, required: true }],
+    (id === 'child' || (chain && id === 'spare')) ? [{ name: 'forkCommit', type: 'string' as const, required: true }] : [{ name: 'passed', type: 'boolean' as const, required: true }],
   ]));
   capsule.settlementContract = { ...profiledValidCapsule().settlementContract, requiredResults: ['root', 'child', 'spare'], skipPhases: [],
     verificationMode: 'immutable-task-diff-v1', scope: { repository: '/repo/.git', checkout: '/repo', configDigest: 'c'.repeat(64) },
@@ -76,14 +76,18 @@ async function setup() {
   const input = async (taskId = 'root') => ({ streamId, taskId, rows: await events.query(streamId), lookupClaim: lookup, bundles: events.bundleStore });
   const resolve = async (taskId = 'root') => (await resolver())?.resolveTaskStanding(await input(taskId));
   const append = async (type: string, data: Record<string, unknown>) => events.append(streamId, { type, timestamp: TIME, data });
-  const commit = async (options: { batch?: string; taskId?: string; outer?: boolean; outcome?: 'settled' | 'corrective-capsule' | 'deviation-pending'; head?: string; legacy?: boolean } = {}) => {
+  const batchSegments = new Map<string, { claim: SettlementBundleV1['claims'][number]; trace: NonNullable<SettlementBundleV1['verification']>[number] }[]>();
+  const commit = async (options: { batch?: string; taskId?: string; outer?: boolean; outcome?: 'settled' | 'corrective-capsule' | 'deviation-pending'; head?: string; legacy?: boolean; provisional?: boolean; acceptBatch?: boolean; roundZero?: boolean; blockers?: ReturnType<typeof TaskVerificationCoordinateSchema.parse>['blockers'] } = {}) => {
     const batch = options.batch ?? 'accepted'; const taskId = options.taskId ?? 'root'; const head = options.head ?? HEAD;
     const identity = { ...capsule.identity, batchId: batch }; const ids = keys(streamId, identity, batch, taskId);
-    const prior = taskId === 'child' ? await resolve('root') : undefined;
-    const blockers = prior?.kind === 'accepted' && prior.proof.reference !== undefined ? [prior.proof.reference] : [];
+    const blockerId = taskId === 'child' ? 'root' : chain && taskId === 'spare' ? 'child' : undefined;
+    const prior = blockerId === undefined ? undefined : options.provisional
+      ? await (await resolver())?.resolveTaskStanding({ ...await input(blockerId), provisional: { outerOperationId: ids.outer, capsule: identity } })
+      : await resolve(blockerId);
+    const blockers = options.blockers ?? ((prior?.kind === 'accepted' || prior?.kind === 'provisional') && prior.proof.reference !== undefined ? [prior.proof.reference] : []);
     const coordinate = TaskVerificationCoordinateSchema.parse({ protocolVersion: '1', taskId, capsule: capsule.identity,
-      repository: '/repo/.git', rootBaseCommit: ROOT, diffBaseCommit: taskId === 'child' ? HEAD : ROOT, observedHeadCommit: head, blockers });
-    const args = JSON.parse(canonicalJson({ taskId, capsuleVersion: capsule.identity.capsuleVersion, worktreePath: '/repo/task', result: { passed: true, worktreePath: '/repo/task', ...(taskId === 'child' ? { forkCommit: HEAD } : {}) }, coordinate }));
+      repository: '/repo/.git', rootBaseCommit: ROOT, diffBaseCommit: blockerId !== undefined ? HEAD : ROOT, observedHeadCommit: head, blockers });
+    const args = JSON.parse(canonicalJson({ taskId, capsuleVersion: capsule.identity.capsuleVersion, worktreePath: '/repo/task', result: { passed: true, worktreePath: '/repo/task', ...(blockerId !== undefined ? { forkCommit: HEAD } : {}) }, coordinate }));
     const requestDigest = `sha256:${createHash('sha256').update(JSON.stringify({ intent: 'task-completion', streamId,
       args: Object.keys(args).sort().map(key => [key, args[key]]) })).digest('hex')}`;
     const gate = await append('gate.executed', { gateName: 'static-analysis', layer: 'L1', passed: true,
@@ -109,19 +113,24 @@ async function setup() {
         bundleRefs: [runRef], leaves: leaves.map(leaf => ({ action: leaf.action, status: leaf.status, sequences: leaf.events.map(event => event.sequence) })) }) }], result: receipt }));
     const outcome = options.outcome ?? 'settled';
     const census = { claims: 1, requiredResults: 1, fields: 1, evidence: 0, deviations: 0, verification: 1 };
-    const claims = [{ taskId, fields: { passed: true, worktreePath: '/repo/task', ...(taskId === 'child' ? { forkCommit: HEAD } : {}) }, evidence: [] }];
-    const outerDigest = canonicalRequestDigest({ streamId, identity, claims, deviations: [] });
+    let claims: SettlementBundleV1['claims'] = [{ taskId, fields: { passed: true, worktreePath: '/repo/task', ...(blockerId !== undefined ? { forkCommit: HEAD } : {}) }, evidence: [] }];
     const trace = { taskId, outcome: 'verified' as const, operationId: ids.segment, bundleRefs: [runRef], treeCommit: head, coordinate };
+    const previous = batchSegments.get(batch) ?? [];
+    previous.push({ claim: { taskId, fields: claims[0]?.fields ?? {}, evidence: [] }, trace }); batchSegments.set(batch, previous);
+    if (options.acceptBatch) claims = previous.map(entry => entry.claim);
+    const verification = options.acceptBatch ? previous.map(entry => entry.trace) : [trace];
+    const acceptedTasks = claims.map(claim => claim.taskId);
+    const outerDigest = canonicalRequestDigest({ streamId, identity, claims, deviations: [] });
     const settlement = { bundleVersion: '1.0' as const, kind: 'settlement-adjudication' as const, operationId: ids.outer, streamId,
-      requestDigest: outerDigest, capsule: identity, outcome, acceptedTasks: [taskId], findings: [], claims, deviations: [], adjudicated: census,
-      verification: [trace], settledAt: TIME };
+      requestDigest: outerDigest, capsule: identity, outcome, acceptedTasks, findings: [], claims, deviations: [], adjudicated: census,
+      verification, settledAt: TIME };
     const outerRef = { artifactId: ArtifactIdSchema.parse('run-bundle:settlement'), digest: await events.bundleStore.put(encodeSettlementBundle(settlement)) };
     if (options.outer !== false) await events.getAppender().decideOnce(ids.outer, outerDigest, () => ({ streamId, events: [{ type: 'execution.settled', timestamp: TIME, schemaVersion: '1.0',
       data: ExecutionSettledData.parse({ operationId: ids.outer, workflowId: streamId, capsuleVersion: capsule.identity.capsuleVersion,
-        definitionVersion: capsule.identity.definitionVersion, batchId: batch, outcome, acceptedTasks: [taskId], findingCounts: [], adjudicated: census,
+        definitionVersion: capsule.identity.definitionVersion, batchId: batch, outcome, acceptedTasks, findingCounts: [], adjudicated: census,
         requestDigest: outerDigest, bundleRefs: [outerRef] }) }],
-      result: { operationId: ids.outer, streamId, capsule: identity, outcome, acceptedTasks: [taskId], findings: [], adjudicated: census,
-        requestDigest: outerDigest, tailSequence: completion.sequence + 2, verification: [trace], bundleRefs: [outerRef],
+      result: { operationId: ids.outer, streamId, capsule: identity, ...(options.roundZero ? { round: 0 } : {}), outcome, acceptedTasks, findings: [], adjudicated: census,
+        requestDigest: outerDigest, tailSequence: completion.sequence + 2, verification, bundleRefs: [outerRef],
         ...(outcome === 'deviation-pending' ? { pendingDeviations: [{ deviationId: 'held-change', deviationKind: 'implementation', statement: 'Held choice' }] } : {}) } }));
     return { ...ids, identity, gate, completion, outerRef, runRef, settlement };
   };
@@ -322,6 +331,89 @@ describe('authenticated task standing', () => {
     if (result?.kind === 'accepted') expect(result.proof.reference).toMatchObject({ outerOperationId: outer, segmentOperationId: held.segment });
     const module = await resolver();
     expect((await module?.resolveTaskStanding({ ...await s.input(), lookupClaim: id => id === held.outer ? undefined : s.lookup(id) }))?.kind).toBe('missing');
+  });
+
+  /** An accepted ancestor and same-operation provisional parent retain distinct proof modes after outer acceptance. */
+  it('MixedBlockerModes_PinnedProvisionalSurvivesOuterAcceptance', async () => {
+    const s = await setup(true); await s.commit({ batch: 'earlier' });
+    const child = await s.commit({ batch: 'current', taskId: 'child', outer: false });
+    const module = await resolver();
+    const provisional = await module?.resolveTaskStanding({ ...await s.input('child'), provisional: { outerOperationId: child.outer, capsule: child.identity } });
+    expect(provisional?.kind, JSON.stringify(provisional)).toBe('provisional');
+    if (provisional?.kind !== 'provisional') return;
+    expect(provisional.proof.coordinate.blockers[0]?.kind).toBe('accepted');
+    expect(provisional.proof.reference).not.toHaveProperty('outerRecordSequence');
+    expect(provisional.proof.reference).not.toHaveProperty('settlementBundle');
+    const spare = await s.commit({ batch: 'current', taskId: 'spare', provisional: true, acceptBatch: true });
+    expect(spare.settlement.verification).toHaveLength(2);
+    const accepted = await s.resolve('spare'); expect(accepted?.kind, JSON.stringify(accepted)).toBe('accepted');
+    if (accepted?.kind !== 'accepted') return;
+    expect(accepted.proof.coordinate.blockers[0]).toEqual(provisional.proof.reference);
+    expect(accepted.proof.recheck(await s.events.query(s.streamId), s.lookup)).toBe(true);
+    const laterChild = await s.resolve('child'); expect(laterChild?.kind).toBe('accepted');
+    if (laterChild?.kind === 'accepted') expect(laterChild.proof.reference?.kind).toBe('accepted');
+  });
+
+  /** A copied provisional reference cannot authorize another outer operation, even with a valid segment and head. */
+  it('ProvisionalBlocker_WrongOuterRefuses', async () => {
+    const s = await setup(true); await s.commit({ batch: 'earlier' });
+    const child = await s.commit({ batch: 'current', taskId: 'child', outer: false }); const module = await resolver();
+    const proof = await module?.resolveTaskStanding({ ...await s.input('child'), provisional: { outerOperationId: child.outer, capsule: child.identity } });
+    expect(proof?.kind).toBe('provisional');
+    if (proof?.kind === 'provisional') expect(proof.proof.reference?.kind).toBe('provisional');
+    if (proof?.kind !== 'provisional' || proof.proof.reference === undefined) return;
+    await s.commit({ batch: 'other', taskId: 'spare', blockers: [proof.proof.reference] });
+    const result = await s.resolve('spare'); expect(result?.kind).toBe('corrupt');
+    if (result?.kind === 'corrupt') expect(result.message).toContain('another operation');
+  });
+
+  /** A revised old acceptance cannot shadow the explicitly requested fresh same-outer segment. */
+  it('ExplicitProvisional_IgnoresRevisedPriorAcceptance', async () => {
+    const s = await setup(); const old = await s.commit();
+    const same = await s.commit({ batch: 'fresh-before-revision', outer: false }); const currentModule = await resolver();
+    expect((await s.resolve())?.kind).toBe('accepted');
+    const sameOuter = await currentModule?.resolveTaskStanding({ ...await s.input(), provisional: { outerOperationId: same.outer, capsule: same.identity } });
+    expect(sameOuter?.kind).toBe('provisional');
+    if (sameOuter?.kind === 'provisional') expect(sameOuter.proof.segmentOperationId).toBe(same.segment);
+    await s.append('design.revised', { operationId: 'revision-new', workflowId: s.streamId,
+      capsuleVersion: 1, batchId: 'revision-new', priorDesignVersion: 1, nextDesignVersion: 2,
+      deviationIds: ['revise-root'], affectedTasks: ['root'], bundleRefs: [old.outerRef] });
+    s.capsule.identity.capsuleVersion += 1;
+    const digest = await s.events.bundleStore.put(encodePreparedBundle(s.bundle)); const next = prepared(s.bundle);
+    await s.events.append(s.streamId, { type: 'workflow.prepared', schemaVersion: '1.0', timestamp: TIME,
+      data: { ...next.data, capsuleDigest: capsuleDigest(s.capsule), bundleRefs: [{ artifactId: 'run-bundle:revised', digest }] } });
+    const current = await s.commit({ batch: 'revised', outer: false }); const module = await resolver();
+    expect((await s.resolve())?.kind).toBe('invalidated');
+    const exact = await module?.resolveTaskStanding({ ...await s.input(), provisional: { outerOperationId: current.outer, capsule: current.identity } });
+    expect(exact?.kind, JSON.stringify(exact)).toBe('provisional');
+    if (exact?.kind === 'provisional') expect(exact.proof.reference?.outerOperationId).toBe(current.outer);
+  });
+
+  /** A real accepting decision promotes its held batch without rewriting an already pinned provisional blocker coordinate. */
+  it('HeldPromotion_PreservesPinnedProvisionalHistory', async () => {
+    const s = await setup(true); await s.commit({ batch: 'ancestor' });
+    const child = await s.commit({ batch: 'held', taskId: 'child', outer: false }); const module = await resolver();
+    const pinned = await module?.resolveTaskStanding({ ...await s.input('child'), provisional: { outerOperationId: child.outer, capsule: child.identity } });
+    expect(pinned?.kind).toBe('provisional'); if (pinned?.kind !== 'provisional') return;
+    const held = await s.commit({ batch: 'held', taskId: 'spare', provisional: true, acceptBatch: true, outcome: 'deviation-pending', roundZero: true });
+    const identity = held.identity; const round = 1;
+    const outer = `settle:${createHash('sha256').update(canonicalJson({ streamId: s.streamId, workflowId: identity.workflowId,
+      capsuleVersion: identity.capsuleVersion, batchId: identity.batchId, round })).digest('hex')}`;
+    const decisions = [{ deviationId: 'held-change', decision: 'accepted' as const, actor: 'user', rationale: 'Approved' }];
+    const requestDigest = canonicalRequestDigest({ streamId: s.streamId, identity, round, decisions });
+    const verification = ['child', 'spare'].map(taskId => ({ taskId, outcome: 'already-complete' as const }));
+    const bundle = { ...held.settlement, operationId: outer, requestDigest, outcome: 'settled' as const, round, decisions, verification };
+    const ref = { artifactId: ArtifactIdSchema.parse('run-bundle:promotion'), digest: await s.events.bundleStore.put(encodeSettlementBundle(bundle)) };
+    await s.events.getAppender().decideOnce(outer, requestDigest, () => ({ streamId: s.streamId,
+      events: [{ type: 'execution.settled', schemaVersion: '1.0', timestamp: TIME,
+        data: ExecutionSettledData.parse({ operationId: outer, workflowId: s.streamId, capsuleVersion: identity.capsuleVersion,
+          definitionVersion: identity.definitionVersion, batchId: identity.batchId, round, outcome: 'settled', acceptedTasks: ['child', 'spare'],
+          findingCounts: [], adjudicated: bundle.adjudicated, requestDigest, bundleRefs: [ref] }) }],
+      result: { operationId: outer, streamId: s.streamId, capsule: identity, round, outcome: 'settled', acceptedTasks: ['child', 'spare'], findings: [],
+        adjudicated: bundle.adjudicated, requestDigest, tailSequence: 20, verification, bundleRefs: [ref] } }));
+    const result = await s.resolve('spare'); expect(result?.kind, JSON.stringify(result)).toBe('accepted');
+    if (result?.kind === 'accepted') expect(result.proof.coordinate.blockers[0]).toEqual(pinned.proof.reference);
+    expect((await module?.resolveTaskStanding({ ...await s.input('spare'), lookupClaim: id => id === held.outer ? undefined : s.lookup(id) }))?.kind).toBe('missing');
   });
 
 });

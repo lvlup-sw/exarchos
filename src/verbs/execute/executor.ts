@@ -14,6 +14,14 @@
  */
 
 import { createHash, randomUUID } from 'node:crypto';
+import { z } from 'zod';
+import { canonicalJson } from '../../contract/request-context.js';
+import { TaskVerificationCoordinateSchema } from '../../contract/capsule/exarchos-capsule.js';
+import { recheckPreparedAuthority, type PreparedAuthority } from '../../workflow/capsule/prepared-custody.js';
+import { observeClaimedTree } from '../../utils/git-tree.js';
+import { verificationOperationId, settlementClaimKey } from '../settle/settlement-reads.js';
+import { resolveTaskStanding } from '../settle/task-standing.js';
+import { IntentExecutedOutputSchema } from './schemas.js';
 
 import { resolveEmissionEnforcement } from '../../config/resolve.js';
 import {
@@ -45,13 +53,20 @@ import {
 } from '../../events/bundle/digest-references.js';
 import type { RunBundleStore } from '../../events/bundle/run-bundle-store.js';
 import { runWithAppendObserver } from '../../events/observation/append-observation.js';
-import { OrchestrateIntentExecutedData } from '../../events/schemas.js';
+import { DesignRevisedData, OrchestrateIntentExecutedData } from '../../events/schemas.js';
 import type { IntentFailureDetail, ToolResult } from '../../format.js';
 import { evidenceArtifactResolver } from '../../workflow/admission/evidence-artifact.js';
-import { OperationIdSchema } from '../../workflow/admission/types.js';
+import { ContentDigestV1Schema, OperationIdSchema } from '../../workflow/admission/types.js';
 import { readGateSkipDescriptor } from '../gates/gate-utils.js';
 import { compileIntent, PRODUCTION_COMPILE_DEPS, type CompileDeps } from './compile.js';
 import {
+  decodeExecuteIntentBundle,
+  receiptLeavesOfRun,
+  ExecuteIntentInputSchema,
+  validateInputTree,
+  executeRequestDigest,
+  normalizedExecuteRequestDigest,
+  SegmentInputBindingV1Schema,
   encodeExecuteIntentBundle,
   executeIntentBundleArtifactId,
   EXECUTE_INTENT_BUNDLE_KIND,
@@ -122,6 +137,12 @@ export interface ExecuteIntentDeps extends CompileDeps {
    * A caller that reads the tier from a pinned capsule sets it here. Then the record does not claim that the runtime supplied those terms.
    */
   readonly steeringSource?: ReceiptSteering['source'];
+  /** Only settlement supplies this immutable prepared authority. Public arguments cannot select coordinate mode. */
+  readonly verificationInput?: {
+    readonly authority: PreparedAuthority; readonly outerOperationId: string; readonly callerDigest: string; readonly batchId: string;
+    readonly coordinate?: z.infer<typeof TaskVerificationCoordinateSchema>;
+    readonly replayOnly?: boolean;
+  };
 }
 
 /**
@@ -148,21 +169,62 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-/**
- * The replay comparison key: the request's substance, and only its substance.
- * Key order is normalized so two spellings of the same request cannot look
- * like two different ones.
- */
-function requestDigestOf(
-  intent: string,
-  streamId: string,
-  args: Record<string, unknown>,
-): string {
-  const ordered = Object.keys(args)
-    .sort()
-    .map((key) => [key, args[key]] as const);
-  const canonical = JSON.stringify({ intent, streamId, args: ordered });
-  return `sha256:${createHash('sha256').update(canonical).digest('hex')}`;
+/** Read the bound input before mutable checkout observations. A blob alone cannot nominate itself. */
+export async function recoverSegmentInput(
+  operationId: string, streamId: string, callerDigest: string, ctx: DispatchContext, bundles: RunBundleStore,
+): Promise<z.infer<typeof ExecuteIntentInputSchema> | undefined> {
+  const payload = ctx.eventStore.getAppender().ensureSqliteBackendSync().lookupSegmentInput(operationId);
+  if (payload === undefined) return undefined;
+  const binding = SegmentInputBindingV1Schema.parse(JSON.parse(payload));
+  if (binding.operationId !== operationId || binding.streamId !== streamId
+    || binding.inputRef.artifactId !== `segment-input:${operationId}`
+    || `sha256:${binding.callerDigest.value}` !== callerDigest) throw new Error('Segment caller digest mismatch');
+  const bytes = await bundles.resolve(binding.inputRef.digest);
+  const input = ExecuteIntentInputSchema.parse(JSON.parse(bytes.toString('utf8')));
+  if (Buffer.from(canonicalJson(input), 'utf8').compare(bytes) !== 0 || input.streamId !== streamId
+    || normalizedExecuteRequestDigest(input.intent, input.streamId, input.args) !== `sha256:${binding.inputDigest.value}`) {
+    throw new Error('Segment input custody does not reproduce its bound digest');
+  }
+  return input;
+}
+
+/** Parse a canonical digest without conflating caller identity with input bytes. */
+function digestValue(value: string) {
+  if (!value.startsWith('sha256:')) throw new Error('Expected sha256 digest');
+  return ContentDigestV1Schema.parse({ algorithm: 'sha256', value: value.slice(7) });
+}
+
+/** Terminal replay authenticates the actual claim, its member row and stored input, without reading Git. */
+async function boundReceipt(operationId: string, input: z.infer<typeof ExecuteIntentInputSchema>, ctx: DispatchContext, bundles: RunBundleStore): Promise<IntentReceipt | undefined> {
+  const claim = ctx.eventStore.getAppender().ensureSqliteBackendSync().lookupOperationClaim<IntentReceipt>(operationId);
+  if (claim === undefined) return undefined;
+  const receipt = IntentExecutedOutputSchema.options[0].shape.data.parse(claim.result);
+  if (claim.streamId !== input.streamId || receipt.operationId !== operationId || receipt.intent !== input.intent
+    || claim.requestDigest !== normalizedExecuteRequestDigest(input.intent, input.streamId, input.args) || receipt.requestDigest !== claim.requestDigest
+    || claim.sequences.length !== 1 || claim.eventIds.length !== 1 || claim.timestamps.length !== 1) throw new Error('Invalid segment terminal claim');
+  const rows = await ctx.eventStore.query(input.streamId);
+  const row = rows.find(row => row.sequence === claim.sequences[0]);
+  if (row === undefined || !('eventId' in row) || row.eventId !== claim.eventIds[0] || row.timestamp !== claim.timestamps[0]
+    || row.type !== INTENT_EXECUTED_EVENT) throw new Error('Missing segment terminal member');
+  const record = OrchestrateIntentExecutedData.parse(row.data);
+  if (record.operationId !== operationId || record.intent !== receipt.intent || record.outcome !== receipt.outcome
+    || canonicalJson(record.leaves) !== canonicalJson(receipt.leaves.map(leaf => ({ action: leaf.action, status: leaf.status, sequences: leaf.events.map(event => event.sequence) })))
+    || canonicalJson(record.steering) !== canonicalJson(receipt.steering)
+    || record.requestDigest !== claim.requestDigest
+    || canonicalJson(record.bundleRefs) !== canonicalJson(receipt.bundleRefs)) throw new Error('Segment terminal mismatch');
+  const ref = receipt.bundleRefs?.[0];
+  if (ref === undefined) throw new Error('Missing segment run custody');
+  const run = decodeExecuteIntentBundle(await bundles.resolve(ContentDigestV1Schema.parse(ref.digest)));
+  if (run.operationId !== operationId || run.streamId !== input.streamId || run.requestDigest !== claim.requestDigest
+    || ref.artifactId !== executeIntentBundleArtifactId(operationId) || run.intent !== receipt.intent
+    || run.failedLeaf !== receipt.failedLeaf || canonicalJson(run.failure) !== canonicalJson(receipt.failure)
+    || canonicalJson(run.steering) !== canonicalJson(receipt.steering) || run.tailSequence !== receipt.tailSequence
+    || canonicalJson(run.interaction) !== canonicalJson(receipt.interaction)
+    || run.outcome !== receipt.outcome || canonicalJson(run.input) !== canonicalJson(input)
+    || canonicalJson(receiptLeavesOfRun(run)) !== canonicalJson(receipt.leaves)) {
+    throw new Error('Segment run custody mismatch');
+  }
+  return claim.result;
 }
 
 /**
@@ -354,6 +416,12 @@ export async function handleExecuteIntent(
     operationId = validated.data;
   }
 
+  if (deps.verificationInput === undefined && Object.hasOwn(intentArgs, 'coordinate')) return invalid('Only authenticated settlement may supply verification coordinates');
+  if (deps.verificationInput !== undefined) {
+    try { return await executeBoundInput(intent, streamId, operationId, intentArgs, stateDir, ctx, deps); }
+    catch (error) { return { success: false, error: { code: 'SEGMENT_INPUT_REFUSED', message: error instanceof Error ? error.message : String(error) } }; }
+  }
+
   const compiled = compileIntent(intent, { streamId }, intentArgs, deps);
   if (!compiled.ok) {
     return {
@@ -366,7 +434,7 @@ export async function handleExecuteIntent(
     };
   }
   const segment = compiled.segment;
-  const requestDigest = requestDigestOf(intent, streamId, segment.args);
+  const requestDigest = executeRequestDigest(intent, streamId, segment.args);
 
   return runExclusivePerOperation(operationId, async () => {
     const claim = ctx.eventStore
@@ -405,7 +473,133 @@ export async function handleExecuteIntent(
   });
 }
 
+/** Pure checks reject known-invalid candidates before they can claim an immutable binding. */
+function validateBoundAuthority(input: z.infer<typeof ExecuteIntentInputSchema>, taskId: unknown,
+  authority: NonNullable<ExecuteIntentDeps['verificationInput']>) {
+    const coordinate = input.args.coordinate;
+    if (coordinate === undefined || coordinate.taskId !== taskId
+      || canonicalJson(coordinate.capsule) !== canonicalJson(authority.authority.capsule.identity)) throw new Error('Bound coordinate differs from prepared authority');
+    const capsule = authority.authority.capsule;
+    const task = capsule.graph.tasks.find(task => task.taskId === coordinate.taskId);
+    const terms = capsule.settlementContract.taskVerification?.[coordinate.taskId];
+    const blockerIds = capsule.graph.dependencies.filter(edge => edge.to === coordinate.taskId).map(edge => edge.from);
+    if (task === undefined || terms === undefined || terms.baseCommit !== coordinate.rootBaseCommit
+      || capsule.settlementContract.scope?.repository !== coordinate.repository
+      || input.args.riskTier !== terms.riskTier || input.args.boundaryTouching !== terms.boundaryTouching
+      || input.args.baseRef !== terms.baseRef || input.args.capsuleVersion !== capsule.identity.capsuleVersion
+      || canonicalJson(blockerIds) !== canonicalJson(coordinate.blockers.map(blocker => blocker.taskId))
+      || (blockerIds.length === 0 && coordinate.diffBaseCommit !== coordinate.rootBaseCommit)) throw new Error('Bound input differs from pinned task terms');
+    if (blockerIds.length > 0) {
+      const result = z.record(z.string(), z.unknown()).parse(input.args.result);
+      if (result.forkCommit !== coordinate.diffBaseCommit) throw new Error('Bound input differs from caller fork');
+    }
+    for (const blocker of coordinate.blockers) if (blocker.kind === 'provisional' && blocker.outerOperationId !== authority.outerOperationId) {
+      throw new Error('Provisional input belongs to another outer operation');
+    }
+  return coordinate;
+}
+
+/** Resolve current blocker applicability outside the SQLite publication transaction. */
+async function validateBoundProofs(input: z.infer<typeof ExecuteIntentInputSchema>, authority: NonNullable<ExecuteIntentDeps['verificationInput']>,
+  ctx: DispatchContext, bundles: RunBundleStore): Promise<void> {
+  const coordinate = input.args.coordinate;
+  if (coordinate === undefined) throw new Error('Missing coordinate');
+  const streamId = input.streamId;
+  const capsule = authority.authority.capsule;
+  const backend = ctx.eventStore.getAppender().ensureSqliteBackendSync();
+    const rows = await ctx.eventStore.query(streamId);
+    if (!recheckPreparedAuthority(authority.authority.selection, rows)) throw new Error('Prepared authority changed before segment continuation');
+    const relevant = new Set([coordinate.taskId]);
+    let expanded = true;
+    while (expanded) { expanded = false; for (const edge of capsule.graph.dependencies) {
+      if (relevant.has(edge.to) && !relevant.has(edge.from)) { relevant.add(edge.from); expanded = true; }
+    } }
+    if (rows.some(row => row.type === 'design.revised' && row.sequence > authority.authority.selection.sequence
+      && DesignRevisedData.parse(row.data).affectedTasks.some(taskId => relevant.has(taskId)))) throw new Error('Revision invalidated the bound task or its blockers');
+    for (const blocker of coordinate.blockers) {
+      const proof = await resolveTaskStanding({ streamId, taskId: blocker.taskId, rows, bundles,
+        lookupClaim: id => backend.lookupOperationClaim(id),
+        ...(blocker.kind === 'provisional' ? { provisional: { outerOperationId: authority.outerOperationId,
+          capsule: { ...capsule.identity, batchId: authority.batchId } } } : {}) });
+      if ((proof.kind !== 'accepted' && proof.kind !== 'provisional') || canonicalJson(proof.proof.reference) !== canonicalJson(blocker)) {
+        throw new Error('Bound blocker proof is no longer applicable');
+      }
+    }
+}
+
+/** Interrupted execution uses only the original clean checkout at the selected immutable head. */
+async function requireBoundTree(input: z.infer<typeof ExecuteIntentInputSchema>): Promise<void> {
+  const coordinate = input.args.coordinate;
+  if (coordinate === undefined) throw new Error('Missing coordinate');
+    const treePath = input.args.worktreePath;
+    if (typeof treePath !== 'string') throw new Error('Missing bound checkout');
+    const tree = await observeClaimedTree(treePath, coordinate.diffBaseCommit, coordinate.repository);
+    if (tree.kind !== 'tree' || tree.repository !== coordinate.repository || tree.head !== coordinate.observedHeadCommit
+      || !tree.holdsBase || tree.dirtyPaths.length !== 0) throw new Error('Bound checkout is unavailable, changed or dirty; restore it before resuming');
+}
+
+/** The trusted path binds one normalized snapshot before any leaf. A binding is neither a lease nor completion. */
+async function executeBoundInput(intent: string, streamId: string, operationId: string, args: Record<string, unknown>,
+  stateDir: string, ctx: DispatchContext, deps: ExecuteIntentDeps): Promise<ToolResult> {
+  const authority = deps.verificationInput;
+  if (authority === undefined || authority.authority.capsule.provenance.compilerVersion !== 'exarchos-prepare-8'
+    || authority.authority.capsule.identity.workflowId !== streamId || intent !== 'task-completion'
+    || settlementClaimKey(streamId, { ...authority.authority.capsule.identity, batchId: authority.batchId }) !== authority.outerOperationId
+    || typeof args.taskId !== 'string' || operationId !== verificationOperationId(authority.outerOperationId, args.taskId)) throw new Error('Invalid internal verification authority');
+  validateInputTree(args);
+  const bundles = deps.bundleStore ?? ctx.eventStore.bundleStore;
+  return runExclusivePerOperation(operationId, async () => {
+    const backend = ctx.eventStore.getAppender().ensureSqliteBackendSync();
+    let input = await recoverSegmentInput(operationId, streamId, authority.callerDigest, ctx, bundles);
+    if (input === undefined) {
+      if (authority.replayOnly) throw new Error('Replay-only segment lacks its bound input');
+      if (backend.lookupOperationClaim(operationId) !== undefined) throw new Error('Terminal segment has no required input binding');
+      if (authority.coordinate === undefined) throw new Error('No immutable coordinate was supplied');
+      const candidate = ExecuteIntentInputSchema.parse({ intent, streamId, args: { ...args, coordinate: authority.coordinate } });
+      const normalized = ExecuteIntentInputSchema.parse(JSON.parse(canonicalJson(candidate)));
+      const compiled = compileIntent(intent, { streamId }, normalized.args, deps);
+      if (!compiled.ok) throw new Error(compiled.refusal.message);
+      const parsed = ExecuteIntentInputSchema.parse(JSON.parse(canonicalJson({ intent, streamId, args: compiled.segment.args })));
+      validateBoundAuthority(parsed, args.taskId, authority);
+      await validateBoundProofs(parsed, authority, ctx, bundles);
+      await requireBoundTree(parsed);
+      const bytes = Buffer.from(canonicalJson(parsed), 'utf8');
+      const content = await bundles.put(bytes);
+      const payload = SegmentInputBindingV1Schema.parse({ namespace: 'exarchos.segment-input.v1', bindingVersion: '1',
+        operationId, streamId, callerDigest: digestValue(authority.callerDigest), inputDigest: digestValue(normalizedExecuteRequestDigest(intent, streamId, parsed.args)),
+        inputRef: { artifactId: `segment-input:${operationId}`, digest: content } });
+      backend.bindSegmentInput(operationId, canonicalJson(payload));
+      input = await recoverSegmentInput(operationId, streamId, authority.callerDigest, ctx, bundles);
+    }
+    if (input === undefined) throw new Error('Missing immutable input winner');
+    validateBoundAuthority(input, args.taskId, authority);
+    const original = { ...input.args }; delete original.coordinate;
+    const submitted = { ...args }; delete submitted.coordinate;
+    if (canonicalJson(original) !== canonicalJson(submitted)) throw new Error('Segment caller arguments changed');
+    const receipt = await boundReceipt(operationId, input, ctx, bundles);
+    if (receipt !== undefined) return receiptResult(receipt);
+    if (authority.replayOnly) throw new Error('Replay-only segment lost its terminal claim; no leaf can run');
+    await validateBoundProofs(input, authority, ctx, bundles);
+    const compiled = compileIntent(intent, { streamId }, input.args, deps);
+    if (!compiled.ok) throw new Error(compiled.refusal.message);
+    if (canonicalJson(compiled.segment.args) !== canonicalJson(input.args)) throw new Error('Compiled input changed after binding');
+    await requireBoundTree(input);
+    for (const leaf of compiled.segment.leaves) {
+      const rows = await ctx.eventStore.query(leaf.observationStreamId, { operationId: derivedLeafOperationId(operationId, leaf.index, leaf.action) });
+      if (rows.length > 0 && leaf.contract.replay.kind !== 'safe-repeat'
+        && await replayElidedRows({ leaf, derived: derivedLeafOperationId(operationId, leaf.index, leaf.action), ctx }) === undefined) {
+        throw new Error(`Interrupted leaf '${leaf.action}' has effects without a safe continuation contract; retain them and recover explicitly`);
+      }
+    }
+    const committed = await runSegment({ segment: compiled.segment, operationId, requestDigest: normalizedExecuteRequestDigest(intent, streamId, input.args),
+      stateDir, ctx, outer: outerCorrelation(ctx), handlers: deps.handlers, handlerTool: deps.handlerTool, bundles,
+      steeringSource: 'capsule', boundInput: input });
+    return committed.kind === 'digest-mismatch' ? digestMismatchResult(operationId, 'Nothing may replace the bound input.') : receiptResult(committed.receipt);
+  });
+}
+
 interface RunSegmentInput {
+  readonly boundInput?: z.infer<typeof ExecuteIntentInputSchema>;
   readonly segment: CompiledSegment;
   readonly operationId: string;
   readonly requestDigest: string;
@@ -871,6 +1065,7 @@ function bundleDocument(
     intent: receipt.intent,
     streamId: input.segment.streamId,
     requestDigest: receipt.requestDigest,
+    ...(input.boundInput === undefined ? {} : { input: input.boundInput }),
     outcome: receipt.outcome,
     ...(receipt.failedLeaf !== undefined ? { failedLeaf: receipt.failedLeaf } : {}),
     ...(receipt.failure !== undefined ? { failure: receipt.failure } : {}),
@@ -900,6 +1095,7 @@ async function commitReceipt(
   receipt: IntentReceipt,
   traces: readonly LeafTrace[],
 ): Promise<CommitOutcome> {
+  if (input.boundInput !== undefined) await requireBoundTree(input.boundInput);
   const bytes = encodeExecuteIntentBundle(bundleDocument(input, receipt, traces));
   const artifactId = executeIntentBundleArtifactId(input.operationId);
 

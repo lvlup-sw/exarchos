@@ -8,7 +8,7 @@
 
 import { z } from 'zod';
 
-import { CapsuleBaseRefSchema } from '../../contract/capsule/exarchos-capsule.js';
+import { CapsuleBaseRefSchema, TaskVerificationCoordinateSchema } from '../../contract/capsule/exarchos-capsule.js';
 
 /**
  * Arguments for `task-completion`: five per-task gates, then `task_complete`.
@@ -19,6 +19,7 @@ import { CapsuleBaseRefSchema } from '../../contract/capsule/exarchos-capsule.js
 export const TaskCompletionArgs = z
   .object({
     taskId: z.string().min(1),
+    coordinate: TaskVerificationCoordinateSchema.optional(),
     worktreePath: z.string().min(1),
     branch: z.string().min(1).optional(),
     riskTier: z.enum(['low', 'medium', 'high']),

@@ -72,6 +72,14 @@ describe('the capsule contract, validated both ways', () => {
     expect(SegmentInputBindingV1Schema.safeParse({ ...binding, events: [] }).success).toBe(false);
     expect(SegmentInputBindingV1Schema.safeParse({ ...binding, namespace: 'terminal-run' }).success).toBe(false);
     expect(TaskVerificationCoordinateSchema.safeParse({ ...coordinate, diffBaseCommit: 'main' }).success).toBe(false);
+    const provisional = { kind: 'provisional', taskId: 'blocker', headCommit: 'b'.repeat(40), capsule: coordinate.capsule,
+      outerOperationId: 'outer', segmentOperationId: 'segment', segmentRecord: { eventId: 'event', sequence: 3, timestamp: '2026-11-14T00:00:00Z' },
+      runBundle: binding.inputRef, completionSequence: 2, staticAnalysisSequence: 1 };
+    expect(TaskVerificationCoordinateSchema.safeParse({ ...coordinate, blockers: [provisional] }).success).toBe(true);
+    expect(TaskVerificationCoordinateSchema.safeParse({ ...coordinate, blockers: [{ ...provisional, outerRecordSequence: 4 }] }).success).toBe(false);
+    expect(TaskVerificationCoordinateSchema.safeParse({ ...coordinate, blockers: [{ ...provisional, kind: 'accepted' }] }).success).toBe(false);
+    expect(TaskVerificationCoordinateSchema.safeParse({ ...coordinate, blockers: [{ ...provisional, kind: 'accepted', outerRecordSequence: 4, settlementBundle: binding.inputRef }] }).success).toBe(true);
+
     expect(ExecuteIntentInputSchema.safeParse({ ...input, args: { taskId: 'other', coordinate } }).success).toBe(false);
     expect(ExecuteIntentInputSchema.safeParse({ ...input, args: { taskId: 'task-verify' } }).success).toBe(false);
   });

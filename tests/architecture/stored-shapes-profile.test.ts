@@ -112,8 +112,12 @@ describe('the stored-shape decision of the verification profile', () => {
       'acceptance', 'blockedBy', 'boundaryTouching', 'files', 'id', 'implements', 'instructions',
       'knowledgeSlice', 'parallelizable', 'riskTier', 'testFiles', 'testLayer', 'title',
     ]);
+    expect(decisions.at(-1)?.source).toContain('S7 revision 7 accepted A4');
+    expect(decisions.at(-1)?.decision).toContain('__segment_input_bindings_v1__');
+    expect(decisions.at(-1)?.decision).toContain('zero event rows');
+    expect(decisions.filter(entry => entry.date === '2026-11-14')).toHaveLength(2);
     expect(Object.keys(TaskCompletionArgs.shape).sort()).toEqual([
-      'baseRef', 'boundaryTouching', 'branch', 'capsuleVersion', 'result', 'riskTier', 'taskId', 'worktreePath',
+      'baseRef', 'boundaryTouching', 'branch', 'capsuleVersion', 'coordinate', 'result', 'riskTier', 'taskId', 'worktreePath',
     ]);
     expect(Object.keys(ExecuteIntentRunBundleV1Schema.shape).sort()).toEqual([
       'bundleVersion', 'failedLeaf', 'failure', 'input', 'intent', 'interaction', 'kind', 'leaves',

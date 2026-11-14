@@ -328,15 +328,21 @@ const CapsuleProofReferenceSchema = z.object({
   digest: z.object({ algorithm: z.literal('sha256'), value: KernelDigestSchema }).strict(),
 }).strict();
 
-/** The immutable coordinates of one accepted blocker proof. Readers authenticate every referenced claim and row. */
-const CapsuleBlockerProofSchema = z.object({
-  taskId: SharedStableIdSchema, headCommit: CapsuleCommitSchema,
-  capsule: CapsuleIdentitySchema,
-  outerOperationId: SharedStableIdSchema, outerRecordSequence: z.number().int().positive(),
-  settlementBundle: CapsuleProofReferenceSchema,
-  segmentOperationId: SharedStableIdSchema, runBundle: CapsuleProofReferenceSchema,
+/** Committed segment identity is shared by accepted and same-outer provisional proof. */
+const CapsuleBlockerSegmentSchema = z.object({
+  taskId: SharedStableIdSchema, headCommit: CapsuleCommitSchema, capsule: CapsuleIdentitySchema,
+  outerOperationId: SharedStableIdSchema, segmentOperationId: SharedStableIdSchema,
+  segmentRecord: z.object({ eventId: SharedStableIdSchema, sequence: z.number().int().positive(), timestamp: z.string().min(1) }).strict(),
+  runBundle: CapsuleProofReferenceSchema,
   completionSequence: z.number().int().positive(), staticAnalysisSequence: z.number().int().positive(),
-}).strict();
+});
+
+/** Provisional proof names no future outer artifact and remains bound to its original outer operation. */
+const CapsuleBlockerProofSchema = z.discriminatedUnion('kind', [
+  CapsuleBlockerSegmentSchema.extend({ kind: z.literal('accepted'),
+    outerRecordSequence: z.number().int().positive(), settlementBundle: CapsuleProofReferenceSchema }).strict(),
+  CapsuleBlockerSegmentSchema.extend({ kind: z.literal('provisional') }).strict(),
+]);
 
 /** A verification coordinate names immutable commits. Repository membership and ancestry require later Git observations. */
 export const TaskVerificationCoordinateSchema = z.object({

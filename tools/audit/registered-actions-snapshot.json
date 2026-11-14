@@ -1293,6 +1293,34 @@
           "SegmentInputBindingV1Schema": "sha256:9715620d94db0405f042db23d0967f91c10d424c8854bc3bd0b5da9ecd4f69fe",
           "DesignTaskSchema": "sha256:2e96faec8fb9c904c7d6c46a3b8e666132e107375da8e724132199c34b7f02e5"
         }
+      },
+      {
+        "date": "2026-11-14",
+        "source": "S7 revision 7 accepted A4, canonical spec SHA256 d951ee2ab009284668837beefec8a9eebe8cb53e0e06edaea7851ccbf4a79e10",
+        "decision": "Append-only staged correction of the S7 compatibility decision before compiler 8 activation. Accepted blocker proof names actual outer settlement custody; provisional proof names the same outer operation and exact segment terminal event ID, sequence and timestamp, with run custody and leaf coordinates but no future outer record or settlement bundle. Both variants are closed. Pinned provisional input remains historical after acceptance; another operation requires actual accepted standing. Preserve all earlier shape entries, compiler 5/6/7 absence and replay, schema version 6, capsule version 1 and bundle discriminants. The closed input envelope remains unchanged. SQLite __segment_input_bindings_v1__ is separate from terminal operation claims; publication uses zero event rows, no sequence allocation and empty event membership arrays. Generic claim, append and stream deletion cannot access this namespace. Event export/replay does not synthesize input claims. Original-store interrupted recovery authenticates the first durable input; bindings grant neither ownership leases nor completion standing.",
+        "schemaVersion": 6,
+        "shapes": {
+          "WorkflowStartedData": "sha256:fd2a08020c3475cefa6fd924d05684e70ace3c480af0a8f205967cd68372b41c",
+          "WorkflowStartedV11Data": "sha256:ef52bb4bbd2b169ab574426f472357826a69627881c538fbc1f6e0c0a3493278",
+          "WorkflowPreparedData": "sha256:62ff8cc651d0e796ad3e0667402a9d368221311437b9ddc5de3d2c99015f5e64",
+          "ExecutionSettledData": "sha256:0d27cbe85f1071d6e8f00a7e9ad1953de6310f82f1e94f47a8f3dedfea9fccd8",
+          "SettlementBundleV1Schema": "sha256:4db4b3a3300587e9d47064402bc5d33ead6b991be26386c17f80a7074764664a",
+          "ClaimTraceSchema": "sha256:581254550be83ddc6b066a5879225821589320e29505e0ab9c87779acc7f8ea1",
+          "PreparedBundleV1Schema": "sha256:955da5704aeb5e4c302d34d5d62887b4d123fc1bd3669dace8460abee8cdd1d7",
+          "WorkflowStateSchema": "sha256:f6b3edd9f7cf8281bdbcf41ce310530781f896d9aab0b9744b5b65cdd4da9299",
+          "CustomWorkflowStateSchema": "sha256:9beae5747f617543876721509e5cebbf1aca0dd21b5e2ca2953525634ae7ff2d",
+          "DurableWorkflowTypeSchema": "sha256:8a5c8b3a04cb3ffd7ae3a08086dec6e5a4a9ed6cb0545baa0c343ee7508e328a",
+          "CapsuleSettlementContractSchema": "sha256:735ff503dd7fd79698815a01ad1e788b79898c310fce0d4db52eeef72ebbece1",
+          "ExarchosCapsuleV1Schema": "sha256:9f04504fd2c976a45c08c07093f00178a045926d71654a990e9fc5959baba08c",
+          "TaskVerificationCoordinateSchema": "sha256:78b8638faa070a827ae879eca7f7091497e6b2f910eae596fb699176169f0de4",
+          "CapsuleTaskContextSchema": "sha256:a8d95bb4eda13b08d430540f8757ddf5df30179b62e4033c519700f30c434fe2",
+          "CapsuleKnowledgeSliceSchema": "sha256:7ea09d280cf1197b403f895da6a1ba23bb8856c4dbccd43c7755d2e2398d3741",
+          "SettlementReceiptData": "sha256:f554a6008101142bfe696d980fe7a9b6b5742b049060a70aaedd5d15272d9456",
+          "ExecuteIntentRunBundleV1Schema": "sha256:8acec00b234cf0aa0b496b1ecb188bd8c7343ad894edec04386ac3a452891e4e",
+          "ExecuteIntentInputSchema": "sha256:aa1d22d90266d49a6d4070a9d32a72fb2e1f67281479b97e8e4cdf3d7c0435be",
+          "SegmentInputBindingV1Schema": "sha256:9715620d94db0405f042db23d0967f91c10d424c8854bc3bd0b5da9ecd4f69fe",
+          "DesignTaskSchema": "sha256:2e96faec8fb9c904c7d6c46a3b8e666132e107375da8e724132199c34b7f02e5"
+        }
       }
     ]
   }

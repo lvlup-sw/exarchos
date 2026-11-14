@@ -12,6 +12,7 @@
  * `verbs/settle/` writes its own adjudication document through the same store, with a separate schema.
  */
 
+import { createHash } from 'node:crypto';
 import { z } from 'zod';
 import { SharedStableIdSchema } from '../../contract/ir/admission-ir.js';
 import { TaskVerificationCoordinateSchema } from '../../contract/capsule/exarchos-capsule.js';
@@ -133,6 +134,11 @@ function boundedJson(value: unknown, limit: number): boolean {
   return Buffer.byteLength(JSON.stringify(value), 'utf8') <= limit;
 }
 
+/** Validate caller trees before copying properties or allowing schema normalization. */
+export function validateInputTree(value: unknown): void {
+  if (!boundedJson(value, 131072)) throw new Error('Input must be a bounded finite JSON tree');
+}
+
 /** Complete normalized input is separate from caller identity. Historical runs omit this field. */
 export const ExecuteIntentInputSchema = z.unknown().superRefine((input, ctx) => {
   if (!boundedJson(input, 131072)) ctx.addIssue({ code: 'custom', message: 'Input must be a finite JSON tree within 131072 UTF-8 bytes and depth 32' });
@@ -246,4 +252,38 @@ export function encodeExecuteIntentBundle(document: ExecuteIntentRunBundleV1): U
 export function decodeExecuteIntentBundle(bytes: Uint8Array): ExecuteIntentRunBundleV1 {
   const parsed: unknown = JSON.parse(Buffer.from(bytes).toString('utf8'));
   return ExecuteIntentRunBundleV1Schema.parse(parsed);
+}
+
+/**
+ * The replay comparison key: the request's substance, and only its substance.
+ * Key order is normalized so two spellings of the same request cannot look
+ * like two different ones.
+ */
+export function executeRequestDigest(
+  intent: string,
+  streamId: string,
+  args: Record<string, unknown>,
+): string {
+  const ordered = Object.keys(args)
+    .sort()
+    .map((key) => [key, args[key]] as const);
+  const canonical = JSON.stringify({ intent, streamId, args: ordered });
+  return `sha256:${createHash('sha256').update(canonical).digest('hex')}`;
+}
+
+
+/** Compiler-8 input normalizes nested keys before the unchanged historical request encoding. */
+export function normalizedExecuteRequestDigest(intent: string, streamId: string, args: Record<string, unknown>): string {
+  validateInputTree(args);
+  return executeRequestDigest(intent, streamId, z.record(z.string(), z.unknown()).parse(JSON.parse(canonicalJson(args))));
+}
+
+/** Rebuild the receipt leaf fields from stored verdicts, including advisory emission findings. */
+export function receiptLeavesOfRun(run: ExecuteIntentRunBundleV1) {
+  return run.leaves.map(leaf => {
+    const violation = leaf.verdict.status === 'passed' ? leaf.verdict.emissionViolation
+      : leaf.verdict.failure.code === 'INTENT_EMISSION_CONTRACT_VIOLATED' ? 'INTENT_EMISSION_CONTRACT_VIOLATED' : undefined;
+    return { action: leaf.action, status: leaf.verdict.status, events: leaf.events,
+      ...(violation === undefined ? {} : { emissionViolation: violation }) };
+  });
 }

@@ -4,10 +4,10 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1482,
-    "parsedFiles": 1437,
+    "testFiles": 1483,
+    "parsedFiles": 1438,
     "shellFiles": 45,
-    "cases": 16439,
+    "cases": 16454,
     "dynamicTitles": 288,
     "unparseableFiles": 0
   },
@@ -95515,6 +95515,67 @@
         }
       ]
     },
+    "tests/integration/s7-segment-replay.test.ts": {
+      "file": "tests/integration/s7-segment-replay.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "immutable segment input",
+          "name": "SegmentRetry_DeletedTreeOriginalArgs",
+          "dynamic": false
+        },
+        {
+          "suite": "immutable segment input",
+          "name": "LeafCommittedBeforeCrash_OriginalCoordinate",
+          "dynamic": false
+        },
+        {
+          "suite": "immutable segment input",
+          "name": "InterruptedClaimRequiredLeaf_RefusesWithoutReplacement",
+          "dynamic": false
+        },
+        {
+          "suite": "immutable segment input",
+          "name": "PublicCoordinate_RefusesBeforeEffects",
+          "dynamic": false
+        },
+        {
+          "suite": "immutable segment input",
+          "name": "ChangedFork_DigestMismatch",
+          "dynamic": false
+        },
+        {
+          "suite": "immutable segment input",
+          "name": "MissingInput_NoExecution",
+          "dynamic": false
+        },
+        {
+          "suite": "immutable segment input",
+          "name": "TwoInitialObservations_OneInputBinding",
+          "dynamic": false
+        },
+        {
+          "suite": "immutable segment input",
+          "name": "InvalidCandidateOrCustodyFailure_NoBinding",
+          "dynamic": false
+        },
+        {
+          "suite": "immutable segment input",
+          "name": "TerminalAdvisoryAndHalt_ExactReplay",
+          "dynamic": false
+        },
+        {
+          "suite": "immutable segment input",
+          "name": "OverlappingObservations_IndependentSqlitePublishersKeepOneWinner",
+          "dynamic": false
+        },
+        {
+          "suite": "immutable segment input",
+          "name": "InterruptedBinding_ResumesOnlyAfterPinnedProfileEligibility",
+          "dynamic": false
+        }
+      ]
+    },
     "tests/integration/s7-task-standing.test.ts": {
       "file": "tests/integration/s7-task-standing.test.ts",
       "runner": "vitest:root",
@@ -95587,6 +95648,26 @@
         {
           "suite": "authenticated task standing",
           "name": "AcceptedDecision_OnlyItsActualHeldRoundCanSupplyTheSegment",
+          "dynamic": false
+        },
+        {
+          "suite": "authenticated task standing",
+          "name": "MixedBlockerModes_PinnedProvisionalSurvivesOuterAcceptance",
+          "dynamic": false
+        },
+        {
+          "suite": "authenticated task standing",
+          "name": "ProvisionalBlocker_WrongOuterRefuses",
+          "dynamic": false
+        },
+        {
+          "suite": "authenticated task standing",
+          "name": "ExplicitProvisional_IgnoresRevisedPriorAcceptance",
+          "dynamic": false
+        },
+        {
+          "suite": "authenticated task standing",
+          "name": "HeldPromotion_PreservesPinnedProvisionalHistory",
           "dynamic": false
         }
       ]

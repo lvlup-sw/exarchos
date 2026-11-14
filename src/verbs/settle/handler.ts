@@ -68,7 +68,7 @@ import {
 } from '../../workflow/state-store.js';
 import type { VerificationProfile } from '../../workflow/verification/profile.js';
 import { compileIntent } from '../execute/compile.js';
-import { handleExecuteIntent, type ExecuteIntentDeps } from '../execute/executor.js';
+import { recoverSegmentInput, handleExecuteIntent, type ExecuteIntentDeps } from '../execute/executor.js';
 import type { IntentReceipt } from '../execute/types.js';
 import { readGateRowMarks, SKIPPED_BY_POLICY } from '../gates/gate-utils.js';
 import { DESIGN_REVISED_TYPE, designVersionOf } from '../prepare/design-version.js';
@@ -1080,13 +1080,14 @@ interface SettlementCall {
   readonly verificationTerms: Readonly<Record<string, VerificationTerms>>;
   readonly reads: SettlementReads;
   readonly runs: Map<string, VerificationRun>;
+  readonly recoveredInputs: Map<string, Record<string, unknown>>;
   inputs: SettlementInputs;
   checkout?: CheckoutReading;
 }
 
 /** Compiles the segments of the tasks from the claims of the call, so each segment gets the same arguments on each run. */
 function compileFor(call: SettlementCall, taskIds: readonly string[]): CompiledSegments {
-  return compileSegments(
+  const result = compileSegments(
     taskIds,
     call.inputs.claims,
     call.verificationTerms,
@@ -1095,6 +1096,7 @@ function compileFor(call: SettlementCall, taskIds: readonly string[]): CompiledS
     call.streamId,
     call.deps.execute,
   );
+  return result.ok ? { ok: true, compiled: result.compiled.map(task => ({ ...task, args: call.recoveredInputs.get(task.taskId) ?? task.args })) } : result;
 }
 
 /**
@@ -1106,9 +1108,13 @@ async function runCompiled(
   call: SettlementCall,
   compiled: readonly CompiledVerification[],
   ctx: DispatchContext = call.ctx,
+  replayOnly = false,
 ): Promise<ToolResult | undefined> {
   for (const task of compiled) {
-    const run = await verifyTask(task, call.streamId, call.batchLabel, call.stateDir, ctx, call.deps.execute);
+    const execute = call.namedAuthority.capsule.provenance.compilerVersion === 'exarchos-prepare-8'
+      ? { ...call.deps.execute, verificationInput: { authority: call.namedAuthority, outerOperationId: call.operationId,
+        callerDigest: call.requestDigest, batchId: call.identity.batchId, replayOnly } } : call.deps.execute;
+    const run = await verifyTask(task, call.streamId, call.batchLabel, call.stateDir, ctx, execute);
     if (run.kind === 'refused' && !run.halted) return run.result;
     call.runs.set(task.taskId, run);
   }
@@ -1245,10 +1251,34 @@ async function replayCommittedSegments(call: SettlementCall): Promise<ToolResult
   const completed = new Set(
     call.inputs.claims.filter((claim) => claim.status === undefined).map((claim) => claim.taskId),
   );
-  const committed = [...completed]
-    .filter((taskId) => backend.lookupOperationClaim(verificationOperationId(call.operationId, taskId)) !== undefined)
+  let committed: string[];
+  try {
+    committed = [...completed]
+    .filter((taskId) => backend.lookupOperationClaim(verificationOperationId(call.operationId, taskId)) !== undefined
+      || (call.namedAuthority.capsule.provenance.compilerVersion === 'exarchos-prepare-8'
+        && backend.lookupSegmentInput(verificationOperationId(call.operationId, taskId)) !== undefined))
     .sort();
+  } catch (error) {
+    if (call.namedAuthority.capsule.provenance.compilerVersion !== 'exarchos-prepare-8') throw error;
+    return refused('SEGMENT_INPUT_REFUSED', error instanceof Error ? error.message : String(error));
+  }
   if (committed.length === 0) return undefined;
+  if (call.namedAuthority.capsule.provenance.compilerVersion === 'exarchos-prepare-8') {
+    const recovered: CompiledVerification[] = [];
+    try {
+      for (const taskId of committed) {
+        const operationId = verificationOperationId(call.operationId, taskId);
+        const input = await recoverSegmentInput(operationId, call.streamId, call.requestDigest, call.ctx,
+          call.deps.execute.bundleStore ?? call.ctx.eventStore.bundleStore);
+        if (input === undefined) throw new Error('Committed segment lacks its required immutable input');
+        const claim = call.inputs.claims.find(claim => claim.taskId === taskId);
+        if (claim === undefined || canonicalJson(claim.fields) !== canonicalJson(input.args.result)) throw new Error('Recovered input differs from caller fields');
+        if (backend.lookupOperationClaim(operationId) !== undefined) recovered.push({ taskId, operationId, args: input.args });
+        else call.recoveredInputs.set(taskId, input.args);
+      }
+    } catch (error) { return refused('SEGMENT_INPUT_REFUSED', error instanceof Error ? error.message : String(error)); }
+    return runCompiled(call, recovered, call.ctx, true);
+  }
   const segments = compileFor(call, committed);
   if (!segments.ok) return segments.refusal;
   return runCompiled(call, segments.compiled);
@@ -2018,7 +2048,8 @@ export async function handleSettle(
       decidedOf.get(deviationIdOf(identity, deviation));
 
     const reads = { pinnedSequence: pinned.sequence, cited: claims.flatMap((claim) => claim.evidence) };
-    const observations = await observeClaimedTrees(ctx, capsule, claims);
+    const observations = capsule.provenance.compilerVersion === 'exarchos-prepare-8' ? new Map<string, ClaimedTree>()
+      : await observeClaimedTrees(ctx, capsule, claims);
     let inputs: SettlementInputs = { capsule, claims, deviations, decided, round, evidenceChecks: new Map(), observations };
     if (deviations.some((deviation) => deviation.affectedTasks !== undefined)) {
       const standing = await planStandingLookup(ctx, streamId);
@@ -2043,10 +2074,13 @@ export async function handleSettle(
       verificationTerms,
       reads,
       runs: new Map(),
+      recoveredInputs: new Map(),
       inputs,
     };
     const replayRefusal = await replayCommittedSegments(call);
     if (replayRefusal !== undefined) return replayRefusal;
+    if (capsule.provenance.compilerVersion === 'exarchos-prepare-8') call.inputs = { ...call.inputs,
+      observations: await observeClaimedTrees(ctx, capsule, claims.filter(claim => !call.runs.has(claim.taskId))) };
     for (let attempt = 1; attempt <= MAX_SETTLE_ATTEMPTS; attempt += 1) {
       try {
         return await settleAttempt(call);
