@@ -9,6 +9,9 @@
  * timeout and an output cap. It imports nothing from `src/verbs`.
  */
 import { execFile } from 'node:child_process';
+import { lstat, realpath } from 'node:fs/promises';
+import { isAbsolute } from 'node:path';
+import { promisify } from 'node:util';
 
 import { lexicalRepoPath, normalizeRepoPath } from './paths.js';
 
@@ -304,4 +307,58 @@ export async function observeImmutableClaimedTree(dir: string, baseCommit: strin
 function dirtyPathsOf(stdout: string): readonly string[] {
   return stdout.split(/\r?\n/).filter(line => line.length > PORCELAIN_STATUS_WIDTH)
     .slice(0, DIRTY_PATH_LIMIT).map(line => line.slice(PORCELAIN_STATUS_WIDTH));
+}
+
+const OID = /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/;
+
+/** Full local branch refs only. No revision expressions or option-looking input. */
+export function constrainedBranchRef(branch: string): string {
+  if (!branch.startsWith('refs/heads/') || /[\x00-\x20\x7f~^:?*\[\\]/.test(branch)
+    || branch.includes('..') || branch.includes('@{') || branch.endsWith('.')
+    || branch.split('/').some(part => !part || part.startsWith('.') || part.endsWith('.lock'))) throw new Error('A full local branch ref is required');
+  return branch;
+}
+
+/** Exact object names are never interpreted as caller-chosen revision syntax. */
+export function constrainedCommitId(value: string): string {
+  if (!OID.test(value)) throw new Error('A full immutable commit object ID is required');
+  return value;
+}
+
+/** Supply a closed structural read capability with pinned executable and isolated Git process options. */
+export async function createConstrainedGitReads(executable: string) {
+  if (!isAbsolute(executable)) throw new Error('Git executable must be an operator-selected absolute path');
+  const git = await realpath(executable);
+  if (!(await lstat(git)).isFile()) throw new Error('Git executable must be a regular file');
+  const execute = promisify(execFile);
+  const nullFile = process.platform === 'win32' ? 'NUL' : '/dev/null';
+  const env: NodeJS.ProcessEnv = {
+    GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_SYSTEM: nullFile, GIT_CONFIG_GLOBAL: nullFile,
+    GIT_TERMINAL_PROMPT: '0', GIT_OPTIONAL_LOCKS: '0', GIT_NO_REPLACE_OBJECTS: '1',
+    LC_ALL: 'C', LANG: 'C',
+    ...(process.platform === 'win32' && process.env.SystemRoot ? { SystemRoot: process.env.SystemRoot } : {}),
+  };
+  const options = { env, encoding: 'utf8', timeout: 30_000, maxBuffer: 1024 * 1024, windowsHide: true } satisfies Parameters<typeof execute>[2];
+  const version = await execute(git, ['--no-lazy-fetch', '--no-replace-objects', '--no-optional-locks', '--no-pager', '--version'], options);
+  if (!/^git version \d+\.\d+(?:\.[\w.-]+)?\s*$/.test(String(version.stdout))) throw new Error('Unsupported Git capability response');
+
+  async function run(gitDir: string, checkout: string, args: readonly string[]) {
+    if (!isAbsolute(gitDir) || !isAbsolute(checkout)) throw new Error('Explicit absolute Git directories are required');
+    const result = await execute(git, [
+      '--no-lazy-fetch', '--no-replace-objects', '--no-optional-locks', '--no-pager',
+      '-c', 'core.fsmonitor=false', '-c', `core.hooksPath=${nullFile}`, '-c', 'gc.auto=0',
+      '-c', 'maintenance.auto=false', '-c', 'core.commitGraph=false', '-c', 'protocol.allow=never',
+      `--git-dir=${gitDir}`, `--work-tree=${checkout}`, ...args,
+    ], { ...options, cwd: checkout });
+    return String(result.stdout);
+  }
+
+  return {
+    worktrees: (gitDir: string, checkout: string) => run(gitDir, checkout, ['worktree', 'list', '--porcelain', '-z']),
+    branch: (gitDir: string, checkout: string) => run(gitDir, checkout, ['symbolic-ref', '--quiet', 'HEAD']),
+    commit: (gitDir: string, checkout: string, branch: string) => run(gitDir, checkout, ['rev-parse', '--verify', '--end-of-options', `${constrainedBranchRef(branch)}^{commit}`]),
+    requireCommit: (gitDir: string, checkout: string, id: string) => run(gitDir, checkout, ['cat-file', '-e', `${constrainedCommitId(id)}^{commit}`]),
+    ancestry: (gitDir: string, checkout: string, ancestor: string, descendant: string) => run(gitDir, checkout, ['merge-base', '--is-ancestor', constrainedCommitId(ancestor), constrainedCommitId(descendant)]),
+    diff: (gitDir: string, checkout: string, base: string, head: string) => run(gitDir, checkout, ['diff', '--no-ext-diff', '--no-textconv', '--no-renames', constrainedCommitId(base), constrainedCommitId(head), '--']),
+  };
 }
