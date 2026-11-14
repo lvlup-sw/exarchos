@@ -241,7 +241,7 @@ describe('packaged bootstrap parity', () => {
         streamId: featureId, capsuleVersion: 1,
         capsule: {
           graph: { tasks: [{ taskId: 'T-01', stepId: 'delegate' }] },
-          provenance: { compilerVersion: 'exarchos-prepare-7' },
+          provenance: { compilerVersion: 'exarchos-prepare-8' },
         },
       });
       await unlink(path.join(checkout, PLAN_PATH));

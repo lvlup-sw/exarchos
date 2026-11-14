@@ -4,10 +4,10 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1490,
-    "parsedFiles": 1445,
+    "testFiles": 1492,
+    "parsedFiles": 1447,
     "shellFiles": 45,
-    "cases": 16509,
+    "cases": 16519,
     "dynamicTitles": 288,
     "unparseableFiles": 0
   },
@@ -91537,6 +91537,21 @@
         },
         {
           "suite": "typed prepare",
+          "name": "Prepare_CompilerEightEmptyHistory_ReplaysWithoutCustody",
+          "dynamic": false
+        },
+        {
+          "suite": "typed prepare",
+          "name": "Prepare_CompilerEightReplay_RequiresSelectedClaimAndEmptyHistory",
+          "dynamic": false
+        },
+        {
+          "suite": "typed prepare",
+          "name": "Prepare_CompilerEightReplayMiss_PreservesPublicationTailFence",
+          "dynamic": false
+        },
+        {
+          "suite": "typed prepare",
           "name": "Prepare_DurableRowsAndExactIds_DetermineReadyTasks",
           "dynamic": false
         },
@@ -95500,6 +95515,11 @@
         },
         {
           "suite": "complete approved graph compilation",
+          "name": "DefaultTypedCompiler_ActivatesCompleteApprovedGraph",
+          "dynamic": false
+        },
+        {
+          "suite": "complete approved graph compilation",
           "name": "WholeGraph_InvalidDisconnectedComponent_RefusesWithoutCustody",
           "dynamic": false
         },
@@ -95985,6 +96005,48 @@
         {
           "suite": "prepared detail public dispatch",
           "name": "FinalCarrier_CorrelationAndAmbientWarningFitBeforeReturn",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/acceptance/s7-whole-capsule.test.ts": {
+      "file": "tests/acceptance/s7-whole-capsule.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "activated whole capsule",
+          "name": "Acceptance_ThreeWavesOnePrepare",
+          "dynamic": false
+        },
+        {
+          "suite": "activated whole capsule",
+          "name": "Acceptance_LandedMediumAndDependentDiff",
+          "dynamic": false
+        },
+        {
+          "suite": "activated whole capsule",
+          "name": "Acceptance_ThirtyTaskReceipt_ActivationCappedDetail",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/process/s7-dag-races.test.ts": {
+      "file": "tests/process/s7-dag-races.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "packaged S7 DAG races",
+          "name": "Process_RestartRecoversCoordinate",
+          "dynamic": false
+        },
+        {
+          "suite": "packaged S7 DAG races",
+          "name": "Process_InterruptedEvidenceDamage_RefusesReplacement",
+          "dynamic": false
+        },
+        {
+          "suite": "packaged S7 DAG races",
+          "name": "Process_StandingChangesAfterSegment_RefusesMove",
           "dynamic": false
         }
       ]

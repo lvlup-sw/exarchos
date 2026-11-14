@@ -1,5 +1,5 @@
 /**
- * Full typed graphs retain approved context while the public compiler keeps its frontier.
+ * Full typed graphs retain approved context, with an explicit historical frontier control.
  * @oracle-sources: ../../src/verbs/prepare/handler.ts, literal authored graphs and source coordinates
  */
 import * as outputEconomy from '../../src/dispatch/core/economy.js';
@@ -162,11 +162,20 @@ describe('complete approved graph compilation', () => {
 
   it('DefaultCompiler_KeepsTheHistoricalFrontier', async () => {
     const s = await fixture(textOf(threeWaves()));
-    const receipt = await s.prepare({ compilerVersion: undefined });
+    const receipt = await s.prepare({ compilerVersion: 'exarchos-prepare-7' });
     expect(receipt.capsule.provenance.compilerVersion).toBe('exarchos-prepare-7');
     expect(receipt.capsule.graph.tasks).toEqual([{ taskId: 'root', title: 'root', stepId: 'delegate' }]);
     expect(receipt.capsule.graph.dependencies).toEqual([]);
     expect(receipt.capsule.settlementContract.verificationMode).toBeUndefined();
+  });
+
+  it('DefaultTypedCompiler_ActivatesCompleteApprovedGraph', async () => {
+    const s = await fixture(textOf(threeWaves()));
+    const receipt = await s.prepare({ compilerVersion: undefined });
+    expect(receipt.capsule.provenance.compilerVersion).toBe('exarchos-prepare-8');
+    expect(receipt.capsule.graph.tasks.map(node => node.taskId)).toEqual(['root', 'left', 'right', 'finish']);
+    expect(receipt.capsule.graph.dependencies).toHaveLength(4);
+    expect(receipt.capsule.settlementContract.verificationMode).toBe('immutable-task-diff-v1');
   });
 
   it('WholeGraph_InvalidDisconnectedComponent_RefusesWithoutCustody', async () => {

@@ -3,6 +3,7 @@
  * @oracle-sources: ../../src/verbs/prepare/handler.ts, authored fixture bytes and independent ledger traces
  */
 import { createHash } from 'node:crypto';
+import { Database } from 'bun:sqlite';
 import { mkdir, symlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { performance } from 'node:perf_hooks';
@@ -228,6 +229,24 @@ describe('typed prepare', () => {
 
   it('Prepare_UnchangedFullInputs_Replays', async () => {
     const s = await fixture({ withBranch: false });
+    const legacyCall = (intent: unknown) => s.call(intent, { compilerVersion: 'exarchos-prepare-7' });
+    const text = textOf([task(A)]);
+    await s.write(text);
+    const first = receipt(await legacyCall(compile(text, { baseRef: BASE })));
+    const resolve = vi.spyOn(s.events.bundleStore, 'resolve').mockRejectedValue(new Error('missing pin'));
+    const tail = await s.events.query(STREAM);
+    const replay = receipt(await legacyCall(compile(text, { designDepth: 'standard', workflowType: 'feature' })));
+    expect(replay).toEqual(first);
+    expect(resolve).not.toHaveBeenCalled();
+    expect(await s.events.query(STREAM)).toEqual(tail);
+    await refuse(s, compile(text, { designDepth: 'deep' }), 'PREPARED_AUTHORITY_INVALID', { compilerVersion: 'exarchos-prepare-7' });
+    resolve.mockRestore();
+    const changed = receipt(await legacyCall(compile(text, { designDepth: 'deep' })));
+    expect(changed.operationId).not.toBe(first.operationId);
+  });
+
+  it('Prepare_CompilerEightEmptyHistory_ReplaysWithoutCustody', async () => {
+    const s = await fixture({ withBranch: false });
     const text = textOf([task(A)]);
     await s.write(text);
     const first = receipt(await s.call(compile(text, { baseRef: BASE })));
@@ -241,15 +260,84 @@ describe('typed prepare', () => {
     resolve.mockRestore();
     const changed = receipt(await s.call(compile(text, { designDepth: 'deep' })));
     expect(changed.operationId).not.toBe(first.operationId);
+    const missing = vi.spyOn(s.events.bundleStore, 'resolve').mockRejectedValue(new Error('missing pin'));
+    expect(receipt(await s.call(compile(text, { designDepth: 'standard' })))).toEqual(first);
+    expect(missing).not.toHaveBeenCalled();
+    const db = new Database(path.join(s.root, 'state', 'exarchos.db'));
+    try {
+      const original = s.events.getAppender().ensureSqliteBackendSync().lookupOperationClaim(first.operationId);
+      if (!original) throw new Error('Missing original claim');
+      const index = original.sequences.indexOf(first.tailSequence);
+      db.query("UPDATE idempotency_claims SET eventIds=json_set(eventIds, ?, 'wrong') WHERE idempotencyKey=?").run(`$[${index}]`, first.operationId);
+      expect(s.events.getAppender().ensureSqliteBackendSync().lookupOperationClaim(first.operationId)?.eventIds[index]).toBe('wrong');
+    } finally { db.close(); }
+    await refuse(s, compile(text, { designDepth: 'standard' }), 'PREPARED_AUTHORITY_INVALID');
+    expect(missing).not.toHaveBeenCalled();
+    missing.mockRestore();
+  });
+
+  it('Prepare_CompilerEightReplay_RequiresSelectedClaimAndEmptyHistory', async () => {
+    for (const mode of ['claim', 'row', 'settlement', 'event-id', 'timestamp', 'marker', 'refs']) {
+      const s = await fixture(); const text = textOf([task(A)]); await s.write(text);
+      const first = receipt(await s.call(compile(text)));
+      if (mode === 'settlement') {
+        await s.events.append(STREAM, { type: 'execution.settled', data: { operationId: 'uncertain-settlement' } });
+      } else {
+        const db = new Database(path.join(s.root, 'state', 'exarchos.db'));
+        try {
+          if (mode === 'event-id' || mode === 'timestamp') {
+            const original = s.events.getAppender().ensureSqliteBackendSync().lookupOperationClaim(first.operationId);
+            if (!original) throw new Error('Missing actual operation claim');
+            const index = original.sequences.indexOf(first.tailSequence); expect(index).toBeGreaterThanOrEqual(0);
+            const column = mode === 'event-id' ? 'eventIds' : 'timestamps';
+            db.query(`UPDATE idempotency_claims SET ${column}=json_set(${column}, ?, 'wrong') WHERE idempotencyKey=?`).run(`$[${index}]`, first.operationId);
+            const corrupted = s.events.getAppender().ensureSqliteBackendSync().lookupOperationClaim(first.operationId);
+            expect(mode === 'event-id' ? corrupted?.eventIds[index] : corrupted?.timestamps[index]).toBe('wrong');
+          } else if (mode === 'marker' || mode === 'refs') {
+            const field = mode === 'marker' ? 'planRecordDigest' : 'bundleRefs[0].digest.value';
+            const replacement = 'a'.repeat(64);
+            db.query("UPDATE events SET payload=json_set(payload, ?, ?), data=json_set(data, ?, ?) WHERE streamId=? AND type='workflow.prepared'")
+              .run(`$.data.${field}`, replacement, `$.${field}`, replacement, STREAM);
+            const row = (await s.events.query(STREAM)).at(-1);
+            expect(JSON.stringify(row?.data)).toContain(replacement);
+          } else if (mode === 'claim') {
+            db.query("UPDATE idempotency_claims SET events_json=json_set(events_json, '$.requestDigest', 'wrong') WHERE idempotencyKey=?").run(first.operationId);
+            expect(s.events.getAppender().ensureSqliteBackendSync().lookupOperationClaim(first.operationId)?.requestDigest).toBe('wrong');
+          } else {
+            db.query("UPDATE events SET payload=json_set(payload, '$.data.requestDigest', 'wrong'), data=json_set(data, '$.requestDigest', 'wrong') WHERE streamId=? AND type='workflow.prepared'").run(STREAM);
+            expect((await s.events.query(STREAM)).at(-1)?.data?.requestDigest).toBe('wrong');
+          }
+        } finally { db.close(); }
+      }
+      const resolve = vi.spyOn(s.events.bundleStore, 'resolve').mockRejectedValue(new Error('missing pin'));
+      await refuse(s, compile(text), 'PREPARED_AUTHORITY_INVALID');
+      if (mode !== 'marker' && mode !== 'refs') expect(resolve).toHaveBeenCalled();
+      resolve.mockRestore();
+    }
+  });
+
+  it('Prepare_CompilerEightReplayMiss_PreservesPublicationTailFence', async () => {
+    const s = await fixture(); const text = textOf([task(A)]); await s.write(text);
+    const first = receipt(await s.call(compile(text))); const initial = await s.events.query(STREAM);
+    const put = s.events.bundleStore.put.bind(s.events.bundleStore);
+    const race = vi.spyOn(s.events.bundleStore, 'put').mockImplementationOnce(async bytes => {
+      await s.events.append(STREAM, { type: 'task.progressed', data: { taskId: A, status: 'working' } }); return put(bytes);
+    });
+    const result = await s.call(compile(text, { designDepth: 'deep' }));
+    expect(result).toMatchObject({ success: false, error: { code: 'CONCURRENCY_CONFLICT' } });
+    expect(race).toHaveBeenCalledTimes(1);
+    const rows = await s.events.query(STREAM); expect(rows.slice(initial.length).map(row => row.type)).toEqual(['task.progressed']);
+    expect(rows.filter(row => row.type === 'workflow.prepared').map(row => row.data?.operationId)).toEqual([first.operationId]);
   });
 
   it('Prepare_DurableRowsAndExactIds_DetermineReadyTasks', async () => {
     const s = await fixture();
+    const legacyCall = (intent: unknown, deps: PrepareDeps = {}) => s.call(intent, { compilerVersion: 'exarchos-prepare-7', ...deps });
     const text = textOf([task(A, { riskTier: 'high', boundaryTouching: true, testFiles: ['test/a.ts'] }),
       task(B, { blockedBy: [A] }), task('later')]);
     await s.write(text);
     const query = vi.spyOn(s.events, 'query');
-    const first = receipt(await s.call(compile(text)));
+    const first = receipt(await legacyCall(compile(text)));
     expect(query).toHaveBeenCalledTimes(1);
     expect(ids(first)).toEqual([A, 'later']);
     expect(first.capsule.settlementContract.taskVerification?.[A]).toMatchObject({ riskTier: 'high', boundaryTouching: true });
@@ -257,11 +345,11 @@ describe('typed prepare', () => {
     await s.events.append(STREAM, { type: 'task.completed', data: { taskId: 'foreign' } });
     await s.events.append(STREAM, { type: 'task.completed', data: { taskId: A, commit: HEAD } });
     await s.events.append(STREAM, { type: 'task.failed', data: { taskId: A, error: 'Failed afterward' } });
-    expect(receipt(await s.call(compile(text)))).toEqual(first);
+    expect(receipt(await legacyCall(compile(text)))).toEqual(first);
     await s.events.append(STREAM, { type: 'task.completed', data: { taskId: A, commit: HEAD } });
     const ancestor = vi.fn(s.deps.scopeGit?.isAncestor);
     if (s.deps.scopeGit === undefined) throw new Error('Missing scope fixture');
-    const next = receipt(await s.call(compile(text, { baseRef: BASE }), { scopeGit: { ...s.deps.scopeGit, isAncestor: ancestor } }));
+    const next = receipt(await legacyCall(compile(text, { baseRef: BASE }), { scopeGit: { ...s.deps.scopeGit, isAncestor: ancestor } }));
     expect(ids(next)).toEqual([B, 'later']);
     expect(ancestor).toHaveBeenCalledWith(s.checkout, HEAD, HEAD);
     expect(next.capsule.settlementContract.taskVerification?.[B]?.baseRef).toBe(BASE);
@@ -350,11 +438,11 @@ describe('typed prepare', () => {
       await s.events.append(STREAM, { type: 'task.completed', data: { taskId: A } });
       return put(bytes);
     });
-    const result = await s.call(compile(text));
+    const result = await s.call(compile(text), { compilerVersion: 'exarchos-prepare-7' });
     expect(result).toMatchObject({ success: false, error: { code: 'CONCURRENCY_CONFLICT' } });
     expect(race).toHaveBeenCalledTimes(1);
     expect((await s.events.query(STREAM)).slice(initial.length).map(({ type }) => type)).toEqual(['task.completed']);
-    await refuse(s, compile(text), 'NOTHING_TO_PREPARE');
+    await refuse(s, compile(text), 'NOTHING_TO_PREPARE', { compilerVersion: 'exarchos-prepare-7' });
   });
 
   it('Prepare_UnexpectedSoundnessFailure_RefusesBeforeEffects', async () => {
