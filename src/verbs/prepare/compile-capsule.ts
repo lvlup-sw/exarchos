@@ -12,6 +12,7 @@
  */
 
 import { z } from 'zod';
+import { preparedDetailDeliverable } from './economy.js';
 
 import { collectConditionRefs, resolveCapsuleReferences } from '../../contract/capsule/capsule-references.js';
 import { contentDigest } from '../../contract/capsule/capsule-digest.js';
@@ -613,5 +614,8 @@ export function compileDelegationCapsule(input: CompileCapsuleInput): CompileOut
     };
   }
 
+  if (fullGraph && !preparedDetailDeliverable(parsed.data)) {
+    return { ok: false, refusal: { code: 'CAPSULE_UNSOUND', message: 'A complete task cannot fit the bounded prepared detail response.' } };
+  }
   return { ok: true, capsule: parsed.data };
 }

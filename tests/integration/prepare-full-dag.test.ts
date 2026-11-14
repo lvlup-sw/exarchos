@@ -2,6 +2,11 @@
  * Full typed graphs retain approved context while the public compiler keeps its frontier.
  * @oracle-sources: ../../src/verbs/prepare/handler.ts, literal authored graphs and source coordinates
  */
+import * as outputEconomy from '../../src/dispatch/core/economy.js';
+import { summarizePreparedCapsuleReceipt } from '../../src/verbs/prepare/economy.js';
+import { handleReadPreparedCapsule } from '../../src/verbs/prepare/read-prepared-capsule.js';
+import { readDesignRecord } from '../../src/workflow/design-record/read.js';
+import { preparedDetailDeliverable } from '../../src/verbs/prepare/economy.js';
 import { createHash } from 'node:crypto';
 import { writeFileSync } from 'node:fs';
 import { mkdir, writeFile } from 'node:fs/promises';
@@ -196,7 +201,7 @@ describe('complete approved graph compilation', () => {
   });
 
   it('ThirtyTasks_CompileWithinTheBoundAndRetainEveryContext', async () => {
-    const tasks = Array.from({ length: 30 }, (_, index) => task(`node-${index}`, { blockedBy: index === 0 ? [] : [`node-${index - 1}`] }));
+    const tasks = Array.from({ length: 30 }, (_, index) => task(`node-${index}`, { blockedBy: index < 10 ? [] : [`node-${index - 10}`, `node-${(index - 10 + 1) % 10 + (index >= 20 ? 10 : 0)}`] }));
     const s = await fixture(textOf(tasks));
     const started = performance.now();
     const receipt = await s.prepare();
@@ -207,6 +212,49 @@ describe('complete approved graph compilation', () => {
     }
     expect(receipt.capsule.graph.tasks).toHaveLength(30);
     expect(receipt.capsule.graph.tasks.every(node => node.taskContext !== undefined)).toBe(true);
-    expect(receipt.capsule.graph.dependencies).toHaveLength(29);
+    expect(receipt.capsule.graph.dependencies).toHaveLength(40);
+    const backend = s.events.getAppender().ensureSqliteBackendSync();
+    const original = backend.lookupOperationClaim(receipt.operationId);
+    expect(original?.result).toMatchObject({ capsule: receipt.capsule });
+    expect(outputEconomy.estimateOutputTokens(receipt)).toBeGreaterThan(8000);
+    const summary = summarizePreparedCapsuleReceipt(receipt); expect(summary.detailRead).toBeDefined();
+    const replay = await s.prepare(); expect(replay).toEqual(receipt);
+    expect(backend.lookupOperationClaim(receipt.operationId)).toEqual(original);
+    const invocation = summary.detailRead; if (invocation === undefined) throw new Error('Missing read invocation');
+    const detail = await handleReadPreparedCapsule(invocation.arguments, '', { stateDir: '', eventStore: s.events });
+    expect(detail.success, JSON.stringify(detail)).toBe(true);
   });
+
+  /** Exact escaped UTF-8 context limits are enforced before prepared custody is published. */
+  it('Context_ExactUtf8Limit_AndOneOver_Preflight', async () => {
+    const measurement = vi.spyOn(outputEconomy, 'estimateOutputTokens');
+    for (const instructions of ['x'.repeat(6000), '界'.repeat(2000), '\"'.repeat(6000)]) {
+      const make = (padding: number) => task('bounded', { instructions,
+        acceptance: Array.from({ length: 12 }, (_, i) => `${i}:` + 'a'.repeat(1 + Math.floor(padding / 12) + (i < padding % 12 ? 1 : 0))) });
+      const base = await fixture(textOf([make(0)])); const receipt = await base.prepare();
+      const context = receipt.capsule.graph.tasks[0]?.taskContext; if (context === undefined) throw new Error('Missing context');
+      const size = (padding: number) => {
+        const authored = make(padding); const text = textOf([authored]);
+        const read = readDesignRecord(Buffer.from(text), context.source.reference); if (read.kind !== 'typed') throw new Error('Invalid plan');
+        const entry = read.snapshot.tasks[0]; if (entry === undefined) throw new Error('Missing task');
+        return Buffer.byteLength(JSON.stringify({ context: { ...context, instructions, acceptance: authored.acceptance,
+          source: { ...context.source, digest: read.snapshot.digest, span: entry.span } }, resultContract: receipt.capsule.contracts.taskResults.bounded }), 'utf8');
+      };
+      let padding = 24000 - size(0);
+      for (let count = 0; count < 5 && size(padding) !== 24000; count++) padding += 24000 - size(padding);
+      expect(size(padding)).toBe(24000);
+      const exact = await fixture(textOf([make(padding)])); const accepted = await exact.prepare();
+      const maximumCalls = measurement.mock.calls.filter(([value]) => typeof value === 'object' && value !== null
+        && 'data' in value && typeof value.data === 'object' && value.data !== null
+        && 'operationId' in value.data && value.data.operationId === 'x'.repeat(256));
+      expect(maximumCalls.length).toBeGreaterThan(0);
+      expect(JSON.stringify(maximumCalls.at(-1))).toContain(String(Number.MAX_SAFE_INTEGER));
+      expect(preparedDetailDeliverable(accepted.capsule)).toBe(true);
+      const over = await fixture(textOf([make(padding + 1)])); const before = await over.events.query(STREAM);
+      expect(size(padding + 1)).toBe(24001);
+      const refused = await over.call(); expect(refused.success).toBe(false); expect(refused.error?.code).toBe('CAPSULE_UNSOUND');
+      expect(await over.events.query(STREAM)).toEqual(before);
+    }
+  });
+
 });

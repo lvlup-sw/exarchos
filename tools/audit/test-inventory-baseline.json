@@ -4,10 +4,10 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1488,
-    "parsedFiles": 1443,
+    "testFiles": 1489,
+    "parsedFiles": 1444,
     "shellFiles": 45,
-    "cases": 16498,
+    "cases": 16505,
     "dynamicTitles": 288,
     "unparseableFiles": 0
   },
@@ -62482,6 +62482,11 @@
           "suite": "the capped prepare receipt",
           "name": "PrepareEconomy_ARecompileOverTheBudget_KeepsItsVersionsAndTheFirstPageOfEachList",
           "dynamic": false
+        },
+        {
+          "suite": "the capped prepare receipt",
+          "name": "PrepareEconomy_Compiler8Invocation_PreservesOriginalReceipt",
+          "dynamic": false
         }
       ]
     },
@@ -95512,6 +95517,11 @@
           "suite": "complete approved graph compilation",
           "name": "ThirtyTasks_CompileWithinTheBoundAndRetainEveryContext",
           "dynamic": false
+        },
+        {
+          "suite": "complete approved graph compilation",
+          "name": "Context_ExactUtf8Limit_AndOneOver_Preflight",
+          "dynamic": false
         }
       ]
     },
@@ -95918,6 +95928,37 @@
         {
           "suite": "standing transaction fences",
           "name": "Recompile_DescendantsOnly",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/integration/s7-prepared-detail.test.ts": {
+      "file": "tests/integration/s7-prepared-detail.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "authenticated prepared detail",
+          "name": "ThirtyTasks_BoundedReceiptUsableDetail",
+          "dynamic": false
+        },
+        {
+          "suite": "authenticated prepared detail",
+          "name": "LongestPrefix_CompleteCarrierAndExactBoundary",
+          "dynamic": false
+        },
+        {
+          "suite": "authenticated prepared detail",
+          "name": "HistoricalCapsule_PageStable",
+          "dynamic": false
+        },
+        {
+          "suite": "authenticated prepared detail",
+          "name": "MissingBundle_NoRegeneration",
+          "dynamic": false
+        },
+        {
+          "suite": "authenticated prepared detail",
+          "name": "DetailRead_ZeroWrites",
           "dynamic": false
         }
       ]
