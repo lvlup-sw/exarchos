@@ -4,10 +4,10 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1483,
-    "parsedFiles": 1438,
+    "testFiles": 1484,
+    "parsedFiles": 1439,
     "shellFiles": 45,
-    "cases": 16454,
+    "cases": 16461,
     "dynamicTitles": 288,
     "unparseableFiles": 0
   },
@@ -95668,6 +95668,47 @@
         {
           "suite": "authenticated task standing",
           "name": "HeldPromotion_PreservesPinnedProvisionalHistory",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/integration/s7-fork-coordinates.test.ts": {
+      "file": "tests/integration/s7-fork-coordinates.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "immutable task forks",
+          "name": "Root_UsesPinnedBase_RefMotion_CoordinateStable",
+          "dynamic": false
+        },
+        {
+          "suite": "immutable task forks",
+          "name": "Fork_MustContainEveryBlocker",
+          "dynamic": false
+        },
+        {
+          "suite": "immutable task forks",
+          "name": "Fork_MustPrecedeHead_AndHoldRoot",
+          "dynamic": false
+        },
+        {
+          "suite": "immutable task forks",
+          "name": "SameOuterProvisional_AndForeignOrOrphanRefusal",
+          "dynamic": false
+        },
+        {
+          "suite": "immutable task forks",
+          "name": "WrongRepo_ZeroSegments_AndDirtyScope",
+          "dynamic": false
+        },
+        {
+          "suite": "immutable task forks",
+          "name": "ImmutableObserver_ReadOnlyAndNoFsmonitor",
+          "dynamic": false
+        },
+        {
+          "suite": "immutable task forks",
+          "name": "CapturedHead_RejectsLaterHeadSubstitution",
           "dynamic": false
         }
       ]

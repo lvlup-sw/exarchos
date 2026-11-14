@@ -279,10 +279,29 @@ export async function observeClaimedTree(
       cause: `git could not read the status (exit ${status.exitCode}): ${status.stderr.trim()}`,
     };
   }
-  const dirtyPaths = status.stdout
-    .split(/\r?\n/)
-    .filter((line) => line.length > PORCELAIN_STATUS_WIDTH)
-    .slice(0, DIRTY_PATH_LIMIT)
-    .map((line) => line.slice(PORCELAIN_STATUS_WIDTH));
+  const dirtyPaths = dirtyPathsOf(status.stdout);
   return { ...tree, holdsBase: ancestry.exitCode === 0, dirtyPaths };
+}
+
+/** Reads the captured head and clean status without index refresh or repository fsmonitor callbacks. */
+export async function observeImmutableClaimedTree(dir: string, baseCommit: string, repository?: string): Promise<ClaimedTreeObservation> {
+  const tree = await observeTree(dir);
+  if (tree.kind !== 'tree') return tree;
+  if (repository !== undefined && tree.repository !== repository) return { ...tree, holdsBase: false, dirtyPaths: [] };
+  if (tree.head === undefined) return { kind: 'unobservable', cause: 'The task checkout has no commit' };
+  const [ancestry, status] = await Promise.all([
+    isAncestor(dir, baseCommit, tree.head),
+    runGit(['--no-optional-locks', '-c', 'core.fsmonitor=false', '-C', dir, 'status', '--porcelain']),
+  ]);
+  if (ancestry.kind === 'unobservable') return { kind: 'unobservable', cause: ancestry.cause };
+  if (status.kind === 'failed') return { kind: 'unobservable', cause: status.cause };
+  if (status.exitCode !== 0) return { kind: 'unobservable', cause: `Git status failed: ${status.stderr.trim()}` };
+  const dirtyPaths = dirtyPathsOf(status.stdout);
+  return { ...tree, holdsBase: ancestry.kind === 'ancestor', dirtyPaths };
+}
+
+/** Extracts the bounded path list from Git porcelain status. */
+function dirtyPathsOf(stdout: string): readonly string[] {
+  return stdout.split(/\r?\n/).filter(line => line.length > PORCELAIN_STATUS_WIDTH)
+    .slice(0, DIRTY_PATH_LIMIT).map(line => line.slice(PORCELAIN_STATUS_WIDTH));
 }

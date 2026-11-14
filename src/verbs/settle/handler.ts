@@ -52,7 +52,7 @@ import {
 import type { ToolResult } from '../../format.js';
 import { orchestrateLogger } from '../../logger.js';
 import { foldGuardInput, foldWorkflowState } from '../../projections/guard-input/fold.js';
-import { canonicalPath, observeClaimedTree } from '../../utils/git-tree.js';
+import { canonicalPath, observeClaimedTree, observeImmutableClaimedTree } from '../../utils/git-tree.js';
 import { evidenceArtifactResolver } from '../../workflow/admission/evidence-artifact.js';
 import { decide, type EdgeVerdict } from '../../workflow/decide/decide.js';
 import { compileDecideDefinition, type DecideDefinition, type DecideEdge } from '../../workflow/decide/edges.js';
@@ -73,7 +73,7 @@ import type { IntentReceipt } from '../execute/types.js';
 import { readGateRowMarks, SKIPPED_BY_POLICY } from '../gates/gate-utils.js';
 import { DESIGN_REVISED_TYPE, designVersionOf } from '../prepare/design-version.js';
 import { readPlannedTask } from '../prepare/partition-tasks.js';
-import { checkoutProjectConfig, configDigestAt } from '../prepare/prepare-scope.js';
+import { checkoutProjectConfig, configDigestAt, GIT_SCOPE } from '../prepare/prepare-scope.js';
 import { preparedRecordOf } from '../prepare/prepared-record.js';
 import { loadPreparedCustody, recheckPreparedAuthority, selectPreparedAuthority, type PreparedAuthority } from '../../workflow/capsule/prepared-custody.js';
 import { SettlementReceiptData } from './schemas.js';
@@ -98,7 +98,8 @@ import {
   SETTLEMENT_BUNDLE_VERSION,
   type SettlementBundleV1,
 } from './settlement-bundle.js';
-import type { ClaimedTree } from './settle-scope.js';
+import { worktreeBreach, type ClaimedTree } from './settle-scope.js';
+import { resolveTaskStanding } from './task-standing.js';
 import {
   settlementClaimKey,
   verificationOperationId,
@@ -627,10 +628,14 @@ function verificationArgsOf(
   };
 }
 
+/** The coordinate stays internal until the executor binds the original segment input. */
+type VerificationCoordinate = NonNullable<NonNullable<ExecuteIntentDeps['verificationInput']>['coordinate']>;
+
 interface CompiledVerification {
   readonly taskId: string;
   readonly operationId: string;
   readonly args: Record<string, unknown>;
+  readonly coordinate?: VerificationCoordinate;
 }
 
 type CompiledSegments =
@@ -1027,7 +1032,8 @@ async function observeClaimedTrees(
   const { scope } = capsule.settlementContract;
   if (scope === undefined) return observed;
   const terms = capsule.settlementContract.taskVerification ?? {};
-  const observe = ctx.treeObserver ?? observeClaimedTree;
+  const observe = ctx.treeObserver ?? (capsule.provenance.compilerVersion === 'exarchos-prepare-8'
+    ? observeImmutableClaimedTree : observeClaimedTree);
   for (const claim of claims) {
     const { worktreePath, branch } = claim.fields;
     const baseCommit = terms[claim.taskId]?.baseCommit;
@@ -1099,6 +1105,52 @@ function compileFor(call: SettlementCall, taskIds: readonly string[]): CompiledS
   return result.ok ? { ok: true, compiled: result.compiled.map(task => ({ ...task, args: call.recoveredInputs.get(task.taskId) ?? task.args })) } : result;
 }
 
+/** Builds fresh coordinates from pinned terms, captured heads and authenticated direct blockers. */
+async function coordinateFor(call: SettlementCall, task: CompiledVerification): Promise<VerificationCoordinate> {
+  const capsule = call.namedAuthority.capsule;
+  const terms = capsule.settlementContract.taskVerification?.[task.taskId];
+  const scope = capsule.settlementContract.scope;
+  const claimed = call.inputs.observations?.get(task.taskId);
+  const tree = claimed?.observed;
+  if (scope === undefined || terms?.baseCommit === undefined || claimed === undefined || tree?.kind !== 'tree'
+    || tree.head === undefined || tree.repository !== scope.repository || tree.dirtyPaths.length !== 0) {
+    throw new Error(`Task ${task.taskId} needs an observable clean checkout in the pinned repository`);
+  }
+  const breach = worktreeBreach(claimed.path, claimed.branch, tree, { scope, baseRef: terms.baseRef, baseCommit: terms.baseCommit });
+  if (breach !== undefined) throw new Error(`Task ${task.taskId} is out of scope: ${breach.detail}`);
+  const blockers = capsule.graph.dependencies.filter(edge => edge.to === task.taskId).map(edge => edge.from);
+  const result = task.args.result;
+  const fork = blockers.length === 0 ? terms.baseCommit : isRecord(result) ? result.forkCommit : undefined;
+  if (typeof fork !== 'string' || !/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(fork)) {
+    throw new Error(`Task ${task.taskId} requires a canonical full forkCommit`);
+  }
+  const resolved = await GIT_SCOPE.commitOf(claimed.path, fork);
+  if (resolved.kind !== 'commit' || resolved.commit !== fork) throw new Error(`Task ${task.taskId} forkCommit is not an exact commit`);
+  const requireAncestor = async (ancestor: string, descendant: string) => {
+    const relation = await GIT_SCOPE.isAncestor(claimed.path, ancestor, descendant);
+    if (relation.kind !== 'ancestor') throw new Error(`Task ${task.taskId} requires ancestry ${ancestor} <= ${descendant}`);
+  };
+  await requireAncestor(terms.baseCommit, fork);
+  await requireAncestor(fork, tree.head);
+  const rows = await call.ctx.eventStore.query(call.streamId);
+  const backend = call.ctx.eventStore.getAppender().ensureSqliteBackendSync();
+  const references: VerificationCoordinate['blockers'] = [];
+  for (const taskId of blockers) {
+    const sameOperation = backend.lookupOperationClaim(verificationOperationId(call.operationId, taskId)) !== undefined;
+    const standing = await resolveTaskStanding({ streamId: call.streamId, taskId, rows,
+      bundles: call.deps.execute.bundleStore ?? call.ctx.eventStore.bundleStore,
+      lookupClaim: id => backend.lookupOperationClaim(id),
+      ...(sameOperation ? { provisional: { outerOperationId: call.operationId, capsule: call.identity } } : {}) });
+    if ((standing.kind !== 'accepted' && standing.kind !== 'provisional') || standing.proof.reference === undefined) {
+      throw new Error(`Task ${task.taskId} lacks eligible standing for blocker ${taskId}`);
+    }
+    await requireAncestor(standing.proof.headCommit, fork);
+    references.push(standing.proof.reference);
+  }
+  return { protocolVersion: '1', taskId: task.taskId, capsule: capsule.identity, repository: scope.repository,
+    rootBaseCommit: terms.baseCommit, diffBaseCommit: fork, observedHeadCommit: tree.head, blockers: references };
+}
+
 /**
  * Runs the compiled segments in their order, and puts the run of each one in the map of the call.
  * A refused run that did not halt is not an answer about its task, so it is the refusal of the call.
@@ -1110,10 +1162,19 @@ async function runCompiled(
   ctx: DispatchContext = call.ctx,
   replayOnly = false,
 ): Promise<ToolResult | undefined> {
-  for (const task of compiled) {
+  let ready = compiled;
+  if (!replayOnly && call.namedAuthority.capsule.provenance.compilerVersion === 'exarchos-prepare-8') {
+    try {
+      const observed: CompiledVerification[] = [];
+      for (const task of compiled) observed.push(call.recoveredInputs.has(task.taskId)
+        ? task : { ...task, coordinate: await coordinateFor(call, task) });
+      ready = observed;
+    } catch (error) { return refused('TASK_COORDINATE_REFUSED', error instanceof Error ? error.message : String(error)); }
+  }
+  for (const task of ready) {
     const execute = call.namedAuthority.capsule.provenance.compilerVersion === 'exarchos-prepare-8'
       ? { ...call.deps.execute, verificationInput: { authority: call.namedAuthority, outerOperationId: call.operationId,
-        callerDigest: call.requestDigest, batchId: call.identity.batchId, replayOnly } } : call.deps.execute;
+        callerDigest: call.requestDigest, batchId: call.identity.batchId, replayOnly, ...(task.coordinate === undefined ? {} : { coordinate: task.coordinate }) } } : call.deps.execute;
     const run = await verifyTask(task, call.streamId, call.batchLabel, call.stateDir, ctx, execute);
     if (run.kind === 'refused' && !run.halted) return run.result;
     call.runs.set(task.taskId, run);

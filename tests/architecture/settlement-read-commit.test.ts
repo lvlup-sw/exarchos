@@ -72,6 +72,9 @@ const COMPLETION_HELPERS: readonly string[] = [
 /** The owner of the plan standing, which stays a read before the commit. */
 const PLAN_STANDING_OWNER = 'drift row completion-gate-row';
 
+/** Candidate proof validation precedes binding. The settlement transaction fence remains a separate obligation. */
+const COORDINATE_STANDING_OWNER = 'bound input validation; selected standing transaction fence pending';
+
 /**
  * The role of one read.
  *
@@ -121,6 +124,22 @@ const ROLES: readonly RoleEntry[] = [
     read: 'helper:lookupOperationClaim',
     role: 'immutable',
     reason: 'the segment claim of a task, which does not change after its commit',
+  },
+  {
+    file: HANDLER,
+    fn: 'coordinateFor',
+    read: 'event:*',
+    role: 'pre-read',
+    reason: 'the snapshot discovers eligible blocker evidence for a candidate coordinate before input binding, not at settlement commit',
+    owner: COORDINATE_STANDING_OWNER,
+  },
+  {
+    file: HANDLER,
+    fn: 'coordinateFor',
+    read: 'helper:lookupOperationClaim',
+    role: 'pre-read',
+    reason: 'claim lookup selects and authenticates same-operation or accepted standing before binding, without a settlement transaction fence',
+    owner: COORDINATE_STANDING_OWNER,
   },
   {
     file: HANDLER,
@@ -498,6 +517,8 @@ describe('the census of the reads that decide a settlement verdict', () => {
     expect(ROLES.filter((role) => role.reason.length === 0)).toEqual([]);
     expect(ROLES.filter((role) => role.role === 'pre-read').map((role) => [role.fn, role.read, role.owner])).toEqual([
       ['planStandingLookup', 'helper:resolveWorkflowState', PLAN_STANDING_OWNER],
+      ['coordinateFor', 'event:*', COORDINATE_STANDING_OWNER],
+      ['coordinateFor', 'helper:lookupOperationClaim', COORDINATE_STANDING_OWNER],
     ]);
   });
 
