@@ -295,14 +295,24 @@ describe('immutable segment input', () => {
     expect(result.error?.code).toBe('CAPSULE_UNRESOLVED');
     expect(result.error?.message).toContain('config');
     const valid = await setup(false, 'block', true, true); valid.bundles.failTerminal = true;
-    expect((await valid.run()).success).toBe(false); await valid.reopen(); valid.bundles.failTerminal = false;
-    expect((await valid.settle()).success).toBe(true); expect(valid.calls()).toBe(2);
+    expect((await valid.run()).success).toBe(false); const validInput = valid.backend().lookupSegmentInput(valid.operationId); await valid.reopen(); valid.bundles.failTerminal = false;
+    const admitted = await valid.settle(); expect(admitted.success).toBe(false);
+    expect(admitted.error?.code).toBe('SEGMENT_INPUT_REFUSED');
+    expect(admitted.error?.message).toContain('Verified segment head');
+    expect(valid.calls()).toBe(2);
+    expect(valid.backend().lookupOperationClaim(valid.operationId)).toBeDefined();
+    expect(valid.backend().lookupSegmentInput(valid.operationId)).toBe(validInput);
+    const admittedRows = await valid.rows();
+    expect(admittedRows.filter(row => row.type === 'orchestrate.intent_executed')).toHaveLength(1);
+    expect(admittedRows.filter(row => row.type === 'task.completed' || row.type === 'execution.settled')).toEqual([]);
     expect(valid.profiles()).toEqual([undefined, { capsuleVersion: valid.coordinate.capsule.capsuleVersion,
       profile: valid.deps.verificationInput?.authority.capsule.settlementContract.verificationProfile }]);
     const ineligible = await setup(false, 'block', true, true, false); ineligible.bundles.failTerminal = true;
     expect((await ineligible.run()).success).toBe(false); ineligible.bundles.failTerminal = false;
-    const rejected = await ineligible.settle(); expect(rejected.data).toMatchObject({ outcome: 'rejected', acceptedTasks: [] });
+    const rejected = await ineligible.settle(); expect(rejected.success).toBe(false); expect(rejected.error?.code).toBe('INVALID_INPUT');
     expect(ineligible.calls()).toBe(1); expect(ineligible.backend().lookupOperationClaim(ineligible.operationId)).toBeUndefined();
+    expect((await ineligible.rows()).filter(row => row.type === 'execution.settled')).toEqual([]);
+    expect(ineligible.backend().lookupSegmentInput(ineligible.operationId)).toBeDefined();
   });
 
 });

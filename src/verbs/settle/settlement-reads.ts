@@ -12,6 +12,10 @@
 
 import { createHash } from 'node:crypto';
 import type { SettledCapsuleIdentity } from './types.js';
+import type { TaskVerificationCoordinateSchema } from '../../contract/capsule/exarchos-capsule.js';
+import type { z } from 'zod';
+import { taskGraphOrder } from './dag-scheduler.js';
+import type { resolveTaskStanding } from './task-standing.js';
 import type { ExarchosCapsuleV1 } from '../../contract/capsule/exarchos-capsule.js';
 import { canonicalJson } from '../../contract/request-context.js';
 import type { AdmissionEvidenceRecorded } from '../../events/schemas.js';
@@ -34,6 +38,9 @@ import {
 } from './adjudicate.js';
 import { claimScopeOf, completionTreeOf, type ClaimedTree } from './settle-scope.js';
 import type { SettlementVerificationTrace } from './types.js';
+
+/** Authenticated custody and exact row/claim recheck retained for the final settlement fence. */
+export type StandingProof = Extract<Awaited<ReturnType<typeof resolveTaskStanding>>, { kind: 'accepted' | 'provisional' }>['proof'];
 
 /** A leaf of the task-completion runbook, as the runbook names it. */
 type TaskCompletionLeaf = (typeof TASK_COMPLETION)['steps'][number]['action'];
@@ -80,6 +87,7 @@ export type VerificationRun =
       readonly outcome: TaskVerificationOutcome;
       readonly trace: SettlementVerificationTrace;
       readonly treeCommit?: string;
+      readonly coordinate?: z.infer<typeof TaskVerificationCoordinateSchema>;
     }
   | { readonly kind: 'refused'; readonly result: ToolResult; readonly halted: boolean };
 
@@ -210,6 +218,9 @@ export interface SettlementInputs {
    * once per call, before the first attempt, when the capsule pins a scope and the task a base commit.
    */
   readonly observations?: ReadonlyMap<string, ClaimedTree>;
+  /** Authenticated proofs remain available for the final transaction fence. */
+  readonly acceptedStanding?: ReadonlyMap<string, StandingProof>;
+
 }
 
 /** The judgement of one batch from one read of its stream. */
@@ -275,7 +286,9 @@ function claimScopeJudge(
   const terms = inputs.capsule.settlementContract.taskVerification ?? {};
   return (taskId) => {
     const task = terms[taskId];
-    if (facts.completed.has(taskId) || task?.baseCommit === undefined) return undefined;
+    const completed = inputs.capsule.provenance.compilerVersion === 'exarchos-prepare-8'
+      ? inputs.acceptedStanding?.has(taskId) === true : facts.completed.has(taskId);
+    if (completed || task?.baseCommit === undefined) return undefined;
     return claimScopeOf(
       taskId,
       { scope, baseRef: task.baseRef, baseCommit: task.baseCommit },
@@ -345,12 +358,18 @@ export function judgeSettlement(
   runs: ReadonlyMap<string, VerificationRun>,
 ): SettlementJudgement {
   const { capsule, claims, deviations, decided } = inputs;
+  if (capsule.provenance.compilerVersion === 'exarchos-prepare-8') {
+    runs = new Map(taskGraphOrder(capsule.graph.tasks.map(task => task.taskId), capsule.graph.dependencies)
+      .flatMap(taskId => { const run = runs.get(taskId); return run === undefined ? [] : [[taskId, run] satisfies [string, VerificationRun]]; }));
+  }
+  const completed = capsule.provenance.compilerVersion === 'exarchos-prepare-8'
+    ? new Set([...(inputs.acceptedStanding?.keys() ?? [])].filter(taskId => !runs.has(taskId))) : facts.completed;
   const checkedIntact = (cited: CitedRecord): boolean | undefined => {
     const check = inputs.evidenceChecks.get(cited.key);
     if (check === undefined || canonicalJson(check.record) !== canonicalJson(cited.record)) return undefined;
     return check.intact;
   };
-  const taskStanding = roundStanding(inputs, facts.completed);
+  const taskStanding = roundStanding(inputs, completed);
   const claimScope = claimScopeJudge(inputs, facts);
   const context: AdjudicationContext = {
     evidenceResolves: (evidence) => {
@@ -359,7 +378,7 @@ export function judgeSettlement(
     },
     ...(inputs.round === 0 ? {} : { decided }),
     supersedingDesignVersion: (taskId) => facts.revisions.get(taskId),
-    taskComplete: (taskId) => facts.completed.has(taskId),
+    taskComplete: (taskId) => completed.has(taskId),
     ...(taskStanding !== undefined ? { taskStanding } : {}),
     ...(claimScope !== undefined ? { claimScope } : {}),
   };
@@ -368,7 +387,7 @@ export function judgeSettlement(
   const revising = acceptedMaterialDeviations(capsule, deviations, decided, taskStanding);
   let refusal: ToolResult | undefined;
   for (const [taskId, run] of runs) {
-    if (run.kind === 'refused' && !(run.halted && facts.completed.has(taskId))) {
+    if (run.kind === 'refused' && !(run.halted && completed.has(taskId))) {
       refusal = run.result;
       break;
     }
@@ -377,7 +396,7 @@ export function judgeSettlement(
 
   const shape = adjudicateSettlement(capsule, claims, deviations, context);
   if (!verificationRuns(shape.findings)) {
-    const ran = judgedTraces([], runs, facts.completed);
+    const ran = judgedTraces([], runs, completed);
     return {
       verdict: shape,
       verifies: false,
@@ -391,13 +410,13 @@ export function judgeSettlement(
     };
   }
 
-  const complete = recordedCompleteTasks(capsule, shape.acceptedTasks, facts.completed).filter(
+  const complete = recordedCompleteTasks(capsule, shape.acceptedTasks, completed).filter(
     (taskId) => !runs.has(taskId),
   );
-  const { outcomes, traces, alreadyComplete } = judgedTraces(complete, runs, facts.completed);
+  const { outcomes, traces, alreadyComplete } = judgedTraces(complete, runs, completed);
   const terms = capsule.settlementContract.taskVerification ?? {};
   const needsSegment = shape.acceptedTasks.filter(
-    (taskId) => !runs.has(taskId) && !facts.completed.has(taskId) && terms[taskId] !== undefined,
+    (taskId) => !runs.has(taskId) && !completed.has(taskId) && terms[taskId] !== undefined,
   );
   return {
     verdict: adjudicateSettlement(capsule, claims, deviations, { ...context, verification: outcomes }),

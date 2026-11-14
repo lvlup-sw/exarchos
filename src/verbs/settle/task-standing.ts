@@ -354,7 +354,7 @@ export async function resolveTaskStanding(request: StandingRequest): Promise<Sta
         && record.capsuleVersion === receipt.capsule.capsuleVersion && record.batchId === receipt.capsule.batchId
         && record.workflowId === receipt.capsule.workflowId && record.definitionVersion === receipt.capsule.definitionVersion
         && (record.round ?? 0) === (receipt.round ?? 0), 'Settlement record differs from its claim');
-      if (receipt.outcome !== 'settled' && receipt.outcome !== 'accepted-with-rationale'
+      if (receipt.outcome !== 'settled' && receipt.outcome !== 'accepted-with-rationale' && receipt.outcome !== 'corrective-capsule'
         && !(accepting !== undefined && receipt.outcome === 'deviation-pending' && (receipt.round ?? 0) === 0)) continue;
       const ref = BundleRefV1Schema.parse(record.bundleRefs[0]);
       const bundle = decodeSettlementBundle(await request.bundles.resolve(ref.digest));

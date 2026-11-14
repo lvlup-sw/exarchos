@@ -25,6 +25,7 @@ import { capsuleDigest } from '../../contract/capsule/capsule-digest.js';
 import { resolveCapsuleReferences } from '../../contract/capsule/capsule-references.js';
 import {
   ExarchosCapsuleV1Schema,
+  TaskVerificationCoordinateSchema,
   type CapsuleScope,
   type ExarchosCapsuleV1,
 } from '../../contract/capsule/exarchos-capsule.js';
@@ -80,6 +81,7 @@ import { SettlementReceiptData } from './schemas.js';
 import { resolveWorkflowState } from '../resolve-state.js';
 import {
   outcomeVerifies,
+  adjudicateSettlement,
   type ProposedDeviation,
   type SettlementClaim,
   type SettlementEvidence,
@@ -99,8 +101,10 @@ import {
   type SettlementBundleV1,
 } from './settlement-bundle.js';
 import { worktreeBreach, type ClaimedTree } from './settle-scope.js';
+import { taskGraphOrder } from './dag-scheduler.js';
 import { resolveTaskStanding } from './task-standing.js';
 import {
+  type StandingProof,
   settlementClaimKey,
   verificationOperationId,
   completedTasksOf,
@@ -780,6 +784,7 @@ function bundleTraceOf(trace: SettlementVerificationTrace, run: VerificationRun 
     ...(trace.message === undefined ? {} : { message: trace.message }),
     ...(trace.bundleRefs === undefined ? {} : { bundleRefs: [...trace.bundleRefs] }),
     ...(treeCommit === undefined ? {} : { treeCommit }),
+    ...(trace.outcome === 'verified' && run?.kind === 'ran' && run.coordinate !== undefined ? { coordinate: run.coordinate } : {}),
   };
 }
 
@@ -815,6 +820,20 @@ async function verifyTask(
   if (isIntentReceipt(receipt)) {
     if (receipt.outcome === 'committed') {
       const reading = await traceQualifiersOf(receipt, ctx.eventStore);
+      const binding = execute.verificationInput;
+      let coordinate: VerificationCoordinate | undefined;
+      try {
+        if (binding !== undefined) {
+          const original = await recoverSegmentInput(compiled.operationId, streamId,
+            binding.callerDigest, ctx, execute.bundleStore ?? ctx.eventStore.bundleStore);
+          coordinate = TaskVerificationCoordinateSchema.parse(original?.args.coordinate);
+        }
+      } catch (error) {
+        return { kind: 'refused', halted: false, result: refused('SEGMENT_INPUT_REFUSED', error instanceof Error ? error.message : String(error)) };
+      }
+      if (coordinate !== undefined && reading.treeCommit !== coordinate.observedHeadCommit) {
+        return { kind: 'refused', halted: false, result: refused('SEGMENT_INPUT_REFUSED', 'Verified segment head differs from its original coordinate') };
+      }
       return {
         kind: 'ran',
         outcome: { kind: 'verified' },
@@ -826,6 +845,7 @@ async function verifyTask(
           ...qualifiersField(reading.qualifiers),
         },
         ...(reading.treeCommit === undefined ? {} : { treeCommit: reading.treeCommit }),
+        ...(coordinate === undefined ? {} : { coordinate }),
       };
     }
     const failedLeaf = receipt.failedLeaf ?? '<unknown>';
@@ -1087,6 +1107,8 @@ interface SettlementCall {
   readonly reads: SettlementReads;
   readonly runs: Map<string, VerificationRun>;
   readonly recoveredInputs: Map<string, Record<string, unknown>>;
+  /** Exact proof closures selected for this call, retained for transaction fencing. */
+  readonly standingProofs: Map<string, StandingProof>;
   inputs: SettlementInputs;
   checkout?: CheckoutReading;
 }
@@ -1136,7 +1158,16 @@ async function coordinateFor(call: SettlementCall, task: CompiledVerification): 
   const backend = call.ctx.eventStore.getAppender().ensureSqliteBackendSync();
   const references: VerificationCoordinate['blockers'] = [];
   for (const taskId of blockers) {
+    const submitted = call.inputs.claims.find(claim => claim.taskId === taskId);
+    const predecessor = call.runs.get(taskId);
+    if (submitted !== undefined && (submitted.status !== undefined
+      || (predecessor !== undefined && (predecessor.kind !== 'ran' || predecessor.outcome.kind !== 'verified')))) {
+      throw new Error(`Task ${task.taskId} is blocked by submitted unsuccessful task ${taskId}`);
+    }
     const sameOperation = backend.lookupOperationClaim(verificationOperationId(call.operationId, taskId)) !== undefined;
+    if (submitted !== undefined && !sameOperation && !call.inputs.acceptedStanding?.has(taskId)) {
+      throw new Error(`Task ${task.taskId} awaits committed submitted blocker ${taskId}`);
+    }
     const standing = await resolveTaskStanding({ streamId: call.streamId, taskId, rows,
       bundles: call.deps.execute.bundleStore ?? call.ctx.eventStore.bundleStore,
       lookupClaim: id => backend.lookupOperationClaim(id),
@@ -1145,6 +1176,7 @@ async function coordinateFor(call: SettlementCall, task: CompiledVerification): 
       throw new Error(`Task ${task.taskId} lacks eligible standing for blocker ${taskId}`);
     }
     await requireAncestor(standing.proof.headCommit, fork);
+    call.standingProofs.set(standing.proof.segmentOperationId, standing.proof);
     references.push(standing.proof.reference);
   }
   return { protocolVersion: '1', taskId: task.taskId, capsule: capsule.identity, repository: scope.repository,
@@ -1162,24 +1194,36 @@ async function runCompiled(
   ctx: DispatchContext = call.ctx,
   replayOnly = false,
 ): Promise<ToolResult | undefined> {
-  let ready = compiled;
-  if (!replayOnly && call.namedAuthority.capsule.provenance.compilerVersion === 'exarchos-prepare-8') {
-    try {
-      const observed: CompiledVerification[] = [];
-      for (const task of compiled) observed.push(call.recoveredInputs.has(task.taskId)
-        ? task : { ...task, coordinate: await coordinateFor(call, task) });
-      ready = observed;
-    } catch (error) { return refused('TASK_COORDINATE_REFUSED', error instanceof Error ? error.message : String(error)); }
-  }
-  for (const task of ready) {
+  const immutable = call.namedAuthority.capsule.provenance.compilerVersion === 'exarchos-prepare-8';
+  const graph = call.inputs.capsule.graph;
+  const byId = new Map(compiled.map(task => [task.taskId, task]));
+  const ready = immutable ? taskGraphOrder(graph.tasks.map(task => task.taskId), graph.dependencies)
+    .flatMap(taskId => { const task = byId.get(taskId); return task === undefined ? [] : [task]; }) : compiled;
+  let coordinateRefusal: ToolResult | undefined;
+  let attempted = 0;
+  for (const original of ready) {
+    let task = original;
+    if (immutable && !replayOnly && !call.recoveredInputs.has(task.taskId)) {
+      try { task = { ...task, coordinate: await coordinateFor(call, task) }; }
+      catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        coordinateRefusal ??= refused('TASK_COORDINATE_REFUSED', message);
+        call.runs.set(task.taskId, { kind: 'ran', outcome: { kind: 'failed', failedLeaf: 'dependency-coordinate', message },
+          trace: { taskId: task.taskId, outcome: 'failed', failedLeaf: 'dependency-coordinate', message } });
+        continue;
+      }
+    }
     const execute = call.namedAuthority.capsule.provenance.compilerVersion === 'exarchos-prepare-8'
       ? { ...call.deps.execute, verificationInput: { authority: call.namedAuthority, outerOperationId: call.operationId,
         callerDigest: call.requestDigest, batchId: call.identity.batchId, replayOnly, ...(task.coordinate === undefined ? {} : { coordinate: task.coordinate }) } } : call.deps.execute;
+    attempted += 1;
     const run = await verifyTask(task, call.streamId, call.batchLabel, call.stateDir, ctx, execute);
     if (run.kind === 'refused' && !run.halted) return run.result;
     call.runs.set(task.taskId, run);
   }
-  return undefined;
+  const actualRun = [...call.runs.values()].some(run => run.kind === 'ran' && run.trace.operationId !== undefined);
+  const reportedFailure = call.inputs.claims.some(claim => claim.status !== undefined);
+  return attempted === 0 && !actualRun && !reportedFailure && coordinateRefusal !== undefined ? coordinateRefusal : undefined;
 }
 
 /** The outcome of the three checks before the segments of an attempt: the context of the segments, or the refusal. */
@@ -1351,12 +1395,40 @@ interface JudgedRead {
   readonly judgement: SettlementJudgement;
 }
 
+/** Resolves accepted custody before judgement. Compatibility completion rows confer no standing. */
+async function acceptedStandingFor(call: SettlementCall, rows: readonly WorkflowEvent[]): Promise<void> {
+  if (call.inputs.capsule.provenance.compilerVersion !== 'exarchos-prepare-8') return;
+  const backend = call.ctx.eventStore.getAppender().ensureSqliteBackendSync();
+  const accepted = new Map<string, StandingProof>();
+  for (const task of call.inputs.capsule.graph.tasks) {
+    const run = call.runs.get(task.taskId);
+    if (run !== undefined && (run.kind !== 'ran' || run.outcome.kind !== 'verified')) continue;
+    if (run === undefined && call.recoveredInputs.has(task.taskId)) continue;
+    const standing = await resolveTaskStanding({ streamId: call.streamId, taskId: task.taskId, rows,
+      bundles: call.deps.execute.bundleStore ?? call.ctx.eventStore.bundleStore,
+      lookupClaim: id => backend.lookupOperationClaim(id),
+      ...(run === undefined ? {} : { provisional: { outerOperationId: call.operationId, capsule: call.identity } }) });
+    if (run !== undefined) {
+      if (standing.kind !== 'provisional' || standing.proof.segmentOperationId !== run.trace.operationId
+        || canonicalJson(standing.proof.coordinate) !== canonicalJson(run.coordinate)) {
+        call.runs.set(task.taskId, { kind: 'refused', halted: false,
+          result: refused('SEGMENT_INPUT_REFUSED', `Task ${task.taskId} has no authenticated committed standing`) });
+      } else call.standingProofs.set(standing.proof.segmentOperationId, standing.proof);
+    } else if (standing.kind === 'accepted') {
+      accepted.set(task.taskId, standing.proof);
+      call.standingProofs.set(standing.proof.segmentOperationId, standing.proof);
+    }
+  }
+  call.inputs = { ...call.inputs, acceptedStanding: accepted };
+}
+
 /**
  * Reads the whole stream and judges the batch from its facts. When the judgement names a cited record
  * with no blob check, the call checks the record, keeps the check, and judges again.
  */
 async function readAndJudge(call: SettlementCall): Promise<JudgedRead> {
   const rows = await call.ctx.eventStore.query(call.streamId);
+  await acceptedStandingFor(call, rows);
   const facts = settlementFactsOf(rows, call.reads);
   const judgement = judgeSettlement(call.inputs, facts, call.runs);
   if (judgement.needsEvidenceCheck.length === 0) return { rows, judgement };
@@ -1540,6 +1612,12 @@ function phaseDecisionOf(input: PhaseDecisionInput): PhaseDecision {
     || canonicalJson(named.skipPhases ?? null) !== canonicalJson(latest.skipPhases ?? null)) {
     return notDecided('prepared-authority-mismatch');
   }
+  if (call.inputs.capsule.provenance.compilerVersion === 'exarchos-prepare-8'
+    && !call.inputs.capsule.graph.tasks.every(task => {
+      const run = call.runs.get(task.taskId);
+      return run === undefined ? call.inputs.acceptedStanding?.has(task.taskId) === true
+        : run.kind === 'ran' && run.outcome.kind === 'verified';
+    })) return notDecided('outcome-does-not-move');
   const def = pinnedDecideDefinition(call.workflowType, call.pinnedDefinition, named.skipPhases);
   if (def === undefined) return notDecided('unpinned-definition');
   const options = transitionOptionsOf(call.ctx.projectConfig);
@@ -2108,6 +2186,13 @@ export async function handleSettle(
     const decided = (deviation: ProposedDeviation): 'accepted' | 'rejected' | undefined =>
       decidedOf.get(deviationIdOf(identity, deviation));
 
+    if (capsule.provenance.compilerVersion === 'exarchos-prepare-8') {
+      const shape = adjudicateSettlement(capsule, claims, deviations, { evidenceResolves: () => true });
+      const invalidShape = shape.findings.filter(finding => ['unknown-task', 'duplicate-claim', 'undeclared-result-shape',
+        'missing-field', 'field-type-mismatch', 'undeclared-field'].includes(finding.kind));
+      if (invalidShape.length > 0) return invalid(invalidShape.map(finding => `${finding.at}: ${finding.message}`).join('; '));
+    }
+
     const reads = { pinnedSequence: pinned.sequence, cited: claims.flatMap((claim) => claim.evidence) };
     const observations = capsule.provenance.compilerVersion === 'exarchos-prepare-8' ? new Map<string, ClaimedTree>()
       : await observeClaimedTrees(ctx, capsule, claims);
@@ -2136,15 +2221,26 @@ export async function handleSettle(
       reads,
       runs: new Map(),
       recoveredInputs: new Map(),
+      standingProofs: new Map(),
       inputs,
     };
     const replayRefusal = await replayCommittedSegments(call);
-    if (replayRefusal !== undefined) return replayRefusal;
-    if (capsule.provenance.compilerVersion === 'exarchos-prepare-8') call.inputs = { ...call.inputs,
-      observations: await observeClaimedTrees(ctx, capsule, claims.filter(claim => !call.runs.has(claim.taskId))) };
+    if (replayRefusal !== undefined) {
+      return capsule.provenance.compilerVersion === 'exarchos-prepare-8' ? (await replay()) ?? replayRefusal : replayRefusal;
+    }
+    if (capsule.provenance.compilerVersion === 'exarchos-prepare-8') {
+      await acceptedStandingFor(call, await ctx.eventStore.query(streamId));
+      call.inputs = { ...call.inputs, observations: await observeClaimedTrees(ctx, capsule,
+        claims.filter(claim => !call.runs.has(claim.taskId) && !call.recoveredInputs.has(claim.taskId)
+          && !call.inputs.acceptedStanding?.has(claim.taskId))) };
+    }
     for (let attempt = 1; attempt <= MAX_SETTLE_ATTEMPTS; attempt += 1) {
       try {
-        return await settleAttempt(call);
+        const result = await settleAttempt(call);
+        if (!result.success && capsule.provenance.compilerVersion === 'exarchos-prepare-8') {
+          return (await replay()) ?? result;
+        }
+        return result;
       } catch (error) {
         if (!(error instanceof SettlementReadsChanged)) throw error;
         const cached = await replay();

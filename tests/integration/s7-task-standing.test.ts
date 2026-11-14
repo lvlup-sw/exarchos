@@ -174,7 +174,7 @@ describe('authenticated task standing', () => {
   it('CopiedRows_NoActualClaim_AndHeldOutcome_NoExport', async () => {
     const s = await setup(); await s.commit(); const module = await resolver();
     expect((await module?.resolveTaskStanding({ ...await s.input(), lookupClaim: () => undefined }))?.kind).toBe('missing');
-    const held = await setup(); await held.commit({ outcome: 'corrective-capsule' });
+    const held = await setup(); await held.commit({ outcome: 'deviation-pending' });
     expect((await held.resolve())?.kind).toBe('missing');
   });
 

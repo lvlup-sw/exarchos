@@ -15,7 +15,7 @@ import { handleSettle } from '../../src/verbs/settle/handler.js';
 import { productionExecuteDeps } from '../../src/verbs/execute/executor.js';
 import { decodeExecuteIntentBundle } from '../../src/verbs/execute/run-bundle.js';
 import { fixture as preparedFixture, prepared, task, textOf } from '../helpers/capsule/prepared-authority.js';
-import { fixtureRunbook, fixtureStep, fixtureWiring } from '../unit/verbs/execute/fixtures.js';
+import { fixtureWiring } from '../unit/verbs/execute/fixtures.js';
 import { profiledValidCapsule } from '../../src/contract/capsule/exarchos-capsule-fixtures.js';
 import { EventStore } from '../../src/events/store.js';
 import { resolveConfig } from '../../src/config/resolve.js';
@@ -169,7 +169,12 @@ describe('immutable diff leaves', () => {
   /** The real bound executor supplies authority to the production adapter and never invokes fsmonitor during clean-tree checks. */
   it('BoundExecutor_AuthenticatesActualLeaf_AndSuppressesFsmonitor', async () => {
     const f = await setup();
-    await f.repo.commitIn('target', { 'src/value.cjs': 'task', 'value.test.json': JSON.stringify({ source: 'task' }) });
+    await f.repo.commitIn('target', { 'src/value.cjs': 'task', 'value.test.json': JSON.stringify({ source: 'task' }), 'check.cjs': 'process.exit(0);' });
+    const profile = f.ctx.verificationProfile!.profile;
+    const command = { state: 'resolved' as const, argv: [process.execPath, 'check.cjs'], source: 'config' as const };
+    profile.staticAnalysis = { state: 'resolved', checks: [{ name: 'lint', command }], source: 'config' };
+    profile.integration.command = command;
+    profile.contract = { codegen: command, typecheck: command, diff: { ...command, argv: [...command.argv, '@baseCommit@', '@headCommit@'] } };
     const text = textOf([task('target', { riskTier: 'medium', boundaryTouching: true })]);
     const bundle = preparedFixture(text); const capsule = bundle.capsule;
     const read = readDesignRecord(Buffer.from(text), bundle.designRecord?.reference ?? 'plan.md');
@@ -197,10 +202,7 @@ describe('immutable diff leaves', () => {
     await writeFile(hook, '#!/bin/sh\nprintf invoked > "$0.invoked"\nprintf "token\\0"\n'); await chmod(hook, 0o700);
     await git(f.tree, 'config', 'core.fsmonitor', hook);
     const refs = await git(f.tree, 'show-ref');
-    const execute = { ...productionExecuteDeps(ACTION_HANDLERS, 'exarchos_orchestrate'),
-      runbookTable: [fixtureRunbook('task-completion', [fixtureStep('check_test_adequacy', 'stop', {
-        repoRoot: 'auto', worktreePath: '<worktreePath>', riskTier: '<riskTier>', boundaryTouching: '<boundaryTouching>', baseBranch: '<baseRef>',
-      })])] };
+    const execute = productionExecuteDeps(ACTION_HANDLERS, 'exarchos_orchestrate');
     const result = await runAsTrustedCaller(f.stateDir, () => handleSettle({ featureId: capsule.identity.workflowId, capsuleVersion: capsule.identity.capsuleVersion,
       batchId: 'bound', claims: [{ taskId: 'target', fields: { worktreePath: f.tree }, evidence: [] }] }, f.stateDir, fixtureWiring(f.stateDir, f.events), { execute }));
     expect(result.success, JSON.stringify(result)).toBe(true);

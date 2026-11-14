@@ -143,6 +143,14 @@ const ROLES: readonly RoleEntry[] = [
   },
   {
     file: HANDLER,
+    fn: 'acceptedStandingFor',
+    read: 'helper:lookupOperationClaim',
+    role: 'pre-read',
+    reason: 'authenticates selected accepted or same-operation standing before judgement; T10 owns the exact transaction fence',
+    owner: COORDINATE_STANDING_OWNER,
+  },
+  {
+    file: HANDLER,
     fn: 'readAndJudge',
     read: 'event:*',
     role: 'in-commit',
@@ -519,6 +527,7 @@ describe('the census of the reads that decide a settlement verdict', () => {
       ['planStandingLookup', 'helper:resolveWorkflowState', PLAN_STANDING_OWNER],
       ['coordinateFor', 'event:*', COORDINATE_STANDING_OWNER],
       ['coordinateFor', 'helper:lookupOperationClaim', COORDINATE_STANDING_OWNER],
+      ['acceptedStandingFor', 'helper:lookupOperationClaim', COORDINATE_STANDING_OWNER],
     ]);
   });
 

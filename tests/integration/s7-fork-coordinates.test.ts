@@ -13,10 +13,12 @@ import { TaskVerificationCoordinateSchema } from '../../src/contract/capsule/exa
 import { EventStore } from '../../src/events/store.js';
 import { ExecutionSettledData, OrchestrateIntentExecutedData } from '../../src/events/schemas.js';
 import { runWithDispatchContext } from '../../src/dispatch/dispatch-context.js';
-import { none } from '../../src/registry.js';
+import { ACTION_HANDLERS } from '../../src/verbs/composite.js';
+import { productionExecuteDeps } from '../../src/verbs/execute/executor.js';
+import { nodeTestProfile } from '../helpers/verification-profile.js';
+import { seedActivePhaseAttempt } from '../../tools/test-helpers/trusted-context.js';
 import { observeClaimedTree, observeImmutableClaimedTree, observeRepository, type TreeObserver } from '../../src/utils/git-tree.js';
 import { readDesignRecord } from '../../src/workflow/design-record/read.js';
-import { TaskCompletionArgs } from '../../src/verbs/execute/arg-schemas.js';
 import { encodeExecuteIntentBundle, normalizedExecuteRequestDigest, ExecuteIntentInputSchema, SegmentInputBindingV1Schema } from '../../src/verbs/execute/run-bundle.js';
 import { configDigestAt } from '../../src/verbs/prepare/prepare-scope.js';
 import { handleSettle } from '../../src/verbs/settle/handler.js';
@@ -24,7 +26,7 @@ import { encodeSettlementBundle } from '../../src/verbs/settle/settlement-bundle
 import { verificationOperationId, settlementClaimKey } from '../../src/verbs/settle/settlement-reads.js';
 import { fixture as preparedFixture, prepared, task, textOf } from '../helpers/capsule/prepared-authority.js';
 import { scopedRepository } from '../helpers/scoped-repository.js';
-import { fixtureAction, fixtureRunbook, fixtureStep, findFixtureAction, fixtureWiring, fixtureCorrelation } from '../unit/verbs/execute/fixtures.js';
+import { fixtureWiring, fixtureCorrelation } from '../unit/verbs/execute/fixtures.js';
 import { makeTempDir, rmrfAsync } from '../../tools/test-helpers/temp-dir.js';
 import { execFileAsync } from '../../tools/test-helpers/spawn.js';
 
@@ -46,7 +48,7 @@ async function footprint(tree: string) {
 
 /** Stores approved custody and uses the production settlement and executor with one bounded fixture leaf. */
 async function setup(blockers: string[] = []) {
-  const repo = await scopedRepository({ integrationBranch: 'integration', files: { 'base.txt': 'base' } });
+  const repo = await scopedRepository({ integrationBranch: 'integration', files: { 'base.txt': 'base', 'check.cjs': 'process.exit(0);' } });
   closes.push(() => rmrfAsync(repo.root));
   const tree = await repo.worktreeFor('target');
   const root = makeTempDir('fork-coordinate-');
@@ -73,7 +75,13 @@ async function setup(blockers: string[] = []) {
     { name: 'branch', type: 'string' as const, required: false },
     ...(id === 'target' && blockers.length ? [{ name: 'forkCommit', type: 'string' as const, required: true }] : []),
   ]]));
-  capsule.settlementContract = { ...profiledValidCapsule().settlementContract, requiredResults: ['target'], skipPhases: [],
+  const profile = nodeTestProfile();
+  const command = { state: 'resolved' as const, argv: [process.execPath, 'check.cjs'], source: 'config' as const };
+  profile.staticAnalysis = { state: 'resolved', checks: [{ name: 'lint', command }], source: 'config' };
+  profile.integration.command = command;
+  profile.contract = { codegen: command, typecheck: command, diff: { ...command, argv: [...command.argv, '@baseCommit@', '@headCommit@'] } };
+  await seedActivePhaseAttempt(events, streamId);
+  capsule.settlementContract = { ...profiledValidCapsule().settlementContract, requiredResults: ['target'], skipPhases: [], verificationProfile: profile,
     verificationMode: 'immutable-task-diff-v1', scope: { repository: located.repository, checkout: repo.checkout, configDigest: await configDigestAt(repo.checkout) },
     taskVerification: Object.fromEntries([...blockers, 'target'].map(id => [id, { riskTier: 'low', boundaryTouching: false, baseRef: 'main', baseCommit: repo.baseCommit }])) };
   const digest = await events.bundleStore.put(encodePreparedBundle(bundle)); const initial = prepared(bundle);
@@ -82,10 +90,10 @@ async function setup(blockers: string[] = []) {
   const identity = { ...capsule.identity, batchId: 'current' };
   const outer = settlementClaimKey(streamId, identity); const segment = verificationOperationId(outer, 'target');
   let calls = 0;
-  const action = fixtureAction({ name: 'coordinate_fixture', replay: { kind: 'safe-repeat' }, emissions: none('The fixture performs no event effects') });
-  const execute = { runbookTable: [fixtureRunbook('task-completion', [fixtureStep('coordinate_fixture', 'stop')])],
-    findAction: findFixtureAction([action]), argSchemas: { 'task-completion': TaskCompletionArgs }, handlerTool: 'exarchos_orchestrate',
-    handlers: { coordinate_fixture: async () => { calls++; return { success: true }; } } };
+  const execute = productionExecuteDeps({ ...ACTION_HANDLERS,
+    check_static_analysis: async (...args: Parameters<NonNullable<typeof ACTION_HANDLERS.check_static_analysis>>) => {
+      calls++; return ACTION_HANDLERS.check_static_analysis!(...args);
+    } }, 'exarchos_orchestrate');
   const backend = events.getAppender().ensureSqliteBackendSync();
   const run = (fork?: string, options: { tree?: string; branch?: string; observer?: TreeObserver; batch?: string } = {}) =>
     runWithDispatchContext(fixtureCorrelation(), () => handleSettle({ featureId: streamId, capsuleVersion: capsule.identity.capsuleVersion,

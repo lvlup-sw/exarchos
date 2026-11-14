@@ -691,6 +691,8 @@ export function adjudicateSettlement(
     decisions: 0,
   };
 
+  const immutable = capsule.provenance.compilerVersion === 'exarchos-prepare-8';
+  const dependent = new Set(capsule.graph.dependencies.map(edge => edge.to));
   const taskIds = new Set(capsule.graph.tasks.map((task) => task.taskId));
   const admissibleEvidence = new Set(capsule.contracts.evidenceKinds);
   const allowedDeviations = new Set(capsule.contracts.deviationEnvelope.allowedDeviationKinds);
@@ -742,7 +744,7 @@ export function adjudicateSettlement(
     }
 
     if (claim.status !== undefined) {
-      if (context.taskComplete?.(claim.taskId) !== true) {
+      if (immutable || context.taskComplete?.(claim.taskId) !== true) {
         findings.push(incompleteClaimFinding(claim.taskId, claim.status, claim.reason, at));
         return;
       }
@@ -760,6 +762,11 @@ export function adjudicateSettlement(
         return;
       }
 
+      if (immutable && dependent.has(claim.taskId)
+        && (typeof claim.fields.forkCommit !== 'string' || !/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(claim.fields.forkCommit))) {
+        findings.push({ kind: 'field-type-mismatch', subject: 'forkCommit', at: `${at}.fields.forkCommit`,
+          message: `task ${JSON.stringify(claim.taskId)} requires a canonical full forkCommit` });
+      }
       const declaredByName = new Map(declared.map((field) => [field.name, field]));
       for (const field of declared) {
         census.fields += 1;
@@ -867,7 +874,7 @@ export function adjudicateSettlement(
 
   for (const required of capsule.settlementContract.requiredResults) {
     census.requiredResults += 1;
-    if (seen.has(required)) continue;
+    if (seen.has(required) || immutable) continue;
     const finding = unclaimedRequirementFinding(capsule, required, context);
     if (finding !== undefined) {
       findings.push(finding);
