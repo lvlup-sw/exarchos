@@ -149,6 +149,9 @@ const port = (module: string, ports: readonly EffectClass[], note: string): Effe
  * `STALE_EFFECT_PORT`.
  */
 export const NARROW_EFFECT_PORTS: readonly EffectPortRule[] = Object.freeze([
+  port('dispatch/core/verifier-client.ts', ['filesystem', 'network'], 'Protected provisioning and socket exchange only.'),
+  port('runtime/verification-host/server.ts', ['filesystem', 'network'], 'Private listener lifecycle only.'),
+  port('runtime/verification-host/processes.ts', ['filesystem', 'process'], 'Rechecked mounts and confined fixed process only.'),
   port(
     'vcs/github-pr-observer.ts', ['network'],
     'The exact PR GET adapter has no filesystem or process access.',

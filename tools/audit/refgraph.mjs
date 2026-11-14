@@ -12,7 +12,7 @@ const files = walk(ROOT, []).map(f=>resolve(f));
 const isTest = f=>TEST.test(f);
 /** Entry points: `index.ts`, `*-cli.ts`, a fixed list of script names, and `.d.ts` files. */
 const ENTRY = /([\\/]index\.ts$)|(-cli\.ts$)|([\\/](build-skills|install-skills|skills-guard|placeholder-lint|generate-agents|fingerprint-cli|prose-lint-cli)\.ts$)|(\.d\.ts$)/;
-const isEntry = f=>ENTRY.test(f);
+const isEntry = f=>ENTRY.test(f) || /[\\/]runtime[\\/]verification-host[\\/]main\.ts$/.test(f);
 
 /**
  * Resolves a relative import specifier to a file in the tree. Returns null for a bare specifier

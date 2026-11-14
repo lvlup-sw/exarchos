@@ -4,11 +4,11 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1503,
-    "parsedFiles": 1458,
+    "testFiles": 1505,
+    "parsedFiles": 1460,
     "shellFiles": 45,
-    "cases": 16621,
-    "dynamicTitles": 303,
+    "cases": 16629,
+    "dynamicTitles": 305,
     "unparseableFiles": 0
   },
   "unparseable": [],
@@ -10276,6 +10276,32 @@
         }
       ]
     },
+    "tests/integration/1928-verifier-protocol.test.ts": {
+      "file": "tests/integration/1928-verifier-protocol.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "private verifier protocol",
+          "name": "Framing_ExactBoundAndMalformedBytesRefuseBeforeDecode",
+          "dynamic": false
+        },
+        {
+          "suite": "private verifier protocol",
+          "name": "Claims_StableOperationAliasesAndUnknownLeasesSurviveRestart",
+          "dynamic": false
+        },
+        {
+          "suite": "private verifier protocol",
+          "name": "AuthorizationFailure_RereadsAConcurrentOriginalClaim",
+          "dynamic": false
+        },
+        {
+          "suite": "private verifier protocol",
+          "name": "SignedStatuses_ExactSubjectAndSignerCannotBeSubstituted",
+          "dynamic": false
+        }
+      ]
+    },
     "tests/integration/action-contract-emissions.test.ts": {
       "file": "tests/integration/action-contract-emissions.test.ts",
       "runner": "vitest:root",
@@ -11239,6 +11265,32 @@
           "suite": "",
           "name": "StagedReader_ProcessEnvironmentCannotRedirectCoordinates",
           "dynamic": false
+        }
+      ]
+    },
+    "tests/process/1928-verifier-binary.test.ts": {
+      "file": "tests/process/1928-verifier-binary.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "",
+          "name": "IndependentVerifier_RealConfinementOriginalReplayAndProtectedProvisioning",
+          "dynamic": false
+        },
+        {
+          "suite": "",
+          "name": "<dynamic-case-1>",
+          "dynamic": true
+        },
+        {
+          "suite": "",
+          "name": "IndependentVerifier_CrashRetainsUnknownClaimAndStopsOwnedChildren",
+          "dynamic": false
+        },
+        {
+          "suite": "",
+          "name": "<dynamic-case-2>",
+          "dynamic": true
         }
       ]
     },
