@@ -7,7 +7,7 @@
     "testFiles": 1494,
     "parsedFiles": 1449,
     "shellFiles": 45,
-    "cases": 16532,
+    "cases": 16537,
     "dynamicTitles": 288,
     "unparseableFiles": 0
   },
@@ -4567,6 +4567,31 @@
         {
           "suite": "S7 historical writer provenance",
           "name": "FrozenS7_OriginalMembershipDigestAndInterruptedBoundary",
+          "dynamic": false
+        },
+        {
+          "suite": "historical terminal admission without live compilation",
+          "name": "OriginalCustody_NoCompilerOrWriter_ExactReceiptAndAdmission",
+          "dynamic": false
+        },
+        {
+          "suite": "historical terminal admission without live compilation",
+          "name": "UnfinishedOriginal_RefusesWithLiveAndRetiredCompiler_EmptyFreshRemainsLive",
+          "dynamic": false
+        },
+        {
+          "suite": "historical terminal admission without live compilation",
+          "name": "PhysicalCustodyCorruption_NoFallbackNoMutation",
+          "dynamic": false
+        },
+        {
+          "suite": "historical terminal admission without live compilation",
+          "name": "TerminalWinsDuringMissingObservation_ReauthenticatesExactRequest",
+          "dynamic": false
+        },
+        {
+          "suite": "historical terminal admission without live compilation",
+          "name": "OriginalFailedTerminal_PreservesFailureCarrierWithoutCompiler",
           "dynamic": false
         }
       ]
