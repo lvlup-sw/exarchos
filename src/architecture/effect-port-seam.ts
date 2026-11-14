@@ -150,9 +150,13 @@ const port = (module: string, ports: readonly EffectClass[], note: string): Effe
  */
 export const NARROW_EFFECT_PORTS: readonly EffectPortRule[] = Object.freeze([
   port(
+    'vcs/github-pr-observer.ts', ['network'],
+    'The exact PR GET adapter has no filesystem or process access.',
+  ),
+  port(
     'workflow/feedback.ts',
     ['network'],
-    'The single network effect owner — a pure network client; must never grow a filesystem or process port.',
+    'The feedback network effect owner — a pure network client; must never grow a filesystem or process port.',
   ),
   port(
     'utils/process.ts',
