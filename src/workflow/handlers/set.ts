@@ -104,18 +104,25 @@ function validatePatchCandidate(state: WorkflowState, rows: readonly WorkflowEve
   }
 }
 
-/** Old streams without a start retain document authority and replay only rows after their represented cursor. */
-function projectLegacyDocument(state: WorkflowState, rows: readonly WorkflowEvent[], featureId: string): WorkflowState {
-  if (rows.some(row => row.type === START_ROW_TYPE)) return projectStateDocument(state, rows, featureId);
-  const tail = highestSequence(rows);
+/** Read the document cursor and check the identity and order of its stream. */
+function legacyDocumentCursor(state: WorkflowState, rows: readonly WorkflowEvent[], featureId: string): number {
   const cursor = state._eventSequence === undefined ? 0 : state._eventSequence;
-  if (state.featureId !== featureId || typeof cursor !== 'number' || !Number.isSafeInteger(cursor) || cursor < 0 || cursor > tail
+  if (state.featureId !== featureId || typeof cursor !== 'number' || !Number.isSafeInteger(cursor)
+    || cursor < 0 || cursor > highestSequence(rows)
     || rows.some((row, index) => {
       const previous = rows[index - 1];
       return row.streamId !== featureId || (previous !== undefined && row.sequence <= previous.sequence);
     })) {
     throw new StateStoreError(ErrorCode.PROJECTION_REPLAY_FAILED, 'The legacy document cursor does not match its stream');
   }
+  return cursor;
+}
+
+/** Old streams without a start retain document authority and replay only rows after their represented cursor. */
+function projectLegacyDocument(state: WorkflowState, rows: readonly WorkflowEvent[], featureId: string): WorkflowState {
+  if (rows.some(row => row.type === START_ROW_TYPE)) return projectStateDocument(state, rows, featureId);
+  const tail = highestSequence(rows);
+  const cursor = legacyDocumentCursor(state, rows, featureId);
   let view = structuredClone(state) as unknown as WorkflowStateView;
   for (const row of rows) if (row.sequence > cursor) view = workflowStateProjection.apply(view, row);
   let checkpoint = { ...state._checkpoint };
@@ -407,13 +414,28 @@ async function decideOnTheFold(pass: FoldPassInput): Promise<FoldPass> {
       : foldRead(featureId, target, rows, undefined, options);
     const replay = await replayClaim(replayPass, replayRead);
     if (replay !== undefined) return replay;
+    if (noStart) {
+      const staleReplay = await replayUnpublishedLegacyMove(replayPass, rows);
+      if (staleReplay !== undefined) return staleReplay;
+    }
     if (!noStart && pass.pendingPatchError !== undefined) {
       const winner = await replayClaim(replayPass, replayRead);
       if (winner !== undefined) return winner;
       return reply({ code: ErrorCode.INVALID_INPUT, message: `Write-time validation failed: ${pass.pendingPatchError.message}` });
     }
     const selection = selectPreparedAuthority(rows, featureId);
-    if (selection !== undefined) authority = await loadPreparedCustody(selection, eventStore.bundleStore);
+    if (selection !== undefined) {
+      try {
+        authority = await loadPreparedCustody(selection, eventStore.bundleStore);
+      } catch (err) {
+        if (noStart) {
+          const freshRows = await eventStore.query(featureId);
+          const winner = await replayClaim(replayPass, replayRead) ?? await replayUnpublishedLegacyMove(replayPass, freshRows);
+          if (winner !== undefined) return winner;
+        }
+        throw err;
+      }
+    }
     const definition = authority?.pinnedDefinition;
     if (authority !== undefined && definition === undefined
       && !/^exarchos-prepare-[1-6]$/.test(authority.selection.record.compilerVersion)) {
@@ -496,6 +518,63 @@ async function decideOnTheFold(pass: FoldPassInput): Promise<FoldPass> {
     default:
       return outcome satisfies never;
   }
+}
+
+/** Find an accepted move in the rows that a no-start document has yet to represent. */
+async function replayUnpublishedLegacyMove(pass: FoldPassInput, rows: readonly WorkflowEvent[]): Promise<FoldPass | undefined> {
+  const { featureId, state, target } = pass;
+  if (rows.some(row => row.type === START_ROW_TYPE)) return undefined;
+  const cursor = legacyDocumentCursor(state, rows, featureId);
+  const pending = rows.filter(row => row.sequence > cursor);
+  if (!pending.some(row => row.type === 'workflow.transition' && row.data?.to === target)) return undefined;
+
+  const backend = pass.eventStore.getAppender().ensureSqliteBackendSync();
+  const bySequence = new Map(pending.map(row => [row.sequence, row]));
+  let projected = structuredClone(state) as unknown as WorkflowStateView;
+  const priorBySequence = new Map<number, Pick<WorkflowStateView, 'phase' | 'phaseAttemptId'>>();
+  let candidate: Pick<FoldRead, 'from' | 'attemptId'> | undefined;
+  for (const row of pending) {
+    priorBySequence.set(row.sequence, {
+      phase: projected.phase, ...(projected.phaseAttemptId === undefined ? {} : { phaseAttemptId: projected.phaseAttemptId }),
+    });
+    const data = row.data;
+    const from = data?.from;
+    const attemptId = data?.phaseAttemptId;
+    if (row.type === 'workflow.transition' && data?.featureId === featureId && data.to === target
+      && typeof from === 'string' && from !== target && typeof attemptId === 'string') {
+      const claim = backend.lookupOperationClaim<CommittedMove>(`transition:${featureId}:${attemptId}`);
+      if (claim?.streamId === featureId && claim.result?.newPhase === target && claim.result.phaseAttemptId === attemptId
+        && claimCoversLegacyMove(claim, row, bySequence)) {
+        const prior = priorBySequence.get(claim.sequences[0]!);
+        if (prior?.phase === from
+          && attemptId === allocatePhaseAttemptId(featureId, from, target, prior.phaseAttemptId, state._version ?? 1)) {
+          if (candidate !== undefined) throw new Error('Multiple unrepresented transitions match this replay target');
+          candidate = { from, attemptId };
+        }
+      }
+    }
+    projected = workflowStateProjection.apply(projected, row);
+  }
+  return candidate === undefined ? undefined : replayClaim(pass, candidate);
+}
+
+/** Match the stored rows to the complete batch of the transition claim. */
+function claimCoversLegacyMove(
+  claim: { result: CommittedMove; eventIds: string[]; sequences: number[]; timestamps: string[] },
+  move: WorkflowEvent,
+  rows: ReadonlyMap<number, WorkflowEvent>,
+): boolean {
+  const { sequences, eventIds, timestamps } = claim;
+  return Array.isArray(sequences) && Array.isArray(eventIds) && Array.isArray(timestamps)
+    && sequences.length === eventIds.length && sequences.length === timestamps.length
+    && sequences.includes(move.sequence) && sequences.at(-1) === claim.result.eventSequence
+    && sequences.every((sequence, index) => {
+      const row = rows.get(sequence);
+      const eventId = row && 'eventId' in row ? row.eventId : undefined;
+      return row !== undefined && (index === 0 || sequence === sequences[index - 1]! + 1)
+        && typeof eventId === 'string' && eventId.length > 0 && eventId === eventIds[index]
+        && row.timestamp === timestamps[index];
+    });
 }
 
 /** Replays an actual held operation claim without validating its patch as a new write. */

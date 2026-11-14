@@ -7,8 +7,8 @@
     "testFiles": 1480,
     "parsedFiles": 1435,
     "shellFiles": 45,
-    "cases": 16397,
-    "dynamicTitles": 283,
+    "cases": 16399,
+    "dynamicTitles": 284,
     "unparseableFiles": 0
   },
   "unparseable": [],
@@ -94263,12 +94263,22 @@
         },
         {
           "suite": "no-start claim recovery across calls",
-          "name": "LegacyKernelPin_ExactRetry_ReplaysWithoutCustody differentPayload=%s",
+          "name": "LegacyKernelPin_ProjectedCommitPublicationFailure_ReplaysFromActualClaim %s",
           "dynamic": false
         },
         {
           "suite": "no-start claim recovery across calls",
           "name": "<dynamic-case-20>",
+          "dynamic": true
+        },
+        {
+          "suite": "no-start claim recovery across calls",
+          "name": "LegacyKernelPin_ExactRetry_ReplaysWithoutCustody differentPayload=%s",
+          "dynamic": false
+        },
+        {
+          "suite": "no-start claim recovery across calls",
+          "name": "<dynamic-case-21>",
           "dynamic": true
         }
       ]

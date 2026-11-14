@@ -1904,6 +1904,123 @@ describe('legacy custody await replay', () => {
 
 /** A failed document publication keeps the original source version for a later claim lookup. */
 describe('no-start claim recovery across calls', () => {
+  it.each(['exact', 'digest-mismatch', 'later-move', 'document-advanced', 'custody-race', 'unclaimed-row', 'mismatched-member', 'patched-predecessor', 'ambiguous'] as const)(
+    'LegacyKernelPin_ProjectedCommitPublicationFailure_ReplaysFromActualClaim %s', async mode => {
+      registerWorkflowType(CUSTOM_TYPE, {
+        phases: ['plan', 'delegate', 'review', 'plan-review'], initialPhase: 'plan',
+        transitions: [{ from: 'plan', to: 'delegate', event: 'delegate' },
+          { from: 'delegate', to: 'review', event: 'review' },
+          { from: 'review', to: 'delegate', event: 'return' },
+          { from: 'review', to: 'plan-review', event: 'loop' },
+          { from: 'plan-review', to: 'review', event: 'review-again' }],
+      });
+      extendWorkflowTypeEnum(CUSTOM_TYPE);
+      releases.push(() => { unextendWorkflowTypeEnum(CUSTOM_TYPE); unregisterWorkflowType(CUSTOM_TYPE); });
+      const store = await openStore();
+      await init(store, FEATURE_ID, CUSTOM_TYPE, false);
+      await pinKernel(store, CUSTOM_TYPE);
+      const raw = await documentOf(store, FEATURE_ID);
+      const guard = vi.spyOn(hsmTransitionGuard, 'attempt');
+      const input = { featureId: FEATURE_ID, phase: 'review', updates: {
+        'notes.accepted': 'original',
+        ...(mode === 'patched-predecessor' ? { phaseAttemptId: 'pending-attempt' } : {}),
+      } };
+      const call = (args: Parameters<typeof handleSet>[0]) => handleSet(args, store.stateDir, store.eventStore);
+      const failPublication = async (args: Parameters<typeof handleSet>[0]) => {
+        failSetState(store, 4);
+        await expect(call(args)).rejects.toMatchObject({ code: 'VERSION_CONFLICT' });
+      };
+      await failPublication({ featureId: FEATURE_ID, phase: 'delegate' });
+      const first = lastDataOf(await rowsOf(store, FEATURE_ID), 'workflow.transition');
+      if (mode === 'patched-predecessor') {
+        await appendRow(store, FEATURE_ID, 'state.patched', {
+          featureId: FEATURE_ID, fields: ['phaseAttemptId'], patch: { phaseAttemptId: 'ledger-predecessor' },
+        });
+      }
+      const predecessor = mode === 'patched-predecessor' ? 'ledger-predecessor' : first.phaseAttemptId;
+      const reviewAttempt = allocatePhaseAttemptId(FEATURE_ID, 'delegate', 'review', predecessor, 0);
+      const bundles = store.eventStore.bundleStore;
+      const custody = vi.spyOn(bundles, 'resolve');
+      if (mode === 'unclaimed-row') {
+        await appendRow(store, FEATURE_ID, 'workflow.transition', {
+          featureId: FEATURE_ID, from: 'delegate', to: 'review', trigger: 'unclaimed', phaseAttemptId: reviewAttempt,
+        });
+      } else if (mode !== 'custody-race') {
+        await failPublication(input);
+        if (mode === 'later-move') await failPublication({ featureId: FEATURE_ID, phase: 'plan-review' });
+        if (mode === 'ambiguous') {
+          requireSuccess('publish first review', await call(input));
+          requireSuccess('publish intermediate move', await call({ featureId: FEATURE_ID, phase: 'plan-review' }));
+          await failPublication({ ...input, updates: { 'notes.accepted': 'second' } });
+          store.backend.deleteState(FEATURE_ID);
+          store.backend.setState(FEATURE_ID, raw as Parameters<SqliteBackend['setState']>[1]);
+        }
+      }
+      expect(await documentOf(store, FEATURE_ID)).toEqual(raw);
+      const held = store.backend.lookupOperationClaim(`transition:${FEATURE_ID}:${reviewAttempt}`);
+      if (mode === 'unclaimed-row' || mode === 'custody-race') expect(held).toBeUndefined();
+      else expect(held?.result).toMatchObject({ newPhase: 'review', phaseAttemptId: reviewAttempt });
+      if (mode === 'document-advanced') {
+        expect(await call(input)).toMatchObject({ success: true, data: { phase: 'review', idempotent: true } });
+        requireSuccess('advance the document', await call({ featureId: FEATURE_ID, phase: 'delegate' }));
+        expect(await documentOf(store, FEATURE_ID)).toMatchObject({ phase: 'delegate' });
+      }
+      if (mode === 'mismatched-member') {
+        const transition = (await rowsOf(store, FEATURE_ID)).find(row => row.type === 'workflow.transition' && row.data?.phaseAttemptId === reviewAttempt);
+        expect(transition).toBeDefined();
+        const db = new Database(path.join(store.stateDir, 'exarchos.db'));
+        releases.push(() => db.close());
+        db.query("UPDATE events SET payload = json_set(payload, '$.eventId', ?) WHERE streamId = ? AND sequence = ?")
+          .run('unrelated-event-id', FEATURE_ID, transition!.sequence);
+      }
+      await appendRow(store, FEATURE_ID, 'state.patched', {
+        featureId: FEATURE_ID, fields: ['notes.later'], patch: { 'notes.later': 'preserve' },
+      });
+      const before = await rowsOf(store, FEATURE_ID);
+      const guards = guard.mock.calls.length;
+      custody.mockClear();
+      if (mode === 'custody-race') {
+        custody.mockImplementationOnce(async () => {
+          await failPublication(input);
+          throw new Error('custody removed after concurrent winner');
+        });
+      } else {
+        custody.mockRejectedValue(new Error('custody missing'));
+      }
+      if (mode === 'later-move') {
+        await expect(call({ ...input, updates: { 'notes.accepted': 'changed' } })).rejects.toBeInstanceOf(OperationDigestMismatchError);
+        expect(await documentOf(store, FEATURE_ID)).toEqual(raw);
+      }
+      const retry = call(mode === 'digest-mismatch' ? { ...input, updates: { 'notes.accepted': 'changed' } } : input);
+      if (mode === 'digest-mismatch') {
+        await expect(retry).rejects.toBeInstanceOf(OperationDigestMismatchError);
+        expect(await documentOf(store, FEATURE_ID)).toEqual(raw);
+      } else if (mode === 'exact' || mode === 'custody-race' || mode === 'later-move' || mode === 'patched-predecessor') {
+        const phase = mode === 'later-move' ? 'plan-review' : 'review';
+        const phaseAttemptId = mode === 'later-move' ? lastDataOf(before, 'workflow.transition').phaseAttemptId : reviewAttempt;
+        expect(await retry).toMatchObject({ success: true, data: { phase, phaseAttemptId, idempotent: true } });
+        expect(await documentOf(store, FEATURE_ID)).toMatchObject({
+          phase, phaseAttemptId, notes: { accepted: 'original', later: 'preserve' },
+          _eventSequence: (await rowsOf(store, FEATURE_ID)).at(-1)?.sequence,
+        });
+      } else {
+        expect(await retry).toMatchObject({ success: false, error: {
+          code: 'PROJECTION_REPLAY_FAILED', message: expect.stringContaining(mode === 'ambiguous' ? 'Multiple unrepresented transitions' : 'custody missing'),
+        } });
+      }
+      const custodyReads = mode === 'custody-race' ? 2 : ['unclaimed-row', 'mismatched-member', 'document-advanced'].includes(mode) ? 1 : 0;
+      expect(custody).toHaveBeenCalledTimes(custodyReads);
+      expect(guard).toHaveBeenCalledTimes(guards + (mode === 'custody-race' ? 1 : 0));
+      const after = await rowsOf(store, FEATURE_ID);
+      if (mode === 'custody-race') {
+        expect(rowsOfType(after.slice(before.length), 'workflow.transition')).toHaveLength(1);
+        expect(rowsOfType(after.slice(before.length), 'state.patched')).toHaveLength(1);
+      } else {
+        expect(after).toEqual(before);
+        expect(store.backend.lookupOperationClaim(`transition:${FEATURE_ID}:${reviewAttempt}`)).toEqual(held);
+      }
+    },
+  );
   it.each([false, true])('LegacyKernelPin_ExactRetry_ReplaysWithoutCustody differentPayload=%s', async different => {
     const store = await openStore();
     await init(store, FEATURE_ID, 'feature', false);
