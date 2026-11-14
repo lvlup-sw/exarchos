@@ -210,6 +210,87 @@ async function compiledFixture(dependencies: Readonly<Record<string, readonly st
 }
 
 describe('standing transaction fences', () => {
+  /** Shared ancestors are rechecked at the real outer transaction even after both diamond branches verified. */
+  it('SharedAncestorDiamond_CommitMutationRefusesAndCleanTwinMoves', async () => {
+    for (const damage of ['clean', 'claim', 'row']) {
+      const f = await fixture({ a: [], b: ['a'], c: ['a'], d: ['b', 'c'] });
+      const priorResult = await f.call(['c', 'b', 'a'].map(f.claim), 'ancestors');
+      expect(priorResult.success, JSON.stringify(priorResult)).toBe(true);
+      const prior = SettlementReceiptData.parse(priorResult.data);
+      expect(prior).toMatchObject({ acceptedTasks: ['a', 'b', 'c'], phaseMove: { kind: 'not-decided' } });
+      const ancestor = await f.standing('a');
+      if (ancestor.kind !== 'accepted') throw new Error('No authentic accepted shared ancestor');
+      const backend = f.events.getAppender().ensureSqliteBackendSync();
+      const originalClaim = backend.lookupOperationClaim(ancestor.proof.segmentOperationId);
+      expect(originalClaim).toBeDefined();
+      const before = await f.rows();
+      const selected = before.find(row => row.sequence === ancestor.proof.staticAnalysisSequence);
+      if (selected === undefined) throw new Error('No original ancestor static-analysis member');
+      expect(selected.type).toBe('gate.executed');
+      for (const taskId of ['b', 'c']) {
+        const branch = await f.standing(taskId);
+        if (branch.kind !== 'accepted') throw new Error('No actual accepted diamond branch');
+        expect(branch.proof.coordinate.blockers).toEqual([expect.objectContaining({ taskId: 'a',
+          segmentOperationId: ancestor.proof.segmentOperationId, headCommit: ancestor.proof.headCommit })]);
+      }
+      const outer = settlementClaimKey(f.capsule.identity.workflowId, { ...f.capsule.identity, batchId: 'last' });
+      const segment = verificationOperationId(outer, 'd');
+      const attempts = beforeCommit(f, async attempt => {
+        expect(backend.lookupOperationClaim(segment)).toBeDefined();
+        expect(backend.lookupOperationClaim(outer)).toBeUndefined();
+        if (damage === 'clean') return;
+        const db = new Database(join(f.stateDir, 'exarchos.db'));
+        try {
+          if (damage === 'claim') {
+            const stored = db.prepare('SELECT events_json FROM idempotency_claims WHERE streamId=? AND idempotencyKey=?')
+              .get(DECIDE_ONCE_CLAIM_STREAM, ancestor.proof.segmentOperationId);
+            if (typeof stored !== 'object' || stored === null || !('events_json' in stored) || typeof stored.events_json !== 'string') throw new Error('Missing actual ancestor claim');
+            const envelope = JSON.parse(stored.events_json); envelope.requestDigest = `changed-shared-ancestor-${attempt}`;
+            expect(db.prepare('UPDATE idempotency_claims SET events_json=? WHERE streamId=? AND idempotencyKey=?')
+              .run(JSON.stringify(envelope), DECIDE_ONCE_CLAIM_STREAM, ancestor.proof.segmentOperationId).changes).toBe(1);
+          } else {
+            const data = { ...selected.data, sharedAncestorFenceProbe: attempt }; const payload = { ...selected, data };
+            expect(db.prepare('UPDATE events SET data=?,payload=? WHERE streamId=? AND sequence=?')
+              .run(JSON.stringify(data), JSON.stringify(payload), selected.streamId, selected.sequence).changes).toBe(1);
+          }
+        } finally { db.close(); }
+        if (damage === 'row') {
+          const changed = (await f.rows()).find(row => row.sequence === selected.sequence);
+          expect(changed?.data).toEqual({ ...selected.data, sharedAncestorFenceProbe: attempt });
+          expect(changed?.eventId).toBe(selected.eventId);
+        }
+      });
+      const result = await f.call([f.claim('d')], 'last');
+      const after = await f.rows();
+      expect(after.filter(row => row.type === 'orchestrate.intent_executed')).toHaveLength(4);
+      expect((await f.commands()).filter(command => command.args[0] === 'static')).toHaveLength(4);
+      expect(after.filter(row => row.type === 'task.completed').map(row => row.data?.taskId).sort()).toEqual(['a', 'b', 'c', 'd']);
+      expect(backend.lookupOperationClaim(prior.operationId)?.result).toEqual(prior);
+      const moves = after.filter(row => row.type === 'workflow.transition' && row.data?.from === 'delegate'
+        && !before.some(original => original.sequence === row.sequence));
+      if (damage === 'clean') {
+        expect(result.success, JSON.stringify(result)).toBe(true);
+        expect(result.data).toMatchObject({ acceptedTasks: ['d'], phaseMove: { kind: 'moved' } });
+        expect(attempts()).toBe(1); expect(moves).toHaveLength(1);
+        const actualOuter = backend.lookupOperationClaim(outer);
+        expect(actualOuter?.sequences).toContain(moves[0]?.sequence);
+        expect(actualOuter?.eventIds).toContain(moves[0]?.eventId);
+        expect(backend.lookupOperationClaim(ancestor.proof.segmentOperationId)).toEqual(originalClaim);
+        const commands = await f.commands();
+        expect((await f.call([f.claim('d')], 'last')).data).toEqual(result.data);
+        expect(await f.rows()).toEqual(after); expect(await f.commands()).toEqual(commands);
+      } else {
+        expect(result.success, JSON.stringify(result)).toBe(false);
+        expect(attempts()).toBeGreaterThanOrEqual(1);
+        if (damage === 'row') { expect(result.error?.code).toBe('CONCURRENCY_CONFLICT'); expect(attempts()).toBe(3); }
+        expect(moves).toHaveLength(0); expect(backend.lookupOperationClaim(outer)).toBeUndefined();
+        expect(after.filter(row => row.type === 'execution.settled')).toEqual(before.filter(row => row.type === 'execution.settled'));
+        expect(backend.lookupOperationClaim(segment)).toBeDefined();
+      }
+      vi.restoreAllMocks();
+    }
+  });
+
   /** A changed selected effect cannot commit through an unchanged task-level summary. */
   it('SelectedMember_SameSummary_Conflicts', async () => {
     for (const kind of ['gate.executed', 'task.completed']) {

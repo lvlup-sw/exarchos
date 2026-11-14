@@ -7,7 +7,7 @@
     "testFiles": 1493,
     "parsedFiles": 1448,
     "shellFiles": 45,
-    "cases": 16526,
+    "cases": 16530,
     "dynamicTitles": 288,
     "unparseableFiles": 0
   },
@@ -95704,6 +95704,21 @@
           "suite": "authenticated task standing",
           "name": "HeldPromotion_PreservesPinnedProvisionalHistory",
           "dynamic": false
+        },
+        {
+          "suite": "authenticated task standing",
+          "name": "ReconvergentCustody_ThirtyTasksBoundedAcceptedAndProvisional",
+          "dynamic": false
+        },
+        {
+          "suite": "authenticated task standing",
+          "name": "SharedAncestor_DistinctOuterModesAndNamedReferences",
+          "dynamic": false
+        },
+        {
+          "suite": "authenticated task standing",
+          "name": "SharedAncestor_FullNamedReferenceDamageRefusesInEitherOrder",
+          "dynamic": false
         }
       ]
     },
@@ -95915,6 +95930,11 @@
       "file": "tests/integration/s7-standing-races.test.ts",
       "runner": "vitest:root",
       "cases": [
+        {
+          "suite": "standing transaction fences",
+          "name": "SharedAncestorDiamond_CommitMutationRefusesAndCleanTwinMoves",
+          "dynamic": false
+        },
         {
           "suite": "standing transaction fences",
           "name": "SelectedMember_SameSummary_Conflicts",

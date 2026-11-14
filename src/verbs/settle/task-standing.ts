@@ -76,6 +76,65 @@ type StandingResult =
   | { readonly kind: 'accepted' | 'provisional'; readonly proof: StandingProof }
   | { readonly kind: 'missing' | 'invalidated' | 'corrupt'; readonly code: 'MISSING_ACCEPTED_STANDING'; readonly message: string };
 
+/** Primitive checks retain distinct authority obligations while shared ancestry forms a private DAG. */
+interface FenceNode {
+  readonly check: StandingProof['recheck'];
+  readonly children: readonly FenceNode[];
+}
+
+/** One public resolution owns its memo and fence metadata. Callers cannot reuse this session. */
+interface ResolutionSession {
+  readonly memo: Map<string, StandingResult>;
+  readonly active: Set<string>;
+  readonly fences: WeakMap<StandingProof['recheck'], FenceNode>;
+}
+
+/** Selector absence and every mode remain distinct even when they name the same task or segment. */
+function selectionKey(request: StandingRequest): string {
+  return canonicalJson({ streamId: request.streamId, taskId: request.taskId,
+    acceptedOperationId: request.acceptedOperationId ?? null,
+    provisional: request.provisional ?? null, pinnedProvisional: request.pinnedProvisional ?? null });
+}
+
+/** Every invocation checks each primitive against its supplied transaction inputs exactly once. */
+function composeFence(session: ResolutionSession, check: StandingProof['recheck'], children: readonly StandingProof['recheck'][]): StandingProof['recheck'] {
+  const node: FenceNode = { check, children: children.map(child => {
+    const selected = session.fences.get(child);
+    requireFact(selected !== undefined, 'Missing private blocker fence');
+    return selected;
+  }) };
+  const recheck: StandingProof['recheck'] = (rows, lookup) => {
+    const visited = new Set<FenceNode>();
+    const visit = (current: FenceNode): boolean => {
+      if (visited.has(current)) return true;
+      visited.add(current);
+      return current.check(rows, lookup) && current.children.every(visit);
+    };
+    return visit(node);
+  };
+  session.fences.set(recheck, node);
+  return recheck;
+}
+
+/** Only completed equivalent selections share results. Recursive active selections fail closed. */
+async function resolveInSession(request: StandingRequest, session: ResolutionSession): Promise<StandingResult> {
+  try {
+    const key = selectionKey(request);
+    const cached = session.memo.get(key);
+    if (cached !== undefined) return cached;
+    if (session.active.has(key)) return { kind: 'corrupt', code: 'MISSING_ACCEPTED_STANDING', message: 'Recursive standing selection' };
+    session.active.add(key);
+    try {
+      const result = await resolveSelected(request, session);
+      session.memo.set(key, result);
+      return result;
+    } finally { session.active.delete(key); }
+  } catch (error) {
+    return { kind: error instanceof StandingFault ? error.kind : 'corrupt', code: 'MISSING_ACCEPTED_STANDING',
+      message: error instanceof Error ? error.message : String(error) };
+  }
+}
+
 /** Invalid proofs never fall through to an older, more convenient acceptance. */
 class StandingFault extends Error {
   constructor(readonly kind: 'missing' | 'invalidated' | 'corrupt', message: string) { super(message); }
@@ -195,7 +254,7 @@ function fence(request: StandingRequest, claims: Map<string, string>, selected: 
 }
 
 /** Resolve a successful segment and its earlier leaf effects independently of the terminal claim members. */
-async function segmentProof(request: StandingRequest, current: PreparedAuthority, identity: SettledCapsuleIdentity, outerId: string,
+async function segmentProof(request: StandingRequest, session: ResolutionSession, current: PreparedAuthority, identity: SettledCapsuleIdentity, outerId: string,
   claims: Map<string, string>, selected: StandingRow[], trace?: { operationId?: string | undefined; coordinate?: Coordinate | undefined; treeCommit?: string | undefined; bundleRefs?: unknown; fields?: unknown }): Promise<StandingProof> {
   const segmentId = verificationOperationId(outerId, request.taskId);
   requireFact(trace === undefined || trace.operationId === segmentId, 'Settlement names another segment operation');
@@ -279,8 +338,8 @@ async function segmentProof(request: StandingRequest, current: PreparedAuthority
   for (const blocker of coordinate.blockers) {
     if (blocker.kind === 'provisional') requireFact(blocker.outerOperationId === outerId, 'Provisional blocker belongs to another operation');
     const { provisional: _provisional, pinnedProvisional: _pinned, acceptedOperationId: _accepted, ...childRequest } = request;
-    const resolved = await resolveTaskStanding({ ...childRequest, taskId: blocker.taskId,
-      ...(blocker.kind === 'provisional' ? { pinnedProvisional: { outerOperationId: outerId, capsule: identity } } : { acceptedOperationId: blocker.outerOperationId }) });
+    const resolved = await resolveInSession({ ...childRequest, taskId: blocker.taskId,
+      ...(blocker.kind === 'provisional' ? { pinnedProvisional: { outerOperationId: outerId, capsule: identity } } : { acceptedOperationId: blocker.outerOperationId }) }, session);
     if ((resolved.kind !== 'accepted' && resolved.kind !== 'provisional') || !same(resolved.proof.reference, blocker)) {
       throw new StandingFault('invalidated', 'The pinned blocker proof is no longer eligible');
     }
@@ -291,16 +350,20 @@ async function segmentProof(request: StandingRequest, current: PreparedAuthority
     segmentOperationId: segmentId, segmentRecordSequence: terminal.sequence,
     segmentRecord: { eventId: z.string().min(1).parse(terminal.eventId), sequence: terminal.sequence, timestamp: terminal.timestamp }, completionSequence: completeRow.sequence,
     staticAnalysisSequence: staticRow.sequence, worktreePath: input.args.worktreePath, runBundle: ref,
-    recheck: (rows, lookup) => ownCheck(rows, lookup) && blockerChecks.every(check => check(rows, lookup)) };
+    recheck: composeFence(session, ownCheck, blockerChecks) };
 }
 
 /** Discover actual accepted claims from rows, then authenticate each link before exporting standing. */
 export async function resolveTaskStanding(request: StandingRequest): Promise<StandingResult> {
-  try {
+  return resolveInSession(request, { memo: new Map(), active: new Set(), fences: new WeakMap() });
+}
+
+/** Resolve one complete selector without changing historical authentication or promotion rules. */
+async function resolveSelected(request: StandingRequest, session: ResolutionSession): Promise<StandingResult> {
     requireFact(request.rows.every(row => row.streamId === request.streamId), 'Standing snapshot contains another stream');
     if (request.pinnedProvisional !== undefined && request.lookupClaim(request.pinnedProvisional.outerOperationId) !== undefined) {
       const { pinnedProvisional, provisional: _provisional, ...acceptedRequest } = request;
-      const accepted = await resolveTaskStanding({ ...acceptedRequest, acceptedOperationId: pinnedProvisional.outerOperationId });
+      const accepted = await resolveInSession({ ...acceptedRequest, acceptedOperationId: pinnedProvisional.outerOperationId }, session);
       if (accepted.kind !== 'accepted' || accepted.proof.reference?.kind !== 'accepted'
         || accepted.proof.segmentOperationId !== verificationOperationId(pinnedProvisional.outerOperationId, request.taskId)) {
         throw new StandingFault('invalidated', 'The terminal outer operation did not accept this pinned provisional blocker');
@@ -378,7 +441,7 @@ export async function resolveTaskStanding(request: StandingRequest): Promise<Sta
       requireFact(trace.outcome === 'verified', 'Accepted task has a failed verification');
       const taskClaims = bundle.claims.filter(claim => claim.taskId === request.taskId && claim.status === undefined);
       requireFact(taskClaims.length === 1, 'Verified task has no unique completed caller claim');
-      const proof = await segmentProof(request, current, receipt.capsule, receipt.operationId, claims,
+      const proof = await segmentProof(request, session, current, receipt.capsule, receipt.operationId, claims,
         [...held.rows, ...(accepting?.rows ?? [])], { ...trace, fields: taskClaims[0]?.fields });
       const acceptance = accepting?.receipt ?? receipt;
       return { kind: 'accepted', proof: { ...proof, outerOperationId: acceptance.operationId,
@@ -395,16 +458,12 @@ export async function resolveTaskStanding(request: StandingRequest): Promise<Sta
         || settlementClaimKey(request.streamId, capsule, 1) === outerOperationId, 'Provisional outer identity mismatch');
       const claims = new Map<string, string>();
       if (request.pinnedProvisional === undefined && request.lookupClaim(outerOperationId) !== undefined) throw new StandingFault('missing', 'A terminal outer outcome cannot grant provisional standing');
-      const proof = await segmentProof(request, current, capsule, outerOperationId, claims, []);
+      const proof = await segmentProof(request, session, current, capsule, outerOperationId, claims, []);
       const check = proof.recheck;
       return { kind: 'provisional', proof: { ...proof, reference: { kind: 'provisional', taskId: proof.taskId, headCommit: proof.headCommit,
         capsule: proof.coordinate.capsule, outerOperationId, segmentOperationId: proof.segmentOperationId, segmentRecord: proof.segmentRecord,
         runBundle: proof.runBundle, completionSequence: proof.completionSequence, staticAnalysisSequence: proof.staticAnalysisSequence },
-        recheck: (rows, lookup) => (request.pinnedProvisional !== undefined || lookup(outerOperationId) === undefined) && check(rows, lookup) } };
+        recheck: composeFence(session, (_rows, lookup) => request.pinnedProvisional !== undefined || lookup(outerOperationId) === undefined, [check]) } };
     }
     throw new StandingFault('missing', 'No eligible accepted origin exists for this task');
-  } catch (error) {
-    return { kind: error instanceof StandingFault ? error.kind : 'corrupt', code: 'MISSING_ACCEPTED_STANDING',
-      message: error instanceof Error ? error.message : String(error) };
-  }
 }
