@@ -11,11 +11,13 @@
  *
  * The cases test the `exarchos` binary on PATH. `npm run test:files` builds the binary of the tree and puts it first on PATH.
  */
+import Database from 'better-sqlite3';
 import { createHash } from 'node:crypto';
-import { writeFile } from 'node:fs/promises';
+import { readFile, unlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 
+import { STORE_DB_FILENAME } from '../../src/utils/paths.js';
 import { rmrfAsync } from '../../tools/test-helpers/temp-dir.js';
 import { runCli } from '../helpers/cli-runner.js';
 import { withHermeticEnv, type HermeticEnv } from '../helpers/hermetic.js';
@@ -24,6 +26,7 @@ import { extractEnvelope } from '../helpers/mcp-envelope.js';
 import { normalize } from '../helpers/normalizers.js';
 import { PARITY_CONTRACT, assertParity } from '../helpers/parity-contract.js';
 import { scopedRepository, type FixtureFiles } from '../helpers/scoped-repository.js';
+import { releaseCheckDefinition } from '../helpers/definitions/user-definition.js';
 import { task, textOf } from '../helpers/capsule/prepared-authority.js';
 
 const TASK = 'task-1';
@@ -167,6 +170,200 @@ async function rowCount(fixture: Fixture, type: string): Promise<number> {
   return page.total;
 }
 
+/** Starts each test with an empty stream and an approved typed file in a real checkout. */
+async function withBootstrapRepository(
+  work: (env: HermeticEnv, checkout: string, designDigest: string) => Promise<void>,
+): Promise<void> {
+  await withHermeticEnv(async (env) => {
+    const text = textOf([task('T-01', { testFiles: ['tests/task.test.ts'] })]);
+    const repository = await scopedRepository({
+      integrationBranch: INTEGRATION_BRANCH,
+      files: {
+        ...PROJECT,
+        'package.json': JSON.stringify({
+          scripts: { lint: OK, typecheck: OK, 'test:files': OK, 'test:run': OK },
+        }),
+        [PLAN_PATH]: text,
+        '.exarchos/workflows/release-check.json': JSON.stringify({ ...releaseCheckDefinition(), entryStepId: 'build' }),
+      },
+    });
+    try {
+      const captured = await readFile(path.join(repository.checkout, PLAN_PATH));
+      await work(env, repository.checkout, createHash('sha256').update(captured).digest('hex'));
+    } finally {
+      await rmrfAsync(repository.root);
+    }
+  });
+}
+
+function bootstrapCalls(featureId: string, checkout: string, designDigest: string, workflowType = 'feature') {
+  const intent = {
+    mode: 'bootstrap', workflowType, baseRef: INTEGRATION_BRANCH, designRef: PLAN_PATH,
+    approval: { decision: 'approved', designDigest },
+  };
+  return {
+    mcp: { action: 'prepare', featureId, repoRoot: checkout, intent },
+    cli: ['orchestrate', 'prepare', '--feature-id', featureId, '--repo-root', checkout, '--intent', JSON.stringify(intent)],
+  };
+}
+
+describe('packaged bootstrap parity', () => {
+  it.each(['mcp', 'cli'] as const)('Prepare_BootstrapStartsOn_%s_AndReplaysOnTheOtherTransport', async (firstTransport) => {
+    await withBootstrapRepository(async (env, checkout, digest) => {
+      const featureId = 'parity-bootstrap';
+      const args = bootstrapCalls(featureId, checkout, digest);
+      const onMcp = () => withMcp(env, (call) => call('exarchos_orchestrate', args.mcp));
+      const onCli = async () => {
+        const result = await cli(env, args.cli);
+        expect(result.exitCode, JSON.stringify(result.envelope)).toBe(0);
+        return result.envelope;
+      };
+      const first = await (firstTransport === 'mcp' ? onMcp() : onCli());
+      const original = dataOf(first);
+      expect(original).toMatchObject({
+        streamId: featureId, capsuleVersion: 1,
+        capsule: {
+          graph: { tasks: [{ taskId: 'T-01', stepId: 'delegate' }] },
+          provenance: { compilerVersion: 'exarchos-prepare-7' },
+        },
+      });
+      await unlink(path.join(checkout, PLAN_PATH));
+      const replay = await (firstTransport === 'mcp' ? onCli() : onMcp());
+      expect(dataOf(replay)).toEqual(original);
+      expectParity(first, replay, 'orchestrate.prepare');
+      const fixture = { env, featureId, worktree: checkout };
+      for (const type of ['workflow.started', 'task.assigned', 'workflow.prepared']) {
+        expect(await rowCount(fixture, type), type).toBe(1);
+      }
+      const { events } = dataOf((await cli(env, ['event', 'query', '--stream', featureId, '--filter', '{"type":"workflow.started"}'])).envelope);
+      expect(events).toMatchObject([{ schemaVersion: '1.1', data: { initialPhase: 'plan' } }]);
+    });
+  }, CASE_TIMEOUT_MS);
+
+  it('Prepare_BootstrapApprovalRefusal_MatchesAcrossTransports', async () => {
+    await withBootstrapRepository(async (env, checkout) => {
+      const featureId = 'parity-refused-bootstrap';
+      const args = bootstrapCalls(featureId, checkout, '0'.repeat(64));
+      const mcp = await withMcp(env, (call) => call('exarchos_orchestrate', args.mcp));
+      const command = await cli(env, args.cli);
+      expect(mcp).toMatchObject({ success: false, error: { code: 'DESIGN_APPROVAL_MISMATCH' } });
+      expect(command.exitCode).not.toBe(0);
+      expectParity(command.envelope, mcp, 'orchestrate.refusal');
+      const fixture = { env, featureId, worktree: checkout };
+      for (const type of ['workflow.started', 'task.assigned', 'workflow.prepared']) {
+        expect(await rowCount(fixture, type), type).toBe(0);
+      }
+    });
+  }, CASE_TIMEOUT_MS);
+
+  it('Prepare_PublicationFailure_RepairsOnTheOtherTransport', async () => {
+    await withBootstrapRepository(async (env, checkout, digest) => {
+      const featureId = 'parity-publication';
+      const args = bootstrapCalls(featureId, checkout, digest);
+      const fixture = { env, featureId, worktree: checkout };
+      expect(await rowCount(fixture, 'workflow.started')).toBe(0);
+      const dbFile = path.join(env.stateDir, STORE_DB_FILENAME);
+      const database = new Database(dbFile);
+      try {
+        database.exec(`
+          CREATE TRIGGER reject_bootstrap_document BEFORE INSERT ON workflow_state
+          WHEN NEW.featureId = 'parity-publication'
+          BEGIN SELECT RAISE(ABORT, 'fixture publication failure'); END
+        `);
+      } finally {
+        database.close();
+      }
+
+      const refused = await cli(env, args.cli);
+      expect(refused.exitCode).not.toBe(0);
+      expect(refused.envelope).toMatchObject({
+        success: false, error: { code: 'STATE_SYNC_FAILED', message: expect.stringContaining('fixture publication failure') },
+      });
+      const inspect = new Database(dbFile);
+      let claim: unknown;
+      try {
+        expect(inspect.prepare('SELECT version FROM workflow_state WHERE featureId = ?').get(featureId)).toBeUndefined();
+        const claims = inspect.prepare(
+          "SELECT events_json FROM idempotency_claims WHERE json_extract(events_json, '$.streamId') = ?",
+        ).all(featureId) as { events_json: string }[];
+        expect(claims).toHaveLength(1);
+        const [stored] = claims;
+        if (stored === undefined) throw new Error('Missing bootstrap operation claim');
+        claim = JSON.parse(stored.events_json);
+        inspect.exec('DROP TRIGGER reject_bootstrap_document');
+      } finally {
+        inspect.close();
+      }
+      if (!isRecord(claim) || !isRecord(claim.result)) throw new Error('Missing bootstrap operation claim');
+      const accepted = claim.result;
+      expect(accepted).toMatchObject({
+        operationId: expect.stringMatching(/^prepare:/), capsuleVersion: 1, capsuleDigest: expect.stringMatching(/^[a-f0-9]{64}$/),
+      });
+      for (const term of [accepted.operationId, accepted.capsuleDigest, featureId]) {
+        if (typeof term !== 'string') throw new Error('Missing accepted capsule identity');
+        expect(refused.envelope.error).toMatchObject({ message: expect.stringContaining(term) });
+      }
+      const recovered = await withMcp(env, (call) => call('exarchos_orchestrate', args.mcp));
+      expect(dataOf(recovered)).toEqual(accepted);
+      const replay = await cli(env, args.cli);
+      expect(replay.exitCode).toBe(0);
+      expectParity(replay.envelope, recovered, 'orchestrate.prepare');
+      for (const type of ['workflow.started', 'task.assigned', 'workflow.prepared']) {
+        expect(await rowCount(fixture, type), type).toBe(1);
+      }
+      const repaired = new Database(dbFile, { readonly: true });
+      try {
+        const document = repaired.prepare('SELECT state FROM workflow_state WHERE featureId = ?').get(featureId) as { state: string } | undefined;
+        if (document === undefined) throw new Error('Missing repaired workflow document');
+        const tail = repaired.prepare('SELECT MAX(sequence) AS sequence FROM events WHERE streamId = ?').get(featureId) as { sequence: number };
+        const state: unknown = JSON.parse(document.state);
+        expect(state).toMatchObject({ phase: 'delegate' });
+        if (!isRecord(state) || typeof state._eventSequence !== 'number' || typeof accepted.tailSequence !== 'number') {
+          throw new Error('Missing accepted or published sequence');
+        }
+        expect(state._eventSequence).toBeGreaterThanOrEqual(accepted.tailSequence);
+        expect(state._eventSequence).toBeLessThanOrEqual(tail.sequence);
+        const later = repaired.prepare('SELECT type, data FROM events WHERE streamId = ? AND sequence > ?').all(
+          featureId, state._eventSequence,
+        ) as { type: string; data: string }[];
+        for (const row of later) {
+          expect(row.type).toBe('gate.executed');
+          expect(JSON.parse(row.data)).toMatchObject({ gateName: 'event-emissions' });
+        }
+        const operations = repaired.prepare(
+          "SELECT COUNT(*) AS count FROM idempotency_claims WHERE json_extract(events_json, '$.streamId') = ?",
+        ).get(featureId);
+        expect(operations).toEqual({ count: 1 });
+      } finally {
+        repaired.close();
+      }
+    });
+  }, CASE_TIMEOUT_MS);
+
+  it('Dispatch_ColdUserType_UsesRecordedEntry', async () => {
+    await withBootstrapRepository(async (env, checkout, digest) => {
+      const featureId = 'cold-release-check';
+      const args = bootstrapCalls(featureId, checkout, digest, 'release-check');
+      const prepared = await cli(env, args.cli);
+      expect(prepared.exitCode, JSON.stringify(prepared.envelope)).toBe(0);
+      expect(dataOf(prepared.envelope)).toMatchObject({
+        capsule: { graph: { tasks: [{ taskId: 'T-01', stepId: 'build' }] } },
+      });
+      await unlink(path.join(checkout, '.exarchos/workflows/release-check.json'));
+      const fixture = { env, featureId, worktree: checkout };
+      expect(await rowCount(fixture, 'workflow.transition')).toBe(0);
+      await withMcp(env, async (call) => {
+        const status = await call('exarchos_view', { action: 'workflow_status', workflowId: featureId, asOf: { untilSequence: 1 } });
+        expect(dataOf(status)).toMatchObject({ featureId, workflowType: 'release-check', phase: 'build' });
+        const pipeline = await call('exarchos_view', { action: 'pipeline', scope: 'all', detail: true });
+        expect(dataOf(pipeline)).toMatchObject({ workflows: [{ featureId, workflowType: 'release-check', phase: 'build' }] });
+        const rehydrated = await call('exarchos_workflow', { action: 'rehydrate', featureId });
+        expect(dataOf(rehydrated)).toMatchObject({ workflowState: { featureId, workflowType: 'release-check', phase: 'build' } });
+      });
+    });
+  }, CASE_TIMEOUT_MS);
+});
+
 describe('parity: exarchos orchestrate prepare and settle — CLI ↔ MCP', () => {
   it('Prepare_TypedMcpIntentAndCliFlag_ReplayOneAcceptedCapsule', async () => {
     await withDelegatingWorkflow(async (fixture, checkout) => {
@@ -195,6 +392,30 @@ describe('parity: exarchos orchestrate prepare and settle — CLI ↔ MCP', () =
       ]);
       expect(retried.exitCode).toBe(0);
       expectParity(retried.envelope, prepared, 'orchestrate.prepare');
+      expect(await rowCount(fixture, 'workflow.prepared')).toBe(1);
+    });
+  }, CASE_TIMEOUT_MS);
+
+  it('Prepare_TypedCliIntent_ReplaysOverMcp', async () => {
+    await withDelegatingWorkflow(async (fixture, checkout) => {
+      const designFile = path.join(checkout, PLAN_PATH);
+      await writeFile(designFile, textOf([task('T-01', { title: 'Compile from the approved record' })]));
+      const designDigest = createHash('sha256').update(await readFile(designFile)).digest('hex');
+      const intent = { mode: 'compile', designRef: PLAN_PATH, approval: { decision: 'approved', designDigest } };
+      const prepared = await cli(fixture.env, [
+        'orchestrate', 'prepare', '--feature-id', fixture.featureId, '--repo-root', checkout, '--intent', JSON.stringify(intent),
+      ]);
+      expect(prepared.exitCode, JSON.stringify(prepared.envelope)).toBe(0);
+      expect(dataOf(prepared.envelope)).toMatchObject({
+        capsuleVersion: 1,
+        capsule: { graph: { tasks: [{ taskId: 'T-01', stepId: 'delegate' }] } },
+      });
+      const replay = await withMcp(fixture.env, (call) => call('exarchos_orchestrate', {
+        action: 'prepare', featureId: fixture.featureId, repoRoot: checkout, intent,
+      }));
+      expect(dataOf(replay)).toEqual(dataOf(prepared.envelope));
+      expectParity(prepared.envelope, replay, 'orchestrate.prepare');
+      expect(await rowCount(fixture, 'workflow.started')).toBe(1);
       expect(await rowCount(fixture, 'workflow.prepared')).toBe(1);
     });
   }, CASE_TIMEOUT_MS);

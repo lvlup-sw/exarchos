@@ -4,11 +4,11 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1476,
-    "parsedFiles": 1431,
+    "testFiles": 1477,
+    "parsedFiles": 1432,
     "shellFiles": 45,
-    "cases": 16357,
-    "dynamicTitles": 279,
+    "cases": 16374,
+    "dynamicTitles": 280,
     "unparseableFiles": 0
   },
   "unparseable": [],
@@ -90476,8 +90476,38 @@
       "runner": "vitest:root",
       "cases": [
         {
+          "suite": "packaged bootstrap parity",
+          "name": "Prepare_BootstrapStartsOn_%s_AndReplaysOnTheOtherTransport",
+          "dynamic": false
+        },
+        {
+          "suite": "packaged bootstrap parity",
+          "name": "<dynamic-case-1>",
+          "dynamic": true
+        },
+        {
+          "suite": "packaged bootstrap parity",
+          "name": "Prepare_BootstrapApprovalRefusal_MatchesAcrossTransports",
+          "dynamic": false
+        },
+        {
+          "suite": "packaged bootstrap parity",
+          "name": "Prepare_PublicationFailure_RepairsOnTheOtherTransport",
+          "dynamic": false
+        },
+        {
+          "suite": "packaged bootstrap parity",
+          "name": "Dispatch_ColdUserType_UsesRecordedEntry",
+          "dynamic": false
+        },
+        {
           "suite": "parity: exarchos orchestrate prepare and settle — CLI ↔ MCP",
           "name": "Prepare_TypedMcpIntentAndCliFlag_ReplayOneAcceptedCapsule",
+          "dynamic": false
+        },
+        {
+          "suite": "parity: exarchos orchestrate prepare and settle — CLI ↔ MCP",
+          "name": "Prepare_TypedCliIntent_ReplaysOverMcp",
           "dynamic": false
         },
         {
@@ -91193,6 +91223,67 @@
           "suite": "bootstrap receipt identity",
           "name": "<dynamic-case-2>",
           "dynamic": true
+        }
+      ]
+    },
+    "tests/integration/s6-dispatch-contract.test.ts": {
+      "file": "tests/integration/s6-dispatch-contract.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "registered prepare",
+          "name": "Dispatch_BootstrapThenReplay_NoExtraEmissionDebt",
+          "dynamic": false
+        },
+        {
+          "suite": "registered prepare",
+          "name": "Dispatch_ApprovalRefusal_WritesNothing",
+          "dynamic": false
+        },
+        {
+          "suite": "registered prepare",
+          "name": "Dispatch_DeepRequiredCheckRunsBeforeCustody",
+          "dynamic": false
+        },
+        {
+          "suite": "registered prepare",
+          "name": "Dispatch_BootstrapEconomy_KeepsReceiptIdentityAndCustody",
+          "dynamic": false
+        },
+        {
+          "suite": "bootstrap claim replay",
+          "name": "Replay_CopiedBootstrapMarkerWithoutOperationClaim_Refuses",
+          "dynamic": false
+        },
+        {
+          "suite": "bootstrap claim replay",
+          "name": "Replay_ReopenedOriginalStore_ReturnsOriginalBootstrapReceipt",
+          "dynamic": false
+        },
+        {
+          "suite": "mixed stored histories",
+          "name": "Replay_MixedLegacyAndTypedRows_PreservesEvidenceCustodyAndMembership",
+          "dynamic": false
+        },
+        {
+          "suite": "mixed stored histories",
+          "name": "Replay_LegacyUnknownExtras_RetainFallbacks",
+          "dynamic": false
+        },
+        {
+          "suite": "mixed stored histories",
+          "name": "Dispatch_GenericStartEpochAndOwnPhase_RefuseZeroWrite",
+          "dynamic": false
+        },
+        {
+          "suite": "committing snapshots",
+          "name": "Replay_V11Envelope_SurvivesAllAdapters",
+          "dynamic": false
+        },
+        {
+          "suite": "committing snapshots",
+          "name": "Replay_MalformedV11_ColdReadersAndRecoveryRefuse",
+          "dynamic": false
         }
       ]
     },

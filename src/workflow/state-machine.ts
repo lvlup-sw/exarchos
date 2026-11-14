@@ -155,7 +155,7 @@ export function isBuiltInWorkflowType(workflowType: string): boolean {
 
 export function getHSMDefinition(workflowType: string): HSMDefinition {
   const hsm = hsmRegistry[workflowType];
-  if (!hsm) {
+  if (!Object.hasOwn(hsmRegistry, workflowType) || !hsm) {
     throw new Error(`Unknown workflow type: ${workflowType}`);
   }
   return hsm;
@@ -163,7 +163,7 @@ export function getHSMDefinition(workflowType: string): HSMDefinition {
 
 export function getInitialPhase(workflowType: string): string {
   const phase = initialPhaseRegistry[workflowType];
-  if (!phase) {
+  if (!Object.hasOwn(initialPhaseRegistry, workflowType) || !phase) {
     throw new Error(`Unknown workflow type: ${workflowType}`);
   }
   return phase;
@@ -299,7 +299,7 @@ function convertToHSM(name: string, definition: WorkflowDefinition): HSMDefiniti
 
   if (definition.extends) {
     const parent = hsmRegistry[definition.extends];
-    if (!parent) {
+    if (!Object.hasOwn(hsmRegistry, definition.extends) || !parent) {
       throw new Error(`Cannot extend unknown workflow type: ${definition.extends}`);
     }
     baseStates = Object.fromEntries(
