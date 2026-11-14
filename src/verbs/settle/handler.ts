@@ -52,7 +52,7 @@ import {
 } from '../../events/schemas.js';
 import type { ToolResult } from '../../format.js';
 import { orchestrateLogger } from '../../logger.js';
-import { foldGuardInput, foldWorkflowState } from '../../projections/guard-input/fold.js';
+import { rowStatusByTask, foldGuardInput, foldWorkflowState } from '../../projections/guard-input/fold.js';
 import { canonicalPath, observeClaimedTree, observeImmutableClaimedTree } from '../../utils/git-tree.js';
 import { evidenceArtifactResolver } from '../../workflow/admission/evidence-artifact.js';
 import { decide, type EdgeVerdict } from '../../workflow/decide/decide.js';
@@ -76,7 +76,7 @@ import { DESIGN_REVISED_TYPE, designVersionOf } from '../prepare/design-version.
 import { readPlannedTask } from '../prepare/partition-tasks.js';
 import { checkoutProjectConfig, configDigestAt, GIT_SCOPE } from '../prepare/prepare-scope.js';
 import { preparedRecordOf } from '../prepare/prepared-record.js';
-import { loadPreparedCustody, recheckPreparedAuthority, selectPreparedAuthority, type PreparedAuthority } from '../../workflow/capsule/prepared-custody.js';
+import { currentStandingProofs, loadPreparedCustody, recheckPreparedAuthority, selectPreparedAuthority, type PreparedAuthority } from '../../workflow/capsule/prepared-custody.js';
 import { SettlementReceiptData } from './schemas.js';
 import { resolveWorkflowState } from '../resolve-state.js';
 import {
@@ -561,6 +561,9 @@ class SettlementReadsChanged extends Error {
     this.name = 'SettlementReadsChanged';
   }
 }
+
+/** Corrupt current standing cannot become an absent task or a new accepted outcome. */
+class SettlementStandingCorrupt extends Error {}
 
 /**
  * The blob checks of cited records, added to the checks that the call made before. A record is
@@ -1399,15 +1402,26 @@ interface JudgedRead {
 async function acceptedStandingFor(call: SettlementCall, rows: readonly WorkflowEvent[]): Promise<void> {
   if (call.inputs.capsule.provenance.compilerVersion !== 'exarchos-prepare-8') return;
   const backend = call.ctx.eventStore.getAppender().ensureSqliteBackendSync();
+  call.standingProofs.clear();
   const accepted = new Map<string, StandingProof>();
-  for (const task of call.inputs.capsule.graph.tasks) {
+  const tasks = new Set([...call.inputs.capsule.graph.tasks, ...call.latestAuthority.capsule.graph.tasks].map(task => task.taskId));
+  for (const taskId of tasks) {
+    const task = { taskId };
     const run = call.runs.get(task.taskId);
     if (run !== undefined && (run.kind !== 'ran' || run.outcome.kind !== 'verified')) continue;
     if (run === undefined && call.recoveredInputs.has(task.taskId)) continue;
-    const standing = await resolveTaskStanding({ streamId: call.streamId, taskId: task.taskId, rows,
+    let standing = await resolveTaskStanding({ streamId: call.streamId, taskId: task.taskId, rows,
       bundles: call.deps.execute.bundleStore ?? call.ctx.eventStore.bundleStore,
       lookupClaim: id => backend.lookupOperationClaim(id),
       ...(run === undefined ? {} : { provisional: { outerOperationId: call.operationId, capsule: call.identity } }) });
+    if (run === undefined && standing.kind !== 'accepted' && standing.kind !== 'corrupt'
+      && backend.lookupOperationClaim(verificationOperationId(call.operationId, taskId)) !== undefined) {
+      standing = await resolveTaskStanding({ streamId: call.streamId, taskId: task.taskId, rows,
+        bundles: call.deps.execute.bundleStore ?? call.ctx.eventStore.bundleStore,
+        lookupClaim: id => backend.lookupOperationClaim(id),
+        provisional: { outerOperationId: call.operationId, capsule: call.identity } });
+    }
+    if (standing.kind === 'corrupt') throw new SettlementStandingCorrupt(standing.message);
     if (run !== undefined) {
       if (standing.kind !== 'provisional' || standing.proof.segmentOperationId !== run.trace.operationId
         || canonicalJson(standing.proof.coordinate) !== canonicalJson(run.coordinate)) {
@@ -1417,7 +1431,18 @@ async function acceptedStandingFor(call: SettlementCall, rows: readonly Workflow
     } else if (standing.kind === 'accepted') {
       accepted.set(task.taskId, standing.proof);
       call.standingProofs.set(standing.proof.segmentOperationId, standing.proof);
+    } else if (standing.kind === 'provisional') {
+      call.standingProofs.set(standing.proof.segmentOperationId, standing.proof);
     }
+  }
+  const selected = new Map([...call.standingProofs.values()].map(proof => [proof.taskId, proof]));
+  const current = currentStandingProofs(selected);
+  for (const [taskId, proof] of selected) {
+    if (current.has(taskId)) continue;
+    call.standingProofs.delete(proof.segmentOperationId); accepted.delete(taskId);
+    const run = call.runs.get(taskId);
+    if (run?.kind === 'ran' && run.outcome.kind === 'verified') call.runs.set(taskId, { kind: 'refused', halted: false,
+      result: refused('SEGMENT_INPUT_REFUSED', `Task ${taskId} retains a blocker proof that is no longer current`) });
   }
   call.inputs = { ...call.inputs, acceptedStanding: accepted };
 }
@@ -1613,7 +1638,7 @@ function phaseDecisionOf(input: PhaseDecisionInput): PhaseDecision {
     return notDecided('prepared-authority-mismatch');
   }
   if (call.inputs.capsule.provenance.compilerVersion === 'exarchos-prepare-8'
-    && !call.inputs.capsule.graph.tasks.every(task => {
+    && !latest.capsule.graph.tasks.every(task => {
       const run = call.runs.get(task.taskId);
       return run === undefined ? call.inputs.acceptedStanding?.has(task.taskId) === true
         : run.kind === 'ran' && run.outcome.kind === 'verified';
@@ -1632,8 +1657,12 @@ function phaseDecisionOf(input: PhaseDecisionInput): PhaseDecision {
   } catch {
     return notDecided('fold-failed');
   }
+  if (call.inputs.capsule.provenance.compilerVersion === 'exarchos-prepare-8') {
+    const statuses = rowStatusByTask(rows);
+    if (!latest.capsule.graph.tasks.every(task => statuses.get(task.taskId) === 'complete')) return notDecided('outcome-does-not-move');
+  }
   const from = typeof prior.phase === 'string' ? prior.phase : '';
-  if (!call.inputs.capsule.graph.tasks.every((task) => task.stepId === from)) return notDecided('off-batch-step');
+  if (!(call.inputs.capsule.provenance.compilerVersion === 'exarchos-prepare-8' ? latest.capsule : call.inputs.capsule).graph.tasks.every((task) => task.stepId === from)) return notDecided('off-batch-step');
   const decided = decide(def, guardInput, { kind: 'settle' });
   if (decided.kind === 'stay') {
     const admitted = decided.verdicts.filter((verdict) => verdict.verdict === 'allow').length;
@@ -1807,10 +1836,27 @@ async function commitJudgement(
           .getAppender()
           .decideOnce<SettlementReceipt>(operationId, requestDigest, (tx) => {
             const snapshot = tx.readStream(streamId);
-            if (!recheckPreparedAuthority(call.latestAuthority.selection, migrateEvents(snapshot.events))) {
+            const rows = migrateEvents(snapshot.events);
+            if (!recheckPreparedAuthority(call.latestAuthority.selection, rows)) {
               throw new SettlementReadsChanged(batchLabel);
             }
-            const committed = judgeSettlement(inputs, settlementFactsOf(migrateEvents(snapshot.events), reads), runs);
+            if (call.namedAuthority.capsule.provenance.compilerVersion === 'exarchos-prepare-8') {
+              const backend = ctx.eventStore.getAppender().ensureSqliteBackendSync();
+              for (const [taskId, run] of runs) {
+                if (run.kind !== 'ran' || run.outcome.kind !== 'verified') continue;
+                const proof = run.trace.operationId === undefined ? undefined : call.standingProofs.get(run.trace.operationId);
+                if (proof === undefined || proof.taskId !== taskId || canonicalJson(proof.coordinate) !== canonicalJson(run.coordinate)) {
+                  throw new SettlementReadsChanged(batchLabel);
+                }
+              }
+              for (const proof of inputs.acceptedStanding?.values() ?? []) {
+                if (call.standingProofs.get(proof.segmentOperationId) !== proof) throw new SettlementReadsChanged(batchLabel);
+              }
+              for (const proof of call.standingProofs.values()) {
+                if (!proof.recheck(rows, id => backend.lookupOperationClaim(id))) throw new SettlementReadsChanged(batchLabel);
+              }
+            }
+            const committed = judgeSettlement(inputs, settlementFactsOf(rows, reads), runs);
             if (
               judgementKey(committed) !== key ||
               committed.needsSegment.length > 0 ||
@@ -2229,7 +2275,11 @@ export async function handleSettle(
       return capsule.provenance.compilerVersion === 'exarchos-prepare-8' ? (await replay()) ?? replayRefusal : replayRefusal;
     }
     if (capsule.provenance.compilerVersion === 'exarchos-prepare-8') {
-      await acceptedStandingFor(call, await ctx.eventStore.query(streamId));
+      try { await acceptedStandingFor(call, await ctx.eventStore.query(streamId)); }
+      catch (error) {
+        if (!(error instanceof SettlementStandingCorrupt)) throw error;
+        return (await replay()) ?? refused('SEGMENT_INPUT_REFUSED', error.message);
+      }
       call.inputs = { ...call.inputs, observations: await observeClaimedTrees(ctx, capsule,
         claims.filter(claim => !call.runs.has(claim.taskId) && !call.recoveredInputs.has(claim.taskId)
           && !call.inputs.acceptedStanding?.has(claim.taskId))) };
@@ -2242,6 +2292,7 @@ export async function handleSettle(
         }
         return result;
       } catch (error) {
+        if (error instanceof SettlementStandingCorrupt) return (await replay()) ?? refused('SEGMENT_INPUT_REFUSED', error.message);
         if (!(error instanceof SettlementReadsChanged)) throw error;
         const cached = await replay();
         if (cached !== undefined) return cached;

@@ -10,7 +10,7 @@ import { TaskVerificationCoordinateSchema } from '../../contract/capsule/exarcho
 import { BundleRefV1Schema } from '../../events/bundle/digest-references.js';
 import type { RunBundleStore } from '../../events/bundle/run-bundle-store.js';
 import { DesignRevisedData, ExecutionSettledData, OrchestrateIntentExecutedData } from '../../events/schemas.js';
-import { loadPreparedCustody, selectPreparedAuthority, type PreparedAuthority } from '../../workflow/capsule/prepared-custody.js';
+import { preparedTaskTerms, loadPreparedCustody, selectPreparedAuthority, type PreparedAuthority } from '../../workflow/capsule/prepared-custody.js';
 import { decodeExecuteIntentBundle, normalizedExecuteRequestDigest, receiptLeavesOfRun } from '../execute/run-bundle.js';
 import { IntentExecutedOutputSchema } from '../execute/schemas.js';
 import type { SettledCapsuleIdentity } from './types.js';
@@ -147,15 +147,7 @@ function ancestors(authority: PreparedAuthority, taskId: string): Set<string> {
 /** Source offsets change when unrelated tasks move, but execution terms remain comparable. */
 function taskTerms(authority: PreparedAuthority, taskId: string): unknown {
   if (authority.kind !== 'typed') return undefined;
-  const task = authority.snapshot.tasks.find(entry => entry.id === taskId);
-  if (task === undefined) return undefined;
-  const { span: _span, ...terms } = task;
-  const node = authority.capsule.graph.tasks.find(entry => entry.taskId === taskId);
-  return { terms, definitionVersion: authority.capsule.identity.definitionVersion, stage: node?.stage, stepId: node?.stepId,
-    verificationMode: authority.capsule.settlementContract.verificationMode,
-    skipPhases: authority.capsule.settlementContract.skipPhases, verification: authority.capsule.settlementContract.taskVerification?.[taskId],
-    result: authority.capsule.contracts.taskResults[taskId], scope: authority.capsule.settlementContract.scope,
-    profile: authority.capsule.settlementContract.verificationProfile };
+  return preparedTaskTerms(authority.capsule, authority.snapshot, taskId);
 }
 
 /** Relevant failures and explicit revisions revoke proof without borrowing a later head. */

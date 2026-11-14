@@ -44,7 +44,7 @@ import { findActionInRegistry } from '../../registry.js';
 import { ALL_RUNBOOKS } from '../../runbooks/definitions.js';
 import { ContentAddressedStoreError } from '../../storage/artifacts/content-addressed-store.js';
 import { capabilityNeedSatisfied } from '../../workflow/capabilities/resolver.js';
-import { loadPreparedCustody, selectPreparedAuthority, type PreparedAuthoritySelection } from '../../workflow/capsule/prepared-custody.js';
+import { currentStandingProofs, preparedTaskTerms, loadPreparedCustody, selectPreparedAuthority, type PreparedAuthoritySelection } from '../../workflow/capsule/prepared-custody.js';
 import { compileDecideDefinition } from '../../workflow/decide/edges.js';
 import type { DesignRecordSnapshot } from '../../workflow/design-record/schema.js';
 import { validateDesignRecord } from '../../workflow/design-record/validate.js';
@@ -87,6 +87,7 @@ import {
 } from './prepare-scope.js';
 import { commitPreparedCapsule, type PreparedCommit } from './prepared-record.js';
 import { PreparedCapsuleReceiptData } from './schemas.js';
+import { resolveTaskStanding } from '../settle/task-standing.js';
 import { pendingRevisionOf, recompiledSliceOf } from './recompiled-slice.js';
 import { compilableSteps, locateStep, type StepFindingRule } from './step-locator.js';
 import type { PreparedCapsuleReceipt, PreparedRecompile, PrepareRefusal } from './types.js';
@@ -180,10 +181,11 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 function recompileOf(
   events: readonly { readonly type: string; readonly data?: unknown }[],
   plan: readonly unknown[],
+  completeGraph = false,
 ): PreparedRecompile | undefined {
   const pending = pendingRevisionOf(events);
   if (pending === undefined) return undefined;
-  const slice = recompiledSliceOf(pending.affectedTasks, plan);
+  const slice = recompiledSliceOf(pending.affectedTasks, plan, completeGraph);
   return {
     priorCapsuleVersion: pending.priorCapsuleVersion,
     priorDesignVersion: pending.priorDesignVersion,
@@ -804,7 +806,8 @@ async function prepareFromSnapshot(
     ? partitionTypedGraph(snapshot, location.step.stepId)
     : partitionDelegationBatch(plan, location.step.stepId);
   if (!partition.ok) return refused(partition.refusal);
-  const { batch, completedBlockers } = partition;
+  const { completedBlockers } = partition;
+  let batch = partition.batch;
 
   const bundles = deps.bundleStore ?? ctx.eventStore.bundleStore;
   let checkedPin: Awaited<ReturnType<typeof loadPreparedCustody>> | undefined;
@@ -888,7 +891,7 @@ async function prepareFromSnapshot(
   if (legacyDesign?.read.kind === 'invalid') return refused(unsoundRecord(legacyDesign.read.message));
   const designRecordDigest = snapshot?.digest ?? legacyDesign?.digest;
   const designVersion = designVersionOf(events);
-  const recompile = recompileOf(events, plan);
+  let recompile = recompileOf(events, plan, compilerVersion === 'exarchos-prepare-8');
   const skipPhases = bootstrap !== undefined || compilerVersion === PREPARE_COMPILER_VERSION || compilerVersion === 'exarchos-prepare-8'
     ? projectConfig.workflow.skipPhases : undefined;
   if (skipPhases !== undefined) {
@@ -908,6 +911,54 @@ async function prepareFromSnapshot(
     sequence: [...sequenceOf(cell.riskTier, cell.boundaryTouching)],
   }));
 
+  const retainedStanding: unknown[] = [];
+  if (compilerVersion === 'exarchos-prepare-8' && snapshot !== undefined && authority !== undefined) {
+    try {
+      checkedPin ??= await loadPreparedCustody(authority, bundles);
+      if (recompile !== undefined) {
+        const priorPlan = checkedPin.capsule.graph.tasks.map(task => ({ id: task.taskId, title: task.title, status: 'pending',
+          blockedBy: checkedPin?.capsule.graph.dependencies.filter(edge => edge.to === task.taskId).map(edge => edge.from) ?? [] }));
+        const prior = recompiledSliceOf(recompile.declaredTasks, priorPlan, true);
+        const affected = new Set([...prior.invalidated, ...recompile.invalidatedTasks]);
+        const next = recompiledSliceOf([...affected], plan, true);
+        recompile = { ...recompile, invalidatedTasks: next.invalidated };
+      }
+      const revisions = designRevisionsOf(events);
+      const changes = await readBoundChanges(streamId, revisions, batch.tasks.map(task => task.taskId), bundles);
+      if (!changes.ok) return refused(changes.refusal);
+      const candidate = compileDelegationCapsule({ workflowId: streamId, capsuleVersion, lowered, batch, catalogInvariants,
+        designRef, ...(designRecordDigest === undefined ? {} : { designRecordDigest }), designVersion, designRevisions: revisions,
+        acceptedChanges: changes.changes, compilerVersion, baseRef, pin: { scope, baseCommit }, verificationProfile,
+        executionProfile: { capabilities }, verificationSequence: sequenceOf, disabledGates,
+        ...(skipPhases === undefined ? {} : { skipPhases }), compiledAt: (deps.now ?? (() => new Date().toISOString()))() });
+      if (!candidate.ok) return refused(candidate.refusal);
+      const candidates = new Map<string, Extract<Awaited<ReturnType<typeof resolveTaskStanding>>, { kind: 'accepted' | 'provisional' }>['proof']>();
+      const reopened = new Set(recompile?.invalidatedTasks ?? []);
+      const backend = ctx.eventStore.getAppender().ensureSqliteBackendSync();
+      const current = checkedPin;
+      for (const task of batch.tasks) {
+        if (reopened.has(task.taskId) || current.kind !== 'typed') continue;
+        const relevant = new Set([task.taskId]);
+        for (const id of relevant) for (const edge of batch.dependencies) if (edge.to === id) relevant.add(edge.from);
+        if ([...relevant].some(id => {
+          const before = preparedTaskTerms(current.capsule, current.snapshot, id);
+          const after = preparedTaskTerms(candidate.capsule, snapshot, id);
+          return before === undefined || after === undefined || contentDigest(before) !== contentDigest(after);
+        })) continue;
+        const standing = await resolveTaskStanding({ streamId, taskId: task.taskId, rows: events,
+          bundles, lookupClaim: id => backend.lookupOperationClaim(id) });
+        if (standing.kind === 'corrupt') throw new Error(standing.message);
+        if (standing.kind === 'accepted') {
+          candidates.set(task.taskId, standing.proof);
+        }
+      }
+      const retained = currentStandingProofs(candidates);
+      retainedStanding.push(...[...retained.values()].map(proof => proof.reference));
+      batch = { ...batch, requiredResults: batch.requiredResults.filter(id => !retained.has(id)) };
+      if (batch.requiredResults.length === 0) return refused({ code: 'NOTHING_TO_PREPARE', message: 'Every task retains authenticated accepted standing.' });
+    } catch (error) { return preparedAuthorityRefusal(error); }
+  }
+
   const inputs = {
     streamId,
     workflowType,
@@ -917,6 +968,7 @@ async function prepareFromSnapshot(
     designRef: designRef ?? null,
     designVersion,
     compilerVersion,
+    ...(compilerVersion === 'exarchos-prepare-8' ? { retainedStanding } : {}),
     executionProfile: { capabilities },
     verificationTerms,
     baseRef,

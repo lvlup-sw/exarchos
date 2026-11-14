@@ -4,10 +4,10 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1487,
-    "parsedFiles": 1442,
+    "testFiles": 1488,
+    "parsedFiles": 1443,
     "shellFiles": 45,
-    "cases": 16485,
+    "cases": 16498,
     "dynamicTitles": 288,
     "unparseableFiles": 0
   },
@@ -95847,6 +95847,77 @@
         {
           "suite": "partial DAG settlement",
           "name": "GraphModel_StableOrderAndBoundedWork",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/integration/s7-standing-races.test.ts": {
+      "file": "tests/integration/s7-standing-races.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "standing transaction fences",
+          "name": "SelectedMember_SameSummary_Conflicts",
+          "dynamic": false
+        },
+        {
+          "suite": "standing transaction fences",
+          "name": "SelectedClaim_Missing_NoOuterAcceptance",
+          "dynamic": false
+        },
+        {
+          "suite": "standing transaction fences",
+          "name": "PriorOuterClaimLost_RefreshesWithoutMove",
+          "dynamic": false
+        },
+        {
+          "suite": "standing transaction fences",
+          "name": "NewRevisionAfterSegment_NoMixedMove",
+          "dynamic": false
+        },
+        {
+          "suite": "standing transaction fences",
+          "name": "FinalSubset_AcceptsAndMovesAtomically",
+          "dynamic": false
+        },
+        {
+          "suite": "standing transaction fences",
+          "name": "ConflictingBlockerHead_NoSubstitution",
+          "dynamic": false
+        },
+        {
+          "suite": "standing transaction fences",
+          "name": "Prepare_RetainsStandingAndBindsNewResults",
+          "dynamic": false
+        },
+        {
+          "suite": "standing transaction fences",
+          "name": "Prepare_ProofIdentityChangesKey",
+          "dynamic": false
+        },
+        {
+          "suite": "standing transaction fences",
+          "name": "Prepare_RevisionClosurePreservesUnrelatedStanding",
+          "dynamic": false
+        },
+        {
+          "suite": "standing transaction fences",
+          "name": "LatestStatus_DocumentCannotCompleteGraph",
+          "dynamic": false
+        },
+        {
+          "suite": "standing transaction fences",
+          "name": "CorruptAcceptedClaim_RefusesBeforeEffects",
+          "dynamic": false
+        },
+        {
+          "suite": "standing transaction fences",
+          "name": "Old567_RemainHistorical",
+          "dynamic": false
+        },
+        {
+          "suite": "standing transaction fences",
+          "name": "Recompile_DescendantsOnly",
           "dynamic": false
         }
       ]

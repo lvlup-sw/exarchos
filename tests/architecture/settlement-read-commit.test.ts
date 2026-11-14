@@ -73,7 +73,7 @@ const COMPLETION_HELPERS: readonly string[] = [
 const PLAN_STANDING_OWNER = 'drift row completion-gate-row';
 
 /** Candidate proof validation precedes binding. The settlement transaction fence remains a separate obligation. */
-const COORDINATE_STANDING_OWNER = 'bound input validation; selected standing transaction fence pending';
+const COORDINATE_STANDING_OWNER = 'selected proofs rechecked by commitJudgement in the write transaction';
 
 /**
  * The role of one read.
@@ -138,7 +138,7 @@ const ROLES: readonly RoleEntry[] = [
     fn: 'coordinateFor',
     read: 'helper:lookupOperationClaim',
     role: 'pre-read',
-    reason: 'claim lookup selects and authenticates same-operation or accepted standing before binding, without a settlement transaction fence',
+    reason: 'claim lookup selects and authenticates same-operation or accepted standing before binding, with selected proofs rechecked at settlement commit',
     owner: COORDINATE_STANDING_OWNER,
   },
   {
@@ -146,7 +146,7 @@ const ROLES: readonly RoleEntry[] = [
     fn: 'acceptedStandingFor',
     read: 'helper:lookupOperationClaim',
     role: 'pre-read',
-    reason: 'authenticates selected accepted or same-operation standing before judgement; T10 owns the exact transaction fence',
+    reason: 'authenticates selected accepted or same-operation standing before judgement with exact selected claims rechecked in the write transaction',
     owner: COORDINATE_STANDING_OWNER,
   },
   {
@@ -155,6 +155,13 @@ const ROLES: readonly RoleEntry[] = [
     read: 'event:*',
     role: 'in-commit',
     reason: 'the whole stream, which the commit folds again from the rows of its write transaction',
+  },
+  {
+    file: HANDLER,
+    fn: 'commitJudgement',
+    read: 'helper:lookupOperationClaim',
+    role: 'in-commit',
+    reason: 'selected proof claims are compared on the same SQLite connection under the write lock',
   },
   {
     file: HANDLER,
