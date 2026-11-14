@@ -4,10 +4,10 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1494,
-    "parsedFiles": 1449,
+    "testFiles": 1496,
+    "parsedFiles": 1451,
     "shellFiles": 45,
-    "cases": 16537,
+    "cases": 16544,
     "dynamicTitles": 288,
     "unparseableFiles": 0
   },
@@ -4555,6 +4555,53 @@
     }
   ],
   "files": {
+    "tests/integration/1928-git-observer.test.ts": {
+      "file": "tests/integration/1928-git-observer.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "constrained Git structural reader",
+          "name": "LinkedRegistration_ExactCoordinatesAndImmutableAncestry",
+          "dynamic": false
+        },
+        {
+          "suite": "constrained Git structural reader",
+          "name": "CopiedPointerForeignRepositoryAndDetachedHead_Refuse",
+          "dynamic": false
+        },
+        {
+          "suite": "constrained Git structural reader",
+          "name": "MetadataAndCapability_UnsupportedInputsRefuseBeforeReads",
+          "dynamic": false
+        },
+        {
+          "suite": "constrained Git structural reader",
+          "name": "StatusCallbacks_ReachableButCleanlinessNeverExecutesThem",
+          "dynamic": false
+        },
+        {
+          "suite": "constrained Git structural reader",
+          "name": "TextconvAndExternalDiff_ReachableButExactDiffSuppressesCallbacks",
+          "dynamic": false
+        },
+        {
+          "suite": "constrained Git structural reader",
+          "name": "PromisorMissingObject_PositiveFetchThenGovernedRefusalWithoutStorageWrites",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/process/1928-read-boundary.test.ts": {
+      "file": "tests/process/1928-read-boundary.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "",
+          "name": "StagedReader_ProcessEnvironmentCannotRedirectCoordinates",
+          "dynamic": false
+        }
+      ]
+    },
     "tests/integration/1928-historical-intents.test.ts": {
       "file": "tests/integration/1928-historical-intents.test.ts",
       "runner": "vitest:root",
