@@ -4,10 +4,10 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1475,
-    "parsedFiles": 1430,
+    "testFiles": 1476,
+    "parsedFiles": 1431,
     "shellFiles": 45,
-    "cases": 16352,
+    "cases": 16356,
     "dynamicTitles": 279,
     "unparseableFiles": 0
   },
@@ -7466,6 +7466,32 @@
         {
           "suite": "top-level contract",
           "name": "TopLevel_HoldsNoEmptyDirectory",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/architecture/typed-plan-authoring.test.ts": {
+      "file": "tests/architecture/typed-plan-authoring.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "",
+          "name": "Authoring_AllReferencedPlanPaths_HaveZeroExarchosCalls",
+          "dynamic": false
+        },
+        {
+          "suite": "",
+          "name": "Templates_AuthoredTypedExample_Parses",
+          "dynamic": false
+        },
+        {
+          "suite": "",
+          "name": "Delegate_BootstrapRetry_KeepsEntryIntent",
+          "dynamic": false
+        },
+        {
+          "suite": "",
+          "name": "Delegate_PlanEdit_UsesCompileMode",
           "dynamic": false
         }
       ]
@@ -88672,12 +88698,12 @@
         },
         {
           "suite": "static call-shape census",
-          "name": "CallShapeCensus_EveryNamedIntent_CountsAnExarchosCallOnItsNormalPath",
+          "name": "CallShapeCensus_NormalPaths_MatchAuthoringAndDeliveryCounts",
           "dynamic": false
         },
         {
           "suite": "static call-shape census",
-          "name": "CallShapeCensus_EverySource_YieldsLocatedCallsAndEveryRunbookIsRead",
+          "name": "CallShapeCensus_AuthorsHaveNoExarchosSitesAndOtherSourcesHaveCalls",
           "dynamic": false
         },
         {

@@ -22,11 +22,6 @@ const SKILLS_WITH_PHASE_TRANSITIONS: ReadonlyArray<{
   mechanism: RegExp;
   expectedTargets: readonly string[];
 }> = [
-  /**
-   * `ideate` is absent: it writes inside the `plan` phase and makes no transition.
-   * `plan` owns the transition to `plan-review`.
-   */
-  { name: 'plan', file: 'content/design/skills/plan/SKILL.md', mechanism: /action:\s*["']transition["']/, expectedTargets: ['plan-review', 'delegate'] },
   /** `finalize_oneshot` resolves the choice between `completed` and `synthesize`, so that verb is the marker. */
   { name: 'oneshot', file: 'content/delivery/skills/oneshot/SKILL.md', mechanism: /finalize_oneshot/, expectedTargets: ['implementing'] },
   { name: 'review', file: 'content/review/skills/review/SKILL.md', mechanism: /action:\s*["']transition["']/, expectedTargets: ['synthesize', 'delegate', 'blocked'] },

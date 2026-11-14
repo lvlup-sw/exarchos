@@ -1,5 +1,5 @@
 /**
- * These tests run the gates on fixtures from the shipped authoring templates.
+ * These tests run the legacy gates on the original prose templates.
  * Each fixture comes from the fenced markdown blocks of a template, with
  * concrete values in place of the bracketed placeholders. A template edit
  * changes the fixture, so a template that drifts from its gate parser fails.
@@ -43,9 +43,9 @@ import { rmrf } from '../../../tools/test-helpers/temp-dir.js';
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
 
 const TEMPLATES = {
-  design: resolve(REPO_ROOT, 'content/design/skills/ideate/references/design-template.md'),
+  design: resolve(REPO_ROOT, 'tests/unit/verbs/fixtures/legacy-design-template.md'),
   plan: resolve(REPO_ROOT, 'content/design/skills/plan/references/plan-document-template.md'),
-  task: resolve(REPO_ROOT, 'content/design/skills/plan/references/task-template.md'),
+  task: resolve(REPO_ROOT, 'tests/unit/verbs/fixtures/legacy-task-template.md'),
 } as const;
 
 /**

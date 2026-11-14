@@ -1,67 +1,18 @@
 # Testing Strategy Guide
 
-When creating implementation plans, assign a `testingStrategy` to each task. This field controls which verification techniques agents apply during implementation.
+Select verification for each task. Set `riskTier`, `boundaryTouching` and `testLayer` in the typed object. Specify examples, properties, benchmarks and characterization in `instructions` when the implementation needs them. Use the fields in `task-template.md`.
 
-## Risk Tier Coupling
+| Risk | Verification |
+| --- | --- |
+| Low | Static checks and focused examples when behavior changes. |
+| Medium | Scoped tests and a known-bad control. Add a property test when the pure behavior has a useful invariant. |
+| High | Add integration coverage across the boundary. Declare the test paths and verify the main acceptance behavior. |
 
-Verification depth is **risk-proportional**, not uniform. Each task's `riskTier` (`low | medium | high`) and `boundaryTouching` tag — derived mechanically by `classifyTask`, overridable explicitly in the plan — select the gate sequence via `workflow/verification-policy.ts`:
-
-- **low** — static analysis only; a 3-line verification note suffices in the dispatch prompt.
-- **medium** — adds scoped tests + the `check_test_adequacy` kill-probe (revert source → assert the new test goes red → restore).
-- **high** — the medium set plus the full integration suite at the merge boundary (and mutation-adequacy), judged test-after per `_shared/references/verification.md`. Granular per-behavior red-green is an explicit opt-in, not the default.
-- **boundaryTouching** — adds `check_contract_drift` (every tier) and `check_mock_boundary` (medium/high): structure is compiler-verifiable; keep exactly ONE semantic test per boundary and mock only what you own. **Parse, don't validate at the edge** (methodology E): untrusted IO crosses a single registered parser before entering the core, so the type-checker becomes the first-line integration test; the `check_static_analysis` boundary-parse leg (SIV-3 Layer B) enforces this when a repo commits the ruleset. For a flagged unowned mock, the gate's steer resolves the **concrete hermetic double** (SIV-5) — see *Hermetic doubles* below.
-
-Planners set `riskTier`/`boundaryTouching` explicitly only when the mechanical derivation would misclassify (see the derivation table in `task-template.md`); the gate *sequence* itself is never encoded in plan prose.
-
-## Tier → Default `testingStrategy` (the cheap verification mix)
-
-The default verification mix is **risk-proportional and table-driven** — read the `testingStrategy`
-fields straight off the row for the task's `riskTier`. This is data, not a judgement call: the planner
-emits these fields verbatim per tier and only deviates when the category tables below force a stronger
-signal (e.g. a data-transformation task always gets `propertyTests: true` regardless of tier).
-
-For **medium/high** the default is the **cheap mix** — strict/branded types + inline
-invariants/assertions + **one** property test on the pure core + **one** acceptance north-star test —
-deliberately omitting granular per-behavior red-green. Per-behavior RED→GREEN is an **explicit opt-in**
-(`exampleTests` stays `true`, but exhaustive per-case example tests are added only when the plan calls
-for them), not the default.
-
-| `riskTier` | `exampleTests` | `propertyTests` | `testLayer` | `characterizationRequired` | Default mix |
-|---|---|---|---|---|---|
-| **high** | `true` | `true` (one PBT on the pure core) | `acceptance` (one north-star test) | `true` when modifying existing code, else `false` | Strict/branded types + inline invariants/assertions + 1 PBT + 1 acceptance test; granular per-behavior red-green is opt-in |
-| **medium** | `true` | `true` (one PBT on the pure core) | `integration` | `true` when modifying existing code, else `false` | Same cheap mix as high, at the integration layer; granular per-behavior red-green is opt-in |
-| **low** | `true` | `false` | `unit` | `false` | Minimal — example tests only; no PBT, no characterization |
-
-**Why this is safe (the relaxation is guarded, not unguarded).** Omitting granular per-behavior
-red-green for medium/high is backstopped by two adequacy probes that catch the vacuous-test and
-vacuous-PBT-property failure modes the omission could otherwise admit:
-
-- **R5 mutation-adequacy** (`/review` boundary, high tier) — runs the resolved mutation command
-  diff-scoped and surfaces surviving mutants as "write a test that kills `<file>:<line>`" follow-ups.
-- **R3 `check_test_adequacy`** (per-task kill-probe, already shipped) — reverts the task's source hunks,
-  asserts the new test(s) go red, then restores: proves the test isn't tautological with no extra tool.
-
-A category-table match always **overrides upward** from the tier default (it never relaxes it): a
-medium-tier serialization task still gets `propertyTests: true` with a roundtrip property even though the
-tier row already sets it. The tier row is the floor; the category tables raise it.
-
-## Schema
-
-```typescript
-testingStrategy: {
-  exampleTests: true;           // Always required (literal true)
-  propertyTests: boolean;       // Property-based tests required?
-  benchmarks: boolean;          // Performance benchmarks required?
-  testLayer: 'acceptance' | 'integration' | 'unit';  // Required (property is a separate axis via propertyTests)
-  characterizationRequired?: boolean;  // Pre-capture behavior before modifying existing code?
-  properties?: string[];        // Guidance: which properties to verify
-  performanceSLAs?: PerformanceSLA[]; // Guidance: performance targets
-}
-```
+For a boundary task, plan a test of the contract and choose the most faithful practical collaborator. A registered parser at the input boundary can make invalid input unrepresentable in the core.
 
 ## Category Requirements
 
-Assign `propertyTests: true` when the task involves any of these categories:
+Plan a property test when the task involves any of these categories:
 
 | Category | Example Code | Properties to Test |
 |---|---|---|
@@ -89,7 +40,7 @@ When a task drives an **external stateful integration** (a database, queue, cach
 3. **Authored before/with the code** — never reverse-engineered from the running implementation.
 4. **Validated by a known-bad-trace rejection** — the model must *reject* a seeded-wrong transition; a model that accepts the bad trace is vacuous and the gate fails.
 
-Encode these as the model's own checklist (carried on the task via `task-template.md`). The assurance lives in the runner + the provenance checklist, never in an LLM asked to be the contract-checker.
+Include these points in the task instructions. The assurance lives in the runner + the provenance checklist, never in an LLM asked to be the contract-checker.
 
 ## Hermetic Doubles (SIV-5)
 
@@ -105,25 +56,13 @@ When a test needs a double for an **unowned** dependency, do not hand-author a m
 
 Two honesty caveats the resolver carries as first-class fields: an emulator (LocalStack) is itself a **fake of the cloud** — a higher-fidelity failure mode, not a guarantee — and a container-backed real double costs real wall-clock, so it runs at **boundary/offline cadence, never the inner loop**. The `check_mock_boundary` steer resolves the concrete double automatically for a known dependency; an unrecognized dependency keeps the generic menu (resolve, don't guess).
 
-## Populating the `properties` Array
+## Specify properties
 
-When `propertyTests: true`, provide guidance strings in the `properties` array describing which properties to verify:
-
-```json
-{
-  "exampleTests": true,
-  "propertyTests": true,
-  "benchmarks": false,
-  "properties": [
-    "roundtrip: decode(encode(x)) === x for all valid inputs",
-    "idempotence: format(format(x)) === format(x)"
-  ]
-}
-```
+State each required property in the task instructions. For a parser and formatter, require a roundtrip over valid inputs and idempotent formatting.
 
 ## Benchmark Requirements
 
-Assign `benchmarks: true` when the task involves any of these categories:
+Plan a benchmark for the applicable performance-sensitive work below.
 
 | Category | Example Code | What to Measure |
 |---|---|---|
@@ -132,24 +71,13 @@ Assign `benchmarks: true` when the task involves any of these categories:
 | **Serialization hot paths** | JSON parse/stringify, schema validation | Throughput, memory allocation |
 | **Query-heavy reads** | CQRS projections, aggregations | Query latency under load |
 
-Assign `benchmarks: false` when the task is:
+These categories generally need no benchmark:
 - Pure wiring, configuration, or DI registration
 - Content-only changes (Markdown, documentation)
 - Test infrastructure (test helpers, fixtures)
 - UI components or styling
 
-When `benchmarks: true`, populate `performanceSLAs` with targets:
-
-```json
-{
-  "exampleTests": true,
-  "propertyTests": false,
-  "benchmarks": true,
-  "performanceSLAs": [
-    { "operation": "event-append", "metric": "p99_ms", "threshold": 10 }
-  ]
-}
-```
+Record the measurement conditions and any agreed threshold in the task instructions. For an event append benchmark, specify the workload, sample size and p99 latency target.
 
 ## Test Layer Selection (Testing Trophy Distribution)
 
@@ -172,14 +100,8 @@ Assign `characterizationRequired: true` when the task modifies existing code beh
 
 ## Auto-Determination
 
-The planner MUST auto-determine `propertyTests`, `benchmarks`, `testLayer`, and `characterizationRequired` for each task — never leave them for the implementer to decide. Resolve in this fixed order, so the result is deterministic with no implementer guesswork:
-
-1. **Tier default** — start from the row for the task's `riskTier` in the **Tier → Default `testingStrategy`** table above. This sets `propertyTests`, `testLayer`, and `characterizationRequired` deterministically.
-2. **Category override (upward only)** — if the task matches a category in the tables above (data transformations, state machines, serialization, …), raise the relevant field (e.g. `propertyTests: true`, `benchmarks: true`). A category match never relaxes the tier floor.
-3. **Explicit plan value** — an explicit field in the plan always wins over both.
-
-`benchmarks` follows the same shape: `false` by default, raised to `true` only by a benchmark-category match. Analyze each task's description and file paths to match against the categories.
+Choose the primary `testLayer` before dispatch. State in the instructions when the implementer needs properties, benchmarks, or pre-change characterization. Use the task's behavior and file targets to choose the categories above.
 
 ## Reference
 
-See [Autonomous Code Verification design](../../../docs/designs/archive/2026-02-15-autonomous-code-verification.md#when-to-require-property-based-tests) for the full rationale and category taxonomy.
+Background reading is in the repository design archive under Autonomous Code Verification.

@@ -1,15 +1,4 @@
-// The unified `plan` phase, in the call sequence that `content/design/skills/plan/SKILL.md` gives
-// an agent.
-//
-//   1. `init` with `workflowType: 'feature'` starts the workflow in `plan`.
-//   2. The agent writes the spec file to disk.
-//   3. `update` records the path as `artifacts.plan`.
-//   4. `transition` moves the workflow to `plan-review`.
-//   5. `get` shows the new phase and the artifact.
-//
-// `tests/unit/workflow/tools.update.integration.test.ts` covers the same actions as a contract.
-// This test pins the call sequence, so it fails when the documented flow and the runtime drift
-// apart.
+/** Exercise the original prose workflow operator sequence for existing callers. */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs/promises';

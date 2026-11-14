@@ -1,5 +1,5 @@
 ---
-description: Decompose the unified docs/specs/ artifact into verification-laddered tasks
+description: Author and review the typed decomposition in a local unified spec
 ---
 
 # /plan

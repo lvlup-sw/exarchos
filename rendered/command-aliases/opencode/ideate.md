@@ -1,5 +1,5 @@
 ---
-description: Start collaborative design exploration for a feature or problem
+description: Explore and save the design section of a local unified spec
 ---
 
 # /ideate
