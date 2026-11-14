@@ -4,10 +4,10 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1496,
-    "parsedFiles": 1451,
+    "testFiles": 1497,
+    "parsedFiles": 1452,
     "shellFiles": 45,
-    "cases": 16544,
+    "cases": 16550,
     "dynamicTitles": 288,
     "unparseableFiles": 0
   },
@@ -4555,6 +4555,42 @@
     }
   ],
   "files": {
+    "tests/integration/1928-pr-observation.test.ts": {
+      "file": "tests/integration/1928-pr-observation.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "exact staged PR observation",
+          "name": "OneApprovedGET_BindsExactRecordAndFiveHeadingTemplate",
+          "dynamic": false
+        },
+        {
+          "suite": "exact staged PR observation",
+          "name": "WrongOwnerHeadRefsStateAndMalformedIdentity_Refuse",
+          "dynamic": false
+        },
+        {
+          "suite": "exact staged PR observation",
+          "name": "CapturedTemplate_NoDefaultBotOrQueueBypass",
+          "dynamic": false
+        },
+        {
+          "suite": "exact staged PR observation",
+          "name": "RedirectCredentialAndBoundedResponse_RefuseWithoutSecondFetch",
+          "dynamic": false
+        },
+        {
+          "suite": "exact staged PR observation",
+          "name": "SlowHeadersAndBody_AbortWithinFixedBound",
+          "dynamic": false
+        },
+        {
+          "suite": "exact staged PR observation",
+          "name": "SharedPurePolicy_PreservesLegacyDefaultAndCaseSemantics",
+          "dynamic": false
+        }
+      ]
+    },
     "tests/integration/1928-git-observer.test.ts": {
       "file": "tests/integration/1928-git-observer.test.ts",
       "runner": "vitest:root",

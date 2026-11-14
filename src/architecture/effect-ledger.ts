@@ -626,6 +626,9 @@ export const EFFECT_OWNERSHIP: readonly EffectOwnershipRule[] = registerLedger()
 
 function registerLedger(): readonly EffectOwnershipRule[] {
   return Object.freeze([
+    rule('network', 'vcs/github-pr-observer.ts', 'github-pr-get-observer',
+      'read-only: one exact bounded GitHub PR GET with manual redirect refusal',
+      'none: failed reads do not initiate a provider mutation'),
     rule(
       'network',
       'workflow/feedback.ts',
