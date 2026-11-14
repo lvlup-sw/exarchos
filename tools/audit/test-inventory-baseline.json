@@ -7,7 +7,7 @@
     "testFiles": 1476,
     "parsedFiles": 1431,
     "shellFiles": 45,
-    "cases": 16356,
+    "cases": 16357,
     "dynamicTitles": 279,
     "unparseableFiles": 0
   },
@@ -7477,6 +7477,11 @@
         {
           "suite": "",
           "name": "Authoring_AllReferencedPlanPaths_HaveZeroExarchosCalls",
+          "dynamic": false
+        },
+        {
+          "suite": "",
+          "name": "Authoring_RejectsUnsupportedTaskKeyRecipesInReferencedGuide",
           "dynamic": false
         },
         {

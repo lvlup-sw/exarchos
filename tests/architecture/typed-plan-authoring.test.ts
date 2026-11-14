@@ -40,6 +40,11 @@ const READ_ONLY_CITATION = /^(?:https?:|#|\.?\/?(?:docs|\.exarchos)\/)/;
 const PROSE_RECIPE = /\b(?:ask|assign|delegate|dispatch|have|call|run|invoke|execute|use)\b[^.!?\n]{0,160}\b(?:(?:exarchos[_ -])?workflow[_ .:-]+(?:init|get|update|checkpoint|transition|describe)|(?:initialize|init|update|checkpoint|transition|start)\b[^.!?\n]{0,40}\b(?:the\s+)?(?:exarchos\s+)?(?:workflow|stream|phase)|check_[a-z_]+)\b/i;
 const CLI_RECIPE = /\bexarchos\s+(?:workflow|orchestrate|event|view|prepare|settle)\b/;
 const MCP_METADATA = /^\s*mcp-server:\s*exarchos\s*$/m;
+const LEGACY_TASK_KEYS = 'testingStrategy|exampleTests|propertyTests|benchmarks|characterizationRequired|properties|performanceSLAs|acceptanceTestRef';
+const LEGACY_TASK_ASSIGNMENT = new RegExp(
+  String.raw`\b(${LEGACY_TASK_KEYS})["']?\s*:\s*(?:true|false|\{|\[)|\b(?:assign|set|add|include|populate)\s+\x60(${LEGACY_TASK_KEYS})\x60`,
+  'gi',
+);
 
 function read(file: string): string {
   return readFileSync(file, 'utf8');
@@ -81,7 +86,7 @@ function edges(file: string, markdown: string, skills: ReadonlyMap<string, strin
   return [...refs];
 }
 
-function inspect(roots: readonly string[], skills: ReadonlyMap<string, string>) {
+function inspect(roots: readonly string[], skills: ReadonlyMap<string, string>, readSource = read) {
   const visited = new Set<string>();
   const findings: string[] = [];
   const pending = [...roots];
@@ -92,13 +97,16 @@ function inspect(roots: readonly string[], skills: ReadonlyMap<string, string>) 
       findings.push(`${file}: unresolved authoring reference`);
       continue;
     }
-    const markdown = read(file);
+    const markdown = readSource(file);
     for (const site of extractSites(markdown, registry)) {
       if (site.status !== 'harness') findings.push(`${file}:${site.line}: ${site.call}`);
     }
     for (const recipe of [PROSE_RECIPE, CLI_RECIPE, MCP_METADATA]) {
       const match = recipe.exec(markdown);
       if (match) findings.push(`${file}: ${match[0]}`);
+    }
+    for (const match of markdown.matchAll(LEGACY_TASK_ASSIGNMENT)) {
+      findings.push(`${file}: unsupported typed task key ${match[1] ?? match[2]}`);
     }
     pending.push(...edges(file, markdown, skills));
   }
@@ -144,6 +152,30 @@ it('Authoring_AllReferencedPlanPaths_HaveZeroExarchosCalls', () => {
       );
     }
   }
+});
+
+it('Authoring_RejectsUnsupportedTaskKeyRecipesInReferencedGuide', () => {
+  const roots = commandPaths(path.join(CONTENT, 'design/commands'));
+  const guide = path.join(CONTENT, 'design/skills/plan/references/testing-strategy-guide.md');
+  const skills = sourceSkills();
+  const clean = inspect(roots, skills);
+  expect(clean.visited.has(guide)).toBe(true);
+  expect(clean.findings).toEqual([]);
+
+  const badRecipes = [
+    'Assign `propertyTests: false` for content tasks.',
+    'A task can use `propertyTests: true` alongside its test layer.',
+    'Assign `characterizationRequired: true` for an existing behavior.',
+    'Add `testingStrategy` to each task.',
+  ];
+  const seeded = inspect(roots, skills, (file) =>
+    file === guide ? `${read(file)}\n${badRecipes.join('\n')}\n` : read(file));
+  expect(seeded.findings).toEqual([
+    `${guide}: unsupported typed task key propertyTests`,
+    `${guide}: unsupported typed task key propertyTests`,
+    `${guide}: unsupported typed task key characterizationRequired`,
+    `${guide}: unsupported typed task key testingStrategy`,
+  ]);
 });
 
 function templateFences(source: string, marker: string, language: string) {

@@ -10,7 +10,7 @@ metadata:
 
 # Implementation planning
 
-Read the checkout-relative spec path from the first argument and the selected `designDepth` from the second argument when ideate calls plan. If planning starts here, author the Design & Rationale section in the same file. Choose the depth with the user, with `standard` as the default. Use `references/spec-template.md` for the full record and `references/worked-example.md` for a walkthrough.
+Read the checkout-relative spec path from the first argument and the selected `designDepth` from the second argument when ideate calls plan. If planning starts here, save the unified record to `docs/specs/YYYY-MM-DD-<feature>.md` and author Design & Rationale in that file. Choose the depth with the user, with `standard` as the default. Use `references/spec-template.md` for the full record and `references/worked-example.md` for a walkthrough.
 
 ## Author the decomposition
 

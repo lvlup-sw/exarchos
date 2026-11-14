@@ -23,7 +23,7 @@ Plan a property test when the task involves any of these categories:
 | **Serialization** | Event schemas, API contracts, JSON/YAML/TOML | Schema compliance: output matches declared schema for all inputs |
 | **Mathematical operations** | Scoring, percentages, budgets, rates | Invariants: `score >= 0 && score <= 1.0`, conservation laws |
 
-Assign `propertyTests: false` when the task is:
+These changes generally need no property test:
 - Pure wiring (DI registration, configuration binding)
 - UI layout or styling
 - Simple CRUD without business logic
@@ -90,13 +90,13 @@ The planner MUST assign `testLayer` to each task. Follow the Testing Trophy dist
 | `unit` | Task involves isolated complex logic (parsers, algorithms, math). Pure functions with complex edge cases. | No — only for naturally isolated code |
 
 
-> **Note:** `propertyTests: true` can coexist with any `testLayer` value — it's an independent overlay, not a mutually exclusive layer.
+When the task needs a property test in addition to its primary test layer, describe that property in the task instructions.
 
 **Sociable test preference:** Default to using real collaborators (sociable tests). Mock only at infrastructure boundaries — external HTTP services, databases, filesystem — and for an **unowned** boundary prefer the resolved *hermetic double* over a hand-authored mock (see *Hermetic Doubles* above). If a test requires >3 mocked dependencies, the task may be at the wrong test layer.
 
 ## Characterization Testing
 
-Assign `characterizationRequired: true` when the task modifies existing code behavior (refactoring, fixing, enhancing). The implementer captures current behavior before making changes. Not applicable for new code creation.
+When a task changes existing behavior, instruct the implementer to capture the current behavior before making changes. For new behavior, describe the expected result and its verification.
 
 ## Auto-Determination
 
