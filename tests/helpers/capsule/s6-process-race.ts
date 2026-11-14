@@ -21,7 +21,7 @@ import { scopedRepository } from '../scoped-repository.js';
 
 export const STREAM = 's6-process-race';
 export const PLAN = 'design.md';
-export const DEFINITION = '.exarchos/workflows/release-check.json';
+const DEFINITION = '.exarchos/workflows/release-check.json';
 export const BASE = 'integration';
 export const TASKS = ['T-01', 'T-02'] as const;
 export const DRIVER = fileURLToPath(new URL('./s6-race-driver.mjs', import.meta.url));
