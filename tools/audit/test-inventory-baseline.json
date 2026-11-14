@@ -7,8 +7,8 @@
     "testFiles": 1480,
     "parsedFiles": 1435,
     "shellFiles": 45,
-    "cases": 16399,
-    "dynamicTitles": 284,
+    "cases": 16409,
+    "dynamicTitles": 288,
     "unparseableFiles": 0
   },
   "unparseable": [],
@@ -94280,6 +94280,51 @@
           "suite": "no-start claim recovery across calls",
           "name": "<dynamic-case-21>",
           "dynamic": true
+        },
+        {
+          "suite": "historical field-only patches",
+          "name": "KernelNoStart_FieldOnlyPatch_UsesCurrentProjection %s",
+          "dynamic": false
+        },
+        {
+          "suite": "historical field-only patches",
+          "name": "<dynamic-case-22>",
+          "dynamic": true
+        },
+        {
+          "suite": "historical field-only patches",
+          "name": "KernelNoStart_FieldOnlyPatch_HeldClaimAndCasRetryPreserveLaterRows %s",
+          "dynamic": false
+        },
+        {
+          "suite": "historical field-only patches",
+          "name": "<dynamic-case-23>",
+          "dynamic": true
+        },
+        {
+          "suite": "historical field-only patches",
+          "name": "KernelNoStart_FieldOnlyPatch_NewerPinRefusesBeforeAppend",
+          "dynamic": false
+        },
+        {
+          "suite": "historical field-only patches",
+          "name": "KernelNoStart_FieldOnlyPatch_InvalidCursorOrAuthorityWritesNothing %s",
+          "dynamic": false
+        },
+        {
+          "suite": "historical field-only patches",
+          "name": "<dynamic-case-24>",
+          "dynamic": true
+        },
+        {
+          "suite": "historical field-only patches",
+          "name": "KernelFieldOnlyPatch_OrdinaryRoutesUseNoCustody %s",
+          "dynamic": false
+        },
+        {
+          "suite": "historical field-only patches",
+          "name": "<dynamic-case-25>",
+          "dynamic": true
         }
       ]
     },
@@ -95304,6 +95349,11 @@
         {
           "suite": "typed consumer adoption; prepare remains deferred to its own task",
           "name": "TypedTestPath_WhitespaceRejectedBeforeGlobOrExistence",
+          "dynamic": false
+        },
+        {
+          "suite": "typed consumer adoption; prepare remains deferred to its own task",
+          "name": "TypedTestPath_PinnedProfileControlsBothCoveragePhases",
           "dynamic": false
         },
         {

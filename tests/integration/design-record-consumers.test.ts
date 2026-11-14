@@ -197,17 +197,17 @@ describe('typed consumer adoption; prepare remains deferred to its own task', ()
   });
   it('TypedTestPath_WhitespaceRejectedBeforeGlobOrExistence', async () => {
     const clean = 'tests/check.test.ts';
-    const pinnedProfile = pinnedTestProfile(1, { globs: { state: 'resolved', globs: ['**/*.test.ts'], source: 'config' } });
+    const verificationProfile = pinnedTestProfile(1, { globs: { state: 'resolved', globs: ['tests/check.test.ts'], source: 'config' } });
     const plan = (testPath: string) => record([{ ...task('T-01', ['DR-1', 'DR-2']), testFiles: [testPath] }]);
     const paths = files(plan(clean));
     const repoRoot = dirname(paths.planPath);
     mkdirSync(join(repoRoot, 'tests'));
     writeFileSync(join(repoRoot, clean), '');
     const check = (coveragePhase: 'plan' | 'post-implementation') => handleSpecCoverageCheck({
-      featureId: 'consumer-test', planFile: paths.planPath, repoRoot, coveragePhase, skipRun: true, pinnedProfile,
+      featureId: 'consumer-test', planFile: paths.planPath, repoRoot, coveragePhase, skipRun: true, verificationProfile,
     }, '', store);
     const bootstrap = (text: string) => planBootstrapPrefix({
-      ...prefixInput('feature', builtInDefinition('feature'), snapshot(text)), profile: pinnedProfile.profile,
+      ...prefixInput('feature', builtInDefinition('feature'), snapshot(text)), profile: verificationProfile.profile,
     });
     expect(bootstrap(plan(clean))).toMatchObject({ ok: true, phase: 'delegate' });
     for (const phase of ['plan', 'post-implementation'] as const) {
@@ -226,6 +226,39 @@ describe('typed consumer adoption; prepare remains deferred to its own task', ()
       }
     }
   });
+  it('TypedTestPath_PinnedProfileControlsBothCoveragePhases', async () => {
+    const approved = 'tests/approved.test.ts';
+    const excluded = 'tests/excluded.test.ts';
+    const verificationProfile = pinnedTestProfile(1, { globs: { state: 'resolved', globs: [approved], source: 'config' } });
+    const plan = (testPath: string) => record([{ ...task('T-01', ['DR-1', 'DR-2']), testFiles: [testPath] }]);
+    const paths = files(plan(approved));
+    const repoRoot = dirname(paths.planPath);
+    mkdirSync(join(repoRoot, 'tests'));
+    for (const testPath of [approved, excluded]) writeFileSync(join(repoRoot, testPath), '');
+    const check = (coveragePhase: 'plan' | 'post-implementation', pinned: boolean) => handleSpecCoverageCheck({
+      featureId: 'consumer-test', planFile: paths.planPath, repoRoot, coveragePhase, skipRun: true,
+      ...(pinned ? { verificationProfile } : {}),
+    }, '', store);
+    const bootstrap = (text: string) => planBootstrapPrefix({
+      ...prefixInput('feature', builtInDefinition('feature'), snapshot(text)), profile: verificationProfile.profile,
+    });
+    expect(bootstrap(plan(approved))).toMatchObject({ ok: true, phase: 'delegate' });
+    for (const phase of ['plan', 'post-implementation'] as const) {
+      expect(await check(phase, true)).toMatchObject({ success: true, data: { passed: true, found: 1, malformed: [], missing: [] } });
+    }
+
+    writeFileSync(paths.planPath, plan(excluded));
+    expect(bootstrap(plan(excluded))).toMatchObject({ ok: false, gate: 'spec_coverage_check',
+      message: expect.stringContaining('no glob of tests.globs matches the path') });
+    for (const phase of ['plan', 'post-implementation'] as const) {
+      expect(await check(phase, false)).toMatchObject({ success: true, data: { passed: true, found: 1, malformed: [], missing: [] } });
+      expect(await check(phase, true)).toMatchObject({ success: true, data: {
+        passed: false, found: 0, malformed: [excluded], missing: [],
+        report: expect.stringContaining('no glob of tests.globs matches the path'),
+      } });
+    }
+  });
+
   it('classifies both sources and refuses different typed or legacy bytes', async () => {
     for (const [design, plan] of [[record(), 'legacy'], ['legacy', record()], [record(), '```exarchos-plan-v1\n{\n```'], [record(), record() + '\n'], ['```exarchos-plan-v1\n{\n```', record()]]) {
       if (design === undefined || plan === undefined) throw new Error('Missing pair');

@@ -25,7 +25,7 @@ import { phaseRowsOf, type PhaseRow } from '../decide/rows.js';
 import { builtInDefinition, isBuiltInDefinitionType } from '../definitions/built-in.js';
 import { hsmTransitionGuard, type TransitionResult as LegacyResult } from '../hsm-transition-guard.js';
 import { allocatePhaseAttemptId, readPhaseAttemptId } from '../phase-attempt-id.js';
-import { ErrorCode, WorkflowStateSchema } from '../schemas.js';
+import { ErrorCode, isReservedField, WorkflowStateSchema } from '../schemas.js';
 import { applyDotPath, projectStateDocument, levelPhaseInStateDocument, readStateFile, StateStoreError, validateStateForWrite, VersionConflictError, writeStateFile } from '../state-store.js';
 import type { SetInput, WorkflowState } from '../types.js';
 import { CURRENT_ES_VERSION, isEventSourced } from './shared.js';
@@ -147,6 +147,67 @@ function projectLegacyDocument(state: WorkflowState, rows: readonly WorkflowEven
   parsed.data._checkpoint = checkpoint;
   if (state._compensationCheckpoint !== undefined) parsed.data._compensationCheckpoint = state._compensationCheckpoint;
   return parsed.data;
+}
+
+/** The identity of the keyed row that a historical field patch accepted. */
+interface FieldPatchReceipt {
+  readonly key: string;
+  readonly eventId: string;
+  readonly sequence: number;
+  readonly timestamp: string;
+}
+
+/** Match the accepted patch to its persisted row before publication. */
+function matchesFieldPatchReceipt(row: WorkflowEvent | undefined, receipt: FieldPatchReceipt, input: SetInput): boolean {
+  return row?.type === 'state.patched' && row.streamId === input.featureId && row.idempotencyKey === receipt.key
+    && row.sequence === receipt.sequence && row.timestamp === receipt.timestamp
+    && 'eventId' in row && row.eventId === receipt.eventId
+    && JSON.stringify(row.data?.patch) === JSON.stringify(input.updates);
+}
+
+/** Read the current rows for a patch candidate. */
+async function readPatchRows(eventStore: EventStore, featureId: string): Promise<readonly WorkflowEvent[]> {
+  try {
+    return await eventStore.query(featureId);
+  } catch (err) {
+    throw new TransitionFoldFailed(messageOf(err));
+  }
+}
+
+/** Select verified kernel custody for a prepared stream that has no start. */
+async function fieldPatchAuthority(
+  rows: readonly WorkflowEvent[], featureId: string, eventStore: EventStore, cached?: PreparedAuthority,
+): Promise<PreparedAuthority | undefined> {
+  if (rows.some(row => row.type === START_ROW_TYPE)) return undefined;
+  try {
+    const selected = selectPreparedAuthority(rows, featureId);
+    if (selected === undefined) {
+      if (cached !== undefined) throw new Error('The historical kernel pin is missing from its stream');
+      return undefined;
+    }
+    if (cached !== undefined && cached.selection.identity === selected.identity) return cached;
+    const authority = await loadPreparedCustody(selected, eventStore.bundleStore);
+    if (authority.kind !== 'legacy' || authority.pinnedDefinition !== undefined
+      || !/^exarchos-prepare-[1-6]$/.test(selected.record.compilerVersion)) {
+      throw new Error('A prepared stream without a start requires a historical kernel pin');
+    }
+    return authority;
+  } catch (err) {
+    throw new TransitionFoldFailed(messageOf(err));
+  }
+}
+
+/** Project the committed prefix before validating the pending patch. */
+function validateLegacyFieldPatch(
+  state: WorkflowState, rows: readonly WorkflowEvent[], featureId: string, updates: Record<string, unknown> | undefined,
+): void {
+  try {
+    projectLegacyDocument(state, rows, featureId);
+  } catch (err) {
+    throw new TransitionFoldFailed(messageOf(err));
+  }
+  const pending = pendingPatchRow(featureId, updates, rows);
+  if (pending !== undefined) projectLegacyDocument(state, [...rows, pending], featureId);
 }
 
 /** The move that this call committed. The claim of the operation stores it. */
@@ -719,6 +780,8 @@ export async function handleSet(
   let replayed = false;
   let legacyNoStart = false;
   let legacyRepairOnly = false;
+  let fieldAuthority: PreparedAuthority | undefined;
+  let fieldReceipt: FieldPatchReceipt | undefined;
   let shadowRun: GuardInputShadowRun | undefined;
   let routeWarnings: readonly string[] = [];
 
@@ -817,11 +880,17 @@ export async function handleSet(
 
     const expectedVersion = state._version ?? 1;
 
+    const updateKeys = input.updates ? Object.keys(input.updates) : [];
+    const fieldPatch = !input.phase && updateKeys.length > 0 && isEventSourced(state);
     let mutableState: Record<string, unknown> = structuredClone(state);
     let pendingPatchError: StateStoreError | undefined;
 
     if (input.updates && committed === undefined) {
       try {
+        if (fieldPatch && eventStore) {
+          const reserved = updateKeys.find(isReservedField);
+          if (reserved !== undefined) applyDotPath(mutableState, reserved, input.updates[reserved]);
+        }
         for (const [dotPath, value] of Object.entries(input.updates)) {
           applyDotPath(mutableState, dotPath, value);
         }
@@ -836,14 +905,14 @@ export async function handleSet(
             },
           };
         }
-        if (err instanceof StateStoreError && err.code === ErrorCode.INVALID_INPUT && input.phase && eventStore) pendingPatchError = err;
+        if (err instanceof StateStoreError && err.code === ErrorCode.INVALID_INPUT && (input.phase || fieldPatch) && eventStore) pendingPatchError = err;
         else throw err;
       }
     }
 
     const validated = WorkflowStateSchema.safeParse(mutableState);
-    if (!input.phase && !validated.success
-      && (routeOf(state, eventStore, undefined).kind === 'legacy' || !input.updates || Object.keys(input.updates).length === 0)) {
+    if (!input.phase && !validated.success && !(fieldPatch && eventStore)
+      && (routeOf(state, eventStore, undefined).kind === 'legacy' || updateKeys.length === 0)) {
       return { success: false, error: { code: ErrorCode.INVALID_INPUT, message: `Write-time validation failed: ${validated.error.message}` } };
     }
 
@@ -1167,7 +1236,6 @@ export async function handleSet(
 
     let highestEventSequence: number | undefined = transitionTopSequence;
 
-    const updateKeys = input.updates ? Object.keys(input.updates) : [];
     if (
       (isEventSourced(state) || legacyAuthority !== undefined)
       && eventStore
@@ -1178,57 +1246,92 @@ export async function handleSet(
         const fieldsHash = [...updateKeys].sort().join(',');
         const idempotencyKey = `${input.featureId}:patch:${expectedVersion}:${fieldsHash}`;
         let expectedSequence: number | undefined;
-        if (ledgerBacked || legacyAuthority !== undefined || routeOf(state, eventStore, undefined).kind === 'fold') {
-          const backend = eventStore.getAppender().ensureSqliteBackendSync();
-          if (backend.lookupIdempotencyClaim(input.featureId, idempotencyKey) === undefined) {
-            let rows: readonly WorkflowEvent[];
-            try {
-              rows = await eventStore.query(input.featureId);
-            } catch (err) {
-              throw new TransitionFoldFailed(messageOf(err));
+        const foldPatch = ledgerBacked || legacyAuthority !== undefined || routeOf(state, eventStore, undefined).kind === 'fold';
+        const backend = foldPatch ? eventStore.getAppender().ensureSqliteBackendSync() : undefined;
+        const existing = backend?.lookupIdempotencyClaim(input.featureId, idempotencyKey);
+        let acceptedClaim: typeof existing;
+        const fieldRows = fieldPatch ? await readPatchRows(eventStore, input.featureId) : undefined;
+        if (fieldRows !== undefined) {
+          fieldAuthority = await fieldPatchAuthority(fieldRows, input.featureId, eventStore, fieldAuthority);
+          legacyNoStart = fieldAuthority !== undefined;
+          if (!legacyNoStart) {
+            if (pendingPatchError !== undefined) throw pendingPatchError;
+            if (!validated.success && routeOf(state, eventStore, undefined).kind === 'legacy') {
+              throw new StateStoreError(ErrorCode.INVALID_INPUT, validated.error.message);
             }
+          }
+        }
+        if (legacyNoStart || foldPatch) {
+          const claims = backend ?? eventStore.getAppender().ensureSqliteBackendSync();
+          const held = backend === undefined ? claims.lookupIdempotencyClaim(input.featureId, idempotencyKey) : existing;
+          if (fieldAuthority !== undefined && held !== undefined) {
+            const event = held.events[0];
+            if (JSON.stringify(event?.data?.patch) !== JSON.stringify(input.updates)) continue;
+            if (event?.type !== 'state.patched' || event.streamId !== input.featureId || held.events.length !== 1) {
+              throw new TransitionFoldFailed('The accepted field patch claim is invalid');
+            }
+            patchSequence = event.sequence;
+            acceptedClaim = held;
+          } else if (held === undefined) {
+            const rows = fieldRows ?? await readPatchRows(eventStore, input.featureId);
             if (patchAuthority !== undefined && !recheckPreparedAuthority(patchAuthority.selection, rows)) continue;
             ledgerBacked = !legacyNoStart && routeOf(state, eventStore, rows).kind === 'fold';
-            if (ledgerBacked || legacyAuthority !== undefined) {
+            if (ledgerBacked || legacyAuthority !== undefined || fieldAuthority !== undefined) {
               try {
-                if (legacyNoStart) {
+                if (fieldAuthority !== undefined) validateLegacyFieldPatch(state, rows, input.featureId, input.updates);
+                else if (legacyNoStart) {
                   projectLegacyDocument(state, rows, input.featureId);
                   const pending = pendingPatchRow(input.featureId, input.updates, rows);
                   projectLegacyDocument(state, pending ? [...rows, pending] : rows, input.featureId);
                 } else validatePatchCandidate(state, rows, input.featureId, input.updates);
               } catch (err) {
                 if (!(err instanceof StateStoreError && err.code === ErrorCode.INVALID_INPUT)
-                  || backend.lookupIdempotencyClaim(input.featureId, idempotencyKey) === undefined) throw err;
+                  || claims.lookupIdempotencyClaim(input.featureId, idempotencyKey) === undefined) throw err;
               }
               expectedSequence = highestSequence(rows);
             }
           } else {
             try {
-              ledgerBacked = routeOf(state, eventStore, await eventStore.query(input.featureId)).kind === 'fold';
+              ledgerBacked = !legacyNoStart && routeOf(state, eventStore, fieldRows ?? await eventStore.query(input.featureId)).kind === 'fold';
             } catch (err) {
               throw new TransitionFoldFailed(messageOf(err));
             }
           }
         }
-        if (!ledgerBacked) {
+        if (!ledgerBacked && fieldAuthority === undefined) {
           const invalid = validateStateForWrite(mutableState as WorkflowState);
           if (invalid !== undefined) throw new StateStoreError(ErrorCode.INVALID_INPUT, invalid);
         }
-        const validatedEvent = buildValidatedEvent(input.featureId, 1, {
-          type: 'state.patched',
-          correlationId: input.featureId,
-          source: 'workflow',
-          data: {
-            featureId: input.featureId,
-            fields: updateKeys,
-            patch: input.updates,
-          },
-        });
-        const event = await eventStore.appendValidated(input.featureId, validatedEvent, { idempotencyKey, ...(expectedSequence === undefined ? {} : { expectedSequence }) });
-        if (JSON.stringify(event.data?.patch) !== JSON.stringify(input.updates)) continue;
-
-        highestEventSequence = Math.max(highestEventSequence ?? 0, event.sequence);
-        patchSequence = event.sequence;
+        if (patchSequence === undefined) {
+          const validatedEvent = buildValidatedEvent(input.featureId, 1, {
+            type: 'state.patched',
+            correlationId: input.featureId,
+            source: 'workflow',
+            data: {
+              featureId: input.featureId,
+              fields: updateKeys,
+              patch: input.updates,
+            },
+          });
+          const event = await eventStore.appendValidated(input.featureId, validatedEvent, { idempotencyKey, ...(expectedSequence === undefined ? {} : { expectedSequence }) });
+          if (JSON.stringify(event.data?.patch) !== JSON.stringify(input.updates)) continue;
+          patchSequence = event.sequence;
+        }
+        if (fieldAuthority !== undefined) {
+          const claim = acceptedClaim ?? (backend ?? eventStore.getAppender().ensureSqliteBackendSync())
+            .lookupIdempotencyClaim(input.featureId, idempotencyKey);
+          const event = claim?.events[0];
+          if (claim?.events.length !== 1 || claim.sequences.length !== 1 || claim.eventIds.length !== 1 || claim.timestamps.length !== 1
+            || event?.type !== 'state.patched' || event.streamId !== input.featureId
+            || event.idempotencyKey !== idempotencyKey || claim.sequences[0] !== patchSequence
+            || event.sequence !== patchSequence || typeof event.eventId !== 'string' || event.eventId.length === 0
+            || claim.eventIds[0] !== event.eventId || claim.timestamps[0] !== event.timestamp
+            || JSON.stringify(event.data?.patch) !== JSON.stringify(input.updates)) {
+            throw new TransitionFoldFailed('The accepted field patch claim is invalid');
+          }
+          fieldReceipt = { key: idempotencyKey, eventId: event.eventId, sequence: patchSequence, timestamp: event.timestamp };
+        }
+        highestEventSequence = Math.max(highestEventSequence ?? 0, patchSequence);
       } catch (err) {
         if (err instanceof SequenceConflictError) continue;
         return withShadowRecord({
@@ -1245,11 +1348,26 @@ export async function handleSet(
       highestEventSequence = Math.max(highestEventSequence ?? 0, patchSequence);
     }
 
-    if (eventStore && (isEventSourced(state) || legacyNoStart)) {
-      const rows = await eventStore.query(input.featureId);
-      ledgerBacked = ledgerBacked || routeOf(state, eventStore, rows).kind === 'fold';
-      if (legacyNoStart && (legacyAuthority !== undefined || committed !== undefined || patchSequence !== undefined)) mutableState = { ...projectLegacyDocument(state, rows, input.featureId) };
-      else if (ledgerBacked) mutableState = { ...projectStateDocument(state, rows, input.featureId) };
+    if (eventStore && (isEventSourced(state) || legacyNoStart || fieldAuthority !== undefined)) {
+      try {
+        const rows = await eventStore.query(input.featureId);
+        ledgerBacked = ledgerBacked || routeOf(state, eventStore, rows).kind === 'fold';
+        if (fieldPatch || fieldAuthority !== undefined) {
+          fieldAuthority = await fieldPatchAuthority(rows, input.featureId, eventStore, fieldAuthority);
+          if (fieldAuthority !== undefined) {
+            const patch = rows.find(row => row.sequence === fieldReceipt?.sequence);
+            if (fieldReceipt === undefined || !matchesFieldPatchReceipt(patch, fieldReceipt, input)) {
+              throw new TransitionFoldFailed('The accepted field patch is missing from its stream');
+            }
+            mutableState = { ...projectLegacyDocument(state, rows, input.featureId) };
+          } else if (ledgerBacked) mutableState = { ...projectStateDocument(state, rows, input.featureId) };
+        } else if (legacyNoStart && (legacyAuthority !== undefined || committed !== undefined || patchSequence !== undefined)) {
+          mutableState = { ...projectLegacyDocument(state, rows, input.featureId) };
+        } else if (ledgerBacked) mutableState = { ...projectStateDocument(state, rows, input.featureId) };
+      } catch (err) {
+        if (!fieldPatch && fieldAuthority === undefined) throw err;
+        return { success: false, error: { code: ErrorCode.PROJECTION_REPLAY_FAILED, message: messageOf(err) } };
+      }
     }
 
     if (!ledgerBacked && highestEventSequence !== undefined) {

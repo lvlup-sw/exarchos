@@ -17,6 +17,7 @@ import { encodePreparedBundle } from '../../../src/contract/capsule/prepared-bun
 import type { PreparedBundleV1 } from '../../../src/contract/capsule/prepared-bundle.js';
 import { OperationDigestMismatchError, type DecideOnceContext, type DecideOnceDecision } from '../../../src/events/atomic-appender.js';
 import path from 'node:path';
+import { isDeepStrictEqual } from 'node:util';
 import { Database } from 'bun:sqlite';
 import * as stateStore from '../../../src/workflow/state-store.js';
 
@@ -2062,5 +2063,201 @@ describe('no-start claim recovery across calls', () => {
     expect(custody).not.toHaveBeenCalled();
     expect(claims()).toEqual(heldClaims);
     expect(await rowsOf(store, FEATURE_ID)).toEqual(beforeRetry);
+  });
+});
+
+/** Compare a publication with the single accepted patch and the expected suffix effects. */
+function fieldPatchPublicationMatches(
+  rows: readonly WorkflowEvent[], document: Record<string, unknown>, patch: Record<string, unknown>,
+  notes: Record<string, unknown>, revisionCount: number,
+): boolean {
+  const own = rows.filter(row => row.type === 'state.patched' && isDeepStrictEqual(row.data?.patch, patch));
+  return own.length === 1 && document._eventSequence === rows.at(-1)?.sequence
+    && isDeepStrictEqual(document.notes, notes) && recordOf(document.planReview).revisionCount === revisionCount;
+}
+
+/** Open a no-start document with verified historical custody. */
+async function fieldPatchKernelStore(workflowType = 'feature'): Promise<DecideStore> {
+  if (workflowType === CUSTOM_TYPE) {
+    registerWorkflowType(CUSTOM_TYPE, { phases: ['plan', 'plan-review'], initialPhase: 'plan',
+      transitions: [{ from: 'plan', to: 'plan-review', event: 'review' }] });
+    extendWorkflowTypeEnum(CUSTOM_TYPE);
+    releases.push(() => { unextendWorkflowTypeEnum(CUSTOM_TYPE); unregisterWorkflowType(CUSTOM_TYPE); });
+  }
+  const store = await openStore();
+  await init(store, FEATURE_ID, workflowType, false);
+  await pinKernel(store, workflowType);
+  return store;
+}
+
+describe('historical field-only patches', () => {
+  it.each(['feature', CUSTOM_TYPE])('KernelNoStart_FieldOnlyPatch_UsesCurrentProjection %s', async workflowType => {
+    const store = await fieldPatchKernelStore(workflowType);
+    await forgeDocument(store, FEATURE_ID, state => ({ ...state, notes: { items: {} } }));
+    await appendRow(store, FEATURE_ID, 'state.patched', {
+      featureId: FEATURE_ID, fields: ['notes.items', 'notes.keep'], patch: { 'notes.items': [], 'notes.keep': 'ledger' },
+    });
+    await appendRow(store, FEATURE_ID, 'workflow.plan-revision', { featureId: FEATURE_ID, count: 1 });
+    const before = await rowsOf(store, FEATURE_ID);
+    const key = await candidatePatchKey(store, { 'notes.items[0].name': 'pending' });
+    const resolve = vi.spyOn(store.eventStore.bundleStore, 'resolve');
+    const patch = { 'notes.items[0].name': 'pending' };
+    const result = await handleSet({ featureId: FEATURE_ID, updates: patch }, store.stateDir, store.eventStore);
+    expect(result).toMatchObject({ success: true, data: { phase: 'plan', workflowType } });
+    const rows = await rowsOf(store, FEATURE_ID);
+    const published = await documentOf(store, FEATURE_ID);
+    const notes = { items: [{ name: 'pending' }], keep: 'ledger' };
+    expect(rows.slice(0, before.length)).toEqual(before);
+    expect(rows.slice(before.length).map(row => row.type)).toEqual(['state.patched']);
+    expect(fieldPatchPublicationMatches(rows, published, patch, notes, 1)).toBe(true);
+    expect(fieldPatchPublicationMatches([...rows, { ...rows.at(-1)!, sequence: rows.length + 1 }],
+      { ...published, _eventSequence: rows.length + 1 }, patch, notes, 1)).toBe(false);
+    expect(fieldPatchPublicationMatches(rows, { ...published, notes: { items: {} } }, patch, notes, 1)).toBe(false);
+    expect(store.backend.lookupIdempotencyClaim(FEATURE_ID, key)?.sequences).toEqual([rows.at(-1)?.sequence]);
+    expect(resolve).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(['held', 'cas', 'missing', 'newer', 'different', 'mismatched-member', 'read-fault'])(
+    'KernelNoStart_FieldOnlyPatch_HeldClaimAndCasRetryPreserveLaterRows %s', async mode => {
+      const store = await fieldPatchKernelStore();
+      const patch = { 'notes.value': 'own' };
+      const key = await candidatePatchKey(store, patch);
+      const resolve = vi.spyOn(store.eventStore.bundleStore, 'resolve');
+      const later = async () => {
+        await appendRow(store, FEATURE_ID, 'state.patched', {
+          featureId: FEATURE_ID, fields: ['notes.value', 'notes.keep'], patch: { 'notes.value': 'later', 'notes.keep': 'ledger' },
+        });
+        await appendRow(store, FEATURE_ID, 'workflow.plan-revision', { featureId: FEATURE_ID, count: 1 });
+      };
+      const append = store.eventStore.appendValidated.bind(store.eventStore);
+      const writer = vi.spyOn(store.eventStore, 'appendValidated');
+      const query = store.eventStore.query.bind(store.eventStore);
+      if (mode === 'cas' || mode === 'newer' || mode === 'read-fault') {
+        failSetState(store, mode === 'cas' ? 1 : 0);
+        writer.mockImplementationOnce(async (...args) => {
+          const event = await append(...args);
+          await later();
+          if (mode === 'newer') await pinPlan(store, ['t2']);
+          if (mode === 'read-fault') vi.spyOn(store.eventStore, 'query').mockRejectedValueOnce(new Error('publication read failed'));
+          return event;
+        });
+      } else {
+        await store.eventStore.append(FEATURE_ID, {
+          type: 'state.patched', data: { featureId: FEATURE_ID, fields: ['notes.value'], patch },
+        }, { idempotencyKey: key });
+        await later();
+        if (mode === 'mismatched-member') {
+          const sequence = store.backend.lookupIdempotencyClaim(FEATURE_ID, key)?.sequences[0];
+          expect(sequence).toBeDefined();
+          const db = new Database(path.join(store.stateDir, 'exarchos.db'));
+          releases.push(() => db.close());
+          db.query("UPDATE events SET payload = json_set(payload, '$.eventId', ?) WHERE streamId = ? AND sequence = ?")
+            .run('unrelated-field-patch-event', FEATURE_ID, sequence!);
+        }
+        if (mode === 'missing') resolve.mockRejectedValue(new Error('kernel custody missing'));
+      }
+      const raw = persistenceOf(store);
+      const before = await rowsOf(store, FEATURE_ID);
+      const request = handleSet({ featureId: FEATURE_ID, updates: mode === 'different' ? { 'notes.value': 'other' } : patch },
+        store.stateDir, store.eventStore);
+      if (mode === 'different') {
+        await expect(request).rejects.toMatchObject({ code: 'VERSION_CONFLICT' });
+      } else {
+        expect(await request).toMatchObject(['missing', 'newer', 'mismatched-member', 'read-fault'].includes(mode)
+          ? { success: false, error: { code: 'PROJECTION_REPLAY_FAILED' } } : { success: true });
+      }
+      const rows = await query(FEATURE_ID);
+      if (mode === 'cas' || mode === 'held') {
+        expect(fieldPatchPublicationMatches(rows, await documentOf(store, FEATURE_ID), patch,
+          { value: 'later', keep: 'ledger' }, 1)).toBe(true);
+      } else {
+        expect(persistenceOf(store).document).toEqual(raw.document);
+        if (mode === 'newer' || mode === 'read-fault') {
+          expect(rows.slice(0, before.length)).toEqual(before);
+          expect(rows.slice(before.length).map(row => row.type)).toEqual([
+            'state.patched', 'state.patched', 'workflow.plan-revision', ...(mode === 'newer' ? ['workflow.prepared'] : []),
+          ]);
+        } else {
+          expect(rows).toEqual(before);
+          expect(persistenceOf(store).claims).toEqual(raw.claims);
+        }
+      }
+      expect(rowsOfType(rows, 'state.patched').filter(row => isDeepStrictEqual(row.data?.patch, patch))).toHaveLength(1);
+      expect(store.backend.lookupIdempotencyClaim(FEATURE_ID, key)?.sequences).toHaveLength(1);
+      expect(resolve).toHaveBeenCalledTimes(mode === 'newer' ? 2 : 1);
+      expect(writer.mock.calls.filter(([, event]) => event.type === 'state.patched')).toHaveLength(
+        ['cas', 'newer', 'read-fault'].includes(mode) ? 1 : 0);
+    },
+  );
+
+  it('KernelNoStart_FieldOnlyPatch_NewerPinRefusesBeforeAppend', async () => {
+    const store = await fieldPatchKernelStore();
+    const before = await rowsOf(store, FEATURE_ID);
+    const raw = persistenceOf(store);
+    const append = store.eventStore.appendValidated.bind(store.eventStore);
+    const write = vi.spyOn(store.eventStore, 'appendValidated').mockImplementationOnce(async (...args) => {
+      await pinPlan(store, ['t2']);
+      return append(...args);
+    });
+    const result = await handleSet({ featureId: FEATURE_ID, updates: { 'notes.value': 'loser' } }, store.stateDir, store.eventStore);
+    expect(result).toMatchObject({ success: false, error: { code: 'PROJECTION_REPLAY_FAILED' } });
+    expect(write.mock.calls[0]?.[2]?.expectedSequence).toBe(before.at(-1)?.sequence);
+    expect((await rowsOf(store, FEATURE_ID)).slice(before.length).map(row => row.type)).toEqual(['workflow.prepared']);
+    expect(persistenceOf(store)).toEqual(raw);
+  });
+
+  it.each(['ahead', 'typed', 'full', 'unrecognized', 'missing', 'malformed', 'present-start', 'reserved', 'raw-candidate'])(
+    'KernelNoStart_FieldOnlyPatch_InvalidCursorOrAuthorityWritesNothing %s', async mode => {
+      const store = await fieldPatchKernelStore();
+      if (mode === 'ahead') {
+        const rows = await rowsOf(store, FEATURE_ID);
+        await forgeDocument(store, FEATURE_ID, state => ({ ...state, _eventSequence: rows.length + 1 }));
+      }
+      if (mode === 'typed') await pinPlan(store, ['t2']);
+      if (mode === 'full' || mode === 'unrecognized') {
+        await pinPlan(store, ['t2'], bundle => {
+          const { designRecord: _record, ...legacy } = bundle;
+          const definition = mode === 'full' ? bundle.definition : WorkflowDefinitionV1Schema.parse(kernelOf(builtInDefinition('feature')));
+          return { ...legacy, definition, capsule: { ...legacy.capsule,
+            identity: { ...legacy.capsule.identity, definitionVersion: contentDigest(definition) },
+            provenance: { ...legacy.capsule.provenance, compilerVersion: mode === 'full' ? 'exarchos-prepare-6' : 'future-compiler' },
+          } };
+        });
+      }
+      if (mode === 'malformed' || mode === 'present-start') {
+        const sequence = store.backend.getSequence(FEATURE_ID) + 1;
+        store.backend.appendEvent(FEATURE_ID, {
+          streamId: FEATURE_ID, sequence, timestamp: '2026-11-13T00:00:00.000Z',
+          schemaVersion: mode === 'malformed' ? '1.0' : '1.1',
+          type: mode === 'malformed' ? 'workflow.prepared' : 'workflow.started', data: { featureId: FEATURE_ID },
+        });
+      }
+      if (mode === 'reserved') await forgeDocument(store, FEATURE_ID, state => ({ ...state, notes: { items: {} } }));
+      if (mode === 'raw-candidate') await appendRow(store, FEATURE_ID, 'state.patched', {
+        featureId: FEATURE_ID, fields: ['notes.items'], patch: { 'notes.items': {} },
+      });
+      const resolve = vi.spyOn(store.eventStore.bundleStore, 'resolve');
+      if (mode === 'missing') resolve.mockRejectedValue(new Error('kernel custody missing'));
+      const updates = mode === 'reserved' ? { 'notes.items[0].name': 'bad', phase: 'review' }
+        : mode === 'raw-candidate' ? { 'notes.items[0].name': 'bad' } : { 'notes.value': 'unpublished' };
+      const before = await rowsOf(store, FEATURE_ID);
+      const raw = persistenceOf(store);
+      const result = await handleSet({ featureId: FEATURE_ID, updates }, store.stateDir, store.eventStore);
+      const code = mode === 'reserved' ? 'RESERVED_FIELD' : mode === 'raw-candidate' ? 'INVALID_INPUT' : 'PROJECTION_REPLAY_FAILED';
+      expect(result).toMatchObject({ success: false, error: { code } });
+      expect(await rowsOf(store, FEATURE_ID)).toEqual(before);
+      expect(persistenceOf(store)).toEqual(raw);
+      if (['present-start', 'reserved'].includes(mode)) expect(resolve).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(['unprepared', 'started'])('KernelFieldOnlyPatch_OrdinaryRoutesUseNoCustody %s', async mode => {
+    const store = await openStore();
+    await init(store, FEATURE_ID, 'feature', mode === 'started');
+    if (mode === 'started') await pinPlan(store, ['t1']);
+    const resolve = vi.spyOn(store.eventStore.bundleStore, 'resolve').mockRejectedValue(new Error('unexpected custody read'));
+    await update(store, FEATURE_ID, { 'notes.value': 'ordinary' });
+    expect(resolve).not.toHaveBeenCalled();
+    expect(await documentOf(store, FEATURE_ID)).toMatchObject({ notes: { value: 'ordinary' } });
   });
 });
