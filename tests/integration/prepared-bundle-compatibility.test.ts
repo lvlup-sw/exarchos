@@ -8,6 +8,12 @@ import { encodePreparedBundle, decodePreparedBundle } from '../../src/contract/c
 import { baseValidCapsule, baseValidDefinition } from '../../src/contract/capsule/exarchos-capsule-fixtures.js';
 import { compileDecideDefinition } from '../../src/workflow/decide/edges.js';
 import { builtInDefinition } from '../../src/workflow/definitions/built-in.js';
+import { contentDigest } from '../../src/contract/capsule/capsule-digest.js';
+import { lowerDefinition } from '../../src/verbs/prepare/lower-definition.js';
+import { recompiledSliceOf } from '../../src/verbs/prepare/recompiled-slice.js';
+import { adjudicateSettlement } from '../../src/verbs/settle/adjudicate.js';
+import { selectPreparedAuthority, verifyPreparedCustody } from '../../src/workflow/capsule/prepared-custody.js';
+import { fixture, prepared } from '../helpers/capsule/prepared-authority.js';
 import { SettlementReceiptData } from '../../src/verbs/settle/schemas.js';
 
 describe('prepared bundle compatibility', () => {
@@ -17,6 +23,56 @@ describe('prepared bundle compatibility', () => {
     expect(Object.hasOwn(decoded,'designRecord')).toBe(false);
     expect(Object.hasOwn(decoded.capsule.settlementContract,'skipPhases')).toBe(false);
     expect(Buffer.from(encodePreparedBundle(decoded))).toEqual(bytes);
+    for (const compiler of [5, 6, 7]) {
+      const original = fixture(undefined, compiler === 7);
+      const definition = compiler === 5
+        ? lowerDefinition('feature', builtInDefinition('feature')).definition
+        : original.definition;
+      const capsule = original.capsule;
+      capsule.identity.definitionVersion = contentDigest(definition);
+      capsule.provenance.compilerVersion = `exarchos-prepare-${compiler}`;
+      capsule.provenance.sources = capsule.provenance.sources.map(source => source.sourceId === 'workflow-definition'
+        ? { ...source, digest: contentDigest(definition) } : source);
+      if (compiler < 7) delete capsule.settlementContract.skipPhases;
+      const bundle = { ...original, definition };
+      const stored = decodePreparedBundle(encodePreparedBundle(bundle));
+      expect(stored).toEqual(bundle);
+      const record = prepared(stored);
+      const selection = selectPreparedAuthority([record], capsule.identity.workflowId);
+      if (selection === undefined) throw new Error('Missing prepared authority');
+      const authority = verifyPreparedCustody(selection, stored);
+      expect(authority.kind).toBe(compiler === 7 ? 'typed' : 'legacy');
+      expect(authority.pinnedDefinition !== undefined).toBe(compiler !== 5);
+      expect(authority.skipPhases).toEqual(compiler === 7 ? [] : undefined);
+      expect(() => verifyPreparedCustody({
+        ...selection, record: { ...selection.record, compilerVersion: 'exarchos-prepare-99' },
+      }, stored)).toThrow('Prepared custody identity mismatch');
+      const partial = structuredClone(capsule);
+      partial.settlementContract.requiredResults = ['task-compile', 'task-verify'];
+      partial.contracts.taskResults['task-compile'] = [{ name: 'passed', type: 'boolean', required: true }];
+      const claim = { taskId: 'task-compile', fields: { passed: true }, evidence: [] };
+      const verdict = adjudicateSettlement(partial, [claim], [], { evidenceResolves: () => true });
+      expect(verdict.outcome).toBe('rejected');
+      expect(verdict.findings.map(({ kind, subject }) => ({ kind, subject })))
+        .toEqual([{ kind: 'missing-claim', subject: 'task-verify' }]);
+      const completed = adjudicateSettlement(partial, [claim], [], {
+        evidenceResolves: () => true, taskComplete: id => id === 'task-verify',
+      });
+      expect(completed.outcome).toBe('settled');
+      expect(completed.acceptedTasks).toEqual(['task-compile']);
+    }
+    const plan = [
+      { id: 'tail', title: 'tail', status: 'pending', blockedBy: ['middle'] },
+      { id: 'root', title: 'root', status: 'pending', blockedBy: [] },
+      { id: 'middle', title: 'middle', status: 'complete', blockedBy: ['root'] },
+      { id: 'sibling', title: 'sibling', status: 'pending', blockedBy: ['root'] },
+    ];
+    expect(recompiledSliceOf(['root', 'root', 'missing'], plan)).toEqual({
+      declared: ['missing', 'root'], invalidated: ['root', 'sibling'],
+    });
+    expect(recompiledSliceOf(['root'], plan.map(entry => ({ ...entry, status: 'pending' })))).toEqual({
+      declared: ['root'], invalidated: ['tail', 'root', 'middle', 'sibling'],
+    });
   });
 
   it('Codec_GeneratedStructures_PreserveAbsenceAndEmptySkipList', () => {
