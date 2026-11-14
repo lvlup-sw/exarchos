@@ -8,6 +8,8 @@
  */
 
 import type { GitExec } from '../pure/execute-merge.js';
+import type { HostedAdequacyFacts } from '../../contract/verification/harness-verification.js';
+import { hostedAdequacyPassed } from '../../contract/verification/harness-verification.js';
 import { assertNever } from '../../contract/error-families.js';
 import { DEFAULT_TEST_GLOBS, DEFAULT_TEST_SUPPORT_SEGMENTS } from '../../config/toolchains.js';
 import { PROFILE_UNRESOLVED, type VerificationProfile } from '../../workflow/verification/profile.js';
@@ -862,52 +864,11 @@ function noTestLeftReason(files: readonly string[]): string {
  * An example is a module that the task adds or renames. A reverted config file, such as `package.json`, can make the run red or collect no test. Test files and test-support files are never reverted.
  */
 export async function runProbe(args: ProbeArgs): Promise<ProbeResult> {
-  const { gitExec, repoRoot, baseRef, changedFiles, runTests, terms } = args;
-  const riskTier = args.riskTier;
+  const { gitExec, repoRoot, baseRef, runTests, terms, riskTier } = args;
   const withRoute = terms?.withRoute ?? ((reason: string): string => reason);
-
-  if (args.diffFailed === true) {
-    return toProbeResult(
-      {
-        kind: 'indeterminate',
-        cause: 'diff-failed',
-        detail: 'could not compute the task diff',
-      },
-      { probedTests: [], redObserved: false, restoredClean: true },
-      riskTier,
-    );
-  }
-
-  const globTerm = terms?.globs;
-  if (globTerm?.state === 'unresolved') {
-    return probeNotRun(PROFILE_UNRESOLVED, withRoute(globTerm.reason), riskTier);
-  }
-
-  const deleted = new Set(args.deletedFiles ?? []);
-  const claimed = replacedSeedFiles(changedFiles, globTerm);
-  const split = splitHunks(
-    changedFiles.filter((file) => !claimed.includes(file)),
-    { testGlobs: globTerm?.globs ?? args.testGlobs, supportSegments: terms?.supportSegments },
-  );
-  const testFiles = split.testFiles.filter((file) => !deleted.has(file));
-  const sourceFiles = split.sourceFiles;
-
-  const foreignTests = claimed.filter((file) => !deleted.has(file));
-  if (foreignTests.length > 0) {
-    return probeNotRun('unprobed-test-paths', withRoute(replacedSeedReason(foreignTests)), riskTier);
-  }
-
-  const touchedTestPaths = [...claimed, ...split.testFiles, ...split.supportFiles];
-  if (testFiles.length === 0 && touchedTestPaths.length > 0) {
-    return probeNotRun('unprobed-test-paths', withRoute(noTestLeftReason(touchedTestPaths)), riskTier);
-  }
-
-  const probeGlobs = terms?.probeGlobs;
-  const unfit = probeGlobs === undefined ? [] : testFiles.filter((file) => !matchesAnyGlob(file, probeGlobs));
-  if (unfit.length > 0) {
-    return probeNotRun('unprobed-test-paths', withRoute(runnerFitReason(unfit)), riskTier);
-  }
-
+  const selection = selectAdequacyPaths(args);
+  if ('blocked' in selection) return selection.blocked;
+  const { testFiles, sourceFiles } = selection;
   if (testFiles.length === 0) {
     return toProbeResult(
       {
@@ -1011,4 +972,74 @@ export async function runProbe(args: ProbeArgs): Promise<ProbeResult> {
     { probedTests: testFiles, redObserved, restoredClean },
     riskTier,
   );
+}
+
+
+/** Select the exact tests and source files for either probe owner. */
+export function selectAdequacyPaths(args: Pick<ProbeArgs, 'changedFiles' | 'deletedFiles' | 'riskTier' | 'terms' | 'testGlobs' | 'diffFailed'>):
+  { testFiles: string[]; sourceFiles: string[] } | { blocked: ProbeResult } {
+  const { changedFiles, terms } = args;
+  const riskTier = args.riskTier;
+  const withRoute = terms?.withRoute ?? ((reason: string): string => reason);
+
+  if (args.diffFailed === true) {
+    return { blocked: toProbeResult(
+      {
+        kind: 'indeterminate',
+        cause: 'diff-failed',
+        detail: 'could not compute the task diff',
+      },
+      { probedTests: [], redObserved: false, restoredClean: true },
+      riskTier,
+    ) };
+  }
+
+  const globTerm = terms?.globs;
+  if (globTerm?.state === 'unresolved') {
+    return { blocked: probeNotRun(PROFILE_UNRESOLVED, withRoute(globTerm.reason), riskTier) };
+  }
+
+  const deleted = new Set(args.deletedFiles ?? []);
+  const claimed = replacedSeedFiles(changedFiles, globTerm);
+  const split = splitHunks(
+    changedFiles.filter((file) => !claimed.includes(file)),
+    { testGlobs: globTerm?.globs ?? args.testGlobs, supportSegments: terms?.supportSegments },
+  );
+  const testFiles = split.testFiles.filter((file) => !deleted.has(file));
+  const sourceFiles = split.sourceFiles;
+
+  const foreignTests = claimed.filter((file) => !deleted.has(file));
+  if (foreignTests.length > 0) {
+    return { blocked: probeNotRun('unprobed-test-paths', withRoute(replacedSeedReason(foreignTests)), riskTier) };
+  }
+
+  const touchedTestPaths = [...claimed, ...split.testFiles, ...split.supportFiles];
+  if (testFiles.length === 0 && touchedTestPaths.length > 0) {
+    return { blocked: probeNotRun('unprobed-test-paths', withRoute(noTestLeftReason(touchedTestPaths)), riskTier) };
+  }
+
+  const probeGlobs = terms?.probeGlobs;
+  const unfit = probeGlobs === undefined ? [] : testFiles.filter((file) => !matchesAnyGlob(file, probeGlobs));
+  if (unfit.length > 0) {
+    return { blocked: probeNotRun('unprobed-test-paths', withRoute(runnerFitReason(unfit)), riskTier) };
+  }
+
+  return { testFiles, sourceFiles };
+}
+
+/** Derive the existing gate carrier from the signed measurements. */
+export function interpretHostedAdequacy(facts: HostedAdequacyFacts, tests: readonly string[], riskTier?: string): ProbeResult {
+  if (facts.disposition === 'no-tests') return probeNotRun('no-new-tests', 'The authorized host collected no selected tests.', riskTier);
+  if (hostedAdequacyPassed(facts)) {
+    return toProbeResult({ kind: 'passed', probedTests: tests },
+      { probedTests: [...tests], redObserved: true, restoredClean: true }, riskTier);
+  }
+  if (facts.baseline?.kind === 'assertion-failure') {
+    return probeNotRun('baseline-red', 'The selected tests failed on the original task source.', riskTier);
+  }
+  if (facts.reverted?.kind === 'green' || facts.disposition === 'no-sources') {
+    return toProbeResult({ kind: 'failed', reason: 'The hosted probe measured no source-revert assertion failure.', probedTests: tests },
+      { probedTests: [...tests], redObserved: false, restoredClean: true }, riskTier);
+  }
+  return probeNotRun('run-no-verdict', 'The hosted probe could not establish comparable assertion results.', riskTier);
 }

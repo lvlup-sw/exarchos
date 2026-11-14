@@ -13,24 +13,58 @@ export const VerificationSubject = z.object({
   configDigest: digest, profileDigest: digest, testSelectionDigest: digest,
   baseCommit: oid, headCommit: oid, blockerHeads: z.array(oid).max(64),
 }).strict();
-export const VerificationRequest = z.object({
-  version: z.literal(1), key: digest, operation: z.literal('probe'),
-  resourceId: name, profileId: name, subject: VerificationSubject,
-}).strict();
+const requestTerms = z.object({
+  version: z.literal(1), key: digest, resourceId: name, profileId: name, subject: VerificationSubject,
+});
+
+const selectedPath = z.string().min(1).max(300).refine(path =>
+  !path.includes('\\') && !/[\x00-\x1f\x7f]/.test(path)
+  && path.split('/').every(part => part !== '' && part !== '.' && part !== '..' && part.toLowerCase() !== '.git'));
+const selectionPaths = z.array(selectedPath).max(40).refine(paths => new Set(paths).size === paths.length);
+export const AdequacySelection = z.object({
+  tests: selectionPaths,
+  sources: selectionPaths,
+}).strict().refine(value => value.tests.every(path => !value.sources.includes(path)));
+export type AdequacySelection = z.infer<typeof AdequacySelection>;
+
+export const VerificationRequest = z.discriminatedUnion('operation', [
+  requestTerms.extend({ operation: z.literal('probe') }).strict(),
+  requestTerms.extend({ operation: z.literal('adequacy'), selection: AdequacySelection, commandDigest: digest }).strict(),
+]);
 export type VerificationRequest = z.infer<typeof VerificationRequest>;
 export const VerificationCommand = z.discriminatedUnion('action', [
   z.object({ version: z.literal(1), token: z.string().min(32).max(4096), action: z.literal('submit'), request: VerificationRequest }).strict(),
   z.object({ version: z.literal(1), token: z.string().min(32).max(4096), action: z.literal('retrieve'), key: digest, digest }).strict(),
 ]);
 export const ResourceIdentity = z.object({ path: z.string().min(1).max(4096), device: z.string(), inode: z.string() }).strict();
+const ProbeOutcome = z.object({
+  status: z.enum(['passed', 'failed', 'unsupported']), exitCode: z.number().int().nullable(),
+  reason: z.string().max(200), stdoutBase64: z.string().max(5464), stderrBase64: z.string().max(5464),
+}).strict();
+
+export const AdequacyRun = z.object({
+  kind: z.enum(['green', 'assertion-failure', 'no-tests', 'infrastructure', 'timeout', 'output-limit']),
+  total: z.number().int().nonnegative().max(100000),
+  passed: z.number().int().nonnegative().max(100000),
+  failed: z.number().int().nonnegative().max(100000),
+  outputDigest: digest, casesDigest: digest,
+}).strict();
+export type AdequacyRun = z.infer<typeof AdequacyRun>;
+
+export const HostedAdequacyFacts = z.object({
+  baseline: AdequacyRun.nullable(), reverted: AdequacyRun.nullable(),
+  disposition: z.enum(['measured', 'no-tests', 'no-sources', 'infrastructure']),
+  restored: z.literal(true), cleanHead: oid, childrenStopped: z.literal(true),
+}).strict();
+export type HostedAdequacyFacts = z.infer<typeof HostedAdequacyFacts>;
+
 export const VerificationEvidence = z.object({
   version: z.literal(1), hostVersion: z.literal(VERIFIER_VERSION), signerId: digest,
   request: VerificationRequest, requestDigest: digest, hostPolicyDigest: digest,
   resources: z.array(ResourceIdentity).min(1).max(3),
   completedAt: z.string().datetime(),
-  outcome: z.object({ status: z.enum(['passed', 'failed', 'unsupported']), exitCode: z.number().int().nullable(),
-    reason: z.string().max(200), stdoutBase64: z.string().max(5464), stderrBase64: z.string().max(5464) }).strict(),
-}).strict();
+  outcome: z.union([ProbeOutcome, ProbeOutcome.extend({ adequacy: HostedAdequacyFacts }).strict()]),
+}).strict().refine(evidence => (evidence.request.operation === 'adequacy') === ('adequacy' in evidence.outcome));
 export type VerificationEvidence = z.infer<typeof VerificationEvidence>;
 export const SignedVerification = z.object({ evidence: VerificationEvidence, signature: z.string().regex(/^[A-Za-z0-9+/]{86}==$/) }).strict();
 export type SignedVerification = z.infer<typeof SignedVerification>;
@@ -54,6 +88,21 @@ export function verificationJson(value: unknown): string {
   return JSON.stringify(normalize(value));
 }
 
+/** Digest a closed value using the same canonical encoding as the signed carrier. */
+export function verificationValueDigest(value: unknown): string {
+  return createHash('sha256').update(verificationJson(value)).digest('hex');
+}
+
+/** A recognized kill requires an actual green run and a comparable assertion failure. */
+export function hostedAdequacyPassed(facts: HostedAdequacyFacts): boolean {
+  const { baseline, reverted } = facts;
+  return facts.disposition === 'measured' && facts.restored && facts.childrenStopped &&
+    baseline?.kind === 'green' && baseline.total > 0 && baseline.passed === baseline.total && baseline.failed === 0 &&
+    reverted?.kind === 'assertion-failure' && reverted.total === baseline.total
+    && reverted.casesDigest === baseline.casesDigest
+    && reverted.failed > 0 && reverted.passed + reverted.failed === reverted.total;
+}
+
 /** Request identity includes every immutable field and the original operation key. */
 export function verificationDigest(request: VerificationRequest): string {
   return createHash('sha256').update(verificationJson(VerificationRequest.parse(request))).digest('hex');
@@ -62,7 +111,10 @@ export function verificationDigest(request: VerificationRequest): string {
 /** A request key cannot be changed to re-execute the same authorized operation. */
 export function verificationOperation(request: Omit<VerificationRequest, 'key'>): string {
   const { streamId, phaseAttemptId, taskId, leafId, operationId } = request.subject;
-  return createHash('sha256').update(verificationJson({ streamId, phaseAttemptId, taskId, leafId, operationId })).digest('hex');
+  const execution = request.operation === 'adequacy'
+    ? { streamId, taskId, leafId, operationId, operation: request.operation }
+    : { streamId, phaseAttemptId, taskId, leafId, operationId };
+  return verificationValueDigest(execution);
 }
 
 /** Claim keys bind the original operation and segment while durable operation uniqueness prevents alias replay. */
@@ -133,6 +185,31 @@ export const VerificationReply = z.object({
   response: VerificationResponse, signature: z.string(),
 }).strict();
 export type VerificationReply = z.infer<typeof VerificationReply>;
+
+type VerifierExchange = VerificationReply | { kind: 'unavailable'; reason: string };
+
+export interface VerificationHostConnector {
+  readonly publicKey: string;
+  readonly gitPath: string;
+  readonly resourceId: string;
+  readonly profileId: string;
+  readonly client: {
+    submit(request: VerificationRequest): Promise<VerifierExchange>;
+    retrieve(key: string, digest: string): Promise<VerifierExchange>;
+  };
+}
+
+export interface BoundHostInput {
+  readonly segmentDigest: string;
+  readonly callerDigest: string;
+  readonly preparedDigest: string;
+  readonly configDigest: string;
+  readonly recheck: () => Promise<void>;
+  readonly freezeRequest: (request: VerificationRequest) => Promise<VerificationRequest>;
+  readonly observeDiff?: (checkout: string) => Promise<string>;
+  readonly checkTree?: (checkout: string) => Promise<void>;
+  readonly leafOperationId?: string;
+}
 
 /** Sign the entire reply carrier before returning any authenticated disposition. */
 export function signVerificationReply(key: string, digest: string, response: VerificationResponse, signer: KeyObject): VerificationReply {

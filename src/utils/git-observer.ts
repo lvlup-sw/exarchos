@@ -110,6 +110,19 @@ export async function createGitObserver(executable: string) {
       for (const id of [base, head]) await reads.requireCommit(selected.gitDir, selected.checkout, id);
       return reads.diff(selected.gitDir, selected.checkout, base, head);
     }),
+    nameStatus: (input: Parameters<typeof identity>[0], base: string, head: string) => observe(async () => {
+      commitId(base); commitId(head);
+      const selected = await identity(input);
+      if (selected.head !== head) throw new Error('Registered head differs from the selected commit');
+      await reads.requireCommit(selected.gitDir, selected.checkout, base);
+      await reads.ancestry(selected.gitDir, selected.checkout, base, head);
+      const diff = await reads.nameStatus(selected.gitDir, selected.checkout, base, head);
+      const current = await identity(input);
+      if (current.head !== head || current.gitDir !== selected.gitDir || current.repository !== selected.repository) {
+        throw new Error('Registered checkout changed during the immutable diff');
+      }
+      return diff;
+    }),
     cleanliness: () => ({ kind: 'refused', reason: 'Hosted clean-tree evidence is required; this reader never runs status' }),
   };
 }

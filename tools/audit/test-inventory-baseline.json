@@ -4,11 +4,11 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1505,
-    "parsedFiles": 1460,
+    "testFiles": 1507,
+    "parsedFiles": 1462,
     "shellFiles": 45,
-    "cases": 16629,
-    "dynamicTitles": 305,
+    "cases": 16637,
+    "dynamicTitles": 309,
     "unparseableFiles": 0
   },
   "unparseable": [],
@@ -10240,6 +10240,32 @@
         }
       ]
     },
+    "tests/integration/1928-hosted-adequacy.test.ts": {
+      "file": "tests/integration/1928-hosted-adequacy.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "",
+          "name": "BoundAdequacy_LostSignedDeliveryRetainsOriginalAndColdReplays",
+          "dynamic": false
+        },
+        {
+          "suite": "",
+          "name": "<dynamic-case-1>",
+          "dynamic": true
+        },
+        {
+          "suite": "",
+          "name": "BoundAdequacy_ReenteredPhaseCannotReplaceOriginalHostedRequest",
+          "dynamic": false
+        },
+        {
+          "suite": "",
+          "name": "<dynamic-case-2>",
+          "dynamic": true
+        }
+      ]
+    },
     "tests/integration/1928-pr-observation.test.ts": {
       "file": "tests/integration/1928-pr-observation.test.ts",
       "runner": "vitest:root",
@@ -11254,6 +11280,32 @@
           "suite": "telemetry action/transport split outcome (#1364)",
           "name": "Telemetry_AfterJsThrow_IncrementsTransportErrors",
           "dynamic": false
+        }
+      ]
+    },
+    "tests/process/1928-host-recovery.test.ts": {
+      "file": "tests/process/1928-host-recovery.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "",
+          "name": "HostedAdequacy_RecognizesAssertionButNotInfrastructureAndReplaysOriginal",
+          "dynamic": false
+        },
+        {
+          "suite": "",
+          "name": "<dynamic-case-1>",
+          "dynamic": true
+        },
+        {
+          "suite": "",
+          "name": "HostedAdequacy_InterruptedRestorationKeepsOriginalClaimAndResourceLease",
+          "dynamic": false
+        },
+        {
+          "suite": "",
+          "name": "<dynamic-case-2>",
+          "dynamic": true
         }
       ]
     },

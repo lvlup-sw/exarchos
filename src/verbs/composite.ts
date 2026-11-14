@@ -247,6 +247,7 @@ function coordinateRefusal(args: Record<string, unknown>, ctx: DispatchContext |
 export function adaptLadderGate<T>(
   handler: (args: T, stateDir: string, eventStore: EventStore) => Promise<ToolResult>,
   coordinateAware = false,
+  hostedAdequacy = false,
 ): ActionHandler {
   return async (args, stateDir, ctx) => {
     if (!ctx?.eventStore) {
@@ -261,14 +262,19 @@ export function adaptLadderGate<T>(
       (args as { projectConfig?: unknown }).projectConfig === undefined
         ? { ...(args as Record<string, unknown>), projectConfig: ctx.projectConfig }
         : args;
-    const { verificationProfile: _carried, ...unprofiledArgs } = enrichedArgs;
+    const { verificationProfile: _carried, hostAdequacy: _host, ...unprofiledArgs } = enrichedArgs;
     const gateArgs =
       ctx.verificationProfile === undefined
         ? unprofiledArgs
         : { ...unprofiledArgs, verificationProfile: ctx.verificationProfile };
     const selectedArgs = coordinateAware && ctx.verificationInput !== undefined
       ? { ...gateArgs, coordinate: ctx.verificationInput.coordinate } : gateArgs;
-    return handler(selectedArgs as unknown as T, stateDir, ctx.eventStore);
+    const binding = ctx.verificationInput?.hosted;
+    const selected = hostedAdequacy && ctx.verificationHost !== undefined && binding?.leafOperationId !== undefined
+      ? { ...selectedArgs, hostAdequacy: { connector: ctx.verificationHost, binding,
+          segmentOperationId: ctx.verificationInput?.segmentOperationId } }
+      : selectedArgs;
+    return handler(selected as unknown as T, stateDir, ctx.eventStore);
   };
 }
 
@@ -442,7 +448,7 @@ export const ACTION_HANDLERS: Readonly<Record<string, ActionHandler>> = {
    */
   check_exploration_depth: adaptWithEventStore(handleCheckExplorationDepth),
   /** Verification-ladder gate. {@link adaptLadderGate} copies the dispatch config into the args, and the severity wrapper applies the severity. */
-  check_test_adequacy: adaptLadderGate(handleTestAdequacy, true),
+  check_test_adequacy: adaptLadderGate(handleTestAdequacy, true, true),
   check_contract_drift: adaptLadderGate(handleContractDrift, true),
   check_mock_boundary: adaptLadderGate(handleMockBoundary, true),
   /**

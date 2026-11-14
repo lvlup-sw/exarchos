@@ -34,6 +34,7 @@ import {
 } from './gate-utils.js';
 import { runGatePreflight } from '../pure/gate-preflight.js';
 import { runDurableGateProducer } from './durable-gate-producer.js';
+import { HostedAdequacyPending } from './gate-runner.js';
 import { probeArgv } from '../../config/verification-profile.js';
 import type { ResolvedProjectConfig } from '../../config/resolve.js';
 import type { RiskTier } from '../../workflow/verification-policy.js';
@@ -41,6 +42,8 @@ import type { VerificationProfile } from '../../workflow/verification/profile.js
 import type { GitExec } from '../pure/execute-merge.js';
 import {
   runProbe,
+  selectAdequacyPaths,
+  interpretHostedAdequacy,
   probeNotRun,
   interpretProbeVerdict,
   verdictOf,
@@ -52,12 +55,25 @@ import {
 } from './test-adequacy.js';
 import { assertNever } from '../../contract/error-families.js';
 import { observeImmutableClaimedTree } from '../../utils/git-tree.js';
+import { getDispatchContext } from '../../dispatch/dispatch-context.js';
+import { contentDigest } from '../../contract/capsule/capsule-digest.js';
+import {
+  AdequacySelection, VerificationRequest, authenticateVerificationReply, verificationDigest, verificationKey, verificationJson, verificationValueDigest,
+  type BoundHostInput, type VerificationHostConnector,
+} from '../../contract/verification/harness-verification.js';
 import { CapsuleBaseRefSchema } from '../../contract/capsule/exarchos-capsule.js';
 
 /** The probe term of the verification profile. */
 type ProbeTerm = VerificationProfile['tests']['probe'];
 
+interface HostedAdequacyInput {
+  readonly connector: VerificationHostConnector;
+  readonly binding: BoundHostInput;
+  readonly segmentOperationId: string;
+}
+
 export interface TestAdequacyArgs extends ProfiledGateArgs {
+  readonly hostAdequacy?: HostedAdequacyInput;
   readonly featureId: string;
   readonly taskId: string;
   /** The task branch (HEAD side of the diff). Defaults to the current branch. */
@@ -393,7 +409,7 @@ export async function handleTestAdequacy(
   if (!pre.ok) return pre.result;
   const repoRoot = pre.repoRoot;
   const baseBranch = args.baseBranch && args.baseBranch.trim().length > 0 ? args.baseBranch.trim() : undefined;
-  if (args.coordinate !== undefined) {
+  if (args.coordinate !== undefined && args.hostAdequacy === undefined) {
     const selected = args.coordinate;
     const tree = await observeImmutableClaimedTree(repoRoot, selected.diffBaseCommit, selected.repository);
     if (tree.kind !== 'tree' || tree.repository !== selected.repository || tree.head !== selected.observedHeadCommit
@@ -414,7 +430,7 @@ export async function handleTestAdequacy(
       stateDir,
       eventStore,
     },
-    async () => {
+    async (phaseAttemptId) => {
       const policySkip = resolvePolicySkip({
         gateName: 'check_test_adequacy',
         riskTier: args.riskTier,
@@ -450,39 +466,116 @@ export async function handleTestAdequacy(
       const gitExec: GitExec = args.coordinate === undefined ? executeGit
         : (cwd, argv) => executeGit(cwd, ['-c', 'core.fsmonitor=false', ...argv]);
       const { tests } = profileOf(args, repoRoot);
-      const runTests = args.runTests ?? buildScopedTestRunner(tests.probe, repoRoot);
+
       const mergeBase: MergeBaseResult = args.coordinate === undefined
         ? resolveMergeBase(gitExec, repoRoot, baseBranch ?? '', args.branch)
         : { ok: true, sha: args.coordinate.diffBaseCommit };
-      const changed: ChangedFilesResult = mergeBase.ok
-        ? changedFilesFor(gitExec, repoRoot, mergeBase.sha, args.coordinate?.observedHeadCommit ?? args.branch, args.coordinate !== undefined)
-        : { ok: false, detail: mergeBase.detail };
+      let changed: ChangedFilesResult;
+      if (args.hostAdequacy !== undefined) {
+        const observeDiff = args.hostAdequacy.binding.observeDiff;
+        if (observeDiff === undefined) throw new HostedAdequacyPending('Hosted immutable diff observation is unavailable.');
+        const parsed = parseNameStatus(await observeDiff(repoRoot));
+        if (parsed === null) throw new HostedAdequacyPending('Hosted immutable diff is incomplete.');
+        changed = { ok: true, ...parsed };
+      } else {
+        changed = mergeBase.ok
+          ? changedFilesFor(gitExec, repoRoot, mergeBase.sha, args.coordinate?.observedHeadCommit ?? args.branch, args.coordinate !== undefined)
+          : { ok: false, detail: mergeBase.detail };
+      }
 
-      const probe: ProbeResult = await runProbe({
-        gitExec,
-        repoRoot,
-        baseRef: mergeBase.ok ? mergeBase.sha : baseBranch ?? '',
+      const selectionArgs = {
         changedFiles: changed.ok ? changed.files : [],
         ...(changed.ok ? { deletedFiles: changed.deletedFiles } : { diffFailed: true }),
         ...(args.riskTier ? { riskTier: args.riskTier } : {}),
-        runTests,
         terms: {
           globs: tests.globs,
           supportSegments: tests.support.segments,
           probeGlobs: tests.probe.command.state === 'resolved' ? tests.probe.globs : undefined,
-          withRoute: (reason) => withProfileRoute(args, reason),
+          withRoute: (reason: string) => withProfileRoute(args, reason),
         },
-      });
-
-      return {
-        success: true,
-        data: buildAdequacyCarrier(probe, args.riskTier, {
-          path: profilePathOf(args, repoRoot),
-          unscoped: tests.probe.files === 'none',
-        }),
       };
+      const profile = { path: profilePathOf(args, repoRoot), unscoped: tests.probe.files === 'none' };
+      if (args.hostAdequacy !== undefined) {
+        return runBoundHostedAdequacy(args, phaseAttemptId, repoRoot, selectionArgs, profile);
+      }
+      const probe = await runProbe({
+        ...selectionArgs, gitExec, repoRoot, baseRef: mergeBase.ok ? mergeBase.sha : baseBranch ?? '',
+        runTests: args.runTests ?? buildScopedTestRunner(tests.probe, repoRoot),
+      });
+      return { success: true, data: buildAdequacyCarrier(probe, args.riskTier, profile) };
     },
+    args.hostAdequacy?.binding.checkTree,
   );
+}
+
+/** Recover original host evidence before admitting any new hosted execution. */
+async function runBoundHostedAdequacy(
+  args: TestAdequacyArgs, phaseAttemptId: string, repoRoot: string,
+  selectionArgs: Parameters<typeof selectAdequacyPaths>[0], profile: CarrierProfile,
+): Promise<ToolResult> {
+  const host = args.hostAdequacy;
+  const coordinate = args.coordinate;
+  const pinned = args.verificationProfile;
+  const operation = getDispatchContext()?.operationId;
+  if (host === undefined || coordinate === undefined || pinned === undefined ||
+      operation === undefined || operation !== host.binding.leafOperationId) {
+    throw new HostedAdequacyPending('Hosted adequacy requires the authenticated segment and its actual leaf.');
+  }
+  const probe = pinned.profile.tests.probe;
+  const selected = selectAdequacyPaths(selectionArgs);
+  if ('blocked' in selected || probe.command.state !== 'resolved' || probe.files === 'none') {
+    const blocked = 'blocked' in selected ? selected.blocked :
+      probeNotRun('profile-unresolved', 'Hosted adequacy requires a pinned, file-scoped test command.', args.riskTier);
+    return { success: true, data: buildAdequacyCarrier(blocked, args.riskTier, profile) };
+  }
+  const selection = AdequacySelection.parse({ tests: selected.testFiles, sources: selected.sourceFiles });
+  const { client, publicKey, resourceId, profileId } = host.connector;
+  const terms: Omit<Extract<VerificationRequest, { operation: 'adequacy' }>, 'key'> = {
+    version: 1, operation: 'adequacy', resourceId, profileId, selection,
+    commandDigest: verificationValueDigest({ command: probe.command.argv, files: probe.files }),
+    subject: {
+      streamId: args.featureId, phaseAttemptId, taskId: args.taskId,
+      leafId: operation, operationId: host.segmentOperationId,
+      preparedDigest: host.binding.preparedDigest, callerDigest: host.binding.callerDigest,
+      segmentDigest: host.binding.segmentDigest, configDigest: host.binding.configDigest,
+      profileDigest: contentDigest(pinned.profile), testSelectionDigest: verificationValueDigest(selection),
+      baseCommit: coordinate.diffBaseCommit, headCommit: coordinate.observedHeadCommit,
+      blockerHeads: coordinate.blockers.map(blocker => blocker.headCommit),
+    },
+  };
+  const proposed = VerificationRequest.parse({ ...terms, key: verificationKey(terms) });
+  let request: VerificationRequest;
+  try { request = await host.binding.freezeRequest(proposed); }
+  catch { throw new HostedAdequacyPending('The original hosted request differs from current execution authority.'); }
+  const digest = verificationDigest(request);
+  let reply: Awaited<ReturnType<typeof client.retrieve>>;
+  try {
+    reply = await client.retrieve(request.key, digest);
+    if (!('kind' in reply)) {
+      reply = authenticateVerificationReply(reply, publicKey, request.key, digest);
+      if (reply.response.kind === 'absent') {
+        reply = await client.submit(request);
+        if (!('kind' in reply)) reply = authenticateVerificationReply(reply, publicKey, request.key, digest);
+      }
+    }
+  } catch {
+    throw new HostedAdequacyPending('Hosted adequacy delivery was interrupted for the original request.');
+  }
+  try { await host.binding.recheck(); }
+  catch { throw new HostedAdequacyPending('Prepared authority changed during hosted adequacy.'); }
+  if ('kind' in reply || reply.key !== request.key || reply.digest !== digest || reply.response.kind !== 'evidence') {
+    throw new HostedAdequacyPending('Hosted adequacy has no authenticated terminal result for the original request.');
+  }
+  const { signed } = reply.response;
+  const { evidence } = signed;
+  if (evidence.requestDigest !== digest || verificationJson(evidence.request) !== verificationJson(request) ||
+      evidence.resources[0]?.path !== repoRoot || !evidence.resources.some(resource => resource.path === coordinate.repository) ||
+      !('adequacy' in evidence.outcome) || evidence.outcome.adequacy.cleanHead !== coordinate.observedHeadCommit) {
+    throw new HostedAdequacyPending('The terminal hosted result does not apply to the authenticated task checkout.');
+  }
+  const result = interpretHostedAdequacy(evidence.outcome.adequacy, selection.tests, args.riskTier);
+  const carrier = buildAdequacyCarrier(result, args.riskTier, profile);
+  return { success: true, data: { ...carrier, report: { summary: carrier.report, verification: signed } } };
 }
 
 /**

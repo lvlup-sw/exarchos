@@ -17,9 +17,12 @@ import { replayPassingAdequacy } from '../gates/durable-gate-producer.js';
 import { createHash, randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { canonicalJson } from '../../contract/request-context.js';
+import { VerificationRequest, verificationJson, verificationValueDigest } from '../../contract/verification/harness-verification.js';
 import { TaskVerificationCoordinateSchema } from '../../contract/capsule/exarchos-capsule.js';
+import { HostedAdequacyPending } from '../gates/gate-runner.js';
 import { recheckPreparedAuthority, type PreparedAuthority } from '../../workflow/capsule/prepared-custody.js';
 import { observeImmutableClaimedTree } from '../../utils/git-tree.js';
+import { createGitObserver } from '../../utils/git-observer.js';
 import { verificationOperationId, settlementClaimKey } from '../settle/settlement-reads.js';
 import { resolveTaskStanding } from '../settle/task-standing.js';
 import { IntentExecutedOutputSchema } from './schemas.js';
@@ -464,7 +467,12 @@ export async function handleExecuteIntent(
   if (deps.verificationInput === undefined && Object.hasOwn(intentArgs, 'coordinate')) return invalid('Only authenticated settlement may supply verification coordinates');
   if (deps.verificationInput !== undefined) {
     try { return await executeBoundInput(intent, streamId, operationId, intentArgs, stateDir, ctx, deps); }
-    catch (error) { return { success: false, error: { code: 'SEGMENT_INPUT_REFUSED', message: error instanceof Error ? error.message : String(error) } }; }
+    catch (error) {
+      return { success: false, error: {
+        code: error instanceof HostedAdequacyPending ? 'HOSTED_ADEQUACY_PENDING' : 'SEGMENT_INPUT_REFUSED',
+        message: error instanceof Error ? error.message : String(error),
+      } };
+    }
   }
 
   return runExclusivePerOperation(operationId, async () => {
@@ -580,15 +588,78 @@ async function validateBoundProofs(input: z.infer<typeof ExecuteIntentInputSchem
     }
 }
 
+function hostedRequestBindingKey(operationId: string, leafId: string): string {
+  return 'hosted-request:' + verificationValueDigest({ operationId, leafId });
+}
+
+/** Keep the original request before transport, including a crash before first submission. */
+async function freezeHostedRequest(
+  request: VerificationRequest, ctx: DispatchContext, bundles: RunBundleStore,
+): Promise<VerificationRequest> {
+  const { operationId, leafId } = request.subject;
+  const bindingKey = hostedRequestBindingKey(operationId, leafId);
+  const backend = ctx.eventStore.getAppender().ensureSqliteBackendSync();
+  const bytes = Buffer.from(verificationJson(request));
+  const existing = backend.lookupSegmentInput(bindingKey);
+  let payload = existing;
+  if (payload === undefined) {
+    const ref = await bundles.put(bytes);
+    payload = backend.bindSegmentInput(bindingKey, canonicalJson({ version: 1, digest: ref }));
+  }
+  const binding = z.object({ version: z.literal(1), digest: ContentDigestV1Schema }).strict().parse(JSON.parse(payload));
+  const original = await bundles.resolve(binding.digest);
+  const checked = VerificationRequest.parse(JSON.parse(original.toString('utf8')));
+  if (!original.equals(bytes) || verificationJson(checked) !== original.toString('utf8')) {
+    throw new Error('Hosted verifier request changed after binding');
+  }
+  return checked;
+}
+
 /** Interrupted execution uses only the original clean checkout at the selected immutable head. */
-async function requireBoundTree(input: z.infer<typeof ExecuteIntentInputSchema>): Promise<void> {
+async function requireBoundTree(
+  input: z.infer<typeof ExecuteIntentInputSchema>, hosted?: DispatchContext['verificationHost'],
+): Promise<void> {
   const coordinate = input.args.coordinate;
   if (coordinate === undefined) throw new Error('Missing coordinate');
     const treePath = input.args.worktreePath;
     if (typeof treePath !== 'string') throw new Error('Missing bound checkout');
+    if (hosted !== undefined) {
+      await readHostedStructure(input, hosted);
+      return;
+    }
     const tree = await observeImmutableClaimedTree(treePath, coordinate.diffBaseCommit, coordinate.repository);
     if (tree.kind !== 'tree' || tree.repository !== coordinate.repository || tree.head !== coordinate.observedHeadCommit
       || !tree.holdsBase || tree.dirtyPaths.length !== 0) throw new Error('Bound checkout is unavailable, changed or dirty; restore it before resuming');
+}
+
+async function readHostedStructure(
+  input: z.infer<typeof ExecuteIntentInputSchema>, hosted: NonNullable<DispatchContext['verificationHost']>,
+  diff = false,
+): Promise<string> {
+  const coordinate = input.args.coordinate;
+  const checkout = input.args.worktreePath;
+  const branch = input.args.branch;
+  if (coordinate === undefined || typeof checkout !== 'string' || typeof branch !== 'string') {
+    throw new HostedAdequacyPending('Hosted verification requires a registered checkout and branch.');
+  }
+  try {
+    const reader = await createGitObserver(hosted.gitPath);
+    const coordinates = { checkout, repository: coordinate.repository,
+      branch: branch.startsWith('refs/heads/') ? branch : 'refs/heads/' + branch };
+    if (diff) {
+      const selected = await reader.nameStatus(coordinates, coordinate.diffBaseCommit, coordinate.observedHeadCommit);
+      if (selected.kind === 'observed') return selected.value;
+    } else {
+      const selected = await reader.checkout(coordinates);
+      const ancestry = await reader.ancestry(coordinates, coordinate.diffBaseCommit, coordinate.observedHeadCommit);
+      if (selected.kind === 'observed' && selected.value.head === coordinate.observedHeadCommit &&
+          selected.value.checkout === checkout && selected.value.repository === coordinate.repository &&
+          ancestry.kind === 'observed' && ancestry.value) return '';
+    }
+  } catch {
+    throw new HostedAdequacyPending('The original hosted checkout or immutable Git coordinates could not be read.');
+  }
+  throw new HostedAdequacyPending('The original hosted checkout or immutable Git coordinates changed.');
 }
 
 /** The trusted path binds one normalized snapshot before any leaf. A binding is neither a lease nor completion. */
@@ -616,7 +687,7 @@ async function executeBoundInput(intent: string, streamId: string, operationId: 
       const parsed = ExecuteIntentInputSchema.parse(JSON.parse(canonicalJson({ intent, streamId, args: compiled.segment.args })));
       validateBoundAuthority(parsed, args.taskId, authority);
       await validateBoundProofs(parsed, authority, ctx, bundles);
-      await requireBoundTree(parsed);
+      await requireBoundTree(parsed, ctx.verificationHost);
       const bytes = Buffer.from(canonicalJson(parsed), 'utf8');
       const content = await bundles.put(bytes);
       const payload = SegmentInputBindingV1Schema.parse({ namespace: 'exarchos.segment-input.v1', bindingVersion: '1',
@@ -637,19 +708,62 @@ async function executeBoundInput(intent: string, streamId: string, operationId: 
     const compiled = compileIntent(intent, { streamId }, input.args, deps);
     if (!compiled.ok) throw new Error(compiled.refusal.message);
     if (canonicalJson(compiled.segment.args) !== canonicalJson(input.args)) throw new Error('Compiled input changed after binding');
-    await requireBoundTree(input);
+    if (ctx.verificationHost === undefined && compiled.segment.leaves.some(leaf =>
+      leaf.action === 'check_test_adequacy' && backend.lookupSegmentInput(hostedRequestBindingKey(
+        operationId, derivedLeafOperationId(operationId, leaf.index, leaf.action),
+      )) !== undefined)) {
+      throw new HostedAdequacyPending('The connected verifier is unavailable for the original hosted request.');
+    }
+    await requireBoundTree(input, ctx.verificationHost);
     const coordinate = input.args.coordinate;
     if (coordinate === undefined) throw new Error('Missing bound verification coordinate');
+    const requestDigest = normalizedExecuteRequestDigest(intent, streamId, input.args);
+    const scope = authority.authority.capsule.settlementContract.scope;
+    if (scope === undefined) throw new Error('Missing bound repository scope');
+    const winningInput = input;
+    const verificationInput: DispatchContext['verificationInput'] = {
+      coordinate,
+      segmentOperationId: operationId,
+      hosted: {
+        segmentDigest: digestValue(requestDigest).value,
+        callerDigest: digestValue(authority.callerDigest).value,
+        preparedDigest: authority.authority.selection.record.capsuleDigest,
+        configDigest: scope.configDigest,
+        recheck: () => validateBoundProofs(winningInput, authority, ctx, bundles),
+        ...(ctx.verificationHost === undefined ? {} : {
+          observeDiff: async (checkout: string) => {
+            if (checkout !== winningInput.args.worktreePath || ctx.verificationHost === undefined) {
+              throw new HostedAdequacyPending('Hosted checkout differs from original segment.');
+            }
+            return readHostedStructure(winningInput, ctx.verificationHost, true);
+          },
+          checkTree: async (checkout: string) => {
+            if (checkout !== winningInput.args.worktreePath || ctx.verificationHost === undefined) {
+              throw new HostedAdequacyPending('Hosted checkout differs from original segment.');
+            }
+            await readHostedStructure(winningInput, ctx.verificationHost);
+          },
+        }),
+        freezeRequest: request => {
+          const subject = request.subject;
+          if (subject.operationId !== operationId || subject.streamId !== streamId ||
+              subject.taskId !== coordinate.taskId || subject.segmentDigest !== digestValue(requestDigest).value) {
+            throw new Error('Hosted request differs from the original segment');
+          }
+          return freezeHostedRequest(request, ctx, bundles);
+        },
+      },
+    };
     for (const leaf of compiled.segment.leaves) {
       const rows = await ctx.eventStore.query(leaf.observationStreamId, { operationId: derivedLeafOperationId(operationId, leaf.index, leaf.action) });
       if (rows.length > 0 && leaf.contract.replay.kind !== 'safe-repeat'
         && await replayElidedRows({ leaf, derived: derivedLeafOperationId(operationId, leaf.index, leaf.action),
-          ctx: { ...ctx, verificationInput: { coordinate, segmentOperationId: operationId } } }) === undefined) {
+          ctx: { ...ctx, verificationInput } }) === undefined) {
         throw new Error(`Interrupted leaf '${leaf.action}' has effects without a safe continuation contract; retain them and recover explicitly`);
       }
     }
-    const committed = await runSegment({ segment: compiled.segment, operationId, requestDigest: normalizedExecuteRequestDigest(intent, streamId, input.args),
-      stateDir, ctx, outer: outerCorrelation(ctx), handlers: deps.handlers, handlerTool: deps.handlerTool, bundles,
+    const committed = await runSegment({ segment: compiled.segment, operationId, requestDigest,
+      stateDir, ctx: { ...ctx, verificationInput }, outer: outerCorrelation(ctx), handlers: deps.handlers, handlerTool: deps.handlerTool, bundles,
       steeringSource: 'capsule', boundInput: input });
     return committed.kind === 'digest-mismatch' ? digestMismatchResult(operationId, 'Nothing may replace the bound input.') : receiptResult(committed.receipt);
   });
@@ -741,11 +855,10 @@ async function runSegment(input: RunSegmentInput): Promise<CommitOutcome> {
   let failedLeaf: string | undefined;
   let failure: IntentReceipt['failure'];
 
-  const coordinate = input.boundInput?.args.coordinate;
-  const leafContext = coordinate === undefined ? ctx : { ...ctx, verificationInput: { coordinate, segmentOperationId: operationId } };
+
   for (const leaf of segment.leaves) {
     const startedAt = new Date().toISOString();
-    const outcome = await runLeaf({ leaf, operationId, stateDir, ctx: leafContext, outer, handlers, handlerTool, segment });
+    const outcome = await runLeaf({ leaf, operationId, stateDir, ctx, outer, handlers, handlerTool, segment });
     const endedAt = new Date().toISOString();
     leaves.push({
       action: leaf.action,
@@ -845,7 +958,7 @@ async function replayElidedRows(input: {
       taskId: leaf.args.taskId, repoRoot, eventStore: ctx.eventStore,
       ...(typeof leaf.args.branch === 'string' ? { branch: leaf.args.branch } : {}),
       ...(typeof leaf.args.baseBranch === 'string' ? { baseRef: leaf.args.baseBranch } : {}) },
-    derived, authorization.identity.subjectId, ctx.verificationInput.coordinate);
+    derived, authorization.identity.subjectId, ctx.verificationInput.coordinate, ctx.verificationInput.hosted?.checkTree);
     if (rows !== undefined) return rows.map(row => ({ type: row.type, streamId: row.streamId, sequence: row.sequence }));
     if (existing.length === 0) return undefined;
     throw new Error('Existing adequacy effects do not authenticate a complete passing replay');
@@ -904,8 +1017,12 @@ function blockingGateRefusal(leaf: CompiledLeaf, result: ToolResult): string | u
  * In `advisory` mode, the receipt leaf records a missing emission, and the leaf does not fail for it.
  */
 async function runLeaf(input: RunLeafInput): Promise<LeafOutcome> {
-  const { leaf, operationId, stateDir, ctx, outer, handlers, handlerTool } = input;
+  const { leaf, operationId, stateDir, ctx: segmentContext, outer, handlers, handlerTool } = input;
   const derived = derivedLeafOperationId(operationId, leaf.index, leaf.action);
+  const verification = segmentContext.verificationInput;
+  const ctx = verification?.hosted === undefined ? segmentContext : {
+    ...segmentContext, verificationInput: { ...verification, hosted: { ...verification.hosted, leafOperationId: derived } },
+  };
   const captures: Capture[] = [];
 
   const receiptEvents = (): ReceiptEvent[] =>
@@ -1168,7 +1285,7 @@ async function commitReceipt(
   receipt: IntentReceipt,
   traces: readonly LeafTrace[],
 ): Promise<CommitOutcome> {
-  if (input.boundInput !== undefined) await requireBoundTree(input.boundInput);
+  if (input.boundInput !== undefined) await requireBoundTree(input.boundInput, input.ctx.verificationHost);
   const bytes = encodeExecuteIntentBundle(bundleDocument(input, receipt, traces));
   const artifactId = executeIntentBundleArtifactId(input.operationId);
 
