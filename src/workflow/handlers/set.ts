@@ -118,12 +118,17 @@ function legacyDocumentCursor(state: WorkflowState, rows: readonly WorkflowEvent
   return cursor;
 }
 
+/** Clone the stored document for the legacy projection. */
+function legacyProjectionSeed(state: WorkflowState): WorkflowStateView {
+  return structuredClone(state) as unknown as WorkflowStateView;
+}
+
 /** Old streams without a start retain document authority and replay only rows after their represented cursor. */
 function projectLegacyDocument(state: WorkflowState, rows: readonly WorkflowEvent[], featureId: string): WorkflowState {
   if (rows.some(row => row.type === START_ROW_TYPE)) return projectStateDocument(state, rows, featureId);
   const tail = highestSequence(rows);
   const cursor = legacyDocumentCursor(state, rows, featureId);
-  let view = structuredClone(state) as unknown as WorkflowStateView;
+  let view = legacyProjectionSeed(state);
   for (const row of rows) if (row.sequence > cursor) view = workflowStateProjection.apply(view, row);
   let checkpoint = { ...state._checkpoint };
   for (const row of rows) {
@@ -530,7 +535,7 @@ async function replayUnpublishedLegacyMove(pass: FoldPassInput, rows: readonly W
 
   const backend = pass.eventStore.getAppender().ensureSqliteBackendSync();
   const bySequence = new Map(pending.map(row => [row.sequence, row]));
-  let projected = structuredClone(state) as unknown as WorkflowStateView;
+  let projected = legacyProjectionSeed(state);
   const priorBySequence = new Map<number, Pick<WorkflowStateView, 'phase' | 'phaseAttemptId'>>();
   let candidate: Pick<FoldRead, 'from' | 'attemptId'> | undefined;
   for (const row of pending) {
