@@ -198,6 +198,53 @@ describe('bootstrap repair', () => {
     expect(await s.events.query(STREAM)).toHaveLength(first.tailSequence);
   });
 
+  it('BootstrapRepair_EqualVersionDifferentIdentity_RefusesReplacement', async () => {
+    for (const version of ['unchanged', 'incremented', 'reused'] as const) {
+      for (const changedField of [undefined, 'version', 'featureId', 'workflowType'] as const) {
+        if (version === 'unchanged' && changedField !== undefined) continue;
+        const s = await bootstrapFixture(cleanup);
+        configureStateStoreBackend(s.backend);
+        const first = receipt(await s.call());
+        const rows = await s.events.query(STREAM);
+        const claim = s.backend.lookupOperationClaim(first.operationId);
+        const stale = buildInitialState(STREAM, 'feature', { _version: 3 });
+        s.backend.setState(STREAM, stale, 2);
+        const identityChanges = { version: '1.0', featureId: 'other-feature', workflowType: 'debug' };
+        const actorVersion = version === 'incremented' ? 4 : 3;
+        const actor = {
+          ...stale, _version: actorVersion, updatedAt: '2026-11-13T12:00:00.000Z',
+          ...(changedField === undefined ? {} : { [changedField]: identityChanges[changedField] }),
+        };
+        const set = s.backend.setState.bind(s.backend);
+        const write = vi.spyOn(s.backend, 'setState').mockImplementationOnce((...args) => {
+          if (version === 'reused') {
+            s.backend.deleteState(STREAM);
+            set(STREAM, actor);
+          } else if (version === 'incremented') {
+            set(STREAM, actor, 3);
+          }
+          return set(...args);
+        });
+        const result = await s.call();
+        if (changedField === undefined) {
+          expect(receipt(result)).toEqual(first);
+          expect(s.backend.getState(STREAM)).toMatchObject({
+            phase: 'delegate', _eventSequence: first.tailSequence, _version: actorVersion + 1,
+          });
+        } else {
+          expect(result).toMatchObject({ success: false, error: {
+            code: 'STATE_SYNC_FAILED', message: expect.stringContaining(first.operationId),
+          } });
+          expect(s.backend.getState(STREAM)).toEqual(actor);
+        }
+        expect(write).toHaveBeenCalledTimes(version === 'incremented' && changedField === undefined ? 2 : 1);
+        expect(s.backend.lookupOperationClaim(first.operationId)).toEqual(claim);
+        expect(await s.events.query(STREAM)).toEqual(rows);
+        write.mockRestore();
+      }
+    }
+  });
+
   it('Repair_MalformedV11_NeverFallsBack', async () => {
     const s = await bootstrapFixture(cleanup);
     const first = receipt(await s.call());

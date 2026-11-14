@@ -7,7 +7,7 @@
     "testFiles": 1480,
     "parsedFiles": 1435,
     "shellFiles": 45,
-    "cases": 16393,
+    "cases": 16397,
     "dynamicTitles": 283,
     "unparseableFiles": 0
   },
@@ -91436,6 +91436,11 @@
         },
         {
           "suite": "bootstrap repair",
+          "name": "BootstrapRepair_EqualVersionDifferentIdentity_RefusesReplacement",
+          "dynamic": false
+        },
+        {
+          "suite": "bootstrap repair",
           "name": "Repair_MalformedV11_NeverFallsBack",
           "dynamic": false
         },
@@ -94153,6 +94158,21 @@
         },
         {
           "suite": "legacy kernel transaction fences",
+          "name": "LegacyKernelPin_StaleDocument_RefusesObsoleteSourceAndContinuesFromLedger",
+          "dynamic": false
+        },
+        {
+          "suite": "legacy kernel transaction fences",
+          "name": "LegacyKernelPin_ProjectedKeyWinner_ReplaysBeforeGuard",
+          "dynamic": false
+        },
+        {
+          "suite": "legacy kernel transaction fences",
+          "name": "LegacyKernelPin_PatchCommittedBeforeCasRetry_IsNotAppendedAgain",
+          "dynamic": false
+        },
+        {
+          "suite": "legacy kernel transaction fences",
           "name": "KernelCustom_NewerTypedPinAtCommit_DeniesWithoutOldTrail",
           "dynamic": false
         },
@@ -94243,7 +94263,7 @@
         },
         {
           "suite": "no-start claim recovery across calls",
-          "name": "KernelNoAttempt_PersistentPublicationFailure_FreshRequestDifferentPayload_%s",
+          "name": "LegacyKernelPin_ExactRetry_ReplaysWithoutCustody differentPayload=%s",
           "dynamic": false
         },
         {

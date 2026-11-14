@@ -8,8 +8,9 @@ import type {
   DrainResult,
   WorkflowSummary,
   WorkflowSummaryFilter,
+  StoredStateIdentity,
 } from './backend.js';
-import { deriveWorkflowStatus, matchesWorkflowSummaryFilter } from './backend.js';
+import { deriveWorkflowStatus, matchesWorkflowSummaryFilter, matchesStoredStateIdentity, StoredStateIdentityConflictError } from './backend.js';
 import type { SnapshotRecord } from '../projections/snapshot-schema.js';
 import { resolveMaxRecords } from './snapshot-retention.js';
 
@@ -203,12 +204,15 @@ export class InMemoryBackend implements StorageBackend {
    * first write without `expectedVersion` takes its version from `state._version`,
    * so state seeded from disk keeps the persisted version counter.
    */
-  setState(featureId: string, state: WorkflowState, expectedVersion?: number): void {
+  setState(featureId: string, state: WorkflowState, expectedVersion?: number, expectedIdentity?: StoredStateIdentity): void {
     const entry = this.states.get(featureId);
     const currentVersion = entry ? entry.version : 0;
 
     if (expectedVersion !== undefined && currentVersion !== expectedVersion) {
       throw new VersionConflictError(featureId, expectedVersion, currentVersion);
+    }
+    if (expectedIdentity !== undefined && !matchesStoredStateIdentity(entry?.state, expectedIdentity)) {
+      throw new StoredStateIdentityConflictError();
     }
 
     let newVersion: number;

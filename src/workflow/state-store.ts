@@ -37,7 +37,7 @@ import { workflowStateProjection, type WorkflowStateView } from '../projections/
 import { isDeepStrictEqual } from 'node:util';
 import { foldWorkflowState } from '../projections/guard-input/fold.js';
 import { toGuardEvents } from '../projections/guard-input/guard-events.js';
-import type { StorageBackend } from '../storage/backend.js';
+import { matchesStoredStateIdentity, StoredStateIdentityConflictError, type StorageBackend } from '../storage/backend.js';
 import { mergeSidecarEvents } from '../storage/sidecar-merger.js';
 import { isPidAlive } from '../utils/process.js';
 import { publishTempFile, readPublished } from '../utils/atomic-write.js';
@@ -292,8 +292,7 @@ interface InitialStateIdentity {
 
 /** Bootstrap repair accepts only current documents of the committed start's identity. */
 function requireInitialStateIdentity(state: unknown, identity: InitialStateIdentity): void {
-  if (!isPlainObject(state) || state.version !== CURRENT_VERSION
-      || state.featureId !== identity.featureId || state.workflowType !== identity.workflowType) {
+  if (!matchesStoredStateIdentity(state, { ...identity, version: CURRENT_VERSION })) {
     throw new StateStoreError(ErrorCode.STATE_ALREADY_EXISTS, 'The existing document does not match the committed bootstrap');
   }
 }
@@ -437,8 +436,16 @@ export async function writeStateFile(
     }
 
     try {
-      _stateStoreBackend.setState(featureId, stateWithVersion, options?.expectedVersion);
+      const identity = options?.initialIdentity;
+      if (identity === undefined) {
+        _stateStoreBackend.setState(featureId, stateWithVersion, options?.expectedVersion);
+      } else {
+        _stateStoreBackend.setState(featureId, stateWithVersion, options?.expectedVersion, { ...identity, version: CURRENT_VERSION });
+      }
     } catch (err) {
+      if (err instanceof StoredStateIdentityConflictError) {
+        throw new StateStoreError(ErrorCode.STATE_ALREADY_EXISTS, err.message);
+      }
       if (err instanceof Error && err.name === 'VersionConflictError') {
         const message = err.message;
         const match = message.match(/expected (\d+), actual (\d+)/);

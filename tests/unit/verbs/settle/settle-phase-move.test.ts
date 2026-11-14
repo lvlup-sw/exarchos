@@ -1126,8 +1126,24 @@ describe('settle authority races preserve executed segments', () => {
     const original = appender.decideOnce.bind(appender);
     const write = store.backend.setState.bind(store.backend);
     let committed = false;
-    vi.spyOn(store.backend, 'setState').mockImplementation((...args) => {
-      if (committed) throw new BackendVersionConflictError(1, 2);
+    const reads: string[] = [];
+    const readDocument = store.backend.getState.bind(store.backend);
+    const readRows = store.eventStore.query.bind(store.eventStore);
+    vi.spyOn(store.backend, 'getState').mockImplementation((featureId) => {
+      if (committed && featureId === STREAM) reads.push('document');
+      return readDocument(featureId);
+    });
+    vi.spyOn(store.eventStore, 'query').mockImplementation((featureId, filters) => {
+      if (committed && featureId === STREAM && filters === undefined) reads.push('ledger');
+      return readRows(featureId, filters);
+    });
+    const failWrite = vi.spyOn(store.backend, 'setState').mockImplementation((...args) => {
+      const [featureId, state, expectedVersion] = args;
+      if (committed && state.phase === 'review') {
+        reads.push('conflict');
+        const version = expectedVersion ?? 0;
+        throw new BackendVersionConflictError(featureId, version, version + 1);
+      }
       return write(...args);
     });
     vi.spyOn(appender, 'decideOnce').mockImplementation(async (id, digest, closure) => {
@@ -1138,7 +1154,11 @@ describe('settle authority races preserve executed segments', () => {
     const args = { capsuleVersion: 1, batchId: 'publication', claims: [completedClaim('task-a')] };
     const first = await settle(store, args);
     const accepted = receiptOf(first);
-    expect(first).toMatchObject({ success: true });
+    expect(first).toMatchObject({ success: true, warnings: [expect.stringContaining('PHASE_LEVEL_FAILED')] });
+    expect(reads.slice(-9)).toEqual(Array.from({ length: 3 }, () => ['document', 'ledger', 'conflict']).flat());
+    expect(reads.filter(kind => kind === 'conflict')).toHaveLength(3);
+    expect(documentOf(store).phase).toBe('delegate');
+    failWrite.mockRestore();
     const rows = await store.eventStore.query(STREAM);
     const segmentCount = rows.filter(row => row.type === 'orchestrate.intent_executed').length;
     expect(segmentCount).toBe(1);
@@ -1146,6 +1166,7 @@ describe('settle authority races preserve executed segments', () => {
     vi.spyOn(store.eventStore.bundleStore, 'resolve').mockRejectedValue(new Error('custody unavailable'));
     const retry = await settle(store, args);
     expect(receiptOf(retry)).toEqual(accepted);
+    expect(documentOf(store)).toMatchObject({ phase: 'review', revisionNote: 'later', _eventSequence: await tailOf(store) });
     expect((await settle(store, { ...args, claims: [{ ...completedClaim('task-a'), fields: { changed: true } }] })).error?.code).toBe('OPERATION_DIGEST_MISMATCH');
     expect((await store.eventStore.query(STREAM)).filter(row => row.type === 'orchestrate.intent_executed')).toHaveLength(segmentCount);
     expect(await store.eventStore.query(STREAM, { type: 'execution.settled' })).toHaveLength(1);

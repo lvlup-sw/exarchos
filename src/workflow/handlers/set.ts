@@ -382,6 +382,7 @@ interface FoldPassInput {
   readonly state: WorkflowState;
   readonly authority?: PreparedAuthority;
   readonly pendingPatchError?: StateStoreError;
+  readonly originalUpdates?: Record<string, unknown>;
 }
 
 /**
@@ -397,19 +398,17 @@ async function decideOnTheFold(pass: FoldPassInput): Promise<FoldPass> {
   let read: FoldRead;
   let outcome: DecideOutcome;
   let authority: PreparedAuthority | undefined;
-  let replayRead: FoldRead | undefined;
+  let replayRead: Pick<FoldRead, 'from' | 'attemptId'> | undefined;
+  const noStart = !rows.some(row => row.type === START_ROW_TYPE);
+  const replayPass = noStart && pass.originalUpdates !== undefined ? { ...pass, updates: pass.originalUpdates } : pass;
   try {
-    read = foldRead(featureId, target, rows, undefined, options);
-    if (!rows.some(row => row.type === START_ROW_TYPE)) {
-      read = { ...read, from: pass.state.phase, prior: { ...pass.state },
-        foldAttemptId: readPhaseAttemptId(pass.state),
-        attemptId: documentAttemptId(featureId, target, pass.state) };
-    }
-    replayRead = read;
-    const replay = await replayClaim(pass, read);
+    replayRead = noStart
+      ? { from: pass.state.phase, attemptId: documentAttemptId(featureId, target, pass.state) }
+      : foldRead(featureId, target, rows, undefined, options);
+    const replay = await replayClaim(replayPass, replayRead);
     if (replay !== undefined) return replay;
-    if (pass.pendingPatchError !== undefined) {
-      const winner = await replayClaim(pass, read);
+    if (!noStart && pass.pendingPatchError !== undefined) {
+      const winner = await replayClaim(replayPass, replayRead);
       if (winner !== undefined) return winner;
       return reply({ code: ErrorCode.INVALID_INPUT, message: `Write-time validation failed: ${pass.pendingPatchError.message}` });
     }
@@ -423,9 +422,14 @@ async function decideOnTheFold(pass: FoldPassInput): Promise<FoldPass> {
     if (authority !== undefined && definition === undefined
       && routeOf({ ...pass.state, workflowType: authority.selection.record.workflowType }, eventStore,
         rows.filter(row => row.type !== 'workflow.prepared')).kind === 'legacy') {
-      const winner = await replayClaim(pass, read);
+      const winner = await replayClaim(replayPass, replayRead);
       if (winner !== undefined) return winner;
       return { kind: 'legacy', authority };
+    }
+    if (pass.pendingPatchError !== undefined) {
+      const winner = await replayClaim(replayPass, replayRead);
+      if (winner !== undefined) return winner;
+      return reply({ code: ErrorCode.INVALID_INPUT, message: `Write-time validation failed: ${pass.pendingPatchError.message}` });
     }
     const policyType = authority?.selection.record.workflowType ?? workflowType;
     const selectedDefinition = definition ?? (isBuiltInDefinitionType(policyType) ? builtInDefinition(policyType) : undefined);
@@ -438,7 +442,7 @@ async function decideOnTheFold(pass: FoldPassInput): Promise<FoldPass> {
     outcome = decide(def, read.input, { kind: 'transition', target });
   } catch (err) {
     if (err instanceof OperationDigestMismatchError) throw err;
-    const replay = replayRead === undefined ? undefined : await replayClaim(pass, replayRead);
+    const replay = replayRead === undefined ? undefined : await replayClaim(replayPass, replayRead);
     if (replay !== undefined) return replay;
     return reply({ code: ErrorCode.PROJECTION_REPLAY_FAILED,
       message: `The transition authority of '${featureId}' failed: ${messageOf(err)}` });
@@ -793,15 +797,15 @@ export async function handleSet(
         error: { code: ErrorCode.INVALID_INPUT, message: `Write-time validation failed: ${pendingPatchError.message}` } };
       ledgerBacked = route.kind === 'fold';
       routeWarnings = route.kind === 'legacy' ? route.warnings : [];
-      const fromPhase = state.phase;
+      let guardPrior = state;
       if (
         route.kind === 'legacy'
-        && fromPhase !== input.phase
+        && state.phase !== input.phase
         && transitionPhaseAttemptId === undefined
       ) {
         transitionPhaseAttemptId = allocatePhaseAttemptId(
           input.featureId,
-          fromPhase,
+          state.phase,
           input.phase,
           readPhaseAttemptId(state),
           expectedVersion,
@@ -847,6 +851,7 @@ export async function handleSet(
           featureId: input.featureId,
           target: input.phase,
           updates: patchSequence === undefined ? input.updates : undefined,
+          ...(input.updates === undefined ? {} : { originalUpdates: input.updates }),
           state,
           workflowType: route.workflowType,
           ...(pendingPatchError === undefined ? {} : { pendingPatchError }),
@@ -866,10 +871,11 @@ export async function handleSet(
           patchAuthority = pass.authority;
           legacyNoStart = !rows.some(row => row.type === START_ROW_TYPE);
           ledgerBacked = !legacyNoStart;
-          transitionPhaseAttemptId = legacyNoStart ? documentAttemptId(input.featureId, input.phase, state)
-            : state.phase === input.phase ? undefined : allocatePhaseAttemptId(input.featureId, state.phase, input.phase,
+          if (!legacyNoStart) {
+            transitionPhaseAttemptId = state.phase === input.phase ? undefined : allocatePhaseAttemptId(input.featureId, state.phase, input.phase,
               readPhaseAttemptId(state), highestSequence(rows));
-          mutableState._pendingPhaseAttemptId = transitionPhaseAttemptId;
+            mutableState._pendingPhaseAttemptId = transitionPhaseAttemptId;
+          }
         } else if (pass.kind === 'moved') {
           committed = pass.move;
         } else {
@@ -890,24 +896,37 @@ export async function handleSet(
       }
       if (committed === undefined && (route.kind === 'legacy' || legacyAuthority !== undefined)) {
         let attemptResult;
+        const pendingUpdates = legacyNoStart && patchSequence !== undefined ? undefined : input.updates;
         const replayLegacyWinner = async (): Promise<boolean> => {
           if (legacyAuthority === undefined || eventStore === null || rows === undefined || committed !== undefined) return false;
           const winner = await replayClaim({ featureId: input.featureId, target: targetPhase, updates: input.updates,
             workflowType: legacyAuthority.selection.record.workflowType, rows, options, eventStore, state },
-          { from: fromPhase, attemptId: transitionPhaseAttemptId });
+          { from: guardPrior.phase, attemptId: transitionPhaseAttemptId });
           if (winner?.kind !== 'reads-changed') return false;
           replayed = true;
           patchSequence = winner.patchSequence ?? patchSequence;
           return true;
         };
         try {
+          if (legacyNoStart && rows !== undefined) {
+            transitionPhaseAttemptId = undefined;
+            guardPrior = projectLegacyDocument(state, rows, input.featureId);
+            transitionPhaseAttemptId = documentAttemptId(input.featureId, targetPhase, guardPrior);
+            if (await replayLegacyWinner()) continue;
+            const patch = pendingPatchRow(input.featureId, pendingUpdates, rows);
+            mutableState = { ...(patch === undefined ? guardPrior : projectLegacyDocument(state, [...rows, patch], input.featureId)) };
+            mutableState._events = toGuardEvents(rows);
+            injectGuardConfig(mutableState, options);
+            mutableState._pendingPhaseAttemptId = transitionPhaseAttemptId;
+          }
+          const fromPhase = guardPrior.phase;
           attemptResult = await hsmTransitionGuard.attempt(
             input.featureId,
             fromPhase,
             input.phase,
             {
               state: mutableState,
-              priorState: { ...state },
+              priorState: { ...guardPrior },
               workflowType: legacyAuthority?.selection.record.workflowType ?? state.workflowType as string,
               skipPhases: options?.skipPhases,
               idempotencyKeySuffix: String(expectedVersion),
@@ -931,15 +950,15 @@ export async function handleSet(
                         throw new TransitionReadsChanged(input.featureId, targetPhase);
                       }
                       const snapshotRows = migrated.map(workflowEventOf);
-                      if (!legacyNoStart) {
-                        const prior = foldWorkflowState(snapshotRows);
-                        if (prior.phase !== fromPhase || readPhaseAttemptId(prior) !== readPhaseAttemptId(state)) {
-                          throw new TransitionReadsChanged(input.featureId, targetPhase);
-                        }
+                      const prior = legacyNoStart ? projectLegacyDocument(state, snapshotRows, input.featureId)
+                        : foldWorkflowState(snapshotRows);
+                      if (prior.phase !== fromPhase || readPhaseAttemptId(prior) !== readPhaseAttemptId(guardPrior)) {
+                        throw new TransitionReadsChanged(input.featureId, targetPhase);
                       }
-                      projectLegacyDocument(state, snapshotRows, input.featureId);
-                      const patch = pendingPatchRow(input.featureId, input.updates, snapshotRows);
-                      projectLegacyDocument(state, patch ? [...snapshotRows, patch] : snapshotRows, input.featureId);
+                      const patch = pendingPatchRow(input.featureId, pendingUpdates, snapshotRows);
+                      if (!legacyNoStart || patch !== undefined) {
+                        projectLegacyDocument(state, patch === undefined ? snapshotRows : [...snapshotRows, patch], input.featureId);
+                      }
                       const events = [...(patch ? [patch] : []), ...trail].map(row => stampFromAmbient({
                         type: row.type, source: 'workflow', correlationId: row.correlationId,
                         data: row.type === 'workflow.transition' ? { ...row.data, phaseAttemptId: attemptId, historyUpdates: result.historyUpdates } : row.data,
