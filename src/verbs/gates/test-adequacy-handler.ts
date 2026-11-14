@@ -51,6 +51,7 @@ import {
   type TestRunFn,
 } from './test-adequacy.js';
 import { assertNever } from '../../contract/error-families.js';
+import { observeImmutableClaimedTree } from '../../utils/git-tree.js';
 import { CapsuleBaseRefSchema } from '../../contract/capsule/exarchos-capsule.js';
 
 /** The probe term of the verification profile. */
@@ -306,9 +307,12 @@ export function changedFilesFor(
   repoRoot: string,
   baseRef: string,
   headRef?: string,
+  immutable = false,
 ): ChangedFilesResult {
   const head = headRef && headRef.trim().length > 0 ? headRef.trim() : 'HEAD';
-  const result = gitExec(repoRoot, ['diff', '-z', '--no-renames', '--name-status', `${baseRef}...${head}`]);
+  const result = immutable
+    ? gitExec(repoRoot, ['diff', '-z', '--no-renames', '--name-status', '--no-ext-diff', baseRef, head, '--'])
+    : gitExec(repoRoot, ['diff', '-z', '--no-renames', '--name-status', `${baseRef}...${head}`]);
   if (result.exitCode !== 0) {
     return {
       ok: false,
@@ -389,6 +393,14 @@ export async function handleTestAdequacy(
   if (!pre.ok) return pre.result;
   const repoRoot = pre.repoRoot;
   const baseBranch = args.baseBranch && args.baseBranch.trim().length > 0 ? args.baseBranch.trim() : undefined;
+  if (args.coordinate !== undefined) {
+    const selected = args.coordinate;
+    const tree = await observeImmutableClaimedTree(repoRoot, selected.diffBaseCommit, selected.repository);
+    if (tree.kind !== 'tree' || tree.repository !== selected.repository || tree.head !== selected.observedHeadCommit
+      || !tree.holdsBase || tree.dirtyPaths.length !== 0) {
+      return { success: false, error: { code: 'TASK_COORDINATE_REFUSED', message: 'The adequacy probe requires the selected clean checkout before source revert.' } };
+    }
+  }
 
   return runDurableGateProducer(
     {
@@ -426,25 +438,29 @@ export async function handleTestAdequacy(
         };
       }
 
-      if (baseBranch === undefined) {
+      if (baseBranch === undefined && args.coordinate === undefined) {
         return {
           success: true,
           data: buildAdequacyCarrier(probeNotRun('base-missing', BASE_MISSING_DETAIL, args.riskTier), args.riskTier),
         };
       }
 
-      const gitExec = args.gitExec ?? defaultGitExec;
+      const executeGit = args.gitExec ?? defaultGitExec;
+      const gitExec: GitExec = args.coordinate === undefined ? executeGit
+        : (cwd, argv) => executeGit(cwd, ['-c', 'core.fsmonitor=false', ...argv]);
       const { tests } = profileOf(args, repoRoot);
       const runTests = args.runTests ?? buildScopedTestRunner(tests.probe, repoRoot);
-      const mergeBase = resolveMergeBase(gitExec, repoRoot, baseBranch, args.branch);
+      const mergeBase: MergeBaseResult = args.coordinate === undefined
+        ? resolveMergeBase(gitExec, repoRoot, baseBranch ?? '', args.branch)
+        : { ok: true, sha: args.coordinate.diffBaseCommit };
       const changed: ChangedFilesResult = mergeBase.ok
-        ? changedFilesFor(gitExec, repoRoot, mergeBase.sha, args.branch)
+        ? changedFilesFor(gitExec, repoRoot, mergeBase.sha, args.coordinate?.observedHeadCommit ?? args.branch, args.coordinate !== undefined)
         : { ok: false, detail: mergeBase.detail };
 
       const probe: ProbeResult = await runProbe({
         gitExec,
         repoRoot,
-        baseRef: mergeBase.ok ? mergeBase.sha : baseBranch,
+        baseRef: mergeBase.ok ? mergeBase.sha : baseBranch ?? '',
         changedFiles: changed.ok ? changed.files : [],
         ...(changed.ok ? { deletedFiles: changed.deletedFiles } : { diffFailed: true }),
         ...(args.riskTier ? { riskTier: args.riskTier } : {}),

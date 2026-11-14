@@ -15,6 +15,8 @@
  * in the user's home directory.
  */
 
+import type { z } from 'zod';
+import type { TaskVerificationCoordinateSchema } from '../../contract/capsule/exarchos-capsule.js';
 import type { ToolResult } from '../../format.js';
 import { logger } from '../../logger.js';
 import type { EventStore } from '../../events/store.js';
@@ -155,6 +157,11 @@ export interface DispatchContext {
    * The composition root sets no profile, and a caller over MCP or the CLI cannot set the field.
    */
   readonly verificationProfile?: PinnedVerificationProfile;
+  /** Only the bound executor supplies the winning coordinate and its stable segment identity. */
+  readonly verificationInput?: {
+    readonly coordinate: z.infer<typeof TaskVerificationCoordinateSchema>;
+    readonly segmentOperationId: string;
+  };
 }
 
 /**

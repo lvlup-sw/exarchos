@@ -18,7 +18,7 @@ import { z } from 'zod';
 import { canonicalJson } from '../../contract/request-context.js';
 import { TaskVerificationCoordinateSchema } from '../../contract/capsule/exarchos-capsule.js';
 import { recheckPreparedAuthority, type PreparedAuthority } from '../../workflow/capsule/prepared-custody.js';
-import { observeClaimedTree } from '../../utils/git-tree.js';
+import { observeImmutableClaimedTree } from '../../utils/git-tree.js';
 import { verificationOperationId, settlementClaimKey } from '../settle/settlement-reads.js';
 import { resolveTaskStanding } from '../settle/task-standing.js';
 import { IntentExecutedOutputSchema } from './schemas.js';
@@ -533,7 +533,7 @@ async function requireBoundTree(input: z.infer<typeof ExecuteIntentInputSchema>)
   if (coordinate === undefined) throw new Error('Missing coordinate');
     const treePath = input.args.worktreePath;
     if (typeof treePath !== 'string') throw new Error('Missing bound checkout');
-    const tree = await observeClaimedTree(treePath, coordinate.diffBaseCommit, coordinate.repository);
+    const tree = await observeImmutableClaimedTree(treePath, coordinate.diffBaseCommit, coordinate.repository);
     if (tree.kind !== 'tree' || tree.repository !== coordinate.repository || tree.head !== coordinate.observedHeadCommit
       || !tree.holdsBase || tree.dirtyPaths.length !== 0) throw new Error('Bound checkout is unavailable, changed or dirty; restore it before resuming');
 }
@@ -684,9 +684,11 @@ async function runSegment(input: RunSegmentInput): Promise<CommitOutcome> {
   let failedLeaf: string | undefined;
   let failure: IntentReceipt['failure'];
 
+  const coordinate = input.boundInput?.args.coordinate;
+  const leafContext = coordinate === undefined ? ctx : { ...ctx, verificationInput: { coordinate, segmentOperationId: operationId } };
   for (const leaf of segment.leaves) {
     const startedAt = new Date().toISOString();
-    const outcome = await runLeaf({ leaf, operationId, stateDir, ctx, outer, handlers, handlerTool, segment });
+    const outcome = await runLeaf({ leaf, operationId, stateDir, ctx: leafContext, outer, handlers, handlerTool, segment });
     const endedAt = new Date().toISOString();
     leaves.push({
       action: leaf.action,

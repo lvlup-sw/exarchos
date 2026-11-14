@@ -2,6 +2,8 @@
  * Composite handler for the `exarchos_orchestrate` tool. It routes the `action` field to the matching handler.
  */
 
+import { canonicalJson } from '../contract/request-context.js';
+import { TaskVerificationCoordinateSchema } from '../contract/capsule/exarchos-capsule.js';
 import { type ToolResult } from '../format.js';
 import type { DispatchContext } from '../dispatch/core/dispatch.js';
 import type { EventType } from '../events/schemas.js';
@@ -215,6 +217,22 @@ async function resolveWorkflowTypeForGate(
   }
 }
 
+/** Refuses unbound or mismatched coordinate inputs before provider effects. */
+function coordinateRefusal(args: Record<string, unknown>, ctx: DispatchContext | undefined, coordinateAware: boolean): ToolResult | undefined {
+  const supplied = args.coordinate;
+  const trusted = ctx?.verificationInput;
+  if (supplied !== undefined || (coordinateAware && trusted !== undefined)) {
+    const parsed = TaskVerificationCoordinateSchema.safeParse(supplied);
+    if (!coordinateAware || trusted === undefined || !parsed.success
+      || trusted.segmentOperationId.length === 0
+      || parsed.data.taskId !== args.taskId || parsed.data.capsule.workflowId !== args.featureId
+      || canonicalJson(parsed.data) !== canonicalJson(trusted.coordinate)) {
+      return { success: false, error: { code: 'TASK_COORDINATE_REFUSED', message: 'The leaf coordinate requires matching bound segment authority.' } };
+    }
+  }
+  return undefined;
+}
+
 /**
  * Adapter for a verification-ladder gate. It copies `ctx.projectConfig` into the args when the args carry none.
  * The self-skip routing of the handler thus reads the dispatch config. An explicit `projectConfig` in the args, such as from a test, wins.
@@ -226,6 +244,7 @@ async function resolveWorkflowTypeForGate(
  */
 export function adaptLadderGate<T>(
   handler: (args: T, stateDir: string, eventStore: EventStore) => Promise<ToolResult>,
+  coordinateAware = false,
 ): ActionHandler {
   return async (args, stateDir, ctx) => {
     if (!ctx?.eventStore) {
@@ -233,6 +252,8 @@ export function adaptLadderGate<T>(
         `${handler.name}: ctx.eventStore required (handler dispatched without DispatchContext)`,
       );
     }
+    const refusal = coordinateRefusal(args, ctx, coordinateAware);
+    if (refusal !== undefined) return refusal;
     const enrichedArgs =
       ctx.projectConfig !== undefined &&
       (args as { projectConfig?: unknown }).projectConfig === undefined
@@ -243,7 +264,9 @@ export function adaptLadderGate<T>(
       ctx.verificationProfile === undefined
         ? unprofiledArgs
         : { ...unprofiledArgs, verificationProfile: ctx.verificationProfile };
-    return handler(gateArgs as unknown as T, stateDir, ctx.eventStore);
+    const selectedArgs = coordinateAware && ctx.verificationInput !== undefined
+      ? { ...gateArgs, coordinate: ctx.verificationInput.coordinate } : gateArgs;
+    return handler(selectedArgs as unknown as T, stateDir, ctx.eventStore);
   };
 }
 
@@ -402,9 +425,9 @@ export const ACTION_HANDLERS: Readonly<Record<string, ActionHandler>> = {
    */
   check_exploration_depth: adaptWithEventStore(handleCheckExplorationDepth),
   /** Verification-ladder gate. {@link adaptLadderGate} copies the dispatch config into the args, and the severity wrapper applies the severity. */
-  check_test_adequacy: adaptLadderGate(handleTestAdequacy),
+  check_test_adequacy: adaptLadderGate(handleTestAdequacy, true),
   check_contract_drift: adaptLadderGate(handleContractDrift),
-  check_mock_boundary: adaptLadderGate(handleMockBoundary),
+  check_mock_boundary: adaptLadderGate(handleMockBoundary, true),
   /**
    * Action of the mutation-adequacy review dimension. It is advisory by default, because its seeded gate default is warning-only.
    * A score under the threshold shows survivor `next_actions` and does not block.

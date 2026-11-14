@@ -4,6 +4,8 @@
  * discriminants.
  */
 
+import type { z } from 'zod';
+import type { TaskVerificationCoordinateSchema } from '../../contract/capsule/exarchos-capsule.js';
 import { execFileSync } from 'node:child_process';
 import { getDispatchContext } from '../../dispatch/dispatch-context.js';
 import { orchestrateLogger } from '../../logger.js';
@@ -514,6 +516,8 @@ export const WHOLE_SUITE_MAX_OUTPUT_BYTES = 64 * 1024 * 1024;
 
 /** The arguments of a gate that reads the verification profile. */
 export interface ProfiledGateArgs {
+  /** Authenticated by the ladder adapter against the bound executor context. */
+  readonly coordinate?: z.infer<typeof TaskVerificationCoordinateSchema>;
   /** The profile that the capsule of the segment pins. Only the dispatch context sets it, so a wire caller cannot pin a profile. */
   readonly verificationProfile?: PinnedVerificationProfile;
 }

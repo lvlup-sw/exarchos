@@ -4,10 +4,10 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1484,
-    "parsedFiles": 1439,
+    "testFiles": 1485,
+    "parsedFiles": 1440,
     "shellFiles": 45,
-    "cases": 16461,
+    "cases": 16467,
     "dynamicTitles": 288,
     "unparseableFiles": 0
   },
@@ -95668,6 +95668,42 @@
         {
           "suite": "authenticated task standing",
           "name": "HeldPromotion_PreservesPinnedProvisionalHistory",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/integration/s7-diff-leaves.test.ts": {
+      "file": "tests/integration/s7-diff-leaves.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "immutable diff leaves",
+          "name": "LandedRoot_NotEmptyAgainstMovedRef",
+          "dynamic": false
+        },
+        {
+          "suite": "immutable diff leaves",
+          "name": "DependentKillProbe_ExcludesBlocker",
+          "dynamic": false
+        },
+        {
+          "suite": "immutable diff leaves",
+          "name": "MockBoundary_ExactHeadNotHEAD",
+          "dynamic": false
+        },
+        {
+          "suite": "immutable diff leaves",
+          "name": "CoordinateAdapter_RejectsPublicAndMismatch_PreservesLegacy",
+          "dynamic": false
+        },
+        {
+          "suite": "immutable diff leaves",
+          "name": "Adequacy_SelectedCheckoutRequiredBeforeRevert",
+          "dynamic": false
+        },
+        {
+          "suite": "immutable diff leaves",
+          "name": "BoundExecutor_AuthenticatesActualLeaf_AndSuppressesFsmonitor",
           "dynamic": false
         }
       ]

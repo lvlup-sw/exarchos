@@ -1,6 +1,7 @@
 import { coercedNonnegativeInt, coercedPositiveInt } from '../../../coerce.js';
 import { vacuityWaiver } from '../../../output-schema-declaration.js';
 import { z } from 'zod';
+import { TaskVerificationCoordinateSchema } from '../../../contract/capsule/exarchos-capsule.js';
 import { declared, none, withActionContract, type ActionContract } from '../../action-contract.js';
 import { LOCAL_MUTATION } from '../../annotations.js';
 import { DELEGATE_PHASES, PLAN_PHASES, REVIEW_PHASES, ROLE_LEAD, STACK_PHASES } from '../../phases.js';
@@ -463,6 +464,7 @@ export const gateActions: readonly BuiltinToolAction[] = [
     schema: z.object({
       featureId: z.string().min(1),
       taskId: z.string().min(1),
+      coordinate: TaskVerificationCoordinateSchema.optional(),
       branch: z.string().optional(),
       baseBranch: z.string().optional(),
       repoRoot: z.string().optional(),
@@ -575,6 +577,7 @@ export const gateActions: readonly BuiltinToolAction[] = [
     schema: z.object({
       featureId: z.string().min(1),
       taskId: z.string().min(1),
+      coordinate: TaskVerificationCoordinateSchema.optional(),
       branch: z.string().optional(),
       baseBranch: z.string().optional(),
       repoRoot: z.string().optional(),
