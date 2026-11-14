@@ -110,7 +110,8 @@ import type { HandleAddArgs } from './invariants/add.js';
 import { realScaffoldDeps } from './invariants/fs-deps.js';
 import { withGateSeverity, type GateSeverityDescriptor } from './gates/gate-severity.js';
 import { resolveWorkflowState } from './resolve-state.js';
-import { handleExecuteIntent, productionExecuteDeps } from './execute/executor.js';
+import { TASK_COMPLETION } from '../runbooks/definitions.js';
+import { handleExecuteIntent, productionExecuteDeps, derivedLeafOperationId } from './execute/executor.js';
 import { handlePrepare } from './prepare/handler.js';
 import { handleSettle } from './settle/handler.js';
 
@@ -411,7 +412,22 @@ const ACTION_HANDLERS_TOOL = 'exarchos_orchestrate';
  */
 export const ACTION_HANDLERS: Readonly<Record<string, ActionHandler>> = {
   task_claim: adaptWithEventStore(handleTaskClaim),
-  task_complete: adaptWithEventStore(handleTaskComplete, (ctx) => ctx.treeObserver),
+  task_complete: async (args, stateDir, ctx) => {
+    if (ctx === undefined) throw new Error('Task completion requires dispatch context');
+    const refusal = coordinateRefusal(args, ctx, true);
+    if (refusal !== undefined) return refusal;
+    const trusted = ctx.verificationInput;
+    if (trusted === undefined) return adaptWithEventStore(handleTaskComplete, (context) => context.treeObserver)(args, stateDir, ctx);
+    const staticSteps = TASK_COMPLETION.steps.flatMap((step, index) => step.action === 'check_static_analysis' ? [index] : []);
+    const staticIndex = staticSteps[0];
+    if (staticSteps.length !== 1 || staticIndex === undefined
+      || (args.streamId ?? args.featureId) !== trusted.coordinate.capsule.workflowId) {
+      return { success: false, error: { code: 'TASK_COORDINATE_REFUSED', message: 'Completion requires one selected static leaf and the bound stream.' } };
+    }
+    const authority = { ...trusted, staticOperationId: derivedLeafOperationId(trusted.segmentOperationId, staticIndex, 'check_static_analysis') };
+    return adaptWithEventStore((typedArgs: Parameters<typeof handleTaskComplete>[0], dir, store) =>
+      handleTaskComplete(typedArgs, dir, store, ctx.treeObserver, authority))(args, stateDir, ctx);
+  },
   task_fail: adaptWithEventStore(handleTaskFail),
   review_triage: adaptWithEventStore(handleReviewTriage),
   prepare_delegation: adaptWithCtx(handlePrepareDelegation),
@@ -426,7 +442,7 @@ export const ACTION_HANDLERS: Readonly<Record<string, ActionHandler>> = {
   check_exploration_depth: adaptWithEventStore(handleCheckExplorationDepth),
   /** Verification-ladder gate. {@link adaptLadderGate} copies the dispatch config into the args, and the severity wrapper applies the severity. */
   check_test_adequacy: adaptLadderGate(handleTestAdequacy, true),
-  check_contract_drift: adaptLadderGate(handleContractDrift),
+  check_contract_drift: adaptLadderGate(handleContractDrift, true),
   check_mock_boundary: adaptLadderGate(handleMockBoundary, true),
   /**
    * Action of the mutation-adequacy review dimension. It is advisory by default, because its seeded gate default is warning-only.
@@ -435,8 +451,8 @@ export const ACTION_HANDLERS: Readonly<Record<string, ActionHandler>> = {
    */
   [MUTATION_GATE_NAME]: adaptLadderGate(handleMutationAdequacy),
   check_post_merge: adaptWithEventStore(handlePostMerge),
-  check_static_analysis: adaptLadderGate(handleStaticAnalysis),
-  check_integration_suite: adaptLadderGate(handleCheckIntegrationSuite),
+  check_static_analysis: adaptLadderGate(handleStaticAnalysis, true),
+  check_integration_suite: adaptLadderGate(handleCheckIntegrationSuite, true),
   check_security_scan: adaptWithEventStore(handleSecurityScan),
   check_context_economy: adaptWithEventStore(handleContextEconomy),
   check_operational_resilience: adaptWithEventStore(handleOperationalResilience),

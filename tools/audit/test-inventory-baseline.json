@@ -4,10 +4,10 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1485,
-    "parsedFiles": 1440,
+    "testFiles": 1486,
+    "parsedFiles": 1441,
     "shellFiles": 45,
-    "cases": 16467,
+    "cases": 16476,
     "dynamicTitles": 288,
     "unparseableFiles": 0
   },
@@ -95745,6 +95745,57 @@
         {
           "suite": "immutable task forks",
           "name": "CapturedHead_RejectsLaterHeadSubstitution",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/integration/s7-coordinate-execution.test.ts": {
+      "file": "tests/integration/s7-coordinate-execution.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "selected coordinate execution",
+          "name": "DriftTool_ConsumesExactCoordinate",
+          "dynamic": false
+        },
+        {
+          "suite": "selected coordinate execution",
+          "name": "ResolvedUnboundCommand_Refuses",
+          "dynamic": false
+        },
+        {
+          "suite": "selected coordinate execution",
+          "name": "PassingAdequacy_OriginalClaims_ReplayWithoutProvider",
+          "dynamic": false
+        },
+        {
+          "suite": "selected coordinate execution",
+          "name": "HeadMovesBeforeCompletion_NoStanding",
+          "dynamic": false
+        },
+        {
+          "suite": "selected coordinate execution",
+          "name": "OldCompletion_DoesNotBypassNewSegment",
+          "dynamic": false
+        },
+        {
+          "suite": "selected coordinate execution",
+          "name": "Completion_RequiresTrustedStreamAndNamedCheckout",
+          "dynamic": false
+        },
+        {
+          "suite": "selected coordinate execution",
+          "name": "AdequacyReplay_RejectsIncompleteAndMismatchedPairs",
+          "dynamic": false
+        },
+        {
+          "suite": "selected coordinate execution",
+          "name": "LiteralTokens_OptionalAndLegacyCommands",
+          "dynamic": false
+        },
+        {
+          "suite": "selected coordinate execution",
+          "name": "DirtyAdequacy_CannotPublishPassingReplayPair",
           "dynamic": false
         }
       ]

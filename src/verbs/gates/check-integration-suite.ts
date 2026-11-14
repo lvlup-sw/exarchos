@@ -243,6 +243,7 @@ export async function handleCheckIntegrationSuite(
 
   return runDurableGateProducer(
     {
+      coordinate: args.coordinate,
       gateClass: 'integration-suite',
       featureId: args.featureId,
       ...(args.taskId ? { taskId: args.taskId } : {}),

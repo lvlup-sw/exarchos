@@ -404,6 +404,7 @@ export async function handleTestAdequacy(
 
   return runDurableGateProducer(
     {
+      coordinate: args.coordinate,
       gateClass: 'test-adequacy',
       featureId: args.featureId,
       taskId: args.taskId,

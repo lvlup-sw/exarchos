@@ -13,6 +13,7 @@
  * The `DispatchContext` import is type-only for the same reason.
  */
 
+import { replayPassingAdequacy } from '../gates/durable-gate-producer.js';
 import { createHash, randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { canonicalJson } from '../../contract/request-context.js';
@@ -584,10 +585,13 @@ async function executeBoundInput(intent: string, streamId: string, operationId: 
     if (!compiled.ok) throw new Error(compiled.refusal.message);
     if (canonicalJson(compiled.segment.args) !== canonicalJson(input.args)) throw new Error('Compiled input changed after binding');
     await requireBoundTree(input);
+    const coordinate = input.args.coordinate;
+    if (coordinate === undefined) throw new Error('Missing bound verification coordinate');
     for (const leaf of compiled.segment.leaves) {
       const rows = await ctx.eventStore.query(leaf.observationStreamId, { operationId: derivedLeafOperationId(operationId, leaf.index, leaf.action) });
       if (rows.length > 0 && leaf.contract.replay.kind !== 'safe-repeat'
-        && await replayElidedRows({ leaf, derived: derivedLeafOperationId(operationId, leaf.index, leaf.action), ctx }) === undefined) {
+        && await replayElidedRows({ leaf, derived: derivedLeafOperationId(operationId, leaf.index, leaf.action),
+          ctx: { ...ctx, verificationInput: { coordinate, segmentOperationId: operationId } } }) === undefined) {
         throw new Error(`Interrupted leaf '${leaf.action}' has effects without a safe continuation contract; retain them and recover explicitly`);
       }
     }
@@ -779,6 +783,20 @@ async function replayElidedRows(input: {
   readonly ctx: DispatchContext;
 }): Promise<readonly Capture[] | undefined> {
   const { leaf, derived, ctx } = input;
+  const authorization = getDispatchContext()?.authorization;
+  if (ctx.verificationInput !== undefined && leaf.action === 'check_test_adequacy' && authorization !== undefined) {
+    const existing = await ctx.eventStore.query(leaf.observationStreamId, { operationId: derived });
+    const repoRoot = leaf.args.repoRoot === 'auto' ? leaf.args.worktreePath : leaf.args.repoRoot;
+    if (typeof repoRoot !== 'string' || typeof leaf.args.taskId !== 'string') return undefined;
+    const rows = await replayPassingAdequacy({ gateClass: 'test-adequacy', featureId: leaf.observationStreamId,
+      taskId: leaf.args.taskId, repoRoot, eventStore: ctx.eventStore,
+      ...(typeof leaf.args.branch === 'string' ? { branch: leaf.args.branch } : {}),
+      ...(typeof leaf.args.baseBranch === 'string' ? { baseRef: leaf.args.baseBranch } : {}) },
+    derived, authorization.identity.subjectId, ctx.verificationInput.coordinate);
+    if (rows !== undefined) return rows.map(row => ({ type: row.type, streamId: row.streamId, sequence: row.sequence }));
+    if (existing.length === 0) return undefined;
+    throw new Error('Existing adequacy effects do not authenticate a complete passing replay');
+  }
   if (leaf.contract.replay.kind !== 'reject-replay') return undefined;
   if (leaf.contract.ensures.kind !== 'none') return undefined;
 

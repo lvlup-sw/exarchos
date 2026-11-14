@@ -101,19 +101,38 @@ describe('immutable diff leaves', () => {
     expect(legacy.data).toMatchObject({ passed: false });
   });
 
-  /** Mock detection uses selected endpoints even when physical HEAD has removed the mock, and unreadable endpoints refuse. */
+  /** Mock detection uses the selected pair on a clean checkout and refuses changed or dirty endpoints. */
   it('MockBoundary_ExactHeadNotHEAD', async () => {
     const f = await setup();
     await f.repo.commitIn('target', { 'boundary.test.ts': "vi.mock('remote-sdk');\n" });
     const selected = await f.coordinate();
-    await f.repo.commitIn('target', { 'boundary.test.ts': 'export const value = 1;\n' });
+    await git(f.tree, 'update-ref', 'refs/heads/main', selected.observedHeadCommit);
     const result = await f.call('check_mock_boundary', { coordinate: selected }, f.trusted(selected));
     expect(result.success, JSON.stringify(result)).toBe(true);
     expect(result.data).toMatchObject({ findings: [expect.objectContaining({ mockedTarget: 'remote-sdk' })] });
     const legacy = await f.call('check_mock_boundary', {}); expect(legacy.data).toMatchObject({ findings: [] });
+    await f.repo.commitIn('target', { 'boundary.test.ts': 'export const value = 1;\n' });
+    const before = await f.events.query(f.identity.workflowId);
+    const moved = await f.call('check_mock_boundary', { coordinate: selected }, f.trusted(selected));
+    expect(moved.error?.code).toBe('TASK_COORDINATE_REFUSED');
+    expect(await f.events.query(f.identity.workflowId)).toEqual(before);
     const missing = { ...selected, observedHeadCommit: 'f'.repeat(40) };
     const refused = await f.call('check_mock_boundary', { coordinate: missing }, f.trusted(missing));
     expect(refused.success).toBe(false); expect(refused.error?.code).toBe('TASK_COORDINATE_REFUSED');
+    const m = await setup();
+    await m.repo.commitIn('target', { '.gitattributes': 'payload.bin diff=endpoint\n', 'payload.bin': '\0payload' });
+    const script = join(m.stateDir, 'textconv.cjs'); const marker = join(m.stateDir, 'textconv-ran');
+    await writeFile(script, `const fs=require('node:fs');fs.writeFileSync(${JSON.stringify(marker)},'called');fs.writeFileSync(${JSON.stringify(join(m.tree, 'TEXTCONV_DIRTY'))},'leftover');process.stdout.write(fs.readFileSync(process.argv[2]));`);
+    await git(m.tree, 'config', 'diff.endpoint.textconv', `"${process.execPath}" "${script}"`);
+    const checked = await m.coordinate();
+    const endpoint = await m.call('check_mock_boundary', { coordinate: checked }, m.trusted(checked));
+    expect(existsSync(marker)).toBe(true); expect(existsSync(join(m.tree, 'TEXTCONV_DIRTY'))).toBe(true);
+    expect(endpoint.error?.code).toBe('TASK_COORDINATE_REFUSED');
+    const rows = await m.events.query(m.identity.workflowId);
+    const evidence = rows.filter(row => row.type === 'admission.evidence-recorded');
+    expect(evidence).toHaveLength(1);
+    expect(evidence[0]?.data?.evidence).not.toMatchObject({ verdict: 'pass' });
+    expect(rows.filter(row => row.type === 'gate.executed').map(row => row.data?.passed)).toEqual([false]);
   });
 
   /** Public and mismatched coordinates refuse before provider effects, including a disabled gate. Historical omissions remain admitted. */

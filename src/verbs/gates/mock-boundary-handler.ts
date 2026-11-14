@@ -257,6 +257,7 @@ export async function handleMockBoundary(
 
   return runDurableGateProducer(
     {
+      coordinate: args.coordinate,
       gateClass: 'mock-boundary',
       featureId: args.featureId,
       taskId: args.taskId,

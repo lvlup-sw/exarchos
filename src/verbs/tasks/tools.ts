@@ -24,9 +24,11 @@ import {
   isAncestor,
   normalizedPath,
   observeTree,
+  observeImmutableClaimedTree,
   type TreeObservation,
   type TreeObserver,
 } from '../../utils/git-tree.js';
+import type { DispatchContext } from '../../dispatch/core/dispatch.js';
 import { ladderRequirementId, readGateEvidenceRecords, selectSubject, treeStampOf } from '../gates/durable-gate-producer.js';
 import { gateRunnerObservationSource, gateSignalIdempotencyKey, type GateRunTree } from '../gates/gate-runner.js';
 import { DISABLED_BY_CONFIG, pinnedCapsuleOf } from '../gates/gate-utils.js';
@@ -270,6 +272,7 @@ interface SignalSkip {
  * `tree` is the tree that the run scanned, from `details.worktree` and `details.head`. A row of an earlier build names no tree.
  */
 interface RunnerSignal {
+  readonly operationId: string | undefined;
   readonly sequence: number;
   readonly passed: boolean;
   readonly evidenceId: string;
@@ -318,6 +321,7 @@ async function runnerSignals(store: EventStore, streamId: string, taskId: string
     if (typeof evidenceId !== 'string' || row.idempotencyKey !== gateSignalIdempotencyKey(evidenceId)) continue;
     signals.push({
       sequence: row.sequence,
+      operationId: row.operationId,
       passed: parsed.data.passed,
       evidenceId,
       skip:
@@ -540,6 +544,7 @@ async function staticAnalysisPrerequisite(
   store: EventStore,
   streamId: string,
   taskId: string,
+  authority?: CompletionAuthority,
 ): Promise<StaticAnalysisPrerequisite> {
   const signals = await runnerSignals(store, streamId, taskId);
   const { all, active } = taskRecords(await readGateEvidenceRecords(store, streamId), taskId);
@@ -547,6 +552,12 @@ async function staticAnalysisPrerequisite(
   const latestRecord = all.at(-1);
   const cited = causeRecordOf(active, latestRecord);
   if (cited === undefined && latestSignal?.passed === true && active.has(latestSignal.evidenceId)) {
+    const record = active.get(latestSignal.evidenceId);
+    if (authority !== undefined && (latestSignal.operationId !== authority.staticOperationId
+      || record?.evidence.producer.invocationId !== authority.staticOperationId
+      || latestSignal.skip !== undefined || latestSignal.tree?.head !== authority.coordinate.observedHeadCommit)) {
+      return { kind: 'no-runner-verdict', latestRow: true };
+    }
     return { kind: 'pass', signal: latestSignal };
   }
   if (cited === undefined || latestRecord === undefined) {
@@ -810,8 +821,8 @@ function gateNotPassed(cause: StaticAnalysisRefusalCause, taskId: string): ToolR
 }
 
 /** The idempotency key of the `task.completed` row of one task. */
-function completionKey(streamId: string, taskId: string): string {
-  return `${streamId}:task.completed:${taskId}`;
+function completionKey(streamId: string, taskId: string, authority?: CompletionAuthority): string {
+  return authority === undefined ? `${streamId}:task.completed:${taskId}` : `${authority.segmentOperationId}:task.completed:${taskId}`;
 }
 
 /**
@@ -824,8 +835,8 @@ interface StoredCompletion {
 }
 
 /** Reads the `task.completed` rows of the stream, and finds the row stored under the completion key of the task. */
-async function storedCompletion(store: EventStore, streamId: string, taskId: string): Promise<StoredCompletion> {
-  const key = completionKey(streamId, taskId);
+async function storedCompletion(store: EventStore, streamId: string, taskId: string, authority?: CompletionAuthority): Promise<StoredCompletion> {
+  const key = completionKey(streamId, taskId, authority);
   const rows = await store.query(streamId, { type: 'task.completed' });
   return { stored: rows.find((row) => row.idempotencyKey === key), rows };
 }
@@ -1011,8 +1022,12 @@ const MAX_COMPLETE_ATTEMPTS = 8;
 /** The base delay of the exponential backoff between two completion attempts, in milliseconds. */
 const COMPLETE_BASE_DELAY_MS = 20;
 
+/** Executor-owned identities select completion and its actual static-analysis leaf. */
+export type CompletionAuthority = NonNullable<DispatchContext['verificationInput']> & { readonly staticOperationId: string };
+
 /** The args of `task_complete`. `capsuleVersion` names the capsule that the task compiled in. */
 interface TaskCompleteArgs {
+  readonly authority?: CompletionAuthority | undefined;
   taskId: string;
   result?: Record<string, unknown>;
   evidence?: {
@@ -1071,7 +1086,7 @@ async function completionStanding(
 ): Promise<CompletionStanding> {
   try {
     const tail = await store.tailSequence(streamId);
-    const { stored, rows } = await storedCompletion(store, streamId, args.taskId);
+    const { stored, rows } = await storedCompletion(store, streamId, args.taskId, args.authority);
     const reopened = stored !== undefined && (await failedAfterCompletion(store, streamId, args.taskId, stored));
     if (stored !== undefined && !reopened) {
       const repaired = await repairStoredCompletion(stateDir, streamId, args.taskId, stored);
@@ -1117,8 +1132,8 @@ async function gateRefusal(args: TaskCompleteArgs, streamId: string, store: Even
     return hasOperatorCapability;
   };
 
-  if (evidenceMaySatisfy(STATIC_ANALYSIS_GATE)) return { kind: 'passed', scanned: undefined };
-  const prerequisite = await staticAnalysisPrerequisite(store, streamId, args.taskId);
+  if (args.authority === undefined && evidenceMaySatisfy(STATIC_ANALYSIS_GATE)) return { kind: 'passed', scanned: undefined };
+  const prerequisite = await staticAnalysisPrerequisite(store, streamId, args.taskId, args.authority);
   return prerequisite.kind === 'pass'
     ? { kind: 'passed', scanned: prerequisite.signal.tree }
     : { kind: 'refused', result: gateNotPassed(prerequisite, args.taskId) };
@@ -1299,13 +1314,24 @@ async function treeRefusal(
 ): Promise<TreeStanding> {
   const raw = namedPath(args);
   if (raw === undefined) {
-    return standing.reference !== undefined
+    return standing.reference !== undefined || args.authority !== undefined
       ? { kind: 'refused', result: gateNotPassed({ kind: 'tree-unnamed' }, args.taskId) }
       : { kind: 'held', named: undefined };
   }
-  const observed = await observeTree(raw);
+  const coordinate = args.authority?.coordinate;
+  const selected = coordinate === undefined ? undefined : await observeImmutableClaimedTree(raw, coordinate.diffBaseCommit, coordinate.repository);
+  if (coordinate !== undefined && (selected?.kind !== 'tree' || selected.repository !== coordinate.repository
+    || selected.head !== coordinate.observedHeadCommit || !selected.holdsBase || selected.dirtyPaths.length !== 0)) {
+    return { kind: 'refused', result: { success: false, error: { code: 'TASK_COORDINATE_REFUSED', message: 'Completion requires the selected clean checkout.' } } };
+  }
+  const observed = selected ?? await observeTree(raw);
+  const selectedHead = selected?.kind === 'tree' ? selected.head : undefined;
+  const selectedObserver: TreeObserver | undefined = selected?.kind !== 'tree' || selectedHead === undefined ? observer : async (_path, base) => {
+    const ancestry = await isAncestor(raw, base, selectedHead);
+    return { ...selected, holdsBase: ancestry.kind === 'ancestor' };
+  };
   if (standing.reference !== undefined) {
-    const refusal = await scopeRefusal(args, raw, observed, standing.reference, standing.completions, store, observer);
+    const refusal = await scopeRefusal(args, raw, observed, standing.reference, standing.completions, store, selectedObserver);
     if (refusal !== undefined) return { kind: 'refused', result: refusal };
   }
   const named = namedTreeOf(raw, observed);
@@ -1382,7 +1408,7 @@ async function attemptTaskComplete(
     event = await store.append(
       streamId,
       { type: 'task.completed', data: completionData(args, tree.named) },
-      { idempotencyKey: completionKey(streamId, args.taskId), expectedSequence: standing.tail },
+      { idempotencyKey: completionKey(streamId, args.taskId, args.authority), expectedSequence: standing.tail },
     );
   } catch (err) {
     if (err instanceof SequenceConflictError) return { kind: 'conflict' };
@@ -1416,6 +1442,7 @@ export async function handleTaskComplete(
   stateDir: string,
   eventStore: EventStore,
   treeObserver?: TreeObserver,
+  authority?: CompletionAuthority,
 ): Promise<ToolResult> {
   if (!args.taskId) {
     return {
@@ -1427,9 +1454,12 @@ export async function handleTaskComplete(
   const identity = resolveStreamIdentity(args);
   if (!identity.ok) return identity.error;
   const streamId = identity.streamId;
+  if (authority !== undefined && (streamId !== authority.coordinate.capsule.workflowId || args.taskId !== authority.coordinate.taskId)) {
+    return { success: false, error: { code: 'TASK_COORDINATE_REFUSED', message: 'Completion differs from the bound stream or task.' } };
+  }
 
   for (let attempt = 0; attempt < MAX_COMPLETE_ATTEMPTS; attempt++) {
-    const outcome = await attemptTaskComplete(args, streamId, stateDir, eventStore, treeObserver);
+    const outcome = await attemptTaskComplete({ ...args, authority }, streamId, stateDir, eventStore, treeObserver);
     if (outcome.kind === 'result') return outcome.result;
     if (attempt + 1 < MAX_COMPLETE_ATTEMPTS) {
       await sleep(COMPLETE_BASE_DELAY_MS * Math.pow(2, attempt) + Math.random() * COMPLETE_BASE_DELAY_MS);
