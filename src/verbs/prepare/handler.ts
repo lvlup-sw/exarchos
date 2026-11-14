@@ -68,7 +68,7 @@ import {
 import { resolveDefinition } from './definition-registry.js';
 import { DESIGN_REVISED_TYPE, designVersionOf } from './design-version.js';
 import { PrepareIntentSchema, type CompileIntent } from './intent.js';
-import { partitionDelegationBatch, typedPlanTasks } from './partition-tasks.js';
+import { partitionDelegationBatch, partitionTypedGraph, typedPlanTasks } from './partition-tasks.js';
 import { pinDefinition } from './pin-definition.js';
 import {
   configDigestAt,
@@ -793,10 +793,16 @@ async function prepareFromSnapshot(
     if (!approved.ok) return refused(approved.refusal);
     snapshot = approved.snapshot;
   }
+  const compilerVersion = deps.compilerVersion ?? PREPARE_COMPILER_VERSION;
+  if (compilerVersion === 'exarchos-prepare-8' && snapshot === undefined) {
+    return refused(unsoundRecord('Compiler 8 requires an approved typed plan.'));
+  }
   const plan: readonly unknown[] = snapshot !== undefined
     ? typedPlanTasks(snapshot, rowStatusByTask(events))
     : Array.isArray(state.tasks) ? state.tasks : [];
-  const partition = partitionDelegationBatch(plan, location.step.stepId);
+  const partition = compilerVersion === 'exarchos-prepare-8' && snapshot !== undefined
+    ? partitionTypedGraph(snapshot, location.step.stepId)
+    : partitionDelegationBatch(plan, location.step.stepId);
   if (!partition.ok) return refused(partition.refusal);
   const { batch, completedBlockers } = partition;
 
@@ -883,8 +889,7 @@ async function prepareFromSnapshot(
   const designRecordDigest = snapshot?.digest ?? legacyDesign?.digest;
   const designVersion = designVersionOf(events);
   const recompile = recompileOf(events, plan);
-  const compilerVersion = deps.compilerVersion ?? PREPARE_COMPILER_VERSION;
-  const skipPhases = bootstrap !== undefined || compilerVersion === PREPARE_COMPILER_VERSION
+  const skipPhases = bootstrap !== undefined || compilerVersion === PREPARE_COMPILER_VERSION || compilerVersion === 'exarchos-prepare-8'
     ? projectConfig.workflow.skipPhases : undefined;
   if (skipPhases !== undefined) {
     try {

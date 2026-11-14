@@ -1,16 +1,12 @@
 /**
- * Partitions a plan into one delegation batch: the ready frontier of the plan.
- * The frontier is each task that is not complete and whose `blockedBy` tasks are all complete.
- * A task that waits on pending work goes to a later preparation, after its blockers settle.
- * Thus a capsule never holds a task that must fork from the work of another task in it.
- *
- * A blocker that the plan does not contain is refused, because dropping it loses an ordering of the plan.
- * Pending tasks with no ready task among them are refused too, and the refusal names what each one waits on.
- *
- * Each task carries the verification terms that it settles under. A planner stamp wins over the file-and-layer heuristic.
- * The capsule freezes these terms, because they choose the gates that judge the task.
+ * Builds either the legacy ready frontier or the complete approved typed graph.
+ * The legacy frontier contains tasks whose blockers are complete.
+ * The typed graph preserves every task and dependency for compiler 8.
+ * Both paths freeze the verification terms each task settles under.
  */
 
+import { contentDigest } from '../../contract/capsule/capsule-digest.js';
+import type { ExarchosCapsuleV1 } from '../../contract/capsule/exarchos-capsule.js';
 import { SharedStableIdSchema } from '../../contract/ir/admission-ir.js';
 import type { DesignRecordSnapshot } from '../../workflow/design-record/schema.js';
 import type { RiskTier } from '../../workflow/verification-policy.js';
@@ -40,13 +36,14 @@ export interface BatchTask {
   readonly title: string;
   readonly stepId: string;
   readonly verification: BatchTaskVerification;
+  readonly taskContext?: ExarchosCapsuleV1['graph']['tasks'][number]['taskContext'];
 }
 
 export interface DelegationBatch {
   readonly tasks: readonly BatchTask[];
   /** Edges between tasks of the batch. A ready frontier has none, but the compiler maps any edge that it gets. */
   readonly dependencies: readonly { readonly from: string; readonly to: string }[];
-  readonly joins: readonly { readonly joinId: string; readonly waitsFor: readonly string[] }[];
+  readonly joins: readonly { readonly joinId: string; readonly waitsFor: readonly string[]; readonly forTaskId?: string }[];
   /** Every task in the batch must report for the batch to settle. */
   readonly requiredResults: readonly string[];
 }
@@ -256,5 +253,49 @@ export function partitionDelegationBatch(tasks: readonly unknown[], stepId: stri
       requiredResults: ids,
     },
     completedBlockers: Object.fromEntries(ready.map((task) => [task.id, [...new Set(task.blockedBy)]])),
+  };
+}
+
+/** Compile a validated approved snapshot without granting standing from completion status. */
+export function partitionTypedGraph(snapshot: DesignRecordSnapshot, stepId: string): PartitionOutcome {
+  if (snapshot.tasks.length === 0) {
+    return { ok: false, refusal: { code: 'PLAN_UNSOUND', message: 'The complete typed graph requires a nonempty plan.' } };
+  }
+  const usedIds = new Set(snapshot.tasks.map(task => task.id));
+  const joins: { joinId: string; forTaskId: string; waitsFor: string[] }[] = [];
+  for (const task of snapshot.tasks) {
+    if (task.blockedBy.length < 2) continue;
+    const stem = `join:${contentDigest(task.id)}`;
+    let joinId = stem;
+    let suffix = 0;
+    while (usedIds.has(joinId)) joinId = `${stem}:${++suffix}`;
+    usedIds.add(joinId);
+    joins.push({ joinId, forTaskId: task.id, waitsFor: [...task.blockedBy] });
+  }
+  return {
+    ok: true,
+    batch: {
+      tasks: snapshot.tasks.map(task => ({
+        taskId: task.id, title: task.title, stepId,
+        verification: { riskTier: task.riskTier, boundaryTouching: task.boundaryTouching },
+        taskContext: {
+          taskId: task.id, title: task.title, instructions: task.instructions,
+          files: [...task.files], testFiles: [...task.testFiles], acceptance: [...task.acceptance],
+          riskTier: task.riskTier, boundaryTouching: task.boundaryTouching, testLayer: task.testLayer,
+          blockedBy: [...task.blockedBy], resultContractRef: task.id,
+          source: { reference: snapshot.reference, digest: snapshot.digest, span: { ...task.span } },
+          knowledgeSlice: {
+            invariantIds: [...(task.knowledgeSlice?.invariantIds ?? [])],
+            adrRefs: [...(task.knowledgeSlice?.adrRefs ?? [])],
+            symbols: [...(task.knowledgeSlice?.symbols ?? [])],
+            files: [...(task.knowledgeSlice?.files ?? [])],
+          },
+        },
+      })),
+      dependencies: snapshot.tasks.flatMap(task => task.blockedBy.map(from => ({ from, to: task.id }))),
+      joins,
+      requiredResults: snapshot.tasks.map(task => task.id),
+    },
+    completedBlockers: {},
   };
 }

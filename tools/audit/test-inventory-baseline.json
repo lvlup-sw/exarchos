@@ -4,10 +4,10 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1480,
-    "parsedFiles": 1435,
+    "testFiles": 1481,
+    "parsedFiles": 1436,
     "shellFiles": 45,
-    "cases": 16416,
+    "cases": 16425,
     "dynamicTitles": 288,
     "unparseableFiles": 0
   },
@@ -95460,6 +95460,57 @@
         {
           "suite": "typed task adapters",
           "name": "preserves generated exact ids and declared fields across task adapters",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/integration/prepare-full-dag.test.ts": {
+      "file": "tests/integration/prepare-full-dag.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "complete approved graph compilation",
+          "name": "ThreeWaves_OneGraph_PreservesOrderedEdgesJoinsAndForkContracts",
+          "dynamic": false
+        },
+        {
+          "suite": "complete approved graph compilation",
+          "name": "CompletedAncestor_RemainsReferencedWithoutGrantingStanding",
+          "dynamic": false
+        },
+        {
+          "suite": "complete approved graph compilation",
+          "name": "Context_ApprovedBytesOnly_SurvivesAnEditedSource",
+          "dynamic": false
+        },
+        {
+          "suite": "complete approved graph compilation",
+          "name": "UserStep_StageFromPin_DoesNotAssumeDelegate",
+          "dynamic": false
+        },
+        {
+          "suite": "complete approved graph compilation",
+          "name": "DefaultCompiler_KeepsTheHistoricalFrontier",
+          "dynamic": false
+        },
+        {
+          "suite": "complete approved graph compilation",
+          "name": "WholeGraph_InvalidDisconnectedComponent_RefusesWithoutCustody",
+          "dynamic": false
+        },
+        {
+          "suite": "complete approved graph compilation",
+          "name": "JoinIdentity_AnAuthoredCollision_UsesOneStableFreeId",
+          "dynamic": false
+        },
+        {
+          "suite": "complete approved graph compilation",
+          "name": "GraphModel_AuthoredChainsKeepEveryEdgeAndContext",
+          "dynamic": false
+        },
+        {
+          "suite": "complete approved graph compilation",
+          "name": "ThirtyTasks_CompileWithinTheBoundAndRetainEveryContext",
           "dynamic": false
         }
       ]
