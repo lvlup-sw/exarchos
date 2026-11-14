@@ -8,7 +8,7 @@
  * Canonical JSON (sorted keys, no whitespace, one trailing newline) makes the same document always give the same digest.
  *
  * The shape is interim. The workflow kernel in `@lvlup-sw/strategos-contracts` owns no run-record form to lower into.
- * `bundleVersion` lets a reader tell the versions apart. Code outside `verbs/execute/` must not depend on this shape.
+ * `bundleVersion` lets a reader tell the versions apart. Settlement standing uses this decoder to authenticate the stored segment.
  * `verbs/settle/` writes its own adjudication document through the same store, with a separate schema.
  */
 

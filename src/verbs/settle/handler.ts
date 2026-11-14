@@ -100,6 +100,8 @@ import {
 } from './settlement-bundle.js';
 import type { ClaimedTree } from './settle-scope.js';
 import {
+  settlementClaimKey,
+  verificationOperationId,
   completedTasksOf,
   haltIsGateVerdict,
   judgementKey,
@@ -166,25 +168,6 @@ function readString(raw: Record<string, unknown>, key: string): string | undefin
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-/**
- * The operation claim of one settlement. It covers only the subject and the
- * settlement key `(capsuleVersion, batchId)` of one workflow.
- *
- * The rest of the capsule identity goes in the request digest. So a reuse of
- * the key with different terms meets the persisted claim and is refused. The
- * decision round adds its round number to get its own claim.
- */
-function settlementClaimKey(streamId: string, identity: SettledCapsuleIdentity, round = 0): string {
-  const key = canonicalJson({
-    streamId,
-    workflowId: identity.workflowId,
-    capsuleVersion: identity.capsuleVersion,
-    batchId: identity.batchId,
-    ...(round > 0 ? { round } : {}),
-  });
-  return `settle:${createHash('sha256').update(key, 'utf8').digest('hex')}`;
 }
 
 /**
@@ -600,16 +583,6 @@ async function checkedEvidence(
     checks.set(key, { record, intact });
   }
   return checks;
-}
-
-/**
- * The operation for the verification segment of one task, derived from the
- * settlement claim key and the task. After a crash, a resubmission reaches the
- * committed segments through their claims and runs only the rest. The hash
- * keeps the id inside the executor length bound.
- */
-function verificationOperationId(operationId: string, taskId: string): string {
-  return `settle-task:${createHash('sha256').update(`${operationId}\u0000${taskId}`, 'utf8').digest('hex')}`;
 }
 
 /**

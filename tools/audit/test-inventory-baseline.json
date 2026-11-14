@@ -4,10 +4,10 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1481,
-    "parsedFiles": 1436,
+    "testFiles": 1482,
+    "parsedFiles": 1437,
     "shellFiles": 45,
-    "cases": 16425,
+    "cases": 16439,
     "dynamicTitles": 288,
     "unparseableFiles": 0
   },
@@ -95511,6 +95511,82 @@
         {
           "suite": "complete approved graph compilation",
           "name": "ThirtyTasks_CompileWithinTheBoundAndRetainEveryContext",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/integration/s7-task-standing.test.ts": {
+      "file": "tests/integration/s7-task-standing.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "authenticated task standing",
+          "name": "AcceptedSubset_ExactHeadAndPureFence",
+          "dynamic": false
+        },
+        {
+          "suite": "authenticated task standing",
+          "name": "BareCompletion_AndOrphanBundle_NoStanding",
+          "dynamic": false
+        },
+        {
+          "suite": "authenticated task standing",
+          "name": "OuterCommitFailed_OnlySameOperation",
+          "dynamic": false
+        },
+        {
+          "suite": "authenticated task standing",
+          "name": "CopiedRows_NoActualClaim_AndHeldOutcome_NoExport",
+          "dynamic": false
+        },
+        {
+          "suite": "authenticated task standing",
+          "name": "TerminalClaimMembership_RejectsEveryChangedEnvelopeField",
+          "dynamic": false
+        },
+        {
+          "suite": "authenticated task standing",
+          "name": "LeafEffects_MissingForeignHeadAndPath_Refuse",
+          "dynamic": false
+        },
+        {
+          "suite": "authenticated task standing",
+          "name": "LaterGatePolicySkip_PreservesProof_ButActualFailureInvalidates",
+          "dynamic": false
+        },
+        {
+          "suite": "authenticated task standing",
+          "name": "LaterForeignCompletion_CannotReplaceOriginalHead",
+          "dynamic": false
+        },
+        {
+          "suite": "authenticated task standing",
+          "name": "MissingInputAndCustody_RefuseWithoutLegacyFallback",
+          "dynamic": false
+        },
+        {
+          "suite": "authenticated task standing",
+          "name": "Revision_InvalidatesDescendantsAndPreservesUnrelatedStanding",
+          "dynamic": false
+        },
+        {
+          "suite": "authenticated task standing",
+          "name": "ChangedPreparedTaskSemantics_InvalidateOnlyItsDescendants",
+          "dynamic": false
+        },
+        {
+          "suite": "authenticated task standing",
+          "name": "AlreadyComplete_RequiresAnAuthenticatedEarlierOrigin",
+          "dynamic": false
+        },
+        {
+          "suite": "authenticated task standing",
+          "name": "StandingFence_ModelIgnoresUnrelatedRowsAndRejectsRelevantFailure",
+          "dynamic": false
+        },
+        {
+          "suite": "authenticated task standing",
+          "name": "AcceptedDecision_OnlyItsActualHeldRoundCanSupplyTheSegment",
           "dynamic": false
         }
       ]
