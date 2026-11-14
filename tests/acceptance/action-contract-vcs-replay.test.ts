@@ -85,6 +85,13 @@ describe('merge VCS worktree action contracts', () => {
       'reconcile_worktrees',
       'serialize_merge',
     ]);
+    const retainedObservers = ['check_ci', 'list_prs', 'get_pr_comments'];
+    const ledgerCoordination = ['acquire_worktree', 'release_worktree', 'reconcile_worktrees'];
+    const retiringEffects = ['serialize_merge', 'merge_orchestrate', 'create_pr', 'merge_pr', 'add_pr_comment', 'create_issue', 'prune_worktrees'];
+    expect([...retainedObservers, ...ledgerCoordination, ...retiringEffects].sort()).toEqual([...FAMILY_NAMES].sort());
+    for (const name of retainedObservers) {
+      expect(FAMILY_ACTIONS.find(action => action.name === name)?.annotations.readOnly).toBe(true);
+    }
     const live = liveFamilyActions();
     expect(live.map((action) => action.name)).toEqual(FAMILY_ACTIONS.map((action) => action.name));
     for (const action of live) {
