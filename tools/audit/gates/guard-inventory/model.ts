@@ -35,10 +35,10 @@ export interface GuardHost {
   /** True when the step (or job) swallows the exit code. */
   readonly exitSwallowed: boolean;
   /**
-   * True when the host workflow declares a `pull_request` trigger. A host that
-   * only runs on a tag push is a real execution site, but not pre-merge coverage.
+   * True when the job runs before merge: on a pull request, or on a manual dispatch of the suite.
+   * A host that only runs on a tag push is a real execution site, but not pre-merge coverage.
    */
-  readonly onPullRequest: boolean;
+  readonly preMerge: boolean;
   /** True when a failure of this job can fail the PR, as far as YAML can say. */
   readonly blocking: boolean;
 }

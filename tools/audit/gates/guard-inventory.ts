@@ -113,6 +113,7 @@ export {
 
 export {
   jobSkipsPullRequest,
+  runsOnDemand,
   runsOnPullRequest,
   vitestPathOperands,
   indexShellIndirection,

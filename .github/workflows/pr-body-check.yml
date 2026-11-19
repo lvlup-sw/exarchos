@@ -1,15 +1,18 @@
 name: PR Body Check
 
+# On demand only: `gh workflow run pr-body-check.yml -f pr=<number>`. A PR event
+# starts nothing.
 on:
-  pull_request:
-    # `synchronize` is required. The golden-fixture gate below reads the PR's
-    # changed files, so it must run again when a push adds a load-bearing
-    # fixture after the PR opens. The enforcer-wiring gate asserts this trigger.
-    types: [opened, edited, synchronize, ready_for_review, reopened]
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: 'Pull request number to check'
+        required: true
+        type: number
 
-# A newer event on the same PR cancels the check for the earlier one.
+# A newer check of the same PR cancels the check for the earlier one.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  group: ${{ github.workflow }}-${{ inputs.pr }}
   cancel-in-progress: true
 
 permissions:
@@ -18,11 +21,6 @@ permissions:
 
 jobs:
   validate-pr-body:
-    if: |
-      (github.event.pull_request.head.repo.full_name == github.repository || github.event_name != 'pull_request') &&
-      github.event.pull_request.user.login != 'renovate[bot]' &&
-      github.event.pull_request.user.login != 'dependabot[bot]' &&
-      !startsWith(github.event.pull_request.title, '[Graphite MQ]')
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -38,6 +36,15 @@ jobs:
             echo "/tmp/gh_${GH_VERSION}_linux_amd64/bin" >> "$GITHUB_PATH"
           fi
 
+      # A dispatch run has no pull_request payload, so build one from the API.
+      - name: Fetch the pull request event
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR: ${{ inputs.pr }}
+        run: |
+          gh api "repos/${{ github.repository }}/pulls/$PR" \
+            --jq '{pull_request: .}' > "$RUNNER_TEMP/pr-event.json"
+
       # The org action checks the body against the org template: the five
       # headings in order, no other heading, no template hint, no footer and
       # at most 250 words. Both local templates must stay copies of it.
@@ -45,6 +52,7 @@ jobs:
       - name: Validate PR body
         uses: lvlup-sw/.github/actions/pr-body@v1.11
         with:
+          event-file: ${{ runner.temp }}/pr-event.json
           same-as: |
             .github/PULL_REQUEST_TEMPLATE.md
             .exarchos/pr-template.md
@@ -56,8 +64,8 @@ jobs:
       - name: Golden-fixture marker check (DR-15)
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR: ${{ inputs.pr }}
         run: |
-          PR="${{ github.event.pull_request.number }}"
           gh pr view "$PR" --json body -q .body > "$RUNNER_TEMP/pr-body.txt"
           # Use the paginated "list PR files" API, not `gh pr diff` — the .diff
           # endpoint caps at 300 files and 406s on large PRs (e.g. the debloat

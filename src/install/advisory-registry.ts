@@ -167,7 +167,7 @@ export interface AdvisoryRatchetResult {
  * The inventory matches the sites that {@link discoverSofteningSites} finds, not the enforcer-wiring
  * manifest. That manifest covers only `check-*` and `lint-*` primaries, so it cannot name
  * `eval-capability-layer`, whose control is `run-evals-cli.ts`. That entry is softened twice: by `continue-on-error: true` in
- * `eval-gate.yml`, and by an exit-0 rule for the `capability` layer in `run-evals-cli.ts`. Three of the
+ * `eval-gate.yml`, and by an exit-0 rule for the `capability` layer in `run-evals-cli.ts`. Two of the
  * four entries run on filtered CI lanes, and each `ciPathFiltered` claim records that.
  */
 export const ADVISORY_REGISTRY: readonly AdvisoryEntry[] = [
@@ -282,15 +282,8 @@ export const ADVISORY_REGISTRY: readonly AdvisoryEntry[] = [
     killFixture: 'eval-capability-failing-summary',
     ciPath: '.github/workflows/eval-gate.yml',
     ciStepMatch: 'tools/evals/evals/run-evals-cli.ts',
-    ciPathFiltered: true,
-    ciFilterRationale:
-      'eval-gate.yml is path-filtered at the trigger: `on.pull_request.paths` narrows to ' +
-      'skills/**, commands/**, rules/**, tests/evals/**, a handful of src ' +
-      'paths and the workflow file itself. A PR that regresses agent behaviour without ' +
-      'touching one of those paths never runs the capability suite. Softened a SECOND time ' +
-      'in code: run-evals-cli.ts returns 0 whenever `layer === \'capability\'`, regardless ' +
-      'of `totalFailures` — the `continue-on-error` on the step is therefore redundant ' +
-      'belt-and-braces, and removing only one of the two would not make the suite blocking.',
+    ciPathFiltered: false,
+    ciFilterRationale: '',
     softening: [
       {
         file: '.github/workflows/eval-gate.yml',

@@ -9,7 +9,7 @@
  * - orphan: no workflow references the primary.
  * - unreachable-npm: only an npm script that no workflow runs references the primary.
  * - exit-code-swallowed: `|| true` or `continue-on-error` hides the exit code.
- * - missing-synchronize: the workflow of a diff-dependent gate omits the `synchronize` trigger.
+ * - missing-synchronize: the workflow of a diff-dependent gate cannot run again on a new head.
  * - filtered-ci-path: a path, branch or `if:` filter breaks an `unfilteredCiPath` claim.
  *
  * A `gating` entry must be reachable and failable from its named workflow. An `advisory` entry
@@ -712,18 +712,17 @@ export function parseWorkflowJobs(text) {
  * @property {CiPathFilter[]} filters
  */
 
-/** The event an "unfiltered CI path" claim is about: fires on every PR. */
-export const CI_PATH_EVENT = 'pull_request';
+/**
+ * The events an "unfiltered CI path" claim is about. A `pull_request` run fires on every PR.
+ * A `workflow_dispatch` run is the suite on demand, and ci.yml has no other trigger before merge.
+ * A path is unfiltered when one of these events reaches the step with no filter.
+ */
+export const CI_PATH_EVENTS = Object.freeze(['pull_request', 'workflow_dispatch']);
 
 /**
  * Model the path filters on a claimed CI path, from the parsed trigger and the parsed job and step `if:` gates.
- * A CI path is unfiltered for an event when all of these are true:
- * - the workflow declares the event.
- * - the event has no `paths`, `paths-ignore`, `branches` or `branches-ignore` list.
- * - a step that matches `stepMatch` sits in a job whose `if:` and own step `if:` do not filter.
- * One unfiltered host is enough, even when another copy of the step runs in a filtered job.
- *
- * It does not follow reusable workflows, read `run:` shell exits, or treat `types:` as a path filter.
+ * With no `event` option, it models each of `CI_PATH_EVENTS` and returns an unfiltered result if one exists.
+ * Otherwise it returns the result of the first event that the workflow declares.
  *
  * @param {string} text  workflow file contents
  * @param {{ stepMatch?: string | null, event?: string }} [options]
@@ -732,8 +731,30 @@ export const CI_PATH_EVENT = 'pull_request';
  * @returns {CiPathAnalysis}
  */
 export function analyzeCiPathFilters(text, options = {}) {
-  const event = options.event ?? CI_PATH_EVENT;
   const stepMatch = options.stepMatch ?? null;
+  if (options.event !== undefined) return analyzeCiPathFiltersFor(text, options.event, stepMatch);
+  const analyses = CI_PATH_EVENTS.map((event) => analyzeCiPathFiltersFor(text, event, stepMatch));
+  return (
+    analyses.find((a) => a.unfiltered) ??
+    analyses.find((a) => a.filters.every((f) => f.kind !== 'no-trigger')) ??
+    analyses[0]
+  );
+}
+
+/**
+ * Model the path filters on a claimed CI path for one event. The path is unfiltered when all of these are true:
+ * - the workflow declares the event.
+ * - the event has no `paths`, `paths-ignore`, `branches` or `branches-ignore` list.
+ * - a step that matches `stepMatch` sits in a job whose `if:` and own step `if:` do not filter.
+ * One unfiltered host is enough, even when another copy of the step runs in a filtered job.
+ * It does not follow reusable workflows, read `run:` shell exits, or treat `types:` as a path filter.
+ *
+ * @param {string} text  workflow file contents
+ * @param {string} event
+ * @param {string | null} stepMatch
+ * @returns {CiPathAnalysis}
+ */
+function analyzeCiPathFiltersFor(text, event, stepMatch) {
   /** @type {CiPathFilter[]} */
   const filters = [];
 
@@ -860,7 +881,7 @@ function referencedByAnyNpmScript(primary, scripts) {
  * @property {string} [workflow]
  * @property {boolean} [diffDependent]
  * @property {boolean} [unfilteredCiPath]  claim: `workflow` runs this primary on
- *   an UNFILTERED CI path (fires on every PR). Verified against the parsed
+ *   an UNFILTERED CI path (fires on every PR or every dispatch). Verified against the parsed
  *   trigger + job/step `if:` gates by {@link analyzeCiPathFilters}. Omit the
  *   key to make no claim.
  * @property {string} [ciStepMatch]  substring locating the hosting step when
@@ -984,10 +1005,12 @@ export function audit({ manifest, scripts, workflows, primaryFiles }) {
         const pr = parseWorkflow(workflows[entry.workflow]).pullRequest;
         const hasSync =
           pr.present && (pr.types === null || pr.types.includes('synchronize'));
-        if (!hasSync) {
+        const onDemand = 'workflow_dispatch' in parseWorkflowTriggers(workflows[entry.workflow]);
+        if (!hasSync && !onDemand) {
           violations.push(
             `${p}  [missing-synchronize-trigger]  diff-dependent gate in ${entry.workflow}, whose ` +
-              `pull_request trigger omits \`synchronize\` — a diff pushed after open leaves a stale green`,
+              `pull_request trigger omits \`synchronize\` and which has no \`workflow_dispatch\` ` +
+              `trigger — a diff pushed after open leaves a stale green`,
           );
         }
       }

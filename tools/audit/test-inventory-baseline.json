@@ -7,7 +7,7 @@
     "testFiles": 1439,
     "parsedFiles": 1394,
     "shellFiles": 45,
-    "cases": 15830,
+    "cases": 15838,
     "dynamicTitles": 214,
     "unparseableFiles": 0
   },
@@ -11932,6 +11932,11 @@
         },
         {
           "suite": "enforcer-wiring gate — trap-class fixtures (each MUST fail)",
+          "name": "EnforcerWiring_DiffDependentGateOnDispatch_Passes",
+          "dynamic": false
+        },
+        {
+          "suite": "enforcer-wiring gate — trap-class fixtures (each MUST fail)",
           "name": "EnforcerWiring_DiffDependentGateWithSynchronize_Passes (the class-4 fix)",
           "dynamic": false
         },
@@ -13199,6 +13204,21 @@
         },
         {
           "suite": "Derivations the inventory rests on",
+          "name": "LanePaths_EachTomlStringForm_GivesTheSameGlobs",
+          "dynamic": false
+        },
+        {
+          "suite": "Derivations the inventory rests on",
+          "name": "LanePaths_BrokenLaneOrManifest_Throws",
+          "dynamic": false
+        },
+        {
+          "suite": "Derivations the inventory rests on",
+          "name": "LanePaths_LiveManifest_GivesGlobsForEachLane",
+          "dynamic": false
+        },
+        {
+          "suite": "Derivations the inventory rests on",
           "name": "SuiteResolution_EveryCollectedTest_ResolvesToTheOneSuite",
           "dynamic": false
         },
@@ -13210,6 +13230,16 @@
         {
           "suite": "Derivations the inventory rests on",
           "name": "GuardInventory_EverySelfTestMirror_PairsSomethingReal",
+          "dynamic": false
+        },
+        {
+          "suite": "Derivations the inventory rests on",
+          "name": "HostResolution_JobConditionOffPullRequests_IsNotPreMergeCoverage",
+          "dynamic": false
+        },
+        {
+          "suite": "Derivations the inventory rests on",
+          "name": "HostResolution_DispatchTriggeredWorkflow_IsPreMergeCoverage",
           "dynamic": false
         },
         {
@@ -14547,6 +14577,16 @@
         {
           "suite": "resolveBase",
           "name": "ResolveBase_LocalWithoutOriginMain_SkipsWithAReason",
+          "dynamic": false
+        },
+        {
+          "suite": "resolveBase",
+          "name": "ResolveBase_DispatchRun_ComparesWithOriginMain",
+          "dynamic": false
+        },
+        {
+          "suite": "resolveBase",
+          "name": "ResolveBase_DispatchRunWithoutMain_FailsClosed",
           "dynamic": false
         },
         {

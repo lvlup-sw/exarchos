@@ -126,7 +126,7 @@ export function buildGuardInventory(options: BuildOptions = {}): GuardInventory 
       const enforcing = hosts.filter((host) => isEnforcingHost(host, runnable));
       const enforcement: Enforcement =
         enforcing.length === 0 ? 'unreachable' : enforcing.some((h) => h.blocking) ? 'blocks' : 'observes';
-      const enforcingOnPr = enforcing.filter((h) => h.onPullRequest);
+      const enforcingPreMerge = enforcing.filter((h) => h.preMerge);
       return {
         artifact,
         channels: [...channelSet].sort(),
@@ -134,7 +134,7 @@ export function buildGuardInventory(options: BuildOptions = {}): GuardInventory 
         hosts,
         runnable,
         enforcement,
-        pathFilteredOnly: enforcingOnPr.length > 0 && enforcingOnPr.every((h) => h.pathFilterKeys.length > 0),
+        pathFilteredOnly: enforcingPreMerge.length > 0 && enforcingPreMerge.every((h) => h.pathFilterKeys.length > 0),
         productionImported: /\.[cm]?ts$/.test(artifact) ? imported.has(artifact) : null,
       };
     })

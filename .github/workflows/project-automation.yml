@@ -3,8 +3,6 @@ name: Project Automation
 on:
   issues:
     types: [opened, labeled, unlabeled, closed, reopened]
-  pull_request:
-    types: [opened, ready_for_review, closed]
   push:
     branches: [main]
     paths:
@@ -23,7 +21,7 @@ jobs:
   # (Inlined to avoid cross-repo reusable workflow access issues)
   # ============================================================
   label-sync:
-    if: (github.event.pull_request.head.repo.full_name == github.repository || github.event_name != 'pull_request') && github.event_name == 'push' && !startsWith(github.ref, 'refs/tags/')
+    if: github.event_name == 'push' && !startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -106,7 +104,7 @@ jobs:
   # AUTO-TRIAGE: Label new issues based on content
   # ============================================================
   auto-triage:
-    if: (github.event.pull_request.head.repo.full_name == github.repository || github.event_name != 'pull_request') && github.event_name == 'issues' && github.event.action == 'opened'
+    if: github.event_name == 'issues' && github.event.action == 'opened'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -170,43 +168,10 @@ jobs:
             });
 
   # ============================================================
-  # AUTO-ASSIGN: Assign PR author as assignee
-  # ============================================================
-  auto-assign-author:
-    if: (github.event.pull_request.head.repo.full_name == github.repository || github.event_name != 'pull_request') && github.event_name == 'pull_request' && github.event.action == 'opened' && github.event.pull_request.user.type != 'Bot'
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    permissions:
-      pull-requests: write
-    steps:
-      - name: Assign PR author
-        uses: actions/github-script@v8
-        with:
-          script: |
-            try {
-              await github.rest.issues.addAssignees({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: context.payload.pull_request.number,
-                assignees: [context.payload.pull_request.user.login]
-              });
-              console.log(`Assigned ${context.payload.pull_request.user.login} to PR #${context.payload.pull_request.number}`);
-            } catch (error) {
-              if (error.status === 403 || error.status === 422) {
-                console.log(`Skipping assignment for ${context.payload.pull_request.user.login}: ${error.message}`);
-                return;
-              }
-              throw error;
-            }
-
-  # ============================================================
   # PROJECT SYNC: Add issues/PRs to project board
   # ============================================================
   project-sync:
-    if: |
-      (github.event.pull_request.head.repo.full_name == github.repository || github.event_name != 'pull_request') &&
-      ((github.event_name == 'issues' && github.event.action == 'opened') ||
-      (github.event_name == 'pull_request' && github.event.action == 'opened'))
+    if: github.event_name == 'issues' && github.event.action == 'opened'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -221,10 +186,7 @@ jobs:
   # ============================================================
   project-field-init:
     needs: project-sync
-    if: |
-      (github.event.pull_request.head.repo.full_name == github.repository || github.event_name != 'pull_request') &&
-      ((github.event_name == 'issues' && github.event.action == 'opened') ||
-      (github.event_name == 'pull_request' && github.event.action == 'opened'))
+    if: github.event_name == 'issues' && github.event.action == 'opened'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -233,8 +195,8 @@ jobs:
         with:
           github-token: ${{ secrets.PROJECT_TOKEN }}
           script: |
-            // 1. Get item content (issue or PR)
-            const content = context.payload.issue || context.payload.pull_request;
+            // 1. Get item content (issue)
+            const content = context.payload.issue;
             const contentId = content.node_id;
             const labels = content.labels?.map(l => l.name) || [];
             const body = (content.body || '').toLowerCase();
@@ -403,10 +365,7 @@ jobs:
   # PROJECT STATUS: Update project board status on events
   # ============================================================
   project-status-update:
-    if: |
-      (github.event.pull_request.head.repo.full_name == github.repository || github.event_name != 'pull_request') &&
-      (github.event_name == 'issues' ||
-      github.event_name == 'pull_request')
+    if: github.event_name == 'issues'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -417,9 +376,7 @@ jobs:
           script: |
             const statusMap = {
               'issues.closed': 'Done',
-              'issues.reopened': 'Backlog',
-              'pull_request.ready_for_review': 'In Review',
-              'pull_request.closed': context.payload.pull_request?.merged ? 'Done' : 'Backlog'
+              'issues.reopened': 'Backlog'
             };
 
             const eventKey = `${context.eventName}.${context.payload.action}`;
@@ -427,7 +384,7 @@ jobs:
 
             if (!newStatus) return;
 
-            const contentId = context.payload.issue?.node_id || context.payload.pull_request?.node_id;
+            const contentId = context.payload.issue?.node_id;
             if (!contentId) return;
 
             // Get project and field info
@@ -515,7 +472,7 @@ jobs:
   # STALE MANAGEMENT: Mark and close inactive issues
   # ============================================================
   stale:
-    if: (github.event.pull_request.head.repo.full_name == github.repository || github.event_name != 'pull_request') && github.event_name == 'schedule'
+    if: github.event_name == 'schedule'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -536,39 +493,10 @@ jobs:
           operations-per-run: 30
 
   # ============================================================
-  # PR AUTOMATION: Auto-merge Renovate PRs
-  # ============================================================
-  auto-merge-renovate:
-    if: |
-      (github.event.pull_request.head.repo.full_name == github.repository || github.event_name != 'pull_request') &&
-      github.event_name == 'pull_request' &&
-      github.event.pull_request.user.login == 'renovate[bot]'
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    permissions:
-      contents: write
-      pull-requests: write
-    steps:
-      - name: Setup GitHub CLI
-        env:
-          GH_VERSION: '2.65.0'
-        run: |
-          if ! command -v gh &>/dev/null; then
-            curl -fsSL "https://github.com/cli/cli/releases/download/v${GH_VERSION}/gh_${GH_VERSION}_linux_amd64.tar.gz" \
-              | tar xz -C /tmp
-            echo "/tmp/gh_${GH_VERSION}_linux_amd64/bin" >> "$GITHUB_PATH"
-          fi
-      - name: Enable auto-merge for Renovate PRs
-        run: gh pr merge --auto --squash "$PR_URL"
-        env:
-          PR_URL: ${{ github.event.pull_request.html_url }}
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-  # ============================================================
   # RELEASE AUTOMATION: Generate changelog and release
   # ============================================================
   release:
-    if: (github.event.pull_request.head.repo.full_name == github.repository || github.event_name != 'pull_request') && github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:

@@ -105,7 +105,7 @@ export function auditGuardInventory(
     pathFilteredOnly.push(guard.artifact);
     if (!filtersKnown) continue;
     const keys = [...new Set(guard.hosts.flatMap((h) => [...h.pathFilterKeys]))];
-    const anyUnfilteredHost = guard.hosts.some((h) => h.pathFilterKeys.length === 0 && h.onPullRequest);
+    const anyUnfilteredHost = guard.hosts.some((h) => h.pathFilterKeys.length === 0 && h.preMerge);
     const covered =
       anyUnfilteredHost ||
       keys.some((key) => (filterGlobs[key] ?? []).some((glob) => globMatches(glob, guard.artifact)));

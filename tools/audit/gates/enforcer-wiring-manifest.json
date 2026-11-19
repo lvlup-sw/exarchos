@@ -11,8 +11,10 @@
     "  4 missing-synchronize  — a diff-dependent gate whose host workflow can't re-run on a push.",
     "",
     "`unfilteredCiPath: true` is a CLAIM that the named workflow runs this",
-    "primary on a lane that fires on EVERY pull request — no `on.pull_request`",
-    "paths/branches narrowing, and no filtering `if:` on the hosting job or step.",
+    "primary on a lane that fires on EVERY pull request or EVERY manual dispatch —",
+    "no `on.pull_request` / `on.workflow_dispatch` narrowing, and no filtering `if:`",
+    "on the hosting job or step. ci.yml has no pull_request trigger: the suite runs",
+    "on demand (`gh workflow run ci.yml --ref <branch>`) and on each push to main.",
     "It is VERIFIED against the parsed workflow (analyzeCiPathFilters), never",
     "asserted, and `ciStepMatch` locates the hosting step when the step does not",
     "name the script literally (an `npm run` indirection). Every grep-gates",
@@ -24,7 +26,8 @@
     "",
     "disposition ∈ { gating, advisory, retired }.",
     "  gating   — MUST be reachable-AND-failable from `workflow`; if `diffDependent`,",
-    "             that workflow's pull_request trigger MUST include `synchronize`.",
+    "             that workflow MUST re-run on a new head: a pull_request trigger",
+    "             with `synchronize`, or a `workflow_dispatch` trigger.",
     "  advisory — intentionally non-blocking (neutered / continue-on-error). MUST still",
     "             be reachable from some workflow, and MUST carry a rationale.",
     "  retired  — deliberately dead. MUST NOT be reachable-and-failable from any workflow,",
@@ -78,7 +81,7 @@
       "disposition": "gating",
       "workflow": ".github/workflows/pr-body-check.yml",
       "diffDependent": true,
-      "rationale": "Wired into pr-body-check.yml (task 011): asserts a GOLDEN-FIXTURE-UPDATE marker when a load-bearing fixture changes (DR-15). It reads the PR diff, so its host workflow MUST re-run on `synchronize` or a fixture pushed after open leaves a stale green."
+      "rationale": "Wired into pr-body-check.yml (task 011): asserts a GOLDEN-FIXTURE-UPDATE marker when a load-bearing fixture changes (DR-15). It reads the PR diff, so its host workflow MUST re-run on a new head (`synchronize` or a manual dispatch) or a fixture pushed after open leaves a stale green."
     },
     {
       "script": "tools/audit/gates/check-gate-runner-ownership.mjs",
@@ -200,7 +203,7 @@
       "diffDependent": true,
       "unfilteredCiPath": true,
       "ciStepMatch": "npm run lint:comments",
-      "rationale": "grep-gates deps-tail step: the comment gate runs the shared ESLint configuration (comment rules and Windows-portability rules), the shell/YAML/PowerShell comment scan, baseline integrity, and baseline admission. Admission compares the baseline and the policy with the pull request's base branch, so the gate is diff-dependent and needs the synchronize trigger."
+      "rationale": "grep-gates deps-tail step: the comment gate runs the shared ESLint configuration (comment rules and Windows-portability rules), the shell/YAML/PowerShell comment scan, baseline integrity, and baseline admission. Admission compares the baseline and the policy with the base branch (the pull request base, or main on a manual dispatch), so the gate is diff-dependent and needs a trigger that re-runs it on a new head."
     },
     {
       "script": "tools/audit/gates/lint-inv6.mjs",

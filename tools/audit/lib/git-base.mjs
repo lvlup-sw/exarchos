@@ -2,9 +2,11 @@
 /**
  * @fileoverview Git helpers that compare the working tree with a base branch.
  *
- * On a pull request the base is `origin/$GITHUB_BASE_REF`. If the shallow checkout does not
- * have it, `resolveBase` fetches it with depth 1. A pull request without `GITHUB_BASE_REF` fails
- * closed. On a push run, and locally without `origin/main`, there is no base and the caller skips.
+ * On a pull request the base is `origin/$GITHUB_BASE_REF`. On a manual dispatch the base is
+ * `origin/main`, because no pull request run made the comparison first. If the shallow checkout
+ * does not have the base, `resolveBase` fetches it with depth 1. A pull request without
+ * `GITHUB_BASE_REF` fails closed. On a push run, and locally without `origin/main`, there is no
+ * base and the caller skips.
  */
 
 import { execFileSync, spawnSync } from 'node:child_process';
@@ -64,7 +66,7 @@ function ensureRemoteBranch(branch, cwd) {
 /**
  * The base to compare with, or a reason to skip the comparison.
  *
- * @typedef {{ ref: string, mode: 'explicit' | 'pull-request' | 'local' } | { ref: undefined, mode: 'push' | 'none', reason: string }} BaseResolution
+ * @typedef {{ ref: string, mode: 'explicit' | 'pull-request' | 'dispatch' | 'local' } | { ref: undefined, mode: 'push' | 'none', reason: string }} BaseResolution
  */
 
 /**
@@ -88,6 +90,9 @@ export function resolveBase({ cwd, env, explicit }) {
       throw new GitBaseError('this is a pull_request run, but GITHUB_BASE_REF is not set. Refusing to skip the base comparison.');
     }
     return { ref: ensureRemoteBranch(branch, cwd), mode: 'pull-request' };
+  }
+  if (event === 'workflow_dispatch') {
+    return { ref: ensureRemoteBranch('main', cwd), mode: 'dispatch' };
   }
   if (env.GITHUB_ACTIONS === 'true') {
     return { ref: undefined, mode: 'push', reason: 'push run: the pull request already made this comparison' };
