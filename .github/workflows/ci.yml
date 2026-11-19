@@ -1,21 +1,20 @@
 name: CI
 
+# No pull_request trigger: a PR push starts no CI. Run the suite on demand with
+# `gh workflow run ci.yml --ref <branch>`. Its CI Gate check then lands on that
+# branch head. Each push to main runs the full suite.
 on:
-  pull_request:
-    # `labeled` lets the `ci:windows` label start the Windows core suite on a PR.
-    # The default types stay, and `synchronize` is required by the enforcer-wiring gate.
-    types: [opened, synchronize, reopened, labeled]
   push:
     branches: [main]
   workflow_dispatch:
 
-# A new push to a PR cancels the run for the earlier push. Other events get a
-# group of their own (the run id), so no run on main is cancelled or held back.
+# A new dispatch on the same branch cancels the earlier one. A push to main gets a
+# group of its own (the run id), so no run on main is cancelled or held back.
 # The job guards start with `!cancelled()`, not `always()`. GitHub starts an
 # `always()` job after its run is cancelled, so the cancel would stop nothing.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.run_id }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  group: ${{ github.workflow }}-${{ github.event_name == 'workflow_dispatch' && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'workflow_dispatch' }}
 
 permissions:
   contents: read
@@ -258,16 +257,16 @@ jobs:
           RUN_EVALS: '1'
         run: npx vitest run tools/evals/evals/harness.test.ts tools/evals/evals/graders/llm-rubric.test.ts
 
-      # Diff-scoped mutation gate, OBSERVE MODE, on pull_request events only (a push to
-      # main has no PR base to diff). The script fetches the shallow PR base ref
-      # (origin/$GITHUB_BASE_REF) and runs the in-tree mutation-adequacy handler with
+      # Diff-scoped mutation gate, OBSERVE MODE, on manual dispatch only (a push to
+      # main has no base to diff). The script fetches the shallow base ref (main on a
+      # dispatch) and runs the in-tree mutation-adequacy handler with
       # bun (set up above). An empty diff is a logged skip, and a git failure is
       # fail-closed. Observe mode logs the verdict and always exits 0. The step stays in
       # observe mode until #1720 resolves: the StrykerJS dry-run fails on the full suite
       # in CI. Host class: deps, filtered on `mcp`. A grep-gates step re-asserts the
       # script unfiltered. See docs/guides/ci-gate-hosting.md.
-      - name: Mutation gate — observe mode (DR-7), PR events only
-        if: github.event_name == 'pull_request'
+      - name: Mutation gate — observe mode (DR-7), dispatch only
+        if: github.event_name == 'workflow_dispatch'
         run: node "$GITHUB_WORKSPACE/tools/audit/gates/check-mutation-gate.mjs" --observe
 
       # Composed-path Stryker smoke test: resolver, handler, adapter, the real pinned
@@ -308,10 +307,10 @@ jobs:
   # test-mcp, so the compiled-binary tests can resolve their bundler.
   # PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD avoids the npm-ci chromium wedge (#1502).
   #
-  # DISPOSITION: NON-BLOCKING, and not on every PR. The suite takes about 15 minutes, the
-  # largest single cost of a PR run. It runs on each push to main, on manual dispatch,
-  # and on a PR that has the `ci:windows` label. windows-nightly.yml runs the same suite
-  # each night. The 5-minute test-windows-root job stays on every PR and in CI Gate.
+  # DISPOSITION: NON-BLOCKING. The suite takes about 15 minutes. It runs on each push to
+  # main and on manual dispatch. windows-nightly.yml runs the same suite each night. The
+  # 5-minute test-windows-root job is in CI Gate. The `if:` below is inert while this
+  # workflow has no pull_request trigger.
   # ─────────────────────────────────────────────────────────────────────
   test-windows:
     name: Windows Unit (MCP)
@@ -372,8 +371,8 @@ jobs:
       # path-filter or matrix regression drops either file, this step fails instead of
       # passing on zero tests.
       #
-      # This job is not in CI Gate, so a failure here does not block a PR. It shows on the
-      # main push run that follows the merge, and on a PR that has the `ci:windows` label.
+      # This job is not in CI Gate, so a failure here does not block a PR. It shows on a
+      # manual dispatch run and on the main push run that follows the merge.
       - name: DR-8 — named win32-fragile launcher tests (spawn 003 + path 009)
         shell: bash
         run: |
@@ -1297,8 +1296,8 @@ jobs:
 
   # Always-on jobs (grep-gates, outcome-tests, e2e-process) are targeted on lane
   # `always` (paths: ** ) so this required check still aggregates them. binary-matrix,
-  # startup-budget and test-windows are untargeted and non-blocking. They run on non-PR
-  # events, and test-windows also runs on a PR with the `ci:windows` label.
+  # startup-budget and test-windows are untargeted and non-blocking. Every event of this
+  # workflow (dispatch or push to main) runs them.
   # lanes-check is untargeted. Its failure still fails the workflow run.
   ci-gate:
     name: CI Gate

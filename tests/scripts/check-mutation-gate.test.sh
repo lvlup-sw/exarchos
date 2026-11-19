@@ -136,6 +136,15 @@ set -e
 check "NonPrEvent_SkipExitsZero" 0 "$nonpr_exit"
 grep_cause "non-pr-skip" "SKIP" "$TMP/nonpr.out"
 
+# ── direction 4b: workflow_dispatch event → diffs like a PR, not an event skip
+set +e
+node "$GATE" --event-name workflow_dispatch --base "$HEAD_SHA" --head "$HEAD_SHA" --repo-root "$FIXTURE" \
+  >"$TMP/dispatch.out" 2>"$TMP/dispatch.err"
+dispatch_exit=$?
+set -e
+check "DispatchEvent_DiffsLikeAPullRequest" 0 "$dispatch_exit"
+grep_cause "dispatch-diffs" "touches no files" "$TMP/dispatch.out"
+
 # ── direction 5: git failure (unresolvable + unfetchable base) → FAIL CLOSED
 NOT_A_GIT_REPO="$TMP/not-a-git-repo"
 mkdir -p "$NOT_A_GIT_REPO"

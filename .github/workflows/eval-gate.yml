@@ -1,20 +1,9 @@
 name: Eval Gate
 
+# On demand only: `gh workflow run eval-gate.yml --ref <branch>`. A PR push starts
+# nothing, so no Anthropic API credit is spent without a request.
 on:
-  pull_request:
-    paths:
-      - 'skills/**'
-      - 'commands/**'
-      - 'rules/**'
-      - 'tests/evals/**'
-      - 'src/workflow/playbooks.ts'
-      - 'src/cli-commands/**'
-      - 'src/verbs/team/prepare-delegation.ts'
-      - 'tools/evals/evals/**'
-      # Opt-in eval package: owns the promptfoo dep the graders
-      # dynamic-import. A change here must re-run the eval gate.
-      - 'tools/evals-pkg/**'
-      - '.github/workflows/eval-gate.yml'
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -37,11 +26,10 @@ env:
 jobs:
   eval-regression:
     name: Eval Regression Check
-    if: github.event.pull_request.head.repo.full_name == github.repository || github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     concurrency:
-      group: eval-gate-${{ github.head_ref }}
+      group: eval-gate-${{ github.ref }}
       cancel-in-progress: true
     steps:
       - name: Checkout

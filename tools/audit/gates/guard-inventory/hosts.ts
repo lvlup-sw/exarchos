@@ -34,6 +34,32 @@ export function runsOnPullRequest(workflow: Workflow): boolean {
   return false;
 }
 
+/** True when the workflow declares a `workflow_dispatch` trigger, so the suite can run on demand before merge. */
+export function runsOnDemand(workflow: Workflow): boolean {
+  const on = workflow.on;
+  if (on === 'workflow_dispatch') return true;
+  if (Array.isArray(on)) return on.includes('workflow_dispatch');
+  if (on !== null && typeof on === 'object') return 'workflow_dispatch' in on;
+  return false;
+}
+
+/** A job condition that reads the event or the ref, so it can be false on a dispatch run. */
+const EVENT_DEPENDENT = /\bgithub\.(event_name|event\.|ref\b|ref_name|head_ref|base_ref)/;
+/** The one event-dependent condition that admits a dispatch run: a skip of pull requests alone. */
+const ONLY_NOT_PULL_REQUEST = /^github\.event_name\s*!=\s*'pull_request'$/;
+
+/**
+ * True when the `if:` of the job lets a dispatch run start it.
+ * A condition that reads the event or the ref admits dispatch only when it is a plain skip of pull requests.
+ * A label opt-in term after `||` does not change that. Any other event or ref condition counts as a skip.
+ */
+export function jobAdmitsDispatch(job: WorkflowJob): boolean {
+  const condition = String(job.if ?? '').trim().replace(/^\$\{\{([\s\S]*)\}\}$/, '$1').trim();
+  if (!EVENT_DEPENDENT.test(condition)) return true;
+  const [first, ...rest] = condition.split('||').map((term) => term.trim());
+  return ONLY_NOT_PULL_REQUEST.test(first ?? '') && rest.every((term) => PR_LABEL_OPT_IN.test(term));
+}
+
 /** A job condition term that is false on every pull request. */
 const NOT_PULL_REQUEST = /^github\.event_name\s*!=\s*'pull_request'(\s*&&.*)?$/s;
 /** A job condition term that is true only on a pull request with a named label. */
@@ -213,16 +239,17 @@ export function resolveHosts(artifact: string, ctx: ResolutionContext): GuardHos
     const isCi = workflowPath === CI_WORKFLOW;
     const aggregatorNeeds = new Set(isCi ? needsList(doc.jobs?.[AGGREGATOR_JOB]) : []);
     const onPullRequest = runsOnPullRequest(doc);
+    const onDemand = runsOnDemand(doc);
 
     for (const [jobName, job] of Object.entries(doc.jobs ?? {})) {
       if (jobName === AGGREGATOR_JOB) continue;
       const keys = pathFilterKeys(job);
-      const jobOnPullRequest = onPullRequest && !jobSkipsPullRequest(job);
+      const jobPreMerge = (onPullRequest && !jobSkipsPullRequest(job)) || (onDemand && jobAdmitsDispatch(job));
 
       const record = (via: HostingVia, exitSwallowed: boolean, through: readonly string[] = []): void => {
         const blocking = isCi
           ? aggregatorNeeds.has(jobName) && !exitSwallowed
-          : jobOnPullRequest && !exitSwallowed;
+          : jobPreMerge && !exitSwallowed;
         hosts.push({
           workflow: workflowPath,
           job: jobName,
@@ -230,7 +257,7 @@ export function resolveHosts(artifact: string, ctx: ResolutionContext): GuardHos
           through,
           pathFilterKeys: keys,
           exitSwallowed,
-          onPullRequest: jobOnPullRequest,
+          preMerge: jobPreMerge,
           blocking,
         });
       };

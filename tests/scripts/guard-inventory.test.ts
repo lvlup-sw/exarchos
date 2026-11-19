@@ -32,6 +32,7 @@ import {
   hasDirectRunExit,
   indexShellIndirection,
   isEnforcingHost,
+  jobAdmitsDispatch,
   jobSkipsPullRequest,
   isPathShaped,
   isTestArtifact,
@@ -210,7 +211,7 @@ describe('Wave-1 guard inventory — CI reachability proof (DR-24, task 063)', (
           through: [],
           pathFilterKeys: [],
           exitSwallowed: false,
-          onPullRequest: true,
+          preMerge: true,
           blocking: true,
         },
       ],
@@ -271,7 +272,7 @@ describe('Wave-1 guard inventory — CI reachability proof (DR-24, task 063)', (
               through: [],
               pathFilterKeys: [],
               exitSwallowed: false,
-              onPullRequest: true,
+              preMerge: true,
               blocking: true,
             },
           ],
@@ -342,8 +343,8 @@ describe('Wave-1 guard inventory — CI reachability proof (DR-24, task 063)', (
 describe('Path-filtered hosting (#1711 skipped-as-passed)', () => {
   /**
    * The live audit must name each guard that only path-filtered jobs host, and each must carry a filter key.
-   * `layer-boundaries-seam.ts` is the named live instance, so the criterion keeps a live subject.
-   * The seeded guard has its source outside the filter and no unfiltered `pull_request` host, so the audit must fail it.
+   * `cli-vocab-guard.ts` is the named live instance, so the criterion keeps a live subject.
+   * The seeded guard has its source outside the filter and no unfiltered pre-merge host, so the audit must fail it.
    */
   it('GuardInventory_PathFilteredGuard_IsReportedNotSilentlyAccepted', () => {
     expect(liveAudit.pathFilteredOnly.length).toBeGreaterThan(0);
@@ -354,9 +355,7 @@ describe('Path-filtered hosting (#1711 skipped-as-passed)', () => {
       expect(keys.size, `${artifact} reported filtered with no derived filter key`).toBeGreaterThan(0);
     }
 
-    expect(liveAudit.pathFilteredOnly).toContain(
-      'src/architecture/layer-boundaries-seam.ts',
-    );
+    expect(liveAudit.pathFilteredOnly).toContain('tools/audit/core/cli-vocab-guard.ts');
 
     const audit = auditGuardInventory(
       inventoryOf([
@@ -372,7 +371,7 @@ describe('Path-filtered hosting (#1711 skipped-as-passed)', () => {
               through: [],
               pathFilterKeys: ['root'],
               exitSwallowed: false,
-              onPullRequest: true,
+              preMerge: true,
               blocking: true,
             },
           ],
@@ -403,7 +402,7 @@ describe('Path-filtered hosting (#1711 skipped-as-passed)', () => {
               through: [],
               pathFilterKeys: ['mcp'],
               exitSwallowed: false,
-              onPullRequest: true,
+              preMerge: true,
               blocking: true,
             },
             {
@@ -413,7 +412,7 @@ describe('Path-filtered hosting (#1711 skipped-as-passed)', () => {
               through: [],
               pathFilterKeys: [],
               exitSwallowed: false,
-              onPullRequest: true,
+              preMerge: true,
               blocking: true,
             },
           ],
@@ -444,7 +443,7 @@ describe('Path-filtered hosting (#1711 skipped-as-passed)', () => {
               through: [],
               pathFilterKeys: ['root'],
               exitSwallowed: false,
-              onPullRequest: true,
+              preMerge: true,
               blocking: true,
             },
             {
@@ -454,7 +453,7 @@ describe('Path-filtered hosting (#1711 skipped-as-passed)', () => {
               through: [],
               pathFilterKeys: [],
               exitSwallowed: false,
-              onPullRequest: false,
+              preMerge: false,
               blocking: false,
             },
           ],
@@ -788,8 +787,8 @@ describe('Derivations the inventory rests on', () => {
       exists: () => false,
     };
     const byJob = new Map(resolveHosts('scripts/check-split.mjs', ctx).map((h) => [h.job, h]));
-    expect(byJob.get('gates')?.onPullRequest).toBe(true);
-    expect(byJob.get('post-merge')?.onPullRequest).toBe(false);
+    expect(byJob.get('gates')?.preMerge).toBe(true);
+    expect(byJob.get('post-merge')?.preMerge).toBe(false);
 
     expect(jobSkipsPullRequest({ if: "${{ github.event_name != 'pull_request' }}" })).toBe(true);
     expect(jobSkipsPullRequest({ if: "github.event_name != 'pull_request' && github.ref == 'refs/heads/main'" })).toBe(true);
@@ -797,6 +796,55 @@ describe('Derivations the inventory rests on', () => {
     expect(jobSkipsPullRequest({ if: "github.event_name == 'pull_request'" })).toBe(false);
     expect(jobSkipsPullRequest({ if: "always() && github.event_name != 'pull_request'" })).toBe(false);
     expect(jobSkipsPullRequest({})).toBe(false);
+  });
+
+  /**
+   * A workflow with only `push` and `workflow_dispatch` runs its suite on demand before merge.
+   * Its jobs count as pre-merge coverage, and a push-only workflow does not.
+   */
+  it('HostResolution_DispatchTriggeredWorkflow_IsPreMergeCoverage', () => {
+    const resolveIn = (on: string) => {
+      const workflow = parseWorkflow(
+        CI_WORKFLOW,
+        [
+          on,
+          'jobs:',
+          '  ci-gate:',
+          '    needs: [gates]',
+          '    steps:',
+          '      - run: echo aggregate',
+          '  gates:',
+          "    if: github.event_name != 'pull_request'",
+          '    steps:',
+          '      - run: node scripts/check-split.mjs',
+        ].join('\n'),
+      );
+      const ctx: ResolutionContext = {
+        workflows: [workflow],
+        rootPkg: { dir: '', scripts: {} },
+        suites: loadSuiteConfigs(),
+        exists: () => false,
+      };
+      return resolveHosts('scripts/check-split.mjs', ctx).find((h) => h.job === 'gates');
+    };
+
+    expect(resolveIn('on: [push, workflow_dispatch]')?.preMerge).toBe(true);
+    expect(resolveIn('on: [push]')?.preMerge).toBe(false);
+  });
+
+  /** A dispatch trigger counts only for a job whose condition lets a dispatch run start it. */
+  it('HostResolution_JobConditionThatSkipsDispatch_IsNotPreMergeCoverage', () => {
+    expect(jobAdmitsDispatch({})).toBe(true);
+    expect(jobAdmitsDispatch({ if: '${{ !cancelled() }}' })).toBe(true);
+    expect(jobAdmitsDispatch({ if: "github.event_name != 'pull_request'" })).toBe(true);
+    expect(
+      jobAdmitsDispatch({
+        if: "github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'ci:windows')",
+      }),
+    ).toBe(true);
+    expect(jobAdmitsDispatch({ if: "github.event_name == 'push'" })).toBe(false);
+    expect(jobAdmitsDispatch({ if: "github.event_name != 'pull_request' && github.ref == 'refs/heads/main'" })).toBe(false);
+    expect(jobAdmitsDispatch({ if: "startsWith(github.ref, 'refs/tags/')" })).toBe(false);
   });
 
   /** The workflow does not name the guard. Two npm scripts lie between the step and the guard. */

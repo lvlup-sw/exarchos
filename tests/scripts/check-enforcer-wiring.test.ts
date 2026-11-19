@@ -239,6 +239,67 @@ describe('enforcer-wiring gate — trap-class fixtures (each MUST fail)', () => 
     );
   });
 
+  /** A dispatch-only host runs the gate again on the current head when asked, so the same tree passes. */
+  it('EnforcerWiring_DiffDependentGateOnDispatch_Passes', () => {
+    const t = baseline();
+    t.primaryFiles.push(primary('check-diffdep.mjs'));
+    t.workflows['.github/workflows/pr-body-check.yml'] = [
+      'name: PR Body Check',
+      'on:',
+      '  workflow_dispatch:',
+      'jobs:',
+      '  check:',
+      '    runs-on: ubuntu-latest',
+      '    steps:',
+      `      - run: node ${primary('check-diffdep.mjs')}`,
+      '',
+    ].join('\n');
+    t.manifest.primaries.push({
+      script: primary('check-diffdep.mjs'),
+      disposition: 'gating',
+      workflow: '.github/workflows/pr-body-check.yml',
+      diffDependent: true,
+      rationale: 'diff-dependent gate; host workflow runs on demand',
+    });
+
+    const result = audit(t);
+    expect(result.violations).toEqual([]);
+    expect(result.ok).toBe(true);
+  });
+
+  /** A dispatch trigger does not count when the hosting job skips dispatch runs. */
+  it('EnforcerWiring_DiffDependentGateOnJobThatSkipsDispatch_Fails', () => {
+    const t = baseline();
+    t.primaryFiles.push(primary('check-diffdep.mjs'));
+    t.workflows['.github/workflows/pr-body-check.yml'] = [
+      'name: PR Body Check',
+      'on:',
+      '  pull_request:',
+      '    types: [opened, edited]',
+      '  workflow_dispatch:',
+      'jobs:',
+      '  check:',
+      "    if: github.event_name != 'workflow_dispatch'",
+      '    runs-on: ubuntu-latest',
+      '    steps:',
+      `      - run: node ${primary('check-diffdep.mjs')}`,
+      '',
+    ].join('\n');
+    t.manifest.primaries.push({
+      script: primary('check-diffdep.mjs'),
+      disposition: 'gating',
+      workflow: '.github/workflows/pr-body-check.yml',
+      diffDependent: true,
+      rationale: 'diff-dependent gate; the dispatch path skips the hosting job',
+    });
+
+    const result = audit(t);
+    expect(result.ok).toBe(false);
+    expect(result.violations.join('\n')).toMatch(
+      violationOf('check-diffdep.mjs', 'missing-synchronize-trigger'),
+    );
+  });
+
   /** With `synchronize` in the trigger types, the same tree passes. */
   it('EnforcerWiring_DiffDependentGateWithSynchronize_Passes (the class-4 fix)', () => {
     const t = baseline();

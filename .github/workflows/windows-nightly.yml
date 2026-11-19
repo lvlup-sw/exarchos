@@ -1,9 +1,9 @@
 name: Windows Nightly
 
 # Runs the `core` vitest project on windows-latest each night. The same suite runs
-# in ci.yml `test-windows` on each push to main and on a PR with the `ci:windows`
-# label, but not on every PR. This run catches runner-image drift on days with no
-# merge. Keep the setup below in step with `test-windows` in ci.yml.
+# in ci.yml `test-windows` on each push to main and on each manual dispatch. This run
+# catches runner-image drift on days with no merge. Keep the setup below in step with
+# `test-windows` in ci.yml.
 on:
   schedule:
     - cron: '0 6 * * *'

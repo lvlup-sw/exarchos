@@ -72,6 +72,25 @@ describe('resolveBase', () => {
   it('ResolveBase_LocalWithoutOriginMain_SkipsWithAReason', () => {
     expect(resolveBase({ cwd: repo, env: {} })).toMatchObject({ ref: undefined, mode: 'none' });
   });
+
+  /** No pull request run compares a dispatched branch, so a dispatch run must compare with main. */
+  it('ResolveBase_DispatchRun_ComparesWithOriginMain', async () => {
+    await git('update-ref', 'refs/remotes/origin/main', 'base');
+    try {
+      const resolved = resolveBase({ cwd: repo, env: { GITHUB_ACTIONS: 'true', GITHUB_EVENT_NAME: 'workflow_dispatch' } });
+
+      expect(resolved).toEqual({ ref: 'origin/main', mode: 'dispatch' });
+    } finally {
+      await git('update-ref', '-d', 'refs/remotes/origin/main');
+    }
+  });
+
+  /** A dispatch run that cannot get main fails closed, and does not skip the comparison. */
+  it('ResolveBase_DispatchRunWithoutMain_FailsClosed', () => {
+    expect(() =>
+      resolveBase({ cwd: repo, env: { GITHUB_ACTIONS: 'true', GITHUB_EVENT_NAME: 'workflow_dispatch' } }),
+    ).toThrow(GitBaseError);
+  });
 });
 
 describe('small helpers', () => {
