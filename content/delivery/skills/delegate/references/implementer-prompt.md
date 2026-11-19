@@ -63,12 +63,14 @@ git merge-base --is-ancestor "[baseCommit]" HEAD \
   || { echo "ERROR: HEAD does not hold the base commit — halting"; exit 1; }
 ```
 
+For a compiler-8 dependent, the orchestrator replaces this root base step with `git switch -c <own branch> <forkCommit>`. Keep the supplied clean starting commit containing the pinned base and direct blocker heads; do not reset to the root base. The following `[baseCommit]` step applies to roots and historical compilers.
+
 `[baseCommit]` is the `baseCommit` of the task in the capsule (`settlementContract.taskVerification[taskId].baseCommit`), supplied by the orchestrator at dispatch. On the primitive path it is the tip commit of the integration branch at dispatch. `[own-branch]` is a new branch for this task, never the integration branch; report it as `branch`. It is a name that no branch holds yet. It is not the branch of the worktree that `setup_worktree` or `git worktree add -b` made, because git refuses `git switch -c` for a branch that exists. The switch gives the base on every runtime, also when native isolation made the worktree from another commit.
 
 If the switch fails, or the check fails after it, STOP and report it. Settlement refuses a worktree whose HEAD does not hold `[baseCommit]` (`base-not-held`). It also refuses a worktree on the integration branch, and the checkout or the primary worktree of the repository: each task runs in a linked worktree of its own.
 
 ## Task Description
-[Full task description from implementation plan - never reference external files]
+[Compiler 8: exact pinned taskContext instructions, acceptance, files and testFiles, plus the referenced result contract. Compiler 7 or primitive path: full description from the matching approved plan. Include the content inline; never send a mutable plan reference in its place.]
 
 ## Files to Modify
 
@@ -290,6 +292,8 @@ When completing a task, include structured provenance data in your completion re
 4. **tests** — Tests written, each with name and file path
 5. **files** — Files created or modified
 6. **acceptanceTestRef** — (optional) Task ID of the parent acceptance test, if this task has an `acceptanceTestRef` field
+
+For a compiler-8 dependent task, the result contract also requires **forkCommit**. Before editing, record the full commit at the clean starting point supplied by the orchestrator, containing the pinned base and direct blocker heads. Return that exact value as a result field; the orchestrator sends it as `fields.forkCommit`. A root or historical task has no new required fork field unless its own contract declares one. Never replace the original fork with your finished HEAD.
 
 ### Structured Format
 

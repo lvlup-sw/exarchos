@@ -1,7 +1,7 @@
 /**
- * The recompiled slice of a plan. A design revision names the unfinished tasks that an accepted
+ * The recompiled slice of a plan. A design revision names the tasks that an accepted
  * change affects. The first prepare after the revision is a continuation, and it records which
- * unfinished tasks the change invalidated.
+ * tasks the change invalidated.
  *
  * This module holds the two pure functions of that record. One reads the pending revision from
  * the rows of a stream. The other walks the plan from the tasks that the revision names.
@@ -65,9 +65,9 @@ export function pendingRevisionOf(
 
 /** The tasks of one recompile. */
 export interface RecompiledSlice {
-  /** Each seed, once, sorted. A seed that the plan lacks, or that is finished, is only here. */
+  /** Each seed, once, sorted, including seeds absent from the plan. */
   readonly declared: readonly string[];
-  /** Each unfinished task that the change reaches, in plan order. */
+  /** Each task that the selected walk reaches, in plan order. */
   readonly invalidated: readonly string[];
 }
 
@@ -77,14 +77,13 @@ export interface RecompiledSlice {
  *
  * The slice starts from the unfinished seeds. A task that waits on a task in the slice joins it,
  * breadth first. The visited set ends a walk through tasks that wait on each other.
- * The walk enters only unfinished tasks. Thus finished work stands, and so does each task that is
- * built on it alone.
+ * Legacy walks enter only unfinished tasks. Complete-graph walks also traverse and invalidate finished tasks.
  *
  * The plan reader of the partition gives the standing of each task, so the slice and the capsule
  * of one prepare agree. An entry that the reader refuses is not a task of the plan. For an id
  * that the plan holds twice, the first entry counts.
  */
-export function recompiledSliceOf(seeds: readonly string[], plan: readonly unknown[]): RecompiledSlice {
+export function recompiledSliceOf(seeds: readonly string[], plan: readonly unknown[], traverseCompleted = false): RecompiledSlice {
   const tasks = new Map<string, PlannedTask>();
   for (const [index, entry] of plan.entries()) {
     const read = readPlannedTask(entry, index);
@@ -100,11 +99,11 @@ export function recompiledSliceOf(seeds: readonly string[], plan: readonly unkno
   const unfinished = (id: string): boolean => tasks.get(id)?.complete === false;
 
   const declared = [...new Set(seeds)].sort();
-  const queue = declared.filter(unfinished);
+  const queue = declared.filter(id => traverseCompleted ? tasks.has(id) : unfinished(id));
   const visited = new Set(queue);
   for (const current of queue) {
     for (const dependent of waiting.get(current) ?? []) {
-      if (visited.has(dependent) || !unfinished(dependent)) continue;
+      if (visited.has(dependent) || (!traverseCompleted && !unfinished(dependent))) continue;
       visited.add(dependent);
       queue.push(dependent);
     }

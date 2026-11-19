@@ -469,6 +469,15 @@
         }
       },
       {
+        "file": "tests/unit/verbs/settle/settle-phase-move.test.ts",
+        "default": "git-tree-observer",
+        "twin": {
+          "file": "tests/acceptance/settle-moves-the-phase.test.ts",
+          "test": "SettleMovesThePhase_ThenTransition_IsIdempotentThroughDispatch",
+          "keeps": "shippedContext("
+        }
+      },
+      {
         "file": "tests/helpers/replay/settled-feature-walk.ts",
         "default": "state-document-file",
         "owner": "@rsalus",

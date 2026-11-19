@@ -5,42 +5,42 @@
  * preparation, so no record pins bytes that nobody can read back.
  *
  * `settle` judges the capsule that a record pins, read back from custody. A submitted capsule must
- * match the digest of that record. The writer and the reader live in one module, so they agree on
- * the document shape.
+ * match the digest of that record. The contract-layer codec owns the document shape.
  */
 
 import {
-  WorkflowDefinitionV1Schema,
   type WorkflowDefinitionV1,
 } from '@lvlup-sw/strategos-contracts';
-import { z } from 'zod';
 
-import { capsuleDigest, contentDigest } from '../../contract/capsule/capsule-digest.js';
+import { capsuleDigest } from '../../contract/capsule/capsule-digest.js';
 import {
-  ExarchosCapsuleV1Schema,
   type ExarchosCapsuleV1,
 } from '../../contract/capsule/exarchos-capsule.js';
-import { canonicalJson } from '../../contract/request-context.js';
 import type { DispatchContext } from '../../dispatch/core/dispatch.js';
 import { outerCorrelation, stampFromAmbient } from '../../dispatch/core/outer-correlation.js';
 import { runWithDispatchContext } from '../../dispatch/dispatch-context.js';
+import type { EventInput } from '../../events/atomic-appender.js';
+import { ConcurrencyError } from '../../events/concurrency-error.js';
+import { recordedInitialPhaseOf, validateEventRowData } from '../../events/event-validation.js';
 import type { BundleRefV1 } from '../../events/bundle/digest-references.js';
 import type { RunBundleStore } from '../../events/bundle/run-bundle-store.js';
 import {
   CapsuleRecompiledData,
   TaskAssignedData,
+  WorkflowEventBase,
   WorkflowPreparedData,
   type EventType,
   type WorkflowPrepared,
+  type WorkflowEvent,
 } from '../../events/schemas.js';
 import { ArtifactIdSchema, type ArtifactId } from '../../workflow/admission/types.js';
 import type { PreparedCapsuleReceipt, PreparedRecompile } from './types.js';
 
-/** The `kind` discriminator every prepared bundle carries. */
-export const PREPARED_BUNDLE_KIND = 'prepared-capsule';
+export { PREPARED_BUNDLE_KIND, PREPARED_BUNDLE_VERSION, PreparedBundleV1Schema, encodePreparedBundle, decodePreparedBundle, type PreparedBundleV1 } from '../../contract/capsule/prepared-bundle.js';
+import { PREPARED_BUNDLE_KIND, encodePreparedBundle, type PreparedBundleV1 } from '../../contract/capsule/prepared-bundle.js';
 
-/** The document version. A change that an old reader can misread needs a new version. */
-export const PREPARED_BUNDLE_VERSION = '1.0';
+export { capsuleOfRecord } from '../../workflow/capsule/prepared-custody.js';
+import { capsuleOfRecord } from '../../workflow/capsule/prepared-custody.js';
 
 /** The payload version `workflow.prepared` rows are stamped with. */
 export const WORKFLOW_PREPARED_SCHEMA_VERSION = '1.0';
@@ -52,38 +52,6 @@ const TASK_ASSIGNED_TYPE = 'task.assigned';
 
 /** The event that records one recompile. This commit is its one writer. */
 const CAPSULE_RECOMPILED_TYPE = 'capsule.recompiled' satisfies EventType;
-
-export const PreparedBundleV1Schema = z
-  .object({
-    bundleVersion: z.literal(PREPARED_BUNDLE_VERSION),
-    kind: z.literal(PREPARED_BUNDLE_KIND),
-    capsule: ExarchosCapsuleV1Schema,
-    /** Validated against the published kernel on decode, not trusted as an opaque record. */
-    definition: z.record(z.string(), z.unknown()),
-  })
-  .strict();
-
-export interface PreparedBundleV1 {
-  readonly capsule: ExarchosCapsuleV1;
-  readonly definition: WorkflowDefinitionV1;
-}
-
-/** Encode through the schema first, so a document no reader recognises never reaches custody. */
-export function encodePreparedBundle(bundle: PreparedBundleV1): Uint8Array {
-  const validated = PreparedBundleV1Schema.parse({
-    bundleVersion: PREPARED_BUNDLE_VERSION,
-    kind: PREPARED_BUNDLE_KIND,
-    capsule: bundle.capsule,
-    definition: bundle.definition,
-  });
-  return Buffer.from(`${canonicalJson(validated)}\n`, 'utf8');
-}
-
-/** Decode bytes recovered from custody. Throws on anything either contract refuses. */
-export function decodePreparedBundle(bytes: Uint8Array): PreparedBundleV1 {
-  const parsed = PreparedBundleV1Schema.parse(JSON.parse(Buffer.from(bytes).toString('utf8')));
-  return { capsule: parsed.capsule, definition: WorkflowDefinitionV1Schema.parse(parsed.definition) };
-}
 
 /** Names the bundle beside its digest. The store keys bytes by digest, never by this id. */
 export function preparedBundleArtifactId(workflowId: string, capsuleVersion: number): ArtifactId {
@@ -97,6 +65,17 @@ export interface PreparedCommit {
   readonly workflowType: string;
   readonly capsule: ExarchosCapsuleV1;
   readonly definition: WorkflowDefinitionV1;
+  readonly bootstrap?: {
+    readonly requestDigest: string;
+    readonly rows: readonly WorkflowEvent[];
+    readonly initialPhaseAttemptId: string;
+    readonly phase: string;
+    readonly phaseAttemptId: string;
+  };
+  readonly plan?: {
+    readonly digest: string;
+    readonly designRecord: NonNullable<PreparedBundleV1['designRecord']>;
+  };
   /**
    * The stream tail the compilation read its capsule version from. The commit
    * is refused if the stream has moved since, so two compilations racing for
@@ -118,6 +97,26 @@ export interface PreparedCommit {
   readonly recompile?: PreparedRecompile;
 }
 
+/** Keep the planned envelope fields that an atomic append accepts. */
+function bootstrapInput(row: WorkflowEvent): EventInput {
+  const { type, schemaVersion, data, timestamp, source, correlationId } = row;
+  return stampFromAmbient({ type, schemaVersion, data, timestamp, source, correlationId });
+}
+
+/** Validate the complete start and its prefix before custody. */
+function validateBootstrapPrefix(commit: PreparedCommit): void {
+  const { bootstrap, streamId, workflowType, definition } = commit;
+  if (bootstrap === undefined) return;
+  const rows = bootstrap.rows.map((row) => WorkflowEventBase.parse(row));
+  rows.forEach((row) => validateEventRowData(row));
+  const start = rows[0];
+  if (start === undefined || recordedInitialPhaseOf(start) !== definition.entryStepId
+      || start.data?.featureId !== streamId || start.data.workflowType !== workflowType
+      || start.data.phaseAttemptId !== bootstrap.initialPhaseAttemptId) {
+    throw new Error('The bootstrap batch does not match the validated start.');
+  }
+}
+
 /**
  * Puts a compiled capsule in custody and commits the record that pins it.
  * The `task.assigned` announcements come first and the record comes last. The recompile row of a
@@ -135,8 +134,13 @@ export async function commitPreparedCapsule(
   bundleStore?: RunBundleStore,
 ): Promise<PreparedCapsuleReceipt> {
   const { streamId, operationId, requestDigest, capsule, definition } = commit;
+  validateBootstrapPrefix(commit);
   const digest = capsuleDigest(capsule);
-  const bytes = encodePreparedBundle({ capsule, definition });
+  const bytes = encodePreparedBundle({
+    capsule,
+    definition,
+    ...(commit.plan !== undefined ? { designRecord: commit.plan.designRecord } : {}),
+  });
   const bundles = bundleStore ?? ctx.eventStore.bundleStore;
   const artifactId = preparedBundleArtifactId(capsule.identity.workflowId, capsule.identity.capsuleVersion);
   const outer = outerCorrelation(ctx);
@@ -154,6 +158,8 @@ export async function commitPreparedCapsule(
       taskCount: capsule.graph.tasks.length,
       requestDigest,
       bundleRefs: [ref],
+      ...(commit.plan !== undefined ? { planRecordDigest: commit.plan.digest } : {}),
+      ...(commit.bootstrap !== undefined ? { bootstrapRequestDigest: commit.bootstrap.requestDigest } : {}),
     });
 
     return runWithDispatchContext(outer, async () => {
@@ -192,26 +198,40 @@ export async function commitPreparedCapsule(
                 timestamp: capsule.provenance.compiledAt,
               }),
             ];
-      const events = [...announcements, ...recompiled, record];
+      const events = [...(commit.bootstrap?.rows.map(bootstrapInput) ?? []), ...announcements, ...recompiled, record];
       return ctx.eventStore
         .getAppender()
-        .decideOnce<PreparedCapsuleReceipt>(operationId, requestDigest, (tx) => ({
-          streamId,
-          events,
-          ...(commit.expectedSequence !== undefined ? { expectedSequence: commit.expectedSequence } : {}),
-          result: {
-            operationId,
+        .decideOnce<PreparedCapsuleReceipt>(operationId, requestDigest, (tx) => {
+          const snapshot = tx.readStream(streamId);
+          if (commit.bootstrap !== undefined && (snapshot.version !== 0 || snapshot.events.length !== 0)) {
+            throw new ConcurrencyError({
+              streamId, reducerId: 'prepare-bootstrap', expectedVersion: 0, actualVersion: snapshot.version, operationId,
+            });
+          }
+          if (commit.bootstrap !== undefined) {
+            events.forEach((event, index) => validateEventRowData(
+              WorkflowEventBase.parse({ ...event, streamId, sequence: index + 1 }),
+            ));
+          }
+          const expectedSequence = commit.bootstrap === undefined ? commit.expectedSequence : 0;
+          return {
             streamId,
-            workflowId: capsule.identity.workflowId,
-            capsuleVersion: capsule.identity.capsuleVersion,
-            capsuleDigest: digest,
-            definitionVersion: capsule.identity.definitionVersion,
-            capsule,
-            tailSequence: tx.readStream(streamId).version + events.length,
-            bundleRefs: [ref],
-            ...(recompile !== undefined ? { recompile } : {}),
-          },
-        }));
+            events,
+            ...(expectedSequence !== undefined ? { expectedSequence } : {}),
+            result: {
+              operationId,
+              streamId,
+              workflowId: capsule.identity.workflowId,
+              capsuleVersion: capsule.identity.capsuleVersion,
+              capsuleDigest: digest,
+              definitionVersion: capsule.identity.definitionVersion,
+              capsule,
+              tailSequence: snapshot.version + events.length,
+              bundleRefs: [ref],
+              ...(recompile !== undefined ? { recompile } : {}),
+            },
+          };
+        });
     });
   });
 }
@@ -261,37 +281,6 @@ export function latestPreparedRecordOf(
     if (parsed.success) return { record: parsed.data, sequence: row.sequence };
   }
   return undefined;
-}
-
-/**
- * Reads the capsule and the definition of one prepared record back from custody: the bundle read, the decode and the two digest checks.
- * It returns `undefined` for a record that names no bundle.
- * It throws when the blob is absent or the read fails, when the bytes do not decode, and when they do not match their record.
- * A capsule that names a definition digest other than the definition in its bundle also throws.
- * A caller that reads a record from its own stream read calls this function, and decides what a throw means.
- */
-export async function capsuleOfRecord(
-  record: WorkflowPrepared,
-  bundleStore: RunBundleStore,
-): Promise<PreparedBundleV1 | undefined> {
-  const ref = record.bundleRefs[0];
-  if (ref === undefined) return undefined;
-  const decoded = decodePreparedBundle(await bundleStore.resolve(ref.digest));
-  const actual = capsuleDigest(decoded.capsule);
-  if (actual !== record.capsuleDigest) {
-    throw new Error(
-      `the prepared capsule v${record.capsuleVersion} on '${record.workflowId}' is in custody under a digest its ` +
-        `record did not pin (record ${record.capsuleDigest}, bytes ${actual})`,
-    );
-  }
-  const definitionDigest = contentDigest(decoded.definition);
-  if (definitionDigest !== decoded.capsule.identity.definitionVersion) {
-    throw new Error(
-      `the prepared capsule v${record.capsuleVersion} on '${record.workflowId}' names definition ` +
-        `${decoded.capsule.identity.definitionVersion} and its bundle carries ${definitionDigest}`,
-    );
-  }
-  return decoded;
 }
 
 /**

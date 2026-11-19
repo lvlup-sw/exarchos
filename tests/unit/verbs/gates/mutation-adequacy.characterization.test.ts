@@ -49,7 +49,7 @@ describe('mutation-adequacy roster characterization (PIN)', () => {
 
     it('exposes exactly 85 actions (WLM operational-core #1578 added serialize_merge; DR-4 (#1630) added check_exploration_depth; WLM foundation task 008 added acquire_worktree, release_worktree, prune_worktrees; #1587 retired check_tdd_compliance; #1581 task 018 added discover_bridge; #1739 added cutover_readiness + cutover_decide; task 068 added invariants_amend; the effect-ledger remedy added reconcile_worktrees and moved stack_place here from exarchos_view; the bounded action executor added execute_intent; the semantic plane added settle, then prepare)', () => {
       expect(orchestrate).toBeDefined();
-      expect(actionNames).toHaveLength(85);
+      expect(actionNames).toHaveLength(86);
     });
 
     it('carries the mutation-adequacy action (R5 / task 003)', () => {
@@ -120,6 +120,7 @@ describe('mutation-adequacy roster characterization (PIN)', () => {
         'prepare_synthesis',
         'prune_stale_workflows',
         'prune_worktrees',
+        'read_prepared_capsule',
         'reconcile_state',
         'reconcile_worktrees',
         'release_worktree',

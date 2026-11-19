@@ -1,7 +1,7 @@
 {
-  "capturedAt": "2026-09-13",
-  "tree": "0654ae1464f849ddda9f1deb3edc38bb0543f365",
-  "count": 127,
+  "capturedAt": "2026-11-14",
+  "tree": "39a554b92673903f48dff29f61e5a0c70c304495",
+  "count": 128,
   "actionIds": [
     "exarchos_event.append",
     "exarchos_event.batch_append",
@@ -69,6 +69,7 @@
     "exarchos_orchestrate.prepare_synthesis",
     "exarchos_orchestrate.prune_stale_workflows",
     "exarchos_orchestrate.prune_worktrees",
+    "exarchos_orchestrate.read_prepared_capsule",
     "exarchos_orchestrate.reconcile_state",
     "exarchos_orchestrate.reconcile_worktrees",
     "exarchos_orchestrate.release_worktree",

@@ -25,8 +25,10 @@ import { resolveConfig, type ResolvedProjectConfig } from '../../config/resolve.
 import type { FullExarchosConfig } from '../../config/yaml-schema.js';
 import { loadProjectConfig } from '../../config/yaml-loader.js';
 import { contentDigest } from '../../contract/capsule/capsule-digest.js';
-import type { CapsuleScope } from '../../contract/capsule/exarchos-capsule.js';
+import type { CapsuleScope, ExarchosCapsuleV1 } from '../../contract/capsule/exarchos-capsule.js';
 import type { RunBundleStore } from '../../events/bundle/run-bundle-store.js';
+import { readDesignRecord, readDesignRecordAt } from '../../workflow/design-record/read.js';
+import type { DesignRecordReadResult } from '../../workflow/design-record/schema.js';
 import {
   isAncestor,
   normalizedPath,
@@ -252,20 +254,31 @@ export function staticAnalysisRefusal(
 }
 
 /**
- * The sha256 of the bytes of the design record, or `undefined` when the record is unreadable.
- * The text of the reference decides containment, not its real path. A relative reference joins the checkout, and the lexical form of the result must stay under the checkout.
- * Then the read follows a symbolic link. A reference whose text leaves the checkout counts as unreadable, and so does a failed read.
+ * Classify and hash the same legacy design bytes. Resolve the reference within the checkout before following any symlink.
  */
-export async function designRecordDigestAt(checkout: string, designRef: string | undefined): Promise<string | undefined> {
+export async function legacyDesignAt(
+  checkout: string,
+  designRef: string | undefined,
+): Promise<{ readonly digest: string; readonly read: DesignRecordReadResult } | undefined> {
   if (designRef === undefined) return undefined;
   const record = normalizedPath(ABSOLUTE_REPO_ROOT.test(designRef) ? designRef : `${checkout}/${designRef}`);
   const relative = path.posix.relative(checkout, record);
   if (relative === '' || relative === '..' || relative.startsWith('../') || path.posix.isAbsolute(relative)) return undefined;
+  let bytes: Buffer;
   try {
-    return createHash('sha256').update(await readFile(record)).digest('hex');
+    bytes = await readFile(record);
   } catch {
     return undefined;
   }
+  return { digest: createHash('sha256').update(bytes).digest('hex'), read: readDesignRecord(bytes, designRef) };
+}
+
+/** Apply the typed reference rule before the shared checkout reader follows a symlink. */
+export function readTypedDesignAt(checkout: string, reference: string): Promise<DesignRecordReadResult> {
+  if (path.posix.isAbsolute(reference) || path.win32.isAbsolute(reference)) {
+    return Promise.resolve({ kind: 'invalid', reference, message: 'Use a relative design reference.' });
+  }
+  return readDesignRecordAt(checkout, reference);
 }
 
 /**
@@ -463,6 +476,7 @@ export interface RepositoryCheckInput {
   readonly rows: StreamRows;
   /** The store of the revision reads, so a seam that counts reads sees this read too. */
   readonly bundles: RunBundleStore;
+  readonly pinnedCapsule?: ExarchosCapsuleV1;
 }
 
 /**
@@ -475,7 +489,8 @@ export async function otherRepositoryRefusal(input: RepositoryCheckInput): Promi
   if (latest === undefined) return undefined;
   let pinned: CapsuleScope | undefined;
   try {
-    pinned = (await capsuleOfRecord(latest.record, input.bundles))?.capsule.settlementContract.scope;
+    const capsule = input.pinnedCapsule ?? (await capsuleOfRecord(latest.record, input.bundles))?.capsule;
+    pinned = capsule?.settlementContract.scope;
   } catch {
     return undefined;
   }

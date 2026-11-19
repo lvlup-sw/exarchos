@@ -64,7 +64,7 @@ describe('handleExtractTask', () => {
   });
 
   it('extracts correct task section for valid taskId', async () => {
-    vi.mocked(fs.readFileSync).mockReturnValue(FIXTURE_PLAN);
+    vi.mocked(fs.readFileSync).mockReturnValue(Buffer.from(FIXTURE_PLAN));
 
     const result = await handleExtractTask(
       { planPath: '/plans/test.md', taskId: '001' },
@@ -79,7 +79,7 @@ describe('handleExtractTask', () => {
   });
 
   it('returns error with available tasks when taskId not found', async () => {
-    vi.mocked(fs.readFileSync).mockReturnValue(FIXTURE_PLAN);
+    vi.mocked(fs.readFileSync).mockReturnValue(Buffer.from(FIXTURE_PLAN));
 
     const result = await handleExtractTask(
       { planPath: '/plans/test.md', taskId: '999' },
@@ -112,7 +112,7 @@ Deep nested content.
 ### Task 002: Next task
 Next content.
 `;
-    vi.mocked(fs.readFileSync).mockReturnValue(variantPlan);
+    vi.mocked(fs.readFileSync).mockReturnValue(Buffer.from(variantPlan));
 
     const r1 = await handleExtractTask({ planPath: '/p.md', taskId: '1' }, '/tmp/state');
     expect(r1.success).toBe(true);

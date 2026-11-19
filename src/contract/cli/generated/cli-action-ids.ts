@@ -71,6 +71,7 @@ export const CLI_ACTION_IDS: readonly string[] = [
   'exarchos_orchestrate.prepare_synthesis',
   'exarchos_orchestrate.prune_stale_workflows',
   'exarchos_orchestrate.prune_worktrees',
+  'exarchos_orchestrate.read_prepared_capsule',
   'exarchos_orchestrate.reconcile_state',
   'exarchos_orchestrate.reconcile_worktrees',
   'exarchos_orchestrate.release_worktree',

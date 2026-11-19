@@ -133,6 +133,26 @@ export function matchesWorkflowSummaryFilter(
   return true;
 }
 
+export interface StoredStateIdentity {
+  readonly version: string;
+  readonly featureId: string;
+  readonly workflowType: string;
+}
+
+export class StoredStateIdentityConflictError extends Error {
+  constructor() {
+    super('The existing document does not match the committed bootstrap');
+    this.name = 'StoredStateIdentityConflictError';
+  }
+}
+
+export function matchesStoredStateIdentity(state: unknown, expected: StoredStateIdentity): boolean {
+  if (typeof state !== 'object' || state === null || Array.isArray(state)) return false;
+  const identity = state as Partial<StoredStateIdentity>;
+  return identity.version === expected.version && identity.featureId === expected.featureId
+    && identity.workflowType === expected.workflowType;
+}
+
 /**
  * Decouples storage consumers from the backing implementation.
  *
@@ -173,8 +193,10 @@ export interface StorageBackend {
     filters?: QueryFilters,
   ): WorkflowEvent[];
 
+  /** Check for a document row without decoding its contents. */
+  hasState?(featureId: string): boolean;
   getState(featureId: string): WorkflowState | null;
-  setState(featureId: string, state: WorkflowState, expectedVersion?: number): void;
+  setState(featureId: string, state: WorkflowState, expectedVersion?: number, expectedIdentity?: StoredStateIdentity): void;
   listStates(): Array<{ featureId: string; state: WorkflowState }>;
 
   /**

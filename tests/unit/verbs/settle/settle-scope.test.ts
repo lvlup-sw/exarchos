@@ -14,7 +14,7 @@ import { WorkflowDefinitionV1Schema } from '@lvlup-sw/strategos-contracts';
 
 import { WIN32_SPAWN_HEADROOM } from '../../../../vitest.config.js';
 import type { CapsuleScope, ExarchosCapsuleV1 } from '../../../../src/contract/capsule/exarchos-capsule.js';
-import { baseValidDefinition, scopedValidCapsule } from '../../../../src/contract/capsule/exarchos-capsule-fixtures.js';
+import { baseValidDefinition, scopedValidCapsule as corpusCapsule } from '../../../../src/contract/capsule/exarchos-capsule-fixtures.js';
 import { contentDigest } from '../../../../src/contract/capsule/capsule-digest.js';
 import { deriveMcpCallerIdentity, snapshotCallerAuthorization } from '../../../../src/dispatch/caller-identity.js';
 import type { DispatchContext } from '../../../../src/dispatch/core/dispatch.js';
@@ -50,6 +50,12 @@ import { scopedRepository } from '../../../helpers/scoped-repository.js';
 import { seedStaticAnalysisVerdict } from '../../../helpers/static-analysis-verdict.js';
 
 const STREAM = 'feat-settle-scope-unit';
+
+/** Bind the corpus fixture to the stream that records its custody. */
+function scopedValidCapsule() {
+  const capsule = corpusCapsule();
+  return { ...capsule, identity: { ...capsule.identity, workflowId: STREAM } };
+}
 const FIRST = 'task-first';
 const SECOND = 'task-second';
 /** Where the claims say the work is. Each task has a path of its own, and no path exists. */
@@ -355,7 +361,7 @@ async function seedPrepared(capsule: ExarchosCapsuleV1): Promise<void> {
         streamId: STREAM,
         operationId: `seed:${capsule.identity.capsuleVersion}`,
         requestDigest: `sha256:seed-${capsule.identity.capsuleVersion}`,
-        workflowType: 'feature',
+        workflowType: WorkflowDefinitionV1Schema.parse(baseValidDefinition()).name,
         capsule,
         definition: WorkflowDefinitionV1Schema.parse(baseValidDefinition()),
       },

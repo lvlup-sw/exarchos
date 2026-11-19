@@ -3,9 +3,7 @@
  *
  * 1. The render of `claude/ideate/SKILL.md` is byte-identical to the baseline in
  *    `__fixtures__/ideate-baseline.md`. This is the canary assertion for the renderer.
- * 2. The generic variant holds no Claude-native text from the `{{MCP_PREFIX}}`,
- *    `{{COMMAND_PREFIX}}` or `{{CHAIN}}` substitution. It uses the values of
- *    `content/harness/runtimes/generic.yaml`.
+ * 2. The generic variant carries the path and depth through its prose chain.
  * 3. The frontmatter is identical in the six runtime variants. Only the body differs.
  */
 
@@ -75,9 +73,7 @@ describe('task 015 — ideate canary migration', () => {
   });
 
   /**
-   * The generic map sets the MCP prefix to `mcp__exarchos__`, so the Claude plugin prefix must be
-   * absent and the generic prefix present. `COMMAND_PREFIX` is empty in `generic.yaml`, so
-   * `/exarchos:` must be absent. `CHAIN` renders as a prose directive, so `Skill({` must be absent.
+   * The generic chain passes the spec path and depth as a prose directive.
    */
   it('Migration_Ideate_GenericVariant_NoClaudeSpecificSyntax', () => {
     const outDir = buildIntoTemp();
@@ -91,7 +87,8 @@ describe('task 015 — ideate canary migration', () => {
 
     expect(rendered).not.toContain('Skill({');
 
-    expect(rendered).toContain('mcp__exarchos__');
+    expect(rendered).not.toContain('mcp__exarchos__');
+    expect(rendered).toContain('[Invoke the exarchos:plan skill with args: $SPEC_PATH $DESIGN_DEPTH]');
   });
 
   /**

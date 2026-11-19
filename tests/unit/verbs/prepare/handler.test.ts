@@ -52,7 +52,7 @@ import type { CatalogInvariant } from '../../../../src/verbs/prepare/bind-author
 import { PREPARE_COMPILER_VERSION } from '../../../../src/verbs/prepare/compile-capsule.js';
 import { PREPARE_ECONOMY_BUDGET_TOKENS } from '../../../../src/verbs/prepare/economy.js';
 import { handlePrepare, planeExecutionCapabilities } from '../../../../src/verbs/prepare/handler.js';
-import { lowerBuiltInDefinition } from '../../../../src/verbs/prepare/lower-definition.js';
+import { pinDefinition } from '../../../../src/verbs/prepare/pin-definition.js';
 import type { ScopeGit } from '../../../../src/verbs/prepare/prepare-scope.js';
 import { commitPreparedCapsule, findPreparedCapsule } from '../../../../src/verbs/prepare/prepared-record.js';
 import { PREPARE_REFUSAL_CODES, type PreparedCapsuleReceipt } from '../../../../src/verbs/prepare/types.js';
@@ -65,6 +65,7 @@ import {
 import type { SettlementReceipt } from '../../../../src/verbs/settle/types.js';
 import { canonicalPath } from '../../../../src/utils/git-tree.js';
 import { createInMemoryResolver } from '../../../../src/workflow/capabilities/resolver.js';
+import { builtInDefinition } from '../../../../src/workflow/definitions/built-in.js';
 import { initStateFile } from '../../../../src/workflow/state-store.js';
 import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
 import { inScopeObserver } from '../../../helpers/scoped-capsule.js';
@@ -694,7 +695,7 @@ describe('prepare — the compilation endpoint', () => {
     expect(receipt.capsule.graph.tasks.map((t) => t.taskId)).toEqual(['T-2', 'T-3']);
     expect(receipt.capsule.graph.dependencies).toEqual([]);
     expect(receipt.capsuleDigest).toBe(capsuleDigest(receipt.capsule));
-    expect(receipt.definitionVersion).toBe(lowerBuiltInDefinition('feature')?.definitionVersion);
+    expect(receipt.definitionVersion).toBe(pinDefinition('feature', builtInDefinition('feature')).definitionVersion);
 
     const rows = await preparedRows();
     expect(rows).toHaveLength(1);
@@ -1085,8 +1086,7 @@ describe('prepare — the compilation endpoint', () => {
       identity: { ...current.capsule.identity, designVersion: earlierId, capsuleVersion: 2 },
       provenance: { ...current.capsule.provenance, compilerVersion: EARLIER_COMPILER_VERSION },
     };
-    const lowered = lowerBuiltInDefinition('feature');
-    if (lowered === undefined) throw new Error('the feature workflow did not lower');
+    const pinned = pinDefinition('feature', builtInDefinition('feature'));
     const stored = await runWithDispatchContext(correlation(), () =>
       commitPreparedCapsule(wiring(), {
         streamId: STREAM,
@@ -1094,7 +1094,7 @@ describe('prepare — the compilation endpoint', () => {
         requestDigest: 'sha256:recorded-by-the-earlier-compiler',
         workflowType: 'feature',
         capsule: earlier,
-        definition: lowered.definition,
+        definition: pinned.definition,
       }),
     );
     expect(stored.capsuleDigest).toBe(capsuleDigest(earlier));

@@ -86,7 +86,8 @@ async function applyTransition(
 
 /**
  * Adds the structured envelope to `GUARD_FAILED`, `INVALID_TRANSITION`, `CIRCUIT_OPEN` and `PHASE_BLOCKED` failures.
- * Other failures pass unchanged. The current phase comes from the state file.
+ * Other failures pass unchanged. A failure that holds valid targets keeps them, because the decide on the ledger fold
+ * gives the targets of the fold phase. Only a failure with no valid target reads the state file for the phase of the document.
  * When that read fails, default values apply, and the envelope stays valid.
  */
 async function enrichGuardFailureError(
@@ -106,6 +107,11 @@ async function enrichGuardFailureError(
     return result;
   }
 
+  const existingValidTargets = result.error.validTargets;
+  if (existingValidTargets !== undefined && existingValidTargets.length > 0) {
+    return buildGuardFailureError(result, featureId, target, existingValidTargets);
+  }
+
   let currentPhase = 'unknown';
   let workflowType = 'feature';
   try {
@@ -116,12 +122,20 @@ async function enrichGuardFailureError(
   } catch {
   }
 
-  return buildGuardFailureError(result, featureId, target, currentPhase, workflowType);
+  let validTargetPhases: string[] = [];
+  try {
+    const hsm = getHSMDefinition(workflowType);
+    validTargetPhases = getValidTransitions(hsm, currentPhase).map((t) => t.phase);
+  } catch {
+    validTargetPhases = [];
+  }
+
+  return buildGuardFailureError(result, featureId, target, validTargetPhases);
 }
 
 /**
  * Builds the pure guard-failure envelope: `validTargets`, `expectedShape` and `suggestedFix`.
- * It keeps the `validTargets` of the guard when present, and otherwise uses the targets of the HSM topology.
+ * The caller gives the valid targets: the targets of the failure, or the targets of the HSM topology.
  * `suggestedFix` names the valid target nearest by Levenshtein distance. With an empty target, that is the shortest phase.
  *
  * `expectedShape` describes the `target` input, and keeps the state shape of the guard under `requiredState`.
@@ -131,24 +145,9 @@ function buildGuardFailureError(
   result: ToolResult,
   featureId: string,
   target: string,
-  currentPhase: string,
-  workflowType: string,
+  validTargets: NonNullable<NonNullable<ToolResult['error']>['validTargets']>,
 ): ToolResult {
   if (result.success || !result.error) return result;
-
-  let validTargetPhases: string[] = [];
-  try {
-    const hsm = getHSMDefinition(workflowType);
-    const targets = getValidTransitions(hsm, currentPhase);
-    validTargetPhases = targets.map((t) => t.phase);
-  } catch {
-    validTargetPhases = [];
-  }
-
-  const existingValidTargets = result.error.validTargets;
-  const validTargets = existingValidTargets && existingValidTargets.length > 0
-    ? existingValidTargets
-    : validTargetPhases;
 
   const candidatePhases = validTargets.map((t) =>
     typeof t === 'string' ? t : t.phase,

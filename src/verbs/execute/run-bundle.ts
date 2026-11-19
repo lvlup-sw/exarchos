@@ -8,11 +8,16 @@
  * Canonical JSON (sorted keys, no whitespace, one trailing newline) makes the same document always give the same digest.
  *
  * The shape is interim. The workflow kernel in `@lvlup-sw/strategos-contracts` owns no run-record form to lower into.
- * `bundleVersion` lets a reader tell the versions apart. Code outside `verbs/execute/` must not depend on this shape.
+ * `bundleVersion` lets a reader tell the versions apart. Settlement standing uses this decoder to authenticate the stored segment.
  * `verbs/settle/` writes its own adjudication document through the same store, with a separate schema.
  */
 
+import { createHash } from 'node:crypto';
 import { z } from 'zod';
+import { SharedStableIdSchema } from '../../contract/ir/admission-ir.js';
+import { TaskVerificationCoordinateSchema } from '../../contract/capsule/exarchos-capsule.js';
+import { BundleRefV1Schema } from '../../events/bundle/digest-references.js';
+import { ContentDigestV1Schema } from '../../workflow/admission/types.js';
 
 import { canonicalJson } from '../../contract/request-context.js';
 import { ArtifactIdSchema, type ArtifactId } from '../../workflow/admission/types.js';
@@ -100,6 +105,69 @@ const LeafTraceSchema = z
 
 export type LeafTrace = z.infer<typeof LeafTraceSchema>;
 
+/** Validate finite JSON iteratively before serialization, with bounded depth and no accessors or cycles. */
+function boundedJson(value: unknown, limit: number): boolean {
+  const pending: { value: unknown; depth: number }[] = [{ value, depth: 0 }];
+  const seen = new Set<object>();
+  while (pending.length > 0) {
+    const item = pending.pop();
+    if (item === undefined || item.depth > 32) return false;
+    const current = item.value;
+    if (current === null || typeof current === 'boolean' || typeof current === 'string') continue;
+    if (typeof current === 'number') { if (!Number.isFinite(current)) return false; continue; }
+    if (typeof current !== 'object' || seen.has(current)) return false;
+    if (!Array.isArray(current) && Object.getPrototypeOf(current) !== Object.prototype && Object.getPrototypeOf(current) !== null) return false;
+    seen.add(current);
+    const keys = Reflect.ownKeys(current);
+    if (keys.some(key => typeof key !== 'string' || key === '__proto__')) return false;
+    if (Array.isArray(current) && (Object.getPrototypeOf(current) !== Array.prototype || keys.length !== current.length + 1)) return false;
+    if (seen.size > limit) return false;
+    for (const key of keys) {
+      const descriptor = Object.getOwnPropertyDescriptor(current, key);
+      if (descriptor === undefined || !('value' in descriptor)) return false;
+      if (Array.isArray(current) && key === 'length') continue;
+      if (!descriptor.enumerable) return false;
+      if (Array.isArray(current) && (typeof key !== 'string' || !/^(0|[1-9][0-9]*)$/.test(key) || Number(key) >= current.length)) return false;
+      pending.push({ value: descriptor.value, depth: item.depth + 1 });
+    }
+  }
+  return Buffer.byteLength(JSON.stringify(value), 'utf8') <= limit;
+}
+
+/** Validate caller trees before copying properties or allowing schema normalization. */
+export function validateInputTree(value: unknown): void {
+  if (!boundedJson(value, 131072)) throw new Error('Input must be a bounded finite JSON tree');
+}
+
+/** Complete normalized input is separate from caller identity. Historical runs omit this field. */
+export const ExecuteIntentInputSchema = z.unknown().superRefine((input, ctx) => {
+  if (!boundedJson(input, 131072)) ctx.addIssue({ code: 'custom', message: 'Input must be a finite JSON tree within 131072 UTF-8 bytes and depth 32' });
+}).pipe(z.object({
+  intent: SharedStableIdSchema,
+  streamId: SharedStableIdSchema,
+  args: z.object({ coordinate: TaskVerificationCoordinateSchema.optional() }).catchall(z.unknown()),
+}).strict()).superRefine((input, ctx) => {
+  if (input.intent === 'task-completion') {
+    const coordinate = input.args.coordinate;
+    if (coordinate === undefined || coordinate.taskId !== input.args.taskId || coordinate.capsule.workflowId !== input.streamId) {
+      ctx.addIssue({ code: 'custom', message: 'Task input requires its matching immutable coordinate' });
+    }
+  }
+});
+
+/** This namespace reserves pre-leaf bindings without representing a terminal run claim. */
+const SEGMENT_INPUT_BINDING_NAMESPACE = 'exarchos.segment-input.v1';
+
+/** The executor validates this opaque storage payload before publication or replay. */
+export const SegmentInputBindingV1Schema = z.object({
+  namespace: z.literal(SEGMENT_INPUT_BINDING_NAMESPACE), bindingVersion: z.literal('1'),
+  operationId: SharedStableIdSchema, streamId: SharedStableIdSchema,
+  callerDigest: ContentDigestV1Schema, inputDigest: ContentDigestV1Schema,
+  inputRef: BundleRefV1Schema,
+}).strict().superRefine((binding, ctx) => {
+  if (!boundedJson(binding, 4096)) ctx.addIssue({ code: 'custom', message: 'Binding exceeds 4096 UTF-8 bytes' });
+});
+
 export const ExecuteIntentRunBundleV1Schema = z
   .object({
     bundleVersion: z.literal(EXECUTE_INTENT_BUNDLE_VERSION),
@@ -111,6 +179,7 @@ export const ExecuteIntentRunBundleV1Schema = z
     outcome: z.enum(['committed', 'failed']),
     failedLeaf: z.string().min(1).optional(),
     failure: FailureSchema.optional(),
+    input: ExecuteIntentInputSchema.optional(),
     steering: z
       .object({
         riskTier: z.enum(['low', 'medium', 'high']).optional(),
@@ -130,7 +199,11 @@ export const ExecuteIntentRunBundleV1Schema = z
       })
       .strict(),
   })
-  .strict();
+  .strict().superRefine((run, ctx) => {
+    if (run.input !== undefined && (run.input.intent !== run.intent || run.input.streamId !== run.streamId)) {
+      ctx.addIssue({ code: 'custom', message: 'Stored input must match the run intent and stream' });
+    }
+  });
 
 export type ExecuteIntentRunBundleV1 = z.infer<typeof ExecuteIntentRunBundleV1Schema>;
 
@@ -179,4 +252,38 @@ export function encodeExecuteIntentBundle(document: ExecuteIntentRunBundleV1): U
 export function decodeExecuteIntentBundle(bytes: Uint8Array): ExecuteIntentRunBundleV1 {
   const parsed: unknown = JSON.parse(Buffer.from(bytes).toString('utf8'));
   return ExecuteIntentRunBundleV1Schema.parse(parsed);
+}
+
+/**
+ * The replay comparison key: the request's substance, and only its substance.
+ * Key order is normalized so two spellings of the same request cannot look
+ * like two different ones.
+ */
+export function executeRequestDigest(
+  intent: string,
+  streamId: string,
+  args: Record<string, unknown>,
+): string {
+  const ordered = Object.keys(args)
+    .sort()
+    .map((key) => [key, args[key]] as const);
+  const canonical = JSON.stringify({ intent, streamId, args: ordered });
+  return `sha256:${createHash('sha256').update(canonical).digest('hex')}`;
+}
+
+
+/** Compiler-8 input normalizes nested keys before the unchanged historical request encoding. */
+export function normalizedExecuteRequestDigest(intent: string, streamId: string, args: Record<string, unknown>): string {
+  validateInputTree(args);
+  return executeRequestDigest(intent, streamId, z.record(z.string(), z.unknown()).parse(JSON.parse(canonicalJson(args))));
+}
+
+/** Rebuild the receipt leaf fields from stored verdicts, including advisory emission findings. */
+export function receiptLeavesOfRun(run: ExecuteIntentRunBundleV1) {
+  return run.leaves.map(leaf => {
+    const violation = leaf.verdict.status === 'passed' ? leaf.verdict.emissionViolation
+      : leaf.verdict.failure.code === 'INTENT_EMISSION_CONTRACT_VIOLATED' ? 'INTENT_EMISSION_CONTRACT_VIOLATED' : undefined;
+    return { action: leaf.action, status: leaf.verdict.status, events: leaf.events,
+      ...(violation === undefined ? {} : { emissionViolation: violation }) };
+  });
 }

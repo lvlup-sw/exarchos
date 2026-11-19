@@ -73,10 +73,11 @@ describe('EventStoreSplit_Regression_GH1009', () => {
     );
     await handleSet({ featureId, phase: 'delegate' }, stateDir, sharedEventStore);
     await handleSet(
-      { featureId, updates: { tasks: [{ id: 't1', status: 'complete' }] } },
+      { featureId, updates: { tasks: [{ id: 't1', title: 'the one task', status: 'complete' }] } },
       stateDir,
       sharedEventStore,
     );
+    await sharedEventStore.append(featureId, { type: 'task.completed', data: { taskId: 't1' } });
   }
 
   async function appendTeamSpawned(stream: string): Promise<void> {

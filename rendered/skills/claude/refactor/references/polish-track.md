@@ -74,7 +74,7 @@ git push -u origin refactor/<brief-name>
 
 **Advance to validation:**
 
-Call `exarchos_workflow({ action: "describe", playbook: "refactor" })` for the `polish-implement → polish-validate` guard requirements, then call `transition` with `target: "polish-validate"`.
+Call `exarchos_workflow({ action: "describe", playbook: "refactor" })` for the `polish-implement → polish-validate` guard requirements. When the changes are complete, write `implementation.complete: true` with `update`, then call `transition` with `target: "polish-validate"`. The edge reads that field, and it denies until the field is true.
 
 ### 4. Validate Phase
 

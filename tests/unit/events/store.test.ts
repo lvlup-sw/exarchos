@@ -1272,3 +1272,58 @@ describe('EventStore append observation', () => {
     );
   });
 });
+
+/** Atomic trail validators run only for a new transaction and cannot leave partial effects. */
+describe('Atomic trail validation', () => {
+  it('EventStore_AtomicTrailValidation_SeesTheTransactionalSnapshot', async () => {
+    const store = new EventStore(tempDir);
+    await store.initialize();
+    const trail = [{ type: 'workflow.cancel', data: { from: 'plan', to: 'cancelled' } }];
+    await store.append('validation', { type: 'workflow.started' });
+    await store.append('validation', { type: 'state.patched', data: { patch: { note: 'new' } } });
+    let types: string[] = [];
+    expect(await store.appendTrailAtomically('validation', trail, 'validate-current', (snapshot) => {
+      types = snapshot.events.map((event) => event.type);
+      expect(snapshot.version).toBe(2);
+    })).toBe(true);
+    expect(types).toEqual(['workflow.started', 'state.patched']);
+    await store.close();
+  });
+
+  it('EventStore_AtomicTrailValidationThrow_WritesNoRowsClaimOrNotifications', async () => {
+    const store = new EventStore(tempDir);
+    await store.initialize();
+    await store.append('validation', { type: 'workflow.started' });
+    const before = await store.query('validation');
+    const seen: string[] = [];
+    const trail = [{ type: 'workflow.cancel' }, { type: 'phase.entered' }];
+    await runWithAppendObserver((row) => { seen.push(row.type); }, async () => {
+      await expect(store.appendTrailAtomically('validation', trail, 'validate-throw', () => {
+        throw new Error('stale source');
+      })).rejects.toThrow('stale source');
+      expect(await store.query('validation')).toEqual(before);
+      expect(store.getAppender().ensureSqliteBackendSync().lookupOperationClaim('validate-throw')).toBeUndefined();
+      expect(seen).toEqual([]);
+      expect(await store.appendTrailAtomically('validation', trail, 'validate-throw', () => {})).toBe(true);
+    });
+    expect(seen).toEqual(['workflow.cancel', 'phase.entered']);
+    expect(await store.query('validation')).toHaveLength(3);
+    await store.close();
+  });
+
+  it('EventStore_AtomicTrailClaimHit_SkipsValidationAndReturnsFalse', async () => {
+    const store = new EventStore(tempDir);
+    await store.initialize();
+    const seen: string[] = [];
+    const trail = [{ type: 'workflow.cancel' }];
+    await runWithAppendObserver((row) => { seen.push(row.type); }, async () => {
+      expect(await store.appendTrailAtomically('validation', trail, 'validate-retry', () => {})).toBe(true);
+      await expect(store.appendTrailAtomically('validation', trail, 'validate-retry', () => {
+        throw new Error('claim hits must not validate');
+      })).resolves.toBe(false);
+    });
+    expect(seen).toEqual(['workflow.cancel']);
+    expect(await store.query('validation')).toHaveLength(1);
+    await store.close();
+  });
+});

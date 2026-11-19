@@ -61,6 +61,21 @@ const NO_SHELL_LEAVES = ['check_mock_boundary', 'task_complete'];
 /** The plane's own records, which the primitive path never writes and the comparison sets aside. */
 const PLANE_RECORDS = new Set(['workflow.prepared', 'execution.settled', INTENT_EXECUTED_EVENT]);
 
+/** The rows of the phase move that the settle commit appends, in commit order. The primitive path moves no phase. */
+const MOVE_ROW_TYPES: readonly string[] = ['workflow.transition', 'phase.exited', 'phase.entered'];
+
+/**
+ * The rows of a store with no row of the settle move. The move starts at the transition row with the trigger `settle`,
+ * and it holds the next rows of the move types after it.
+ */
+function withoutTheSettleMove(events: readonly WorkflowEvent[]): WorkflowEvent[] {
+  const start = events.findIndex((event) => event.type === 'workflow.transition' && event.data?.trigger === 'settle');
+  if (start < 0) return [...events];
+  let end = start + 1;
+  while (end < events.length && end < start + MOVE_ROW_TYPES.length && events[end]?.type === MOVE_ROW_TYPES[end - start]) end += 1;
+  return [...events.slice(0, start), ...events.slice(end)];
+}
+
 const EXCLUDED_KEYS = new Set([
   'operationId',
   'correlationId',
@@ -292,6 +307,7 @@ describe('settlement composition — parity with completing each task by hand', 
   /**
    * After the seeded prelude, both paths leave the gate evidence, the gate signal, and the completion, once per task, in that order.
    * The settled store also holds the plane records: `workflow.prepared`, one segment record per task, and the settlement that reads them.
+   * The settle commit also moves the phase, so the settled store ends its leaf facts with the three rows of the move.
    */
   it('SettlementParity_ASettledBatch_LeavesTheSameLeafFacts', async () => {
     await completeByHand();
@@ -299,7 +315,13 @@ describe('settlement composition — parity with completing each task by hand', 
 
     const baseline = leafFacts(await baselineStore.query(STREAM));
     const settled = leafFacts(await settleStore.query(STREAM));
-    expect(settled).toEqual(baseline);
+    expect(settled.slice(0, -MOVE_ROW_TYPES.length)).toEqual(baseline);
+    expect(settled.slice(-MOVE_ROW_TYPES.length)).toMatchObject([
+      { type: 'workflow.transition', data: { from: 'delegate', to: 'review', trigger: 'settle' } },
+      { type: 'phase.exited', data: { phase: 'delegate' } },
+      { type: 'phase.entered', data: { phase: 'review' } },
+    ]);
+    expect(withoutTheSettleMove(await baselineStore.query(STREAM))).toEqual(await baselineStore.query(STREAM));
 
     const types = (await baselineStore.query(STREAM)).map((event) => event.type);
     expect(types.slice(-3 * TASK_IDS.length)).toEqual(
@@ -309,23 +331,30 @@ describe('settlement composition — parity with completing each task by hand', 
     expect(plane).toEqual(['workflow.prepared', INTENT_EXECUTED_EVENT, INTENT_EXECUTED_EVENT, 'execution.settled']);
   });
 
+  /**
+   * The fold of the settled store, without the rows of the settle move, equals the fold of the baseline store.
+   * With those rows, the fold of the settled store is in `review`, and the baseline stays in `delegate`.
+   */
   it('SettlementParity_ASettledBatch_LeavesTheSameWorkflowProjection', async () => {
     await completeByHand();
     await settleTheBatch();
 
-    const project = async (store: EventStore): Promise<unknown> => {
-      const { workflowStateProjection } = await import(
-        '../../../../src/projections/views/workflow-state-projection.js'
-      );
+    const { workflowStateProjection } = await import('../../../../src/projections/views/workflow-state-projection.js');
+    const fold = (events: readonly WorkflowEvent[]): Record<string, unknown> => {
       let view = workflowStateProjection.init();
-      for (const event of await store.query(STREAM)) {
+      for (const event of events) {
         if (event.type === INTENT_EXECUTED_EVENT) continue;
         view = workflowStateProjection.apply(view, event);
       }
-      return orderless(normalize(view));
+      return { ...view };
     };
+    const project = (events: readonly WorkflowEvent[]): unknown => orderless(normalize(fold(events)));
 
-    expect(await project(settleStore)).toEqual(await project(baselineStore));
+    const settledRows = await settleStore.query(STREAM);
+    const baselineRows = await baselineStore.query(STREAM);
+    expect(project(withoutTheSettleMove(settledRows))).toEqual(project(baselineRows));
+    expect(fold(settledRows).phase).toBe('review');
+    expect(fold(baselineRows).phase).toBe('delegate');
   });
 
   it('SettlementParity_ASettledBatch_LeavesTheSameStateDocument', async () => {

@@ -1,3 +1,4 @@
+import { TaskVerificationCoordinateSchema } from '../../../contract/capsule/exarchos-capsule.js';
 import { coercedIntArray, coercedNonnegativeInt, coercedPositiveInt, coercedRecord } from '../../../coerce.js';
 import { vacuityWaiver, withCappedShape } from '../../../output-schema-declaration.js';
 import { StackPlaceOutputSchema } from '../../../verbs/stack/schemas.js';
@@ -72,6 +73,7 @@ export const coordinationActions: readonly BuiltinToolAction[] = [
       "Requires a passing check_static_analysis run for the task, with taskId, repoRoot 'auto' and worktreePath, as the task-completion runbook binds them. " +
       'That run must name the tree of result.worktreePath at its current commit, and a prepared workflow requires result.worktreePath.',
     schema: z.object({
+      coordinate: TaskVerificationCoordinateSchema.optional(),
       taskId: z.string().min(1),
       result: coercedRecord().optional(),
       evidence: z.object({

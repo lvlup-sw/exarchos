@@ -6,8 +6,11 @@
  * primitives live in the leaf module, so the workflow-state projection can use
  * them without an import cycle through this module.
  */
+import { recordedInitialPhaseOf } from '../events/event-validation.js';
+
 import { WorkflowStateSchema, ErrorCode } from './schemas.js';
 import { getInitialPhase } from './state-machine.js';
+import { resetCounter } from './checkpoint.js';
 import {
   StateStoreError,
   isPlainObject,
@@ -31,8 +34,10 @@ import type { WorkflowState, WorkflowType } from './types.js';
 import type { EventStore } from '../events/store.js';
 import type { WorkflowEvent } from '../events/schemas.js';
 import { workflowStateProjection, type WorkflowStateView } from '../projections/views/workflow-state-projection.js';
+import { isDeepStrictEqual } from 'node:util';
+import { foldWorkflowState } from '../projections/guard-input/fold.js';
 import { toGuardEvents } from '../projections/guard-input/guard-events.js';
-import type { StorageBackend } from '../storage/backend.js';
+import { matchesStoredStateIdentity, StoredStateIdentityConflictError, type StorageBackend } from '../storage/backend.js';
 import { mergeSidecarEvents } from '../storage/sidecar-merger.js';
 import { isPidAlive } from '../utils/process.js';
 import { publishTempFile, readPublished } from '../utils/atomic-write.js';
@@ -135,26 +140,24 @@ export class VersionConflictError extends StateStoreError {
   }
 }
 
-/**
- * Create the state for a new workflow, and fail when it already exists.
- *
- * With a backend, `setState` with expected version 0 gives exclusive-create
- * semantics. The backend is authoritative, so the function writes no
- * `.state.json`, and the returned `stateFile` is only a stable path identifier.
- * Without a backend, the state goes to a temp file, and `link()` publishes it.
- * `link()` fails with EEXIST when the file exists. A crash before `link()`
- * leaves only the temp file.
- */
-export async function initStateFile(
-  stateDir: string,
+/** Construct and validate the initial document without publishing it. */
+export function buildInitialState(
   featureId: string,
   workflowType: WorkflowType,
   extraFields?: Record<string, unknown>,
-): Promise<{ stateFile: string; state: WorkflowState }> {
-  const stateFile = path.join(stateDir, `${featureId}.state.json`);
-
+  recordedInitialPhase?: string,
+): WorkflowState {
   const now = new Date().toISOString();
-  const initialPhase = getInitialPhase(workflowType);
+  if (recordedInitialPhase !== undefined && (typeof recordedInitialPhase !== 'string' || recordedInitialPhase.length === 0)) {
+    throw new Error('The recorded initial phase must be a nonempty string');
+  }
+  const initialPhase = recordedInitialPhase ?? getInitialPhase(workflowType);
+  if (recordedInitialPhase !== undefined &&
+      ((extraFields?.phase !== undefined && extraFields.phase !== recordedInitialPhase) ||
+       (extraFields?._checkpoint !== undefined &&
+        (!isPlainObject(extraFields._checkpoint) || extraFields._checkpoint.phase !== recordedInitialPhase)))) {
+    throw new Error('Explicit initial phase must match the document and checkpoint');
+  }
 
   const rawState = {
     version: CURRENT_VERSION,
@@ -197,8 +200,16 @@ export async function initStateFile(
     );
   }
 
-  const state = parseResult.data;
+  return parseResult.data;
+}
 
+/** Create exclusively through backend version zero or a disk hard link. */
+export async function publishInitialState(
+  stateDir: string,
+  featureId: string,
+  state: WorkflowState,
+): Promise<{ stateFile: string; state: WorkflowState }> {
+  const stateFile = path.join(stateDir, `${featureId}.state.json`);
   if (_stateStoreBackend) {
     try {
       _stateStoreBackend.setState(featureId, state, 0);
@@ -246,22 +257,67 @@ export async function initStateFile(
   return { stateFile, state };
 }
 
+/** The standalone writer constructs and publishes through the shared helpers. */
+export async function initStateFile(
+  stateDir: string,
+  featureId: string,
+  workflowType: WorkflowType,
+  extraFields?: Record<string, unknown>,
+  recordedInitialPhase?: string,
+): Promise<{ stateFile: string; state: WorkflowState }> {
+  return publishInitialState(stateDir, featureId, buildInitialState(featureId, workflowType, extraFields, recordedInitialPhase));
+}
+
+/** A presence check leaves legacy files and backend rows untouched. */
+export async function initialStateExists(stateFile: string): Promise<boolean> {
+  if (await hasDiskState(stateFile)) return true;
+  const featureId = extractFeatureIdFromPath(stateFile);
+  return _stateStoreBackend?.hasState?.(featureId) ?? (_stateStoreBackend?.getState(featureId) != null);
+}
+
+async function hasDiskState(stateFile: string): Promise<boolean> {
+  try {
+    await fs.lstat(stateFile);
+    return true;
+  } catch (error) {
+    if (error instanceof Error && 'code' in error && error.code === 'ENOENT') return false;
+    throw error;
+  }
+}
+
+interface InitialStateIdentity {
+  readonly featureId: string;
+  readonly workflowType: string;
+}
+
+/** Bootstrap repair accepts only current documents of the committed start's identity. */
+function requireInitialStateIdentity(state: unknown, identity: InitialStateIdentity): void {
+  if (!matchesStoredStateIdentity(state, { ...identity, version: CURRENT_VERSION })) {
+    throw new StateStoreError(ErrorCode.STATE_ALREADY_EXISTS, 'The existing document does not match the committed bootstrap');
+  }
+}
+
 /**
  * Read and validate workflow state, with migration. A backend read checks only
  * the required fields, because the schema format rules can differ from the
  * backend. A file read backs up the file first when its `version` is not the
  * current version.
  */
-export async function readStateFile(stateFile: string): Promise<WorkflowState> {
+export async function readStateFile(stateFile: string, identity?: InitialStateIdentity): Promise<WorkflowState> {
   if (_stateStoreBackend) {
+    if (identity !== undefined && await hasDiskState(stateFile)) {
+      throw new StateStoreError(ErrorCode.STATE_ALREADY_EXISTS, 'A disk document occupies the bootstrap state path');
+    }
     const featureId = extractFeatureIdFromPath(stateFile);
     const state = _stateStoreBackend.getState(featureId);
     if (!state) {
+      if (identity !== undefined && _stateStoreBackend.hasState?.(featureId)) requireInitialStateIdentity(state, identity);
       throw new StateStoreError(
         ErrorCode.STATE_NOT_FOUND,
         `State not found in backend for featureId: ${featureId}`,
       );
     }
+    if (identity !== undefined) requireInitialStateIdentity(state, identity);
     if (!state.featureId || !state.phase || !state.workflowType) {
       throw new StateStoreError(
         ErrorCode.STATE_CORRUPT,
@@ -298,6 +354,7 @@ export async function readStateFile(stateFile: string): Promise<WorkflowState> {
     );
   }
 
+  if (identity !== undefined) requireInitialStateIdentity(parsed, identity);
   const parsedObj = parsed as Record<string, unknown>;
   if (parsedObj.version && parsedObj.version !== CURRENT_VERSION) {
     await backupStateFile(stateFile);
@@ -341,24 +398,29 @@ export function validateStateForWrite(state: WorkflowState): string | undefined 
     ...state,
     _version: getStateVersion(state) + 1,
   } as WorkflowState;
-  const validation = WorkflowStateSchema.safeParse(stateWithVersion);
+  return validatePublishedState(stateWithVersion);
+}
+
+/** Validate the exact candidate without allocating another version. */
+function validatePublishedState(state: WorkflowState): string | undefined {
+  const validation = WorkflowStateSchema.safeParse(state);
   return validation.success ? undefined : `Write-time validation failed: ${validation.error.message}`;
 }
 
-/**
- * Write workflow state atomically through a temp file and a rename.
- *
- * With `expectedVersion`, a compare-and-swap check reads the current `_version`
- * and throws `VersionConflictError` on a mismatch. Invalid JSON gives
- * `STATE_CORRUPT`, and a missing file counts as version 1. The check has a
- * window before the write. That is safe while one process serializes the
- * writes. With a backend, the backend is authoritative, and the function writes
- * no `.state.json`.
- */
+/** Same-process queues cover each file version check through publication. Other processes remain unordered. */
+const stateWriteQueues = new Map<string, Promise<void>>();
+
+interface StateWriteOptions {
+  readonly expectedVersion?: number;
+  readonly skipValidation?: boolean;
+  readonly initialIdentity?: InitialStateIdentity;
+}
+
+/** Write through the backend or serialize the complete file write per normalized target. */
 export async function writeStateFile(
   stateFile: string,
   state: WorkflowState,
-  options?: { expectedVersion?: number; skipValidation?: boolean },
+  options?: StateWriteOptions,
 ): Promise<void> {
   if (_stateStoreBackend) {
     const featureId = extractFeatureIdFromPath(stateFile);
@@ -374,8 +436,16 @@ export async function writeStateFile(
     }
 
     try {
-      _stateStoreBackend.setState(featureId, stateWithVersion, options?.expectedVersion);
+      const identity = options?.initialIdentity;
+      if (identity === undefined) {
+        _stateStoreBackend.setState(featureId, stateWithVersion, options?.expectedVersion);
+      } else {
+        _stateStoreBackend.setState(featureId, stateWithVersion, options?.expectedVersion, { ...identity, version: CURRENT_VERSION });
+      }
     } catch (err) {
+      if (err instanceof StoredStateIdentityConflictError) {
+        throw new StateStoreError(ErrorCode.STATE_ALREADY_EXISTS, err.message);
+      }
       if (err instanceof Error && err.name === 'VersionConflictError') {
         const message = err.message;
         const match = message.match(/expected (\d+), actual (\d+)/);
@@ -393,43 +463,68 @@ export async function writeStateFile(
     return;
   }
 
-  if (options?.expectedVersion !== undefined) {
-    let currentVersion = 1;
+  const resolved = path.resolve(stateFile);
+  const key = process.platform === 'win32' ? resolved.toLowerCase() : resolved;
+  const result = (stateWriteQueues.get(key) ?? Promise.resolve()).then(() => writeStateFileOnDisk(stateFile, state, options));
+  const tail = result.then(() => undefined, () => undefined);
+  stateWriteQueues.set(key, tail);
+  try {
+    await result;
+  } finally {
+    if (stateWriteQueues.get(key) === tail) stateWriteQueues.delete(key);
+  }
+}
+
+/** Check the version and publish within the outer state-write queue, separate from the publication queue. */
+async function writeStateFileOnDisk(
+  stateFile: string,
+  state: WorkflowState,
+  options?: StateWriteOptions,
+): Promise<void> {
+  let currentVersion = 1;
+  let committedVersion: number | undefined;
+  try {
+    const raw = await readPublished(stateFile, () => fs.readFile(stateFile, 'utf-8'));
     try {
-      const raw = await readPublished(stateFile, () => fs.readFile(stateFile, 'utf-8'));
-      try {
-        const parsed = JSON.parse(raw) as Record<string, unknown>;
-        currentVersion = typeof parsed._version === 'number' ? parsed._version : 1;
-      } catch {
+      const parsed: unknown = JSON.parse(raw);
+      if (options?.initialIdentity !== undefined) requireInitialStateIdentity(parsed, options.initialIdentity);
+      if (parsed === null) throw new Error('State is null');
+      currentVersion = typeof parsed === 'object' && '_version' in parsed && typeof parsed._version === 'number'
+        ? parsed._version : 1;
+      if (typeof parsed === 'object' && !Array.isArray(parsed)) committedVersion = currentVersion;
+    } catch (error) {
+      if (error instanceof StateStoreError) throw error;
+      if (options?.expectedVersion !== undefined) {
         throw new StateStoreError(
           ErrorCode.STATE_CORRUPT,
           `Cannot perform CAS check — state file has invalid JSON: ${stateFile}`,
         );
       }
-    } catch (err) {
-      if (err instanceof StateStoreError) throw err;
-      if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
-        currentVersion = 1;
-      } else {
-        throw new StateStoreError(
-          ErrorCode.FILE_IO_ERROR,
-          `Cannot read state file for CAS check: ${stateFile}`,
-        );
-      }
     }
+  } catch (err) {
+    if (err instanceof StateStoreError) throw err;
+    if (!(err instanceof Error && 'code' in err && err.code === 'ENOENT')) {
+      throw new StateStoreError(
+        ErrorCode.FILE_IO_ERROR,
+        `Cannot read state file for CAS check: ${stateFile}`,
+      );
+    }
+    if (options?.initialIdentity !== undefined) {
+      throw new VersionConflictError(options.expectedVersion ?? 1, 0);
+    }
+  }
 
-    if (options.expectedVersion !== currentVersion) {
-      throw new VersionConflictError(options.expectedVersion, currentVersion);
-    }
+  if (options?.expectedVersion !== undefined && options.expectedVersion !== currentVersion) {
+    throw new VersionConflictError(options.expectedVersion, currentVersion);
   }
 
   const stateWithVersion = {
     ...state,
-    _version: getStateVersion(state) + 1,
-  } as WorkflowState;
+    _version: (committedVersion ?? getStateVersion(state)) + 1,
+  };
 
   if (!options?.skipValidation) {
-    const invalid = validateStateForWrite(state);
+    const invalid = validatePublishedState(stateWithVersion);
     if (invalid !== undefined) throw new StateStoreError(ErrorCode.INVALID_INPUT, invalid);
   }
 
@@ -600,6 +695,90 @@ export async function markTasksCompleteInStateDocument(
   return { kind: 'failed', attempts: maxAttempts, error: lastError };
 }
 
+/** Replay all rows and preserve operational root fields and checkpoint controls from the fresh document. */
+export function projectStateDocument(state: WorkflowState, rows: readonly WorkflowEvent[], featureId: string): WorkflowState {
+  if (!rows.some((row) => row.type === 'workflow.started') || rows.some((row) => row.streamId !== featureId)) {
+    throw new StateStoreError(ErrorCode.PROJECTION_REPLAY_FAILED, 'A complete workflow stream is required for document synchronization');
+  }
+  const view = foldWorkflowState(rows);
+  if (view.featureId !== featureId || state.featureId !== featureId) {
+    throw new StateStoreError(ErrorCode.PROJECTION_REPLAY_FAILED, 'The workflow stream identity does not match the document');
+  }
+  let checkpoint = { ...state._checkpoint };
+  for (const row of rows) {
+    if (row.type !== 'workflow.checkpoint' || typeof row.data?.phase !== 'string' || row.timestamp <= checkpoint.timestamp) continue;
+    checkpoint = {
+      ...checkpoint,
+      phase: row.data.phase,
+      timestamp: row.timestamp,
+      lastActivityTimestamp: row.timestamp,
+      ...(typeof row.data.counter === 'number' ? { operationsSince: row.data.counter } : {}),
+    };
+  }
+  if (state.phase !== view.phase || state.phaseAttemptId !== view.phaseAttemptId) {
+    checkpoint = resetCounter(checkpoint, view.phase, checkpoint.summary);
+  }
+  const candidate: Record<string, unknown> = {
+    ...state,
+    ...view,
+    _version: state._version,
+    _esVersion: state._esVersion,
+    updatedAt: state.updatedAt,
+    _checkpoint: checkpoint,
+    _events: toGuardEvents(rows),
+    _eventSequence: rows.reduce((highest, row) => Math.max(highest, row.sequence), 0),
+  };
+  if (view.phaseAttemptId === undefined) delete candidate.phaseAttemptId;
+  if (state._esVersion === undefined) delete candidate._esVersion;
+  const parsed = WorkflowStateSchema.safeParse(candidate);
+  if (!parsed.success) throw new StateStoreError(ErrorCode.INVALID_INPUT, `Invalid projected document: ${parsed.error.message}`);
+  parsed.data._checkpoint = checkpoint;
+  if (state._compensationCheckpoint !== undefined) parsed.data._compensationCheckpoint = state._compensationCheckpoint;
+  return parsed.data;
+}
+
+/** The synchronization result includes the current identity for an existing caller reply. */
+export type PhaseLevelOutcome =
+  | { readonly kind: 'levelled' | 'current'; readonly state: WorkflowState }
+  | { readonly kind: 'skipped'; readonly reason: 'no-document' }
+  | { readonly kind: 'failed'; readonly attempts: number; readonly error: string };
+
+/** Each bounded CAS attempt rereads both sources. A missing document stays absent, and a failed fold advances no cursor. */
+export async function levelPhaseInStateDocument(
+  stateFile: string,
+  eventStore: EventStore,
+  featureId: string,
+  maxAttempts = 3,
+  operationalEdit?: (state: Pick<WorkflowState, '_compensationCheckpoint' | '_checkpoint'>) => void,
+  identity?: InitialStateIdentity,
+): Promise<PhaseLevelOutcome> {
+  let lastError = '';
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      const state = await readStateFile(stateFile, identity);
+      const rows = await eventStore.query(featureId);
+      const candidate = projectStateDocument(state, rows, featureId);
+      operationalEdit?.(candidate);
+      const invalid = validateStateForWrite(candidate);
+      if (invalid !== undefined) throw new StateStoreError(ErrorCode.INVALID_INPUT, invalid);
+      const persistedCandidate: unknown = identity === undefined ? candidate : JSON.parse(JSON.stringify(candidate));
+      if (isDeepStrictEqual(persistedCandidate, state)) return { kind: 'current', state };
+      candidate.updatedAt = new Date().toISOString();
+      await writeStateFile(stateFile, candidate, {
+        expectedVersion: state._version ?? 1,
+        ...(identity === undefined ? {} : { initialIdentity: identity }),
+      });
+      return { kind: 'levelled', state: { ...candidate, _version: (state._version ?? 1) + 1 } };
+    } catch (err) {
+      if (err instanceof StateStoreError && err.code === ErrorCode.STATE_NOT_FOUND) return { kind: 'skipped', reason: 'no-document' };
+      lastError = err instanceof Error ? err.message : String(err);
+      if (err instanceof VersionConflictError && attempt < maxAttempts) continue;
+      return { kind: 'failed', attempts: attempt, error: lastError };
+    }
+  }
+  return { kind: 'failed', attempts: maxAttempts, error: lastError };
+}
+
 /**
  * Rebuild workflow state from the event store.
  *
@@ -650,12 +829,13 @@ export async function reconcileFromEvents(
       return { reconciled: false, eventsApplied: 0 };
     }
     const startedEvent = allEvents.find((e) => e.type === 'workflow.started');
+    const recordedPhase = startedEvent === undefined ? undefined : recordedInitialPhaseOf(startedEvent);
     if (!startedEvent?.data) {
       return { reconciled: false, eventsApplied: 0 };
     }
     const data = startedEvent.data as Record<string, unknown>;
     const workflowType = data.workflowType as WorkflowType;
-    const result = await initStateFile(stateDir, featureId, workflowType);
+    const result = await initStateFile(stateDir, featureId, workflowType, undefined, recordedPhase);
     state = result.state;
     const startedAt = startedEvent.timestamp;
     const stateRecord = state as unknown as Record<string, unknown>;

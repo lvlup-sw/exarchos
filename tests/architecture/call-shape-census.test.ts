@@ -5,8 +5,7 @@
  * recorded before the change. The live tree must reproduce the checked-in
  * census byte for byte. Thus a skill or runbook edit that moves the shape
  * fails here until someone regenerates the census and reads its diff. The
- * census must also count a call for each named intent, so an extractor that
- * finds nothing cannot pass.
+ * census requires calls on delivery paths and zero on the plan authoring path.
  */
 
 import { describe, it, expect } from 'vitest';
@@ -30,15 +29,17 @@ describe('static call-shape census', () => {
     expect(live.errors, 'the census refused the live tree').toEqual([]);
   });
 
-  it('CallShapeCensus_EveryNamedIntent_CountsAnExarchosCallOnItsNormalPath', () => {
+  it('CallShapeCensus_NormalPaths_MatchAuthoringAndDeliveryCounts', () => {
     expect(live.census.intents.map((intent) => intent.id)).toEqual(NAMED_INTENTS);
     for (const intent of live.census.intents) {
-      expect(intent.normal.counts.exarchos.atUnit, `${intent.id} counts no Exarchos call`).toBeGreaterThan(0);
+      const calls = expect(intent.normal.counts.exarchos.atUnit, intent.id);
+      if (intent.id === 'plan') calls.toBe(0);
+      else calls.toBeGreaterThan(0);
       expect(intent.boundary.line, `${intent.id} boundary did not resolve`).not.toBeNull();
     }
   });
 
-  it('CallShapeCensus_EverySource_YieldsLocatedCallsAndEveryRunbookIsRead', () => {
+  it('CallShapeCensus_AuthorsHaveNoExarchosSitesAndOtherSourcesHaveCalls', () => {
     const sources = Object.entries(live.census.sites);
     expect(sources.map(([file]) => file).sort()).toEqual([
       'content/delivery/skills/delegate/SKILL.md',
@@ -47,7 +48,11 @@ describe('static call-shape census', () => {
       'content/synthesis/skills/synthesize/SKILL.md',
     ]);
     for (const [file, sites] of sources) {
-      expect(sites.length, `${file} yielded no call sites`).toBeGreaterThan(0);
+      if (file === 'content/design/skills/plan/SKILL.md') {
+        expect(sites.filter((site) => site.status !== 'harness')).toEqual([]);
+      } else {
+        expect(sites.length, `${file} yielded no call sites`).toBeGreaterThan(0);
+      }
     }
     expect(live.census.runbooks.length, 'no runbooks were read').toBeGreaterThan(0);
   });

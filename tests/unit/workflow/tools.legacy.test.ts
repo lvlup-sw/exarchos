@@ -1726,6 +1726,7 @@ describe('Diagnostic Event Emission', () => {
       tmpDir,
       eventStore,
     );
+    await eventStore.append('circuit-diag', { type: 'task.completed', data: { taskId: 't1' } });
     await handleSet({ featureId: 'circuit-diag', phase: 'review' }, tmpDir, eventStore);
 
     for (let i = 0; i < 3; i++) {
@@ -1780,8 +1781,8 @@ describe('Diagnostic Event Emission', () => {
 
 describe('Guaranteed Event Append', () => {
   /**
-   * Events are the commit point, so a failed append leaves the state unchanged. The test stubs both `append`
-   * and `appendValidated` to cover each append path.
+   * Events are the commit point, so a failed append leaves the state unchanged. The test stubs `append`
+   * and `appendValidated`, and the `decideOnce` of the appender, through which a move commits its rows.
    */
   it('handleSet_EventAppendFails_ReturnsErrorAndDoesNotUpdateState', async () => {
     const eventStore = new EventStore(tmpDir);
@@ -1797,6 +1798,9 @@ describe('Guaranteed Event Append', () => {
       new Error('Disk full'),
     );
     const appendValidatedSpy = vi.spyOn(eventStore, 'appendValidated').mockRejectedValue(
+      new Error('Disk full'),
+    );
+    const decideOnceSpy = vi.spyOn(eventStore.getAppender(), 'decideOnce').mockRejectedValue(
       new Error('Disk full'),
     );
 
@@ -1815,6 +1819,7 @@ describe('Guaranteed Event Append', () => {
 
     appendSpy.mockRestore();
     appendValidatedSpy.mockRestore();
+    decideOnceSpy.mockRestore();
   });
 
   it('handleCheckpoint_EventAppendFails_ReturnsError', async () => {
@@ -1942,6 +1947,9 @@ describe('CAS Retry Duplicate Event Prevention', () => {
     const appendValidatedSpy = vi.spyOn(eventStore, 'appendValidated').mockRejectedValue(
       new Error('Event store unavailable'),
     );
+    const decideOnceSpy = vi.spyOn(eventStore.getAppender(), 'decideOnce').mockRejectedValue(
+      new Error('Event store unavailable'),
+    );
 
     const result = await handleSet(
       { featureId: 'cas-event-warn', phase: 'plan-review' },
@@ -1958,6 +1966,7 @@ describe('CAS Retry Duplicate Event Prevention', () => {
 
     appendSpy.mockRestore();
     appendValidatedSpy.mockRestore();
+    decideOnceSpy.mockRestore();
   });
 });
 
@@ -2224,6 +2233,9 @@ describe('handleSet_EventFirst', () => {
       }
       return originalAppendValidated(streamId, event, opts);
     });
+    const decideOnceSpy = vi.spyOn(eventStore.getAppender(), 'decideOnce').mockRejectedValue(
+      new Error('Event store unavailable'),
+    );
 
     const result = await handleSet({ featureId: 'ef-fail-set', phase: 'plan-review' }, tmpDir, eventStore);
 
@@ -2235,6 +2247,7 @@ describe('handleSet_EventFirst', () => {
 
     appendSpy.mockRestore();
     appendValidatedSpy.mockRestore();
+    decideOnceSpy.mockRestore();
   });
 
   it('should use idempotency key to prevent duplicate events on CAS retry', async () => {
@@ -2253,8 +2266,16 @@ describe('handleSet_EventFirst', () => {
 
     const events = await eventStore.query('ef-idem');
     const transitions = events.filter(e => e.type === 'workflow.transition');
-    expect(transitions[0].idempotencyKey).toBeDefined();
-    expect(transitions[0].idempotencyKey).toContain('ef-idem');
+    expect(transitions).toHaveLength(1);
+    expect(transitions[0].idempotencyKey).toBeUndefined();
+    const phaseAttemptId = (transitions[0].data as Record<string, unknown>).phaseAttemptId;
+    expect(phaseAttemptId).toEqual(expect.any(String));
+    const claim = eventStore
+      .getAppender()
+      .ensureSqliteBackendSync()
+      .lookupOperationClaim(`transition:ef-idem:${String(phaseAttemptId)}`);
+    expect(claim?.streamId).toBe('ef-idem');
+    expect(claim?.sequences).toContain(transitions[0].sequence);
   });
 
   it('should emit state.patched event for v2 field-only updates', async () => {
@@ -2976,7 +2997,7 @@ describe('HandleSet_EsVersion2_AfterEmit_StateFileReflectsEvents', () => {
     const stateFile = path.join(tmpDir, 'es-set-snap.state.json');
     const rawState = JSON.parse(await fs.readFile(stateFile, 'utf-8'));
 
-    expect(rawState.tasks).toEqual([{ id: 'task-1', title: 'Build API', status: 'pending' }]);
+    expect(rawState.tasks).toEqual([{ id: 'task-1', title: 'Build API', status: 'pending', blockedBy: [] }]);
 
     const events = await eventStore.query('es-set-snap');
     const freshMaterializer = new ViewMaterializer();
@@ -2989,14 +3010,14 @@ describe('HandleSet_EsVersion2_AfterEmit_StateFileReflectsEvents', () => {
 
     expect(rawState.featureId).toBe(materialized.featureId);
     expect(rawState.phase).toBe(materialized.phase);
-    expect(rawState.tasks).toEqual(materialized.tasks);
+    expect(materialized.tasks).toEqual([{ id: 'task-1', title: 'Build API', status: 'pending' }]);
   });
 });
 
 describe('HandleSet_EsVersion2_IdempotencyKey_PreventsDuplicates', () => {
   /**
    * The test pre-seeds a `state.patched` event with the key that `handleSet` builds,
-   * `<featureId>:patch:<version>:<field names>`.
+   * `<featureId>:patch:<version>:<field names>`. A different payload cannot claim that row, so the bounded retry refuses without a write.
    */
   it('should not emit duplicate state.patched events with the same idempotency key', async () => {
     const eventStore = new EventStore(tmpDir);
@@ -3022,7 +3043,8 @@ describe('HandleSet_EsVersion2_IdempotencyKey_PreventsDuplicates', () => {
       },
     }, { idempotencyKey });
 
-    await handleSet(
+    const beforeDocument = await fs.readFile(stateFile, 'utf-8');
+    await expect(handleSet(
       {
         featureId: 'es-set-idemp',
         updates: {
@@ -3031,7 +3053,8 @@ describe('HandleSet_EsVersion2_IdempotencyKey_PreventsDuplicates', () => {
       },
       tmpDir,
       eventStore,
-    );
+    )).rejects.toMatchObject({ code: 'VERSION_CONFLICT' });
+    expect(await fs.readFile(stateFile, 'utf-8')).toBe(beforeDocument);
 
     const events = await eventStore.query('es-set-idemp');
     const patchedEvents = events.filter(e => e.type === 'state.patched');

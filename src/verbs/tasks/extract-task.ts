@@ -1,17 +1,16 @@
-/** Extracts one task section from a markdown implementation plan by task id. */
+/** Extracts one task from a typed or legacy plan. */
 
 import * as fs from 'node:fs';
 import type { ToolResult } from '../../format.js';
+import { readValidatedDesignRecord } from '../../workflow/design-record/read.js';
+import type { DesignRecordSnapshot } from '../../workflow/design-record/schema.js';
 
 interface ExtractTaskArgs {
   readonly planPath: string;
   readonly taskId: string;
 }
 
-/**
- * Returns the lines from the `Task <taskId>` header to the next header with two or more `#` whose
- * text starts with a capital letter. It removes trailing empty lines. When the task is absent, it lists the task ids of the plan.
- */
+/** Return the task as Markdown, or list the available ids if the task is absent. */
 export async function handleExtractTask(
   args: ExtractTaskArgs,
   _stateDir: string,
@@ -30,9 +29,9 @@ export async function handleExtractTask(
     };
   }
 
-  let content: string;
+  let bytes: Buffer;
   try {
-    content = fs.readFileSync(args.planPath, 'utf-8');
+    bytes = fs.readFileSync(args.planPath);
   } catch (err: unknown) {
     const code = (err as { code?: string }).code;
     if (code === 'ENOENT') {
@@ -47,6 +46,20 @@ export async function handleExtractTask(
     };
   }
 
+  const record = readValidatedDesignRecord(bytes, args.planPath);
+  if (record.kind === 'invalid') {
+    return {
+      success: false,
+      error: { code: 'INVALID_DESIGN_RECORD', message: record.message },
+      ...(record.findings === undefined ? {} : { data: { findings: record.findings } }),
+    };
+  }
+  if (record.kind === 'typed') return extractTypedTask(record.snapshot, args);
+  return extractLegacyTask(bytes.toString('utf8'), args);
+}
+
+/** Extract the legacy task section and remove trailing blank lines. */
+function extractLegacyTask(content: string, args: ExtractTaskArgs): ToolResult {
   const lines = content.split('\n');
   const taskId = args.taskId;
 
@@ -82,14 +95,7 @@ export async function handleExtractTask(
       }
     }
 
-    return {
-      success: false,
-      error: {
-        code: 'TASK_NOT_FOUND',
-        message: `Task ${taskId} not found in ${args.planPath}`,
-      },
-      data: { availableTasks },
-    };
+    return taskNotFound(args, availableTasks);
   }
 
   while (extracted.length > 0 && extracted[extracted.length - 1]?.trim() === '') {
@@ -102,6 +108,34 @@ export async function handleExtractTask(
       taskId,
       taskContent: extracted.join('\n'),
     },
+  };
+}
+
+/** Render the authored task fields as the existing Markdown string. */
+function extractTypedTask(snapshot: DesignRecordSnapshot, args: ExtractTaskArgs): ToolResult {
+  const task = snapshot.tasks.find(({ id }) => id === args.taskId);
+  if (task === undefined) return taskNotFound(args, snapshot.tasks.map(({ id }) => id));
+
+  const taskContent = [
+    `### Task ${task.id}: ${task.title}`,
+    '',
+    task.instructions,
+    '',
+    '**Acceptance:**',
+    ...task.acceptance.map((item) => `- ${item}`),
+    '',
+    '**Files:**',
+    ...task.files.map((file) => `- ${file}`),
+    ...(task.testFiles.length === 0 ? [] : ['', '**Test files:**', ...task.testFiles.map((file) => `- ${file}`)]),
+  ].join('\n');
+  return { success: true, data: { taskId: task.id, taskContent } };
+}
+
+function taskNotFound({ taskId, planPath }: ExtractTaskArgs, availableTasks: string[]): ToolResult {
+  return {
+    success: false,
+    error: { code: 'TASK_NOT_FOUND', message: `Task ${taskId} not found in ${planPath}` },
+    data: { availableTasks },
   };
 }
 

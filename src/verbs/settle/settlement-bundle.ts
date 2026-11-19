@@ -11,6 +11,7 @@
  */
 
 import { z } from 'zod';
+import { TaskVerificationCoordinateSchema } from '../../contract/capsule/exarchos-capsule.js';
 
 import { canonicalJson } from '../../contract/request-context.js';
 import { BundleRefV1Schema } from '../../events/bundle/digest-references.js';
@@ -92,6 +93,7 @@ const VerificationTraceSchema = z
     message: z.string().min(1).optional(),
     bundleRefs: z.array(BundleRefV1Schema).min(1).optional(),
     treeCommit: z.string().min(1).optional(),
+    coordinate: TaskVerificationCoordinateSchema.optional(),
   })
   .strict();
 

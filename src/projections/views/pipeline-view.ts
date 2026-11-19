@@ -1,3 +1,4 @@
+import { recordedInitialPhaseOf } from '../../events/event-validation.js';
 import type { ViewProjection } from './materializer.js';
 import type { WorkflowEvent } from '../../events/schemas.js';
 import {
@@ -92,7 +93,7 @@ export const pipelineProjection: ViewProjection<PipelineViewState> = {
           ...view,
           featureId: data?.featureId ?? view.featureId,
           workflowType: data?.workflowType ?? view.workflowType,
-          phase: 'started',
+          phase: recordedInitialPhaseOf(event) ?? 'started',
           repoRoot: data?.repoRoot ?? view.repoRoot,
           _asOf: nextAsOf,
         };

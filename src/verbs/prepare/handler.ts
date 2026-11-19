@@ -6,7 +6,7 @@
  * with the capsule digest. The harness runs the batch with no governance calls, and `settle` judges
  * the results against this capsule.
  *
- * Every refusal occurs before any effect. The workflow must name the branch that its tasks fork from.
+ * A bootstrap atomically starts a workflow and compiles its first batch before document synchronization.
  * The caller names the repository with an absolute `repoRoot`, and the capsule pins it with the commit of the base.
  * The config, the catalogs, the design record and each user workflow definition come from the checkout of that repository.
  *
@@ -22,8 +22,9 @@
  */
 
 import { ZodError } from 'zod';
+import path from 'node:path';
 
-import { contentDigest } from '../../contract/capsule/capsule-digest.js';
+import { capsuleDigest, contentDigest } from '../../contract/capsule/capsule-digest.js';
 import { CapsuleBaseRefSchema } from '../../contract/capsule/exarchos-capsule.js';
 import { requestDigest as canonicalRequestDigest } from '../../contract/request-context.js';
 import type { ResolvedProjectConfig } from '../../config/resolve.js';
@@ -36,12 +37,19 @@ import { OperationDigestMismatchError } from '../../events/atomic-appender.js';
 import type { BundleRefV1 } from '../../events/bundle/digest-references.js';
 import type { RunBundleStore } from '../../events/bundle/run-bundle-store.js';
 import { ConcurrencyError } from '../../events/concurrency-error.js';
-import { DesignRevisedData, type DesignRevised } from '../../events/schemas.js';
+import { validateEventRowData } from '../../events/event-validation.js';
+import { DesignRevisedData, WorkflowStartedData, type DesignRevised, type WorkflowEvent } from '../../events/schemas.js';
+import { foldWorkflowState, rowStatusByTask } from '../../projections/guard-input/fold.js';
 import type { ToolResult } from '../../format.js';
 import { findActionInRegistry } from '../../registry.js';
 import { ALL_RUNBOOKS } from '../../runbooks/definitions.js';
 import { ContentAddressedStoreError } from '../../storage/artifacts/content-addressed-store.js';
 import { capabilityNeedSatisfied } from '../../workflow/capabilities/resolver.js';
+import { currentStandingProofs, preparedTaskTerms, loadPreparedCustody, selectPreparedAuthority, type PreparedAuthoritySelection } from '../../workflow/capsule/prepared-custody.js';
+import { compileDecideDefinition } from '../../workflow/decide/edges.js';
+import type { DesignRecordSnapshot } from '../../workflow/design-record/schema.js';
+import { validateDesignRecord } from '../../workflow/design-record/validate.js';
+import { FeatureIdSchema } from '../../workflow/schemas.js';
 import { VERIFICATION_GATE_NAMES } from '../../workflow/verification-policy.js';
 import { resolveVerificationPolicy } from '../../workflow/verification-policy-resolver.js';
 import { resolveGateSeverity } from '../gates/gate-severity.js';
@@ -49,6 +57,7 @@ import { resolveWorkflowState } from '../resolve-state.js';
 import { deviationIdOf } from '../settle/handler.js';
 import { decodeSettlementBundle, type SettlementBundleV1 } from '../settle/settlement-bundle.js';
 import type { CatalogInvariant } from './bind-authority.js';
+import { bootstrapCollision, bootstrapRequestOf, bootstrapSyncFailure, buildBootstrapPlan, replayBootstrap, type BootstrapRequest } from './bootstrap.js';
 import {
   compileDelegationCapsule,
   ladderCells,
@@ -59,23 +68,27 @@ import {
 } from './compile-capsule.js';
 import { resolveDefinition } from './definition-registry.js';
 import { DESIGN_REVISED_TYPE, designVersionOf } from './design-version.js';
-import { lowerDefinition } from './lower-definition.js';
-import { partitionDelegationBatch } from './partition-tasks.js';
+import { PrepareIntentSchema, type CompileIntent } from './intent.js';
+import { partitionDelegationBatch, partitionTypedGraph, typedPlanTasks } from './partition-tasks.js';
+import { pinDefinition } from './pin-definition.js';
 import {
   configDigestAt,
-  designRecordDigestAt,
+  legacyDesignAt,
   GIT_SCOPE,
   loadCheckoutConfig,
   locateCheckout,
   observeScope,
   otherRepositoryRefusal,
   readRepoRoot,
+  readTypedDesignAt,
   resolveCheckoutCatalog,
   staticAnalysisRefusal,
   type CheckoutCatalogInput,
   type ScopeGit,
 } from './prepare-scope.js';
-import { commitPreparedCapsule } from './prepared-record.js';
+import { commitPreparedCapsule, type PreparedCommit } from './prepared-record.js';
+import { PreparedCapsuleReceiptData } from './schemas.js';
+import { resolveTaskStanding } from '../settle/task-standing.js';
 import { pendingRevisionOf, recompiledSliceOf } from './recompiled-slice.js';
 import { compilableSteps, locateStep, type StepFindingRule } from './step-locator.js';
 import type { PreparedCapsuleReceipt, PreparedRecompile, PrepareRefusal } from './types.js';
@@ -136,7 +149,7 @@ function invalid(message: string): ToolResult {
 }
 
 function refused(refusal: PrepareRefusal): ToolResult {
-  return { success: false, error: { code: refusal.code, message: refusal.message } };
+  return { success: false, error: { ...refusal } };
 }
 
 function receiptResult(receipt: PreparedCapsuleReceipt): ToolResult {
@@ -169,10 +182,11 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 function recompileOf(
   events: readonly { readonly type: string; readonly data?: unknown }[],
   plan: readonly unknown[],
+  completeGraph = false,
 ): PreparedRecompile | undefined {
   const pending = pendingRevisionOf(events);
   if (pending === undefined) return undefined;
-  const slice = recompiledSliceOf(pending.affectedTasks, plan);
+  const slice = recompiledSliceOf(pending.affectedTasks, plan, completeGraph);
   return {
     priorCapsuleVersion: pending.priorCapsuleVersion,
     priorDesignVersion: pending.priorDesignVersion,
@@ -350,9 +364,8 @@ const SET_INTEGRATION_BRANCH =
  */
 function resolveBaseRef(
   streamId: string,
-  state: Record<string, unknown>,
+  branch: unknown,
 ): { readonly ok: true; readonly baseRef: string } | { readonly ok: false; readonly refusal: PrepareRefusal } {
-  const branch = isRecord(state.synthesis) ? state.synthesis.integrationBranch : undefined;
   if (typeof branch !== 'string' || branch.trim().length === 0) {
     return {
       ok: false,
@@ -377,6 +390,153 @@ function resolveBaseRef(
     };
   }
   return { ok: true, baseRef: branch };
+}
+
+/** Read the original start. Patches and projected defaults do not give a stream its type. */
+function startedTypeOf(rows: readonly WorkflowEvent[], streamId: string): string | undefined {
+  const start = rows.find((row) => row.type === 'workflow.started');
+  if (start === undefined) return undefined;
+  validateEventRowData(start);
+  const parsed = WorkflowStartedData.safeParse(start.data);
+  return parsed.success && parsed.data.featureId === streamId ? parsed.data.workflowType : undefined;
+}
+
+/** Return a common base only when the capsule gives each task the same ref. */
+function capsuleBaseOf(capsule: PreparedCapsuleReceipt['capsule']): string | undefined {
+  const refs = new Set(Object.values(capsule.settlementContract.taskVerification ?? {}).map((task) => task.baseRef));
+  return refs.size === 1 ? refs.values().next().value : undefined;
+}
+
+/** Validate claim and commit receipts before accepting them as a result or a replay hint. */
+function matchesReceipt(receipt: PreparedCapsuleReceipt, streamId: string, operationId: string): boolean {
+  const identity = receipt?.capsule?.identity;
+  return identity !== undefined && receipt.operationId === operationId
+    && receipt.streamId === streamId && receipt.workflowId === streamId && identity.workflowId === streamId
+    && receipt.capsuleVersion === identity.capsuleVersion && receipt.definitionVersion === identity.definitionVersion
+    && receipt.capsuleDigest === capsuleDigest(receipt.capsule);
+}
+
+function claimMismatch(): ToolResult {
+  return { success: false, error: { code: 'OPERATION_DIGEST_MISMATCH', message: 'The stored claim has different compile inputs.' } };
+}
+
+type PreparedClaim = {
+  readonly streamId: string;
+  readonly requestDigest: string;
+  readonly result: PreparedCapsuleReceipt;
+  readonly sequences: readonly number[];
+  readonly eventIds: readonly string[];
+  readonly timestamps: readonly string[];
+};
+
+/** Authenticate captured row membership and receipt-owned terms before omitting custody. */
+function authenticPreparedClaim(
+  claim: PreparedClaim | undefined, selection: PreparedAuthoritySelection, exactRows?: readonly WorkflowEvent[],
+): claim is PreparedClaim {
+  const { record, streamId, sequence } = selection;
+  const receipt = claim?.result;
+  if (claim === undefined || receipt === undefined || claim.streamId !== streamId
+    || claim.requestDigest !== record.requestDigest || (!Array.isArray(claim.sequences) || !claim.sequences.includes(sequence))
+    || !matchesReceipt(receipt, streamId, record.operationId) || receipt.tailSequence !== sequence
+    || receipt.capsuleVersion !== record.capsuleVersion || receipt.definitionVersion !== record.definitionVersion
+    || receipt.capsuleDigest !== record.capsuleDigest || receipt.capsule.provenance.compilerVersion !== record.compilerVersion) {
+    return false;
+  }
+  if (exactRows !== undefined) {
+    const index = claim.sequences.indexOf(sequence);
+    const selected = exactRows.filter(row => row.streamId === streamId && row.sequence === sequence);
+    const row = selected[0];
+    const eventId = row !== undefined && 'eventId' in row ? row.eventId : undefined;
+    const sources = receipt.capsule.provenance.sources.filter(source => source.sourceId === 'design-record');
+    if (selected.length !== 1 || row === undefined || contentDigest(row) !== selection.identity
+      || index < 0 || claim.sequences.lastIndexOf(sequence) !== index
+      || !Array.isArray(claim.eventIds) || !Array.isArray(claim.timestamps)
+      || claim.eventIds.length !== claim.sequences.length || claim.timestamps.length !== claim.sequences.length
+      || typeof eventId !== 'string' || claim.eventIds[index] !== eventId || claim.timestamps[index] !== row.timestamp
+      || receipt.bundleRefs === undefined || contentDigest(receipt.bundleRefs) !== contentDigest(record.bundleRefs)
+      || receipt.capsule.identity.designVersion !== record.designVersion || receipt.capsule.graph.tasks.length !== record.taskCount
+      || selection.kind !== 'typed' || sources.length !== 1 || sources[0]?.digest !== record.planRecordDigest) {
+      return false;
+    }
+  }
+  return true;
+}
+
+/** The latest accepted claim can supply the base for replay before the custody read. */
+function claimedBaseOf(ctx: DispatchContext, selection: PreparedAuthoritySelection, exactRows?: readonly WorkflowEvent[]): string | undefined {
+  const claim = ctx.eventStore.getAppender().ensureSqliteBackendSync()
+    .lookupOperationClaim<PreparedCapsuleReceipt>(selection.record.operationId);
+  return authenticPreparedClaim(claim, selection, exactRows) ? capsuleBaseOf(claim.result.capsule) : undefined;
+}
+
+/**
+ * Fold lifecycle rows and the recorded branch. Other state patches do not supply typed compile inputs.
+ */
+function compileStateOf(rows: readonly WorkflowEvent[]) {
+  const inputs = rows.flatMap((row): WorkflowEvent[] => {
+    if (row.type !== 'state.patched') return [row];
+    const patch = row.data?.patch;
+    if (!isRecord(patch)) return [];
+    const entries = Object.entries(patch).filter(([key]) => key === 'synthesis' || key === 'synthesis.integrationBranch');
+    if (entries.length === 0) return [];
+    return [{ ...row, data: { patch: Object.fromEntries(entries) } }];
+  });
+  return foldWorkflowState(inputs);
+}
+
+function branchOf(state: Record<string, unknown>): unknown {
+  return isRecord(state.synthesis) ? state.synthesis.integrationBranch : undefined;
+}
+
+function preparedAuthorityRefusal(error: unknown): ToolResult {
+  const message = error instanceof Error ? error.message : String(error);
+  return refused({ code: 'PREPARED_AUTHORITY_INVALID', message: `Cannot read the latest prepared authority. ${message}` });
+}
+
+function unsoundRecord(message: string): PrepareRefusal {
+  return {
+    code: 'PLAN_UNSOUND',
+    message,
+    planFindings: [{
+      code: 'INVALID_DESIGN_RECORD',
+      taskIds: [],
+      requirementIds: [],
+      span: { start: 0, end: 0, startLine: 1, endLine: 1 },
+      message,
+    }],
+  };
+}
+
+type ApprovedDesign =
+  | { readonly ok: true; readonly snapshot: DesignRecordSnapshot }
+  | { readonly ok: false; readonly refusal: PrepareRefusal };
+
+/** Use the approved capture for soundness, frontier, provenance and custody. */
+async function approvedDesignAt(checkout: string, intent: Pick<CompileIntent, 'designRef' | 'approval'>): Promise<ApprovedDesign> {
+  const read = await readTypedDesignAt(checkout, intent.designRef);
+  if (read.kind !== 'typed') {
+    return { ok: false, refusal: unsoundRecord(read.kind === 'invalid' ? read.message : 'The design record needs a typed plan.') };
+  }
+  if (read.snapshot.digest !== intent.approval.designDigest) {
+    return { ok: false, refusal: { code: 'DESIGN_APPROVAL_MISMATCH', message: 'The design file differs from the approved bytes.' } };
+  }
+  try {
+    const validation = validateDesignRecord(read.snapshot);
+    if (!validation.passed) {
+      return {
+        ok: false,
+        refusal: {
+          code: 'PLAN_UNSOUND',
+          message: 'The typed plan has whole-plan findings.',
+          planFindings: validation.findings,
+        },
+      };
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return { ok: false, refusal: { code: 'INTERNAL_ERROR', message: `Cannot validate the typed plan. ${message}` } };
+  }
+  return { ok: true, snapshot: read.snapshot };
 }
 
 /** The artifact keys that can name the design of record, in the order that prepare reads them. */
@@ -479,22 +639,17 @@ function stepRefusal(
 }
 
 /**
- * Compiles the delegation batch of a workflow into a capsule and records it.
+ * Compile approved work and record its capsule against the captured stream tail.
+ * Concurrent appends refuse publication. Existing tasks keep their assignment state.
+ * Checkout config, catalogs, and approved design bytes determine the compile inputs.
  *
- * The handler reads the stream before it folds the state. The stream tail is
- * the expected sequence of the commit, so the store refuses the commit after a
- * concurrent append. The design version and the pending revision come from the same read.
- * The commit announces only the batch tasks that the stream has not seen,
- * because a second `task.assigned` moves a task back to `assigned`.
- *
- * The runtime check occurs before compilation. Then git observes the scope, and the config, the catalog and the design
- * record load from the checkout. The scope holds the config digest and the inputs hold the profile, so a change of either compiles the next version.
- * A replay returns the receipt of its claim and reads no bundle. Only a call that compiles reads
- * the capsule of the latest prepared record, and then the settlement bundles of the revisions that its capsule binds.
+ * Exact bootstrap replay returns its original claim. Ordinary replay can read latest custody
+ * to derive current inputs. Authenticated compiler-8 replay without settlement or revision history
+ * skips that read. A lookup miss still loads custody before publication.
  */
 export async function handlePrepare(
   raw: Record<string, unknown>,
-  _stateDir: string,
+  stateDir: string,
   ctx: DispatchContext,
   deps: PrepareDeps = {},
 ): Promise<ToolResult> {
@@ -504,22 +659,109 @@ export async function handlePrepare(
   const root = readRepoRoot(raw);
   if (!root.ok) return invalid(root.message);
   const { repoRoot } = root;
+  const parsedIntent = PrepareIntentSchema.optional().safeParse(raw.intent);
+  if (!parsedIntent.success) return invalid(parsedIntent.error.message);
+  const intent = parsedIntent.data;
+  if (intent?.mode !== 'bootstrap') {
+    return prepareFromSnapshot(intent, streamId, repoRoot, await ctx.eventStore.query(streamId), ctx, deps);
+  }
+  if (!FeatureIdSchema.safeParse(streamId).success) return invalid('Bootstrap requires a valid feature ID.');
 
-  const events = await ctx.eventStore.query(streamId);
-  if (events.length === 0) {
+  const bootstrap = bootstrapRequestOf(streamId, repoRoot, intent);
+  const rows = await ctx.eventStore.query(streamId);
+  if (rows.length > 0) return replayBootstrap(ctx, stateDir, bootstrap, rows);
+
+  let result: ToolResult;
+  try {
+    result = await bootstrapCollision(stateDir, streamId)
+      ?? await prepareFromSnapshot(undefined, streamId, repoRoot, rows, ctx, deps, bootstrap);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    result = refused({ code: 'INTERNAL_ERROR', message: `Cannot commit bootstrap. ${message}` });
+  }
+  if (result.success) {
+    const receipt = PreparedCapsuleReceiptData.parse(result.data);
+    try {
+      const current = await ctx.eventStore.query(streamId);
+      return await replayBootstrap(
+        ctx, stateDir, bootstrap, current, bootstrapSyncFailure(receipt, 'The accepted marker is unavailable.'), receipt,
+      );
+    } catch (error) {
+      return bootstrapSyncFailure(receipt, error);
+    }
+  }
+  const current = await ctx.eventStore.query(streamId).catch(() => rows);
+  if (current.length === 0) return result;
+  const original = result.error?.code === 'CONCURRENCY_CONFLICT' ? undefined : result;
+  return replayBootstrap(ctx, stateDir, bootstrap, current, original);
+}
+
+/** Compile from the first stream read. An empty stream supplies only checked bootstrap facts. */
+async function prepareFromSnapshot(
+  intent: CompileIntent | undefined,
+  streamId: string,
+  repoRoot: string,
+  events: readonly WorkflowEvent[],
+  ctx: DispatchContext,
+  deps: PrepareDeps,
+  bootstrap?: BootstrapRequest,
+): Promise<ToolResult> {
+  if (events.length === 0 && bootstrap === undefined) {
     return refused({ code: 'WORKFLOW_NOT_FOUND', message: `no workflow is recorded for '${streamId}'` });
   }
   const tail = events[events.length - 1]?.sequence ?? 0;
   const capsuleVersion = events.filter((event) => event.type === 'workflow.prepared').length + 1;
 
-  const resolved = await resolveWorkflowState({ featureId: streamId, eventStore: ctx.eventStore });
-  if ('error' in resolved) return resolved.error;
-  const { state } = resolved;
+  let authority: PreparedAuthoritySelection | undefined;
+  if (intent !== undefined || events.some((row) => row.type === 'workflow.prepared' && Object.hasOwn(row.data ?? {}, 'planRecordDigest'))) {
+    try {
+      authority = selectPreparedAuthority(events, streamId);
+    } catch (error) {
+      return preparedAuthorityRefusal(error);
+    }
+    if (intent === undefined) {
+      return refused({ code: 'PREPARE_INTENT_REQUIRED', message: 'This stream requires an approved compile intent.' });
+    }
+  }
+
+  let state: Record<string, unknown>;
+  let recordedType: string | undefined;
+  if (bootstrap !== undefined) {
+    recordedType = bootstrap.intent.workflowType;
+    state = { synthesis: { integrationBranch: bootstrap.intent.baseRef } };
+  } else if (intent !== undefined) {
+    try {
+      recordedType = startedTypeOf(events, streamId);
+      state = { ...compileStateOf(events) };
+    } catch (error) {
+      return preparedAuthorityRefusal(error);
+    }
+    if (recordedType === undefined) {
+      return refused({ code: 'WORKFLOW_NOT_FOUND', message: `No valid start is recorded for '${streamId}'.` });
+    }
+    if (intent.workflowType !== undefined && intent.workflowType !== recordedType) {
+      return invalid(`The compile intent names '${intent.workflowType}', but the workflow started as '${recordedType}'.`);
+    }
+    if (intent.refactor !== undefined && recordedType !== 'refactor') {
+      return invalid('Refactor terms require the refactor workflow type.');
+    }
+    if (recordedType === 'refactor' && intent.refactor === undefined) {
+      return invalid('Refactor compile requires overhaul terms.');
+    }
+    if (authority !== undefined && authority.record.workflowType !== recordedType) {
+      return preparedAuthorityRefusal(new Error('The latest prepared workflow type differs from the start.'));
+    }
+  } else {
+    const resolved = await resolveWorkflowState({ featureId: streamId, eventStore: ctx.eventStore });
+    if ('error' in resolved) return resolved.error;
+    state = resolved.state;
+    recordedType = typeof state.workflowType === 'string' ? state.workflowType : undefined;
+  }
 
   const git = deps.scopeGit ?? GIT_SCOPE;
   const resolution = await resolveDefinition({
     streamId,
-    workflowType: typeof state.workflowType === 'string' ? state.workflowType : undefined,
+    workflowType: recordedType,
     locateCheckout: () => locateCheckout(repoRoot, git),
     configWorkflowTypes: configWorkflowTypesOf(ctx),
   });
@@ -527,21 +769,109 @@ export async function handlePrepare(
   const { registered, located } = resolution;
   const { workflowType } = registered;
 
-  const phase = typeof state.phase === 'string' ? state.phase : undefined;
+  let checkoutLocation = located;
+  let snapshot: DesignRecordSnapshot | undefined;
+  let planned: PreparedCommit['bootstrap'];
+  let bootstrapScope: Extract<Awaited<ReturnType<typeof observeScope>>, { ok: true }> | undefined;
+  let bootstrapConfig: Extract<ReturnType<typeof loadCheckoutConfig>, { ok: true }> | undefined;
+  let bootstrapProfile: ReturnType<typeof resolveVerificationProfile> | undefined;
+  const approvedIntent = bootstrap?.intent ?? intent;
+  if (bootstrap !== undefined) {
+    if (checkoutLocation === undefined) {
+      const checkoutResult = await locateCheckout(repoRoot, git);
+      if (!checkoutResult.ok) return refused(checkoutResult.refusal);
+      checkoutLocation = checkoutResult.located;
+    }
+    const approved = await approvedDesignAt(checkoutLocation.toplevel, bootstrap.intent);
+    if (!approved.ok) return refused(approved.refusal);
+    snapshot = approved.snapshot;
+    const scope = await observeScope({
+      streamId, repoRoot, baseRef: bootstrap.intent.baseRef, completedBlockers: {}, rows: events, git,
+      located: checkoutLocation,
+    });
+    if (!scope.ok) return refused(scope.refusal);
+    bootstrapScope = scope;
+    const loaded = loadCheckoutConfig(scope.observed.checkout);
+    if (!loaded.ok) return refused(loaded.refusal);
+    bootstrapConfig = loaded;
+    bootstrapProfile = resolveVerificationProfile(scope.observed.checkout, { loadConfig: () => loaded.config.outcome });
+    const prefix = buildBootstrapPlan(bootstrap, {
+      definition: registered.definition, repository: scope.observed.repository, snapshot,
+      profile: bootstrapProfile, skipPhases: loaded.config.projectConfig.workflow.skipPhases,
+      timestamp: (deps.now ?? (() => new Date().toISOString()))(),
+    });
+    if (!prefix.ok) {
+      return refused({ code: prefix.code, message: prefix.message, ...(prefix.findings ? { planFindings: prefix.findings } : {}) });
+    }
+    planned = prefix;
+  }
+  const phase = planned?.phase ?? (typeof state.phase === 'string' ? state.phase : undefined);
   const location = phase === undefined ? undefined : locateStep(registered.definition, phase);
   if (location === undefined || !location.ok) {
     const rule = location?.rule ?? 'not-a-step';
     const compilable = location?.compilable ?? compilableSteps(registered.definition);
     return refused(stepRefusal(streamId, workflowType, phase, rule, compilable));
   }
-  const lowered = lowerDefinition(workflowType, registered.definition);
+  const lowered = pinDefinition(workflowType, registered.definition);
 
-  const plan: readonly unknown[] = Array.isArray(state.tasks) ? state.tasks : [];
-  const partition = partitionDelegationBatch(plan, location.step.stepId);
+  if (intent !== undefined) {
+    if (checkoutLocation === undefined) {
+      const checkoutResult = await locateCheckout(repoRoot, git);
+      if (!checkoutResult.ok) return refused(checkoutResult.refusal);
+      checkoutLocation = checkoutResult.located;
+    }
+    const approved = await approvedDesignAt(checkoutLocation.toplevel, intent);
+    if (!approved.ok) return refused(approved.refusal);
+    snapshot = approved.snapshot;
+  }
+  const compilerVersion = deps.compilerVersion ?? (snapshot === undefined ? PREPARE_COMPILER_VERSION : 'exarchos-prepare-8');
+  if (compilerVersion === 'exarchos-prepare-8' && snapshot !== undefined) {
+    snapshot = { ...snapshot, reference: path.posix.normalize(snapshot.reference) };
+  }
+  if (compilerVersion === 'exarchos-prepare-8' && snapshot === undefined) {
+    return refused(unsoundRecord('Compiler 8 requires an approved typed plan.'));
+  }
+  const plan: readonly unknown[] = snapshot !== undefined
+    ? typedPlanTasks(snapshot, rowStatusByTask(events))
+    : Array.isArray(state.tasks) ? state.tasks : [];
+  const partition = compilerVersion === 'exarchos-prepare-8' && snapshot !== undefined
+    ? partitionTypedGraph(snapshot, location.step.stepId)
+    : partitionDelegationBatch(plan, location.step.stepId);
   if (!partition.ok) return refused(partition.refusal);
-  const { batch, completedBlockers } = partition;
+  const { completedBlockers } = partition;
+  let batch = partition.batch;
 
-  const base = resolveBaseRef(streamId, state);
+  const bundles = deps.bundleStore ?? ctx.eventStore.bundleStore;
+  let checkedPin: Awaited<ReturnType<typeof loadPreparedCustody>> | undefined;
+  let authenticatedReplayBase = false;
+  const emptyStandingHistory = compilerVersion === 'exarchos-prepare-8' && authority?.kind === 'typed'
+    && authority.record.compilerVersion === 'exarchos-prepare-8'
+    && !events.some(row => row.type === 'execution.settled' || row.type === 'design.revised' || row.type === 'capsule.recompiled');
+  let branch = branchOf(state);
+  if (intent !== undefined) {
+    if (authority !== undefined && (authority.kind === 'typed' || branch == null)) {
+      let pinnedBase: string | undefined;
+      try {
+        pinnedBase = claimedBaseOf(ctx, authority, emptyStandingHistory ? events : undefined);
+        authenticatedReplayBase = pinnedBase !== undefined;
+        if (pinnedBase === undefined) {
+          checkedPin = await loadPreparedCustody(authority, bundles);
+          pinnedBase = capsuleBaseOf(checkedPin.capsule);
+        }
+      } catch (error) {
+        return preparedAuthorityRefusal(error);
+      }
+      if (pinnedBase === undefined && authority.kind === 'typed') {
+        return preparedAuthorityRefusal(new Error('The typed capsule needs one common base ref.'));
+      }
+      branch = pinnedBase ?? branch;
+    }
+    if (branch != null && intent.baseRef !== undefined && intent.baseRef !== branch) {
+      return refused({ code: 'BASE_UNRESOLVED', message: 'The compile intent base differs from the recorded base.' });
+    }
+    branch ??= intent.baseRef;
+  }
+  const base = resolveBaseRef(streamId, branch);
   if (!base.ok) return refused(base.refusal);
   const { baseRef } = base;
 
@@ -563,21 +893,21 @@ export async function handlePrepare(
     });
   }
 
-  const observed = await observeScope({
+  const observed = bootstrapScope ?? await observeScope({
     streamId,
     repoRoot,
     baseRef,
     completedBlockers,
     rows: events,
     git,
-    ...(located !== undefined ? { located } : {}),
+    ...(checkoutLocation !== undefined ? { located: checkoutLocation } : {}),
   });
   if (!observed.ok) return refused(observed.refusal);
   const { checkout, repository, baseCommit } = observed.observed;
-  const loaded = loadCheckoutConfig(checkout);
+  const loaded = bootstrapConfig ?? loadCheckoutConfig(checkout);
   if (!loaded.ok) return refused(loaded.refusal);
   const { projectConfig, outcome } = loaded.config;
-  const verificationProfile = resolveVerificationProfile(checkout, { loadConfig: () => outcome });
+  const verificationProfile = bootstrapProfile ?? resolveVerificationProfile(checkout, { loadConfig: () => outcome });
 
   const catalog = catalogOf(deps, { checkout, config: loaded.config, phase: location.step.stepId, workflowType });
   if (!catalog.ok) return refused(catalog.refusal);
@@ -590,11 +920,25 @@ export async function handlePrepare(
   );
 
   const scope = { repository, checkout, configDigest: await configDigestAt(checkout) };
-  const designRef = resolveDesignRef(state);
-  const designRecordDigest = await designRecordDigestAt(checkout, designRef);
+  const designRef = snapshot === undefined ? resolveDesignRef(state) : snapshot.reference;
+  const legacyDesign = snapshot === undefined ? await legacyDesignAt(checkout, designRef) : undefined;
+  if (legacyDesign?.read.kind === 'typed') {
+    return refused({ code: 'PREPARE_INTENT_REQUIRED', message: 'The typed design record requires an approved compile intent.' });
+  }
+  if (legacyDesign?.read.kind === 'invalid') return refused(unsoundRecord(legacyDesign.read.message));
+  const designRecordDigest = snapshot?.digest ?? legacyDesign?.digest;
   const designVersion = designVersionOf(events);
-  const recompile = recompileOf(events, plan);
-  const compilerVersion = deps.compilerVersion ?? PREPARE_COMPILER_VERSION;
+  let recompile = recompileOf(events, plan, compilerVersion === 'exarchos-prepare-8');
+  const skipPhases = bootstrap !== undefined || compilerVersion === PREPARE_COMPILER_VERSION || compilerVersion === 'exarchos-prepare-8'
+    ? projectConfig.workflow.skipPhases : undefined;
+  if (skipPhases !== undefined) {
+    try {
+      compileDecideDefinition(workflowType, registered.definition, skipPhases);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return refused({ code: 'SCOPE_UNRESOLVED', message: `Cannot freeze the checkout skip policy. ${message}` });
+    }
+  }
 
   const sequenceOf: CompileCapsuleInput['verificationSequence'] = (riskTier, boundaryTouching) =>
     resolveVerificationPolicy(riskTier, boundaryTouching, projectConfig).sequence;
@@ -603,6 +947,55 @@ export async function handlePrepare(
     boundaryTouching: cell.boundaryTouching,
     sequence: [...sequenceOf(cell.riskTier, cell.boundaryTouching)],
   }));
+
+  const retainedStanding: unknown[] = [];
+  const emptyStandingReplay = authenticatedReplayBase && emptyStandingHistory;
+  if (compilerVersion === 'exarchos-prepare-8' && snapshot !== undefined && authority !== undefined && !emptyStandingReplay) {
+    try {
+      checkedPin ??= await loadPreparedCustody(authority, bundles);
+      if (recompile !== undefined) {
+        const priorPlan = checkedPin.capsule.graph.tasks.map(task => ({ id: task.taskId, title: task.title, status: 'pending',
+          blockedBy: checkedPin?.capsule.graph.dependencies.filter(edge => edge.to === task.taskId).map(edge => edge.from) ?? [] }));
+        const prior = recompiledSliceOf(recompile.declaredTasks, priorPlan, true);
+        const affected = new Set([...prior.invalidated, ...recompile.invalidatedTasks]);
+        const next = recompiledSliceOf([...affected], plan, true);
+        recompile = { ...recompile, invalidatedTasks: next.invalidated };
+      }
+      const revisions = designRevisionsOf(events);
+      const changes = await readBoundChanges(streamId, revisions, batch.tasks.map(task => task.taskId), bundles);
+      if (!changes.ok) return refused(changes.refusal);
+      const candidate = compileDelegationCapsule({ workflowId: streamId, capsuleVersion, lowered, batch, catalogInvariants,
+        designRef, ...(designRecordDigest === undefined ? {} : { designRecordDigest }), designVersion, designRevisions: revisions,
+        acceptedChanges: changes.changes, compilerVersion, baseRef, pin: { scope, baseCommit }, verificationProfile,
+        executionProfile: { capabilities }, verificationSequence: sequenceOf, disabledGates,
+        ...(skipPhases === undefined ? {} : { skipPhases }), compiledAt: (deps.now ?? (() => new Date().toISOString()))() });
+      if (!candidate.ok) return refused(candidate.refusal);
+      const candidates = new Map<string, Extract<Awaited<ReturnType<typeof resolveTaskStanding>>, { kind: 'accepted' | 'provisional' }>['proof']>();
+      const reopened = new Set(recompile?.invalidatedTasks ?? []);
+      const backend = ctx.eventStore.getAppender().ensureSqliteBackendSync();
+      const current = checkedPin;
+      for (const task of batch.tasks) {
+        if (reopened.has(task.taskId) || current.kind !== 'typed') continue;
+        const relevant = new Set([task.taskId]);
+        for (const id of relevant) for (const edge of batch.dependencies) if (edge.to === id) relevant.add(edge.from);
+        if ([...relevant].some(id => {
+          const before = preparedTaskTerms(current.capsule, current.snapshot, id);
+          const after = preparedTaskTerms(candidate.capsule, snapshot, id);
+          return before === undefined || after === undefined || contentDigest(before) !== contentDigest(after);
+        })) continue;
+        const standing = await resolveTaskStanding({ streamId, taskId: task.taskId, rows: events,
+          bundles, lookupClaim: id => backend.lookupOperationClaim(id) });
+        if (standing.kind === 'corrupt') throw new Error(standing.message);
+        if (standing.kind === 'accepted') {
+          candidates.set(task.taskId, standing.proof);
+        }
+      }
+      const retained = currentStandingProofs(candidates);
+      retainedStanding.push(...[...retained.values()].map(proof => proof.reference));
+      batch = { ...batch, requiredResults: batch.requiredResults.filter(id => !retained.has(id)) };
+      if (batch.requiredResults.length === 0) return refused({ code: 'NOTHING_TO_PREPARE', message: 'Every task retains authenticated accepted standing.' });
+    } catch (error) { return preparedAuthorityRefusal(error); }
+  }
 
   const inputs = {
     streamId,
@@ -613,12 +1006,18 @@ export async function handlePrepare(
     designRef: designRef ?? null,
     designVersion,
     compilerVersion,
+    ...(compilerVersion === 'exarchos-prepare-8' ? { retainedStanding } : {}),
     executionProfile: { capabilities },
     verificationTerms,
     baseRef,
     baseCommit,
     scope,
     verificationProfile,
+    ...(skipPhases !== undefined ? { skipPhases } : {}),
+    ...(approvedIntent !== undefined ? {
+      intent: { mode: approvedIntent.mode, designDepth: approvedIntent.designDepth ?? 'standard', refactor: approvedIntent.refactor ?? null },
+    } : {}),
+    ...(bootstrap === undefined ? {} : { bootstrapRequestDigest: bootstrap.entryDigest }),
     ...(designRecordDigest !== undefined ? { designSource: { sourceId: 'design-record', digest: designRecordDigest } } : {}),
   };
   const operationId = `prepare:${contentDigest(inputs)}`;
@@ -629,10 +1028,40 @@ export async function handlePrepare(
       .getAppender()
       .ensureSqliteBackendSync()
       .lookupOperationClaim<PreparedCapsuleReceipt>(operationId);
-    if (claim !== undefined) return receiptResult(claim.result);
+    if (claim !== undefined) {
+      if (emptyStandingReplay) {
+        const matching = events.filter(row => row.type === 'workflow.prepared' && row.data?.operationId === operationId);
+        if (matching.length === 0) {
+          return { success: false, error: { code: 'CONCURRENCY_CONFLICT',
+            message: 'The matching prepare claim was not in the captured stream. Retry from current history.' } };
+        }
+        try {
+          const selected = matching.length === 1 ? selectPreparedAuthority(matching, streamId) : undefined;
+          if (selected === undefined || !authenticPreparedClaim(claim, selected, events)) {
+            return preparedAuthorityRefusal(new Error('The replay claim does not authenticate its captured prepared row.'));
+          }
+        } catch (error) {
+          return preparedAuthorityRefusal(error);
+        }
+      }
+      return claim.streamId === streamId && claim.requestDigest === requestDigest
+        && matchesReceipt(claim.result, streamId, operationId) ? receiptResult(claim.result) : claimMismatch();
+    }
 
-    const bundles = deps.bundleStore ?? ctx.eventStore.bundleStore;
-    const otherRepository = await otherRepositoryRefusal({ streamId, repoRoot, repository, rows: events, bundles });
+    if (authority !== undefined) {
+      try {
+        checkedPin ??= await loadPreparedCustody(authority, bundles);
+        if (checkedPin.kind === 'typed' && capsuleBaseOf(checkedPin.capsule) !== baseRef) {
+          return preparedAuthorityRefusal(new Error('The typed capsule pins a different base.'));
+        }
+      } catch (error) {
+        return preparedAuthorityRefusal(error);
+      }
+    }
+    const otherRepository = await otherRepositoryRefusal({
+      streamId, repoRoot, repository, rows: events, bundles,
+      ...(checkedPin !== undefined ? { pinnedCapsule: checkedPin.capsule } : {}),
+    });
     if (otherRepository !== undefined) return refused(otherRepository);
 
     const designRevisions = designRevisionsOf(events);
@@ -662,6 +1091,7 @@ export async function handlePrepare(
       executionProfile: { capabilities },
       verificationSequence: sequenceOf,
       disabledGates,
+      ...(skipPhases !== undefined ? { skipPhases } : {}),
       compiledAt: (deps.now ?? (() => new Date().toISOString()))(),
     });
     if (!compiled.ok) return refused(compiled.refusal);
@@ -678,11 +1108,18 @@ export async function handlePrepare(
           definition: lowered.definition,
           expectedSequence: tail,
           announce,
+          ...(planned === undefined ? {} : { bootstrap: planned }),
+          ...(snapshot !== undefined ? {
+            plan: {
+              digest: snapshot.digest,
+              designRecord: { reference: snapshot.reference, text: Buffer.from(snapshot.rawBytes).toString('utf8') },
+            },
+          } : {}),
           ...(recompile !== undefined ? { recompile } : {}),
         },
         deps.bundleStore,
       );
-      return receiptResult(receipt);
+      return matchesReceipt(receipt, streamId, operationId) ? receiptResult(receipt) : claimMismatch();
     } catch (error) {
       if (error instanceof ConcurrencyError) {
         return {

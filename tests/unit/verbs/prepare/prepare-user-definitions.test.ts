@@ -505,7 +505,7 @@ describe('prepare compiles a user definition of the checkout', () => {
     expect(await preparedRows()).toHaveLength(2);
   });
 
-  it('PrepareUser_AnEditOfTheExtensionOnly_ReplaysTheReceipt', async () => {
+  it('PrepareUser_AnEditOfTheExtensionOnly_CompilesANewVersion', async () => {
     await writeDefinition(FIXTURE_FILE, releaseCheckDefinition());
     await seed(BATCH_STEP);
     const first = receiptOf(await prepare());
@@ -514,11 +514,12 @@ describe('prepare compiles a user definition of the checkout', () => {
     const edges = recordAt(recordAt(edited.exarchos, 'exarchos').edges, 'edges');
     recordAt(recordAt(edges['build->verify'], 'build->verify').obligation, 'obligation').gateId = 'release-gate';
     await writeDefinition(FIXTURE_FILE, edited);
-    const replay = receiptOf(await prepare());
+    const next = receiptOf(await prepare());
 
-    expect(replay.operationId).toBe(first.operationId);
-    expect(replay.definitionVersion).toBe(first.definitionVersion);
-    expect(await preparedRows()).toHaveLength(1);
+    expect(next.operationId).not.toBe(first.operationId);
+    expect(next.definitionVersion).not.toBe(first.definitionVersion);
+    expect(next.capsuleVersion).toBe(2);
+    expect(await preparedRows()).toHaveLength(2);
   });
 
   it('PrepareUser_ARefusedUserType_WritesNoRowAndNoBundle', async () => {

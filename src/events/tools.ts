@@ -6,7 +6,8 @@ import { buildValidatedEvent } from './event-factory.js';
 import {
   BATCH_VALIDATION_ATOMICITY,
   resolveBatchEvents,
-  validateEventData,
+  validateEventRowData,
+  validateGenericEventAdmission,
 } from './event-validation.js';
 import { randomUUID, createHash } from 'node:crypto';
 import { getDispatchContext } from '../dispatch/dispatch-context.js';
@@ -224,6 +225,7 @@ export async function handleEventAppend(
   }
 
   try {
+    validateGenericEventAdmission({ ...args.event, type: eventType });
     const validatedEvent = buildValidatedEvent(args.stream, 1, {
       type: eventType,
       ...(args.event.data !== undefined ? { data: args.event.data as Record<string, unknown> } : {}),
@@ -372,7 +374,8 @@ export async function handleBatchAppend(
         timestamp: event.timestamp ?? new Date().toISOString(),
       });
       const eventType = parsed.type as EventType;
-      validateEventData(eventType, parsed.data);
+      validateGenericEventAdmission({ ...event, type: eventType });
+      validateEventRowData(parsed);
 
       const out: ValidatedEvent = { type: eventType };
       if (parsed.data !== undefined) out.data = parsed.data;

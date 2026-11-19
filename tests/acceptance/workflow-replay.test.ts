@@ -245,10 +245,13 @@ describe('WorkflowReplay', () => {
     expect(outcomes[0]).toBe('deviation-pending');
   });
 
-  /** The guard-input shadow compares each of the three transitions of the walk, and the fold and the document agree on each one. */
+  /**
+   * The guard-input shadow compares two of the three transitions of the walk, and the fold and the document agree on each one.
+   * The settle of the walk moves the phase to the target of the last transition, so that call is idempotent and the shadow skips it.
+   */
   it('WorkflowReplay_TheWalk_ComparesEachTransitionAndRecordsNoDisagreement', () => {
     expect(walk.transitions).toHaveLength(3);
-    expect(shadowCountsOfTheWalk).toEqual({ compared: 3, disagreeing: 0, failed: 0 });
+    expect(shadowCountsOfTheWalk).toEqual({ compared: 2, disagreeing: 0, failed: 0 });
     expect(existsSync(path.join(walkStateDir, 'guard-input-diagnostics'))).toBe(false);
   });
 

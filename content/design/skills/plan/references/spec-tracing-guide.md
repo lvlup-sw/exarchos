@@ -1,51 +1,10 @@
-# Spec Tracing Guide
+# Trace requirements to tasks
 
-## Traceability Matrix
+List the numbered headings under Design & Rationale. Compare them with the `requirements` array in the typed plan block. For each requirement, collect the task IDs whose `implements` arrays contain that exact ID. A table can help during critique. The typed block defines the relation.
 
-Create a traceability table mapping design sections to planned tasks. This ensures complete coverage.
+| Requirement | Task | Behavior to verify |
+| --- | --- | --- |
+| DR-1 | T-01 | Report a missing required field. |
+| DR-2 | T-02 | Report the duplicate and preserve the first record. |
 
-```markdown
-## Spec Traceability
-
-### Scope Declaration
-
-**Target:** [Full design | Partial: <specific components>]
-**Excluded:** [List any intentionally excluded sections with rationale]
-
-### Traceability Matrix
-
-| Design Section | Key Requirements | Task ID(s) | Status |
-|----------------|-----------------|------------|--------|
-| Technical Design > Component A | - Requirement 1<br>- Requirement 2 | 001, 002 | Covered |
-| Technical Design > Component B | - Requirement 3 | 003 | Covered |
-| Integration Points > X | - Connection to Y | 004 | Covered |
-| Testing Strategy | - Unit tests<br>- Integration tests | 005, 006 | Covered |
-| Open Questions > Q1 | Decision needed | — | Deferred: [reason] |
-```
-
-### Rules
-
-- Every sub-section of Technical Design MUST map to at least one task
-- Every file in "Files Changed" table MUST be touched by at least one task
-- Open Questions MUST be resolved OR explicitly deferred with rationale
-- For partial plans, declare scope upfront and only trace in-scope sections
-
-## Plan Verification
-
-Before saving, verify completeness against the design document.
-
-### Coverage Checklist
-
-- [ ] Every sub-section of "Technical Design" has at least one task
-- [ ] All files in "Files Changed" table are touched by tasks
-- [ ] Testing strategy items have corresponding test tasks
-- [ ] Open questions are resolved OR explicitly deferred with rationale
-- [ ] For partial plans: scope declaration is clear and justified
-
-### Delta Analysis
-
-Compare design sections against task list. For each gap:
-1. Create a task to address it, OR
-2. Add to "Deferred Items" with explicit rationale
-
-If significant gaps remain that cannot be justified, **do not proceed** — return to design phase for clarification.
+Resolve a missing requirement definition or task before approval. Confirm that the acceptance criterion proves the required behavior. When a requirement is out of scope, describe the deferral in the surrounding rationale and keep the implemented requirement set internally consistent.

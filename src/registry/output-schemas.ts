@@ -372,3 +372,4 @@ const SyncNowDataSchema = z
 export const SyncNowOutputSchema = EnvelopeSchema(SyncNowDataSchema);
 
 export { CappedDataSchema, withCappedShape } from '../output-schema-declaration.js';
+export { PreparedDetailOutputSchema } from '../verbs/prepare/schemas.js';

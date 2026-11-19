@@ -10,13 +10,34 @@ Feature: `add-email-validation` with two plan tasks:
 
 ## 1. Prepare
 
-Compile the batch — the commit announces both tasks (`task.assigned`) ahead of its record, so nothing precedes this call. `repoRoot` is the absolute path of the worktree that holds the integration branch `feat/add-email-validation`:
+This first request bootstraps the new feature with the approved checkout-relative record and the absolute checkout of its integration branch. Set `approvedFileSha256` to the bare lowercase SHA-256 hex of the entire approved file in raw bytes. The commit announces both tasks (`task.assigned`) ahead of its prepare record.
 
 ```typescript
-exarchos_orchestrate({ action: "prepare", featureId: "add-email-validation", repoRoot: "/project" })
+exarchos_orchestrate({
+  action: "prepare", featureId: "add-email-validation", repoRoot: "/project",
+  intent: {
+    mode: "bootstrap", workflowType: "feature", baseRef: "feat/add-email-validation",
+    designDepth: "standard", designRef: "docs/specs/2026-02-28-add-email-validation.md",
+    approval: { decision: "approved", designDigest: approvedFileSha256 }
+  }
+})
 ```
 
-Response (abridged):
+To recover the initial receipt, resend the identical saved bootstrap request, including its original approval and depth. If the plan changes later, have the user approve its new raw bytes and use their digest as `approvedCurrentFileSha256` in a compile request. This example follows compiler 7: use compile for the next frontier even when the file did not change. With compiler 8, retain the full graph capsule across waves and use a new batchId for the next partial submission; recompile only when the terms require it. A refactor bootstrap instead supplies its `refactor` workflow type and the `overhaul` track with the scope assessment.
+
+```typescript
+exarchos_orchestrate({
+  action: "prepare", featureId: "add-email-validation", repoRoot: "/project",
+  intent: {
+    mode: "compile", designDepth: "standard", designRef: "docs/specs/2026-02-28-add-email-validation.md",
+    approval: { decision: "approved", designDigest: approvedCurrentFileSha256 }
+  }
+})
+```
+
+For a refactor continuation, also carry `refactor: { track: "overhaul", scopeAssessment: "<assessment>" }` in the compile intent.
+
+The bootstrap response in this example is abridged:
 ```json
 {
   "capsuleVersion": 1,
@@ -39,7 +60,7 @@ Response (abridged):
 
 ## 2. Dispatch
 
-Build two self-contained prompts from `implementer-prompt.md` — the task body from the plan, the terms from the capsule — and dispatch in a single message. Each prompt names the `baseCommit` of its task. The worker starts a branch of its own at that commit in its own linked worktree, never in `/project`, which is the checkout that `prepare` read:
+Build two self-contained prompts from `implementer-prompt.md` — for compiler 7 the task body from the matching approved plan and terms from the capsule; for compiler 8 the full pinned taskContext and referenced result contract — and dispatch in a single message. Each prompt names the `baseCommit` of its task. The worker starts a branch of its own at that commit in its own linked worktree, never in `/project`, which is the checkout that `prepare` read:
 
 ```typescript
 Task({
@@ -122,15 +143,20 @@ exarchos_orchestrate({
   claims: [ /* task-002 as before */ ],
 })
 // → { "outcome": "settled", "acceptedTasks": ["task-002"],
-//     "verification": [{ "taskId": "task-001", "outcome": "already-complete" }, { "taskId": "task-002", "outcome": "verified", ... }] }
+//     "verification": [{ "taskId": "task-001", "outcome": "already-complete" }, { "taskId": "task-002", "outcome": "verified", ... }],
+//     "phaseMove": { "kind": "moved", "from": "delegate", "to": "review", "transitionId": "delegate->review", ... } }
 ```
 
 ## 5. Land and transition
 
-Both tasks complete. Land each worktree through `serialize_merge` (the merge-pending detour), run `check_integration_suite` once at the wave boundary, then auto-continue:
+Both tasks complete. Read `phaseMove` of the receipt first. It is `moved`, so settlement moved the workflow from `delegate` to `review` in its commit, and no `transition` call follows. Land each worktree and run the integration suite after the move, before the review: land each worktree through `serialize_merge`, then run `check_integration_suite` once at the wave boundary. Then auto-continue:
+```typescript
+Skill({ skill: "exarchos:review", args: "docs/plans/add-email-validation.md" })
+```
+
+When `phaseMove` is absent, `stayed` or `not-decided`, or a warning of the receipt starts with `PHASE_LEVEL_FAILED`, call `transition` before the review. On `stayed`, first fix each false fact of `phaseMove.edges` that an agent writes, and check that each task is complete:
 ```typescript
 exarchos_workflow({ action: "transition", featureId: "add-email-validation", target: "review" })
-Skill({ skill: "exarchos:review", args: "docs/plans/add-email-validation.md" })
 ```
 
 ## Variations

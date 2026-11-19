@@ -1,5 +1,5 @@
 /**
- * The provenance-chain gate. It runs the pure `verifyProvenanceChain` check over the design and the plan.
+ * The provenance-chain gate. It runs the pure `verifyProvenanceContents` check over the design and the plan.
  * It records a `gate.executed` event at the boundary from plan to plan-review.
  */
 
@@ -8,7 +8,7 @@ import { readFile } from 'node:fs/promises';
 import type { ToolResult } from '../../format.js';
 import type { EventStore } from '../../events/store.js';
 import { emitGateEvent, sameOperationGateKey } from './gate-utils.js';
-import { verifyProvenanceChain } from '../pure/provenance-chain.js';
+import { verifyProvenanceContents } from '../pure/provenance-chain.js';
 import { createEvidenceSubject } from '../../workflow/admission/evidence-subject.js';
 import { runPhaseGateWithEvidence } from './gate-runner.js';
 
@@ -65,13 +65,11 @@ export async function handleProvenanceChain(
     };
   }
 
-  let designContent: string;
-  let planContent: string;
+  let designBytes: Buffer;
+  let planBytes: Buffer;
   try {
-    [designContent, planContent] = await Promise.all([
-      readFile(args.designPath, 'utf8'),
-      readFile(args.planPath, 'utf8'),
-    ]);
+    designBytes = Buffer.from(await readFile(args.designPath));
+    planBytes = args.designPath === args.planPath ? designBytes : Buffer.from(await readFile(args.planPath));
   } catch (error) {
     return {
       success: false,
@@ -95,26 +93,28 @@ export async function handleProvenanceChain(
       {
         designPath: args.designPath,
         planPath: args.planPath,
-        designContent,
-        planContent,
+        designContent: designBytes.toString('utf8'),
+        planContent: planBytes.toString('utf8'),
       },
     ),
     providerInput: args,
-    executeProvider: async () => executeProvenanceChain(args, eventStore),
+    executeProvider: async () => executeProvenanceChain(args, eventStore, designBytes, planBytes),
   });
 }
 
 /**
- * Runs the markdown provenance check. SQLite is the authoritative structured record, so markdown parsing is the permanent path for this authoring gate.
+ * Runs the provenance check against the captured source bytes.
  */
 async function executeProvenanceChain(
   args: { featureId: string; designPath: string; planPath: string },
   eventStore: EventStore,
+  designBytes: Uint8Array,
+  planBytes: Uint8Array,
 ): Promise<ToolResult> {
-  const tsResult = verifyProvenanceChain({
+  const tsResult = verifyProvenanceContents({
     designFile: args.designPath,
     planFile: args.planPath,
-  });
+  }, designBytes, planBytes);
 
   if (tsResult.status === 'error') {
     return {
@@ -157,5 +157,5 @@ async function executeProvenanceChain(
     report: tsResult.output,
   };
 
-  return { success: true, data: { ...result } };
+  return { success: true, data: { ...result, ...(tsResult.edges ? { edges: tsResult.edges, digest: tsResult.digest, findings: tsResult.findings } : {}) } };
 }

@@ -6,7 +6,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { EventStore } from '../../../../src/events/store.js';
 
 vi.mock('../../../../src/verbs/pure/provenance-chain.js', () => ({
-  verifyProvenanceChain: vi.fn(),
+  verifyProvenanceContents: vi.fn(),
 }));
 
 vi.mock('node:fs/promises', () => ({
@@ -41,11 +41,11 @@ vi.mock('../../../../src/verbs/gates/gate-runner.js', () => ({
   }),
 }));
 
-import { verifyProvenanceChain } from '../../../../src/verbs/pure/provenance-chain.js';
+import { verifyProvenanceContents } from '../../../../src/verbs/pure/provenance-chain.js';
 import { emitGateEvent } from '../../../../src/verbs/gates/gate-utils.js';
 import { handleProvenanceChain } from '../../../../src/verbs/gates/provenance-chain.js';
 
-const mockedVerify = vi.mocked(verifyProvenanceChain);
+const mockedVerify = vi.mocked(verifyProvenanceContents);
 const mockedEmitGateEvent = vi.mocked(emitGateEvent);
 const mockStore = { append: vi.fn(), query: vi.fn() } as unknown as EventStore;
 

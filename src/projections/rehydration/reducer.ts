@@ -12,6 +12,7 @@
  * A handler returns `state` unchanged for a malformed or unactionable event, so `projectionSequence` counts only handled events.
  * The `./index.ts` barrel registers the reducer.
  */
+import { recordedInitialPhaseOf } from '../../events/event-validation.js';
 import type { ProjectionReducer } from '../types.js';
 import type { WorkflowEvent } from '../../events/schemas.js';
 import {
@@ -271,12 +272,13 @@ function applyMergeTerminalEvent(
 
 /**
  * Handles `workflow.started`: sets `featureId` and `workflowType` of `workflowState`.
- * It does not set `phase`, because the event has no phase. An event with no `featureId` or `workflowType` returns `state` unchanged.
+ * Only the exact recorded-entry epoch sets `phase`. A legacy event retains the current phase.
  */
 function applyWorkflowStarted(
   state: RehydrationDocument,
   event: WorkflowEvent,
 ): RehydrationDocument {
+  const recordedPhase = recordedInitialPhaseOf(event);
   const featureId = extractString(event.data, 'featureId');
   const workflowType = extractString(event.data, 'workflowType');
   if (!featureId || !workflowType) {
@@ -287,6 +289,7 @@ function applyWorkflowStarted(
     projectionSequence: state.projectionSequence + 1,
     workflowState: {
       ...state.workflowState,
+      ...(recordedPhase !== undefined ? { phase: recordedPhase } : {}),
       featureId,
       workflowType,
     },

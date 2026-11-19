@@ -82,24 +82,6 @@ const UNSHIPPED_LADDER =
  */
 const REGISTER: readonly RegisteredCitation[] = [
   { source: 'skills/oneshot/SKILL.md', citation: '_shared/references/verification.md', reason: UNSHIPPED_LADDER, owner: 'Reed' },
-  {
-    source: 'skills/plan/references/spec-template.md',
-    citation: '_shared/references/verification.md',
-    reason: UNSHIPPED_LADDER,
-    owner: 'Reed',
-  },
-  {
-    source: 'skills/plan/references/task-template.md',
-    citation: '_shared/references/verification.md',
-    reason: UNSHIPPED_LADDER,
-    owner: 'Reed',
-  },
-  {
-    source: 'skills/plan/references/worked-example.md',
-    citation: '_shared/references/verification.md',
-    reason: UNSHIPPED_LADDER,
-    owner: 'Reed',
-  },
 ];
 
 /** A citation of a shipped file that does not resolve in the tree of a runtime. */

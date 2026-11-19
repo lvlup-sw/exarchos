@@ -1,140 +1,70 @@
-# Unified Spec Template (depth-scaled)
+# Unified design record
 
-Save to: `docs/specs/YYYY-MM-DD-<feature>.md`
+Save the completed file to `docs/specs/YYYY-MM-DD-<feature>.md`. Choose a design depth before writing. The task block has the same shape at every depth.
 
-One document replaces the former two-artifact (`docs/designs/` + `docs/plans/`) split.
-It carries a `## Design & Rationale` section (the **DR-N source** — design requirements live here) followed by a `## Decomposition` section (tasks → DR-N), so traceability resolves **within the same document** rather than across two files.
+| Depth | Design sections |
+| --- | --- |
+| `thin` | Problem Statement and numbered requirements with acceptance criteria. |
+| `standard` (default) | Add the chosen approach, technical design, integration points and relevant alternatives. |
+| `deep` | Add Exploration with two or three approaches and a research note citation. Cite the note by path and by a `correlationId` recorded in both files. |
 
-## Depth scaling
-
-The design section is authored at one of three depths, frozen per feature as `designDepth` on the PLAN phase (the per-feature analog of per-task `riskTier` — the same ladder applied to planning instead of verification).
-A higher rung is a **strict superset** of the lower: it adds sections, it never removes them.
-
-| `designDepth` | Design & Rationale shape | When |
-|---|---|---|
-| `thin` | Minimal preamble: Problem Statement + the DR-N list. No alternatives, no exploration. | Trivial, low-blast features where the decomposition is the substance. |
-| `standard` | Full rationale: Problem, Chosen Approach, DR-N (with acceptance criteria), Technical Design, Alternatives. **(default)** | Most features. |
-| `deep` | The `standard` shape **plus** an Exploration section citing a `/exarchos:discover` research pass (stitched by `correlationId`) and the divergent-loop alternatives. | High-uncertainty / high-blast-radius features where the open-design path is warranted. |
-
-Whatever the depth, DR-N identifiers are parsed from the **same** `## Design & Rationale` heading, so the `## Decomposition` matrix and the traceability gates resolve against one source.
-
-## Template
+Copy the Markdown inside the outer fence. The example shows deep depth. Omit Exploration at standard depth and keep only the problem and requirements at thin depth. Replace the example headings, acceptance criteria and requirements with the design's own terms. Replace `__TASK_OBJECTS__` with comma-separated JSON objects using [the task template](./task-template.md).
 
 ````markdown
-# Spec: [Feature Name]
-
-**Date:** YYYY-MM-DD · **Feature:** `<feature-id>` · **Depth:** [thin | standard | deep]
-**Inputs:** [prior specs, research reports, roadmap/epic links]
-
-> One unified artifact: `## Design & Rationale` is the DR-N source; `## Decomposition` maps tasks → DR-N within this same document.
+# [Feature Name]
 
 ## Design & Rationale
 
 ### Problem Statement
 
-[What is broken / missing, and why it matters. Required at every depth.]
+The importer needs to validate required fields and reject duplicate identifiers.
 
-### Chosen Approach            <!-- standard + deep -->
+### Chosen Approach
 
-[The approach in 1–3 paragraphs. For `deep`, cite the exploration section below.]
+Validate records before the importer persists them.
 
-### Requirements (DR-N)
+### DR-1: Validate required fields
 
-The DR-N identifiers below are the single source the decomposition traces against.
+**Acceptance criteria:**
+- Given a record missing a required field
+  When the importer validates it
+  Then it reports the missing field
 
-#### DR-1: [requirement headline]
+### DR-2: Reject duplicate identifiers
 
-[One paragraph of intent.]
+**Acceptance criteria:**
+- Given two records with the same identifier
+  When the importer processes the second record
+  Then it reports the duplicate without persisting it
 
-**Acceptance criteria:**            <!-- standard + deep; thin may list a single bullet -->
-- [Observable, testable criterion]
-- [Given/When/Then where behavior is conditional]
+### Technical Design
 
-#### DR-2: [requirement headline]
+Use one validator at the import boundary and retain accepted identifiers for the duration of each import.
 
-[…repeat per requirement…]
+### Integration Points
 
-### Technical Design            <!-- standard + deep -->
+The importer calls the validator before writing records.
 
-[How the change lands: the seams it touches, the shape of the new code, the invariants it preserves. Keep it design-level, not task-level — task detail belongs in Decomposition.]
+### Exploration
 
-### Integration Points            <!-- standard + deep -->
+Research note: `docs/research/import-validation.md`, correlationId `import-validation-research`.
+Streaming validation bounds record buffering. Buffered validation can report all errors together but retains the full import.
 
-- `path/to/seam.ts` — [what changes]
+### Alternatives considered
 
-### Exploration            <!-- deep only -->
-
-[The divergent loop: 2–3 approaches considered, the back-and-forth, why the chosen one won.
-Cite the `/exarchos:discover` research report by path and `correlationId` so provenance spans both documents.]
-
-### Alternatives considered            <!-- standard + deep -->
-
-- **Option B —** [what it was, why rejected].
-- **Option C —** [what it was, why rejected].
-
-### Open Questions
-
-- [Question + how/when it resolves, or explicit deferral with rationale.]
+Buffered validation was excluded because the importer accepts inputs larger than available memory.
 
 ## Decomposition
 
-The decomposition maps every task to one or more DR-N from the section above.
-A task with no DR-N is a coverage gap; a DR-N with no task is unimplemented — both are flagged by `check_plan_coverage`.
-
-### Scope
-
-**Target:** [Full design | Partial: <components>]
-**Excluded:** [None | sections deferred, with rationale]
-
-### Traceability matrix (DR-N → tasks)
-
-| DR | Requirement | Tasks |
-|----|-------------|-------|
-| DR-1 | [headline] | 001, 002 |
-| DR-2 | [headline] | 003 |
-
-### Tasks
-
-Each task carries a `riskTier` stamp that selects its verification depth (see the ladder in `@skills/_shared/references/verification.md`).
-Tests are judged **test-after by adequacy** — the failing-test-first ordering ceremony is not required.
-Full task fields are in [`task-template.md`](./task-template.md).
-
-Task headers are `### Task <id>:` (**h3**) — the single depth every plan-authoring gate requires (`check_plan_coverage`, `check_provenance_chain`, `check_task_decomposition`).
-Ids may be `T-NN`, `TNN`, or a bare number (`001`); the `### Tasks` grouping header above carries no id and is not itself a task.
-
-### Task 001: [brief description]
-
-**Risk Tier:** [low | medium | high]
-**Boundary Touching:** [true | false — optional]
-**Implements:** DR-1
-**Files:**
-- `path/to/implementation.ts`
-- `path/to/implementation.test.ts` (medium/high tiers)
-**Verification:** [per the ladder — low: static; medium: scoped tests + `check_test_adequacy`; high: + integration suite across the seam]
-**Dependencies:** [Task IDs, or None]
-**Parallelizable:** [Yes/No]
-
-### Task 002: [brief description]
-
-[…repeat per task…]
-
-### Parallelization
-
-[Critical path + which tasks run in parallel worktrees.]
-
-### Completion checklist
-
-- [ ] Every DR-N in `## Design & Rationale` maps to at least one task in the matrix
-- [ ] Every task `Implements:` a DR-N that exists in this document (no forward-dangling references)
-- [ ] Every task carries a `riskTier` stamp
-- [ ] Medium/high-tier tasks carry adequacy-judged tests (test-after); low-tier tasks lean on static analysis
-- [ ] Open questions are resolved OR explicitly deferred with rationale
-- [ ] Ready for `plan-review`
+```exarchos-plan-v1
+{
+  "version": 1,
+  "requirements": ["DR-1", "DR-2"],
+  "tasks": [
+    __TASK_OBJECTS__
+  ]
+}
+```
 ````
 
-## Notes
-
-- **One approval point.** The unified artifact is reviewed once, at `plan-review` (a dispatched, fresh-context adversarial pass over this document) — there is no separate design approval.
-- **Traceability stays internal.** `check_provenance_chain` and `generate_traceability` parse DR-N from this file's `## Design & Rationale` and validate task→DR-N against this file's `## Decomposition`; they do not cross to a second document.
-- **Depth never relaxes the floor.** `thin` shortens the design preamble; it does not drop the DR-N list or the traceability matrix — the decomposition contract is depth-invariant.
-- **Historical record.** Existing `docs/designs/` + `docs/plans/` files stay as-is; only newly-`init`'d features author the unified `docs/specs/` artifact.
+Keep exactly one top-level `exarchos-plan-v1` fence in the actual document. Use valid JSON without comments or trailing commas. List the exact `DR-N` headings from Design & Rationale in `requirements`. The plan block defines the task membership and dependencies. Use surrounding prose for context and deferred scope.

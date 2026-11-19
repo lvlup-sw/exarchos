@@ -2,7 +2,35 @@
 
 ## Step 1: Prepare Environment
 
-Compile the batch first — `exarchos_orchestrate({ action: "prepare", featureId: "<featureId>", repoRoot: "<absolute path of the worktree that holds the integration branch>" })` — and keep the `capsuleVersion`; the capsule's task graph is the wave. `repoRoot` is required and absolute. Then, for parallel tasks, create one linked worktree for each task, from the `baseCommit` of the task in the capsule:
+Use the approved record to bootstrap a new feature. Pass the absolute integration checkout, the checkout-relative design reference and the selected depth. Set `approvedFileSha256` to the bare lowercase SHA-256 hex of the entire approved file in raw bytes. For refactor bootstrap, use the `refactor` workflow type and supply its `overhaul` track and scope assessment. Replace the example values with the approved handoff values.
+
+```typescript
+exarchos_orchestrate({
+  action: "prepare", featureId: "add-email-validation", repoRoot: "/project",
+  intent: {
+    mode: "bootstrap", workflowType: "feature", baseRef: "feat/add-email-validation",
+    designDepth: "standard", designRef: "docs/specs/2026-02-28-add-email-validation.md",
+    approval: { decision: "approved", designDigest: approvedFileSha256 }
+  }
+})
+```
+
+Resend the identical saved bootstrap request to recover its receipt. Preserve the original approval and depth even if the checkout has changed. Use compile intent for a design revision or approved plan edit. Compiler 7 also needs it for each later frontier; compiler 8 keeps the complete pinned graph across waves. If the file changed, obtain approval for the new raw bytes and set `approvedCurrentFileSha256` to their digest. If the file is unchanged, use its existing approval.
+
+```typescript
+exarchos_orchestrate({
+  action: "prepare", featureId: "add-email-validation", repoRoot: "/project",
+  intent: {
+    mode: "compile", designDepth: "standard", designRef: "docs/specs/2026-02-28-add-email-validation.md",
+    approval: { decision: "approved", designDigest: approvedCurrentFileSha256 }
+  }
+})
+```
+
+For a refactor continuation, also carry `refactor: { track: "overhaul", scopeAssessment: "<assessment>" }` in the compile intent.
+
+Keep the `capsuleVersion`. The capsule's task graph is the wave. For parallel tasks, create one linked worktree for each task from its `baseCommit`:
+
 ```bash
 git worktree add --detach .worktrees/task-001 <baseCommit>
 cd .worktrees/task-001 && npm install
@@ -12,9 +40,13 @@ The worktree is detached, so the base step of the worker makes the branch of the
 
 A task never runs in the checkout that `prepare` read or in the primary worktree of the repository: `settle` and `task_complete` refuse both. A linked `node_modules` needs the ignore rule `node_modules`, without a trailing slash, or the worktree is not clean.
 
+For compiler-8 dependents, replace the root base step with `git switch -c <own branch> <forkCommit>` at the supplied clean commit containing all direct blocker heads and the pinned base. Record the full fork before edits and return `fields.forkCommit` when the result contract requires it. Never reset a dependent to the root base.
+
 ## Step 2: Extract Task Details
 
-From implementation plan, extract for each task:
+For compiler 8, copy each pinned taskContext and its referenced result contract from the capsule or its exact read_prepared_capsule detail invocation. Follow continuations without changing stream/version. Do not rebuild context from current prose. For compiler 7, use each capsule task ID to select the object from the matching approved typed plan. Copy full title, instructions, acceptance criteria, and source and test paths into the worker prompt.
+
+From that version-appropriate source, include for each task:
 - Full task description
 - Files to create/modify
 - Test file paths
@@ -155,19 +187,19 @@ A task that is not completed gets a claim with a status and a reason, and no fie
 - Every claim is read against the task's declared result shape
 - Each accepted task's verification runs — the ladder gates under the tier the capsule froze, then the completion — against the worktree the claim names
 - A claim with a status gets no verification, and its task stays unresolved
-- A settled batch leaves every required task complete. Each other outcome names every finding at once
+- Compiler 7 settlement requires every required result. Compiler 8 can accept a partial batch while other graph nodes remain; accepted standing must come from actual claims and custody. Read the findings and phaseMove rather than treating an accepted subset as whole-graph completion.
 
-**On `settled`:** All delegation results verified. Update TodoWrite status, land the worktrees, run the wave backstop, then check if schema sync is needed (Step 7) and proceed to review phase.
+**On `settled`:** Update TodoWrite for accepted results, land their worktrees and run the wave backstop. For compiler 8, continue any remaining eligible graph nodes under the same applicable capsule with a new batchId. Follow phaseMove; proceed to schema sync (Step 7) and review only when the whole task-batch obligations are satisfied.
 
 **On `accepted-with-rationale`:** The batch is settled, and a claim records a delegated choice. The same gates ran. Continue as on `settled`.
 
-**On `corrective-capsule`:** The tasks that passed are complete. Read `unresolved`. Its `cause` says why each task is unresolved: a gate halted (`verification-failed`), the claimed worktree is out of the scope of the capsule (`worktree-out-of-scope`, no gate ran), or the claim reported the task as `failed`, `blocked` or `skipped`. Fix the task, correct the worktree, remove the block, or dispatch the task. Then settle a new batch id on the same capsule, and claim only the unresolved tasks. If the receipt carries `designRevision`, call `prepare` first. Land each task of `acceptedTasks` before you create the worktree of a task that waits on it.
+**On `corrective-capsule`:** The tasks that passed are complete. Read `unresolved`. Its `cause` says why each task is unresolved: a gate halted (`verification-failed`), the claimed worktree is out of the scope of the capsule (`worktree-out-of-scope`, no gate ran), or the claim reported the task as `failed`, `blocked` or `skipped`. Fix the task, correct the worktree, remove the block, or dispatch the task. Then settle a new batch id on the same capsule, and claim only the unresolved tasks. If the receipt carries `designRevision`, compile a continuation first. Land each task of `acceptedTasks` before you create the worktree of a task that waits on it.
 
 **On `rejected`:** The request or a deviation is in error, and in this build settlement verified nothing at its read. A task that settlement verified before a read changed stays complete. A replayed receipt of an earlier build can name verified tasks (Step 3 of the skill). Read the findings, and correct the claim or the deviation. Then settle the corrected request under a new batch id on the same capsule.
 
 **On `deviation-pending`:** At its read, settlement verified nothing. Get a decision from a person for each pending deviation. In a run with no person, stop at the held batch and report it. When a person has decided, settle the same batch id with `decisions` and no claims.
 
-**On `recompile-required`:** The capsule was stale, and at its read settlement verified nothing. A task that settlement verified before a read changed stays complete. Call `prepare` again, and settle under the capsule that it returns.
+**On `recompile-required`:** The capsule was stale, and at its read settlement verified nothing. A task that settlement verified before a read changed stays complete. Compile a continuation and settle under its capsule.
 
 Step 3 of the skill gives each outcome in full.
 

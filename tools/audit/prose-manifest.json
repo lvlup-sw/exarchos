@@ -3324,7 +3324,7 @@
       "source": "docs/specs/2026-08-06-internal-mechanics-overhaul.md",
       "destination": "exarchos/docs/specs/2026-08-06-internal-mechanics-overhaul.md",
       "bytes": 214569,
-      "digest": "sha256:62eff674535baf781815e3a98f014fa1aba0d090618bbbc2223bc73256275474"
+      "digest": "sha256:ad9828be4282e3cb849c221b7a32d14dffecb4e1f373f501f655ccef2a3779f8"
     },
     {
       "source": "docs/specs/2026-08-08-internal-mechanics-residue.md",

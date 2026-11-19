@@ -184,7 +184,7 @@ export const workflowActions: readonly BuiltinToolAction[] = [
   withActionContract(
     {
       name: 'transition',
-      description: 'Transition the workflow to a target phase. Canonical phase-mutation action. Routes through the HSM transition guard primitive — emits exactly one workflow.transition event on success, or returns a structured error envelope (validTargets, expectedShape, suggestedFix) on guard/topology failure.',
+      description: 'Transition the workflow to a target phase. Canonical phase-mutation action. Decides the edge condition of the workflow definition on the ledger fold, and commits the trail of the move once (one workflow.transition event). A target equal to the current phase is an idempotent no-op that emits nothing. A guard or topology failure returns a structured error envelope (validTargets, expectedShape, suggestedFix).',
       schema: z.object({
         featureId: featureIdSchema,
         target: z.string().min(1).describe('Target phase (must be a declared transition from the current phase)'),
@@ -199,7 +199,7 @@ export const workflowActions: readonly BuiltinToolAction[] = [
       annotations: LOCAL_MUTATION,
     },
     {
-      requires: none('edge obligations stay in the HSM transition guard, not on this action'),
+      requires: none('the handler decides the edge condition of the definition inside the commit, not on this action'),
       ensures: declared({ source: 'event-append', when: 'success', event: 'workflow.transition' }),
       needs: none('transition writes through the in-process event store'),
       touches: {

@@ -7,6 +7,8 @@
  * runtime import cycle.
  */
 
+import { recordedInitialPhaseOf } from '../../events/event-validation.js';
+
 import type { ViewProjection } from './materializer.js';
 import type {
   AdmissionContradictionRecorded,
@@ -336,6 +338,7 @@ export const workflowStateProjection: ViewProjection<WorkflowStateView> = {
     const type: EventType = event.type as EventType;
     switch (type) {
       case 'workflow.started': {
+        const recordedPhase = recordedInitialPhaseOf(event);
         const data = event.data as {
           featureId?: string;
           workflowType?: string;
@@ -345,9 +348,9 @@ export const workflowStateProjection: ViewProjection<WorkflowStateView> = {
         if (!data) return view;
 
         const workflowType = data.workflowType ?? view.workflowType;
-        const phase = isBuiltInWorkflowType(workflowType)
+        const phase = recordedPhase ?? (isBuiltInWorkflowType(workflowType)
           ? getInitialPhase(workflowType)
-          : view.phase;
+          : view.phase);
 
         const nextOneshot =
           workflowType === 'oneshot' && data.synthesisPolicy !== undefined

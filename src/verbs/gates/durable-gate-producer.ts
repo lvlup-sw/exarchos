@@ -11,13 +11,15 @@ import type { ToolResult } from '../../format.js';
 import { evidenceArtifactStore } from '../../workflow/admission/evidence-artifact.js';
 import { createEvidenceSubject } from '../../workflow/admission/evidence-subject.js';
 import type { EvidenceSubjectV1 } from '../../workflow/admission/types.js';
-import { observeTree, type TreeObservation } from '../../utils/git-tree.js';
+import type { ProfiledGateArgs } from './gate-utils.js';
+import { canonicalPath, observeImmutableClaimedTree, observeTree, type TreeObservation } from '../../utils/git-tree.js';
 import { resolveActivePhaseAttemptId } from '../tasks/active-phase-attempt.js';
 import { resolveWorkflowState } from '../resolve-state.js';
 import { defaultGitExec } from './gate-utils.js';
-import { runGateWithEvidence, type GateRunTree } from './gate-runner.js';
+import { passingGateReplay, runGateWithEvidence, type GateRunTree } from './gate-runner.js';
 
 export interface DurableGateScope {
+  readonly coordinate?: ProfiledGateArgs['coordinate'];
   readonly gateClass:
     | 'static-analysis'
     | 'test-adequacy'
@@ -219,7 +221,11 @@ export async function runDurableGateProducer(
     );
   }
 
-  const tree = scope.unscanned === true ? undefined : await scannedTree(scope.repoRoot);
+  const selected = scope.coordinate === undefined ? undefined : await selectedCheckout(scope.repoRoot, scope.coordinate);
+  if (scope.coordinate !== undefined && selected === undefined) {
+    return scopeError('TASK_COORDINATE_REFUSED', 'The selected checkout is unavailable, changed or dirty.');
+  }
+  const tree = selected ?? (scope.unscanned === true ? undefined : await scannedTree(scope.repoRoot));
   return runGateWithEvidence(
     {
       streamId: scope.featureId,
@@ -238,7 +244,36 @@ export async function runDurableGateProducer(
     {
       eventStore: scope.eventStore,
       artifactStore: evidenceArtifactStore(scope.stateDir),
-      executeProvider: async () => executeProvider(),
+      executeProvider: async () => {
+        const result = await executeProvider();
+        const selected = scope.coordinate === undefined ? undefined : await selectedCheckout(scope.repoRoot, scope.coordinate);
+        if (scope.coordinate !== undefined && selected === undefined) {
+          return scopeError('TASK_COORDINATE_REFUSED', 'The provider changed the selected checkout.');
+        }
+        return result;
+      },
     },
   );
+}
+
+/** Observes the selected clean checkout without filesystem-monitor callbacks. */
+async function selectedCheckout(repoRoot: string, coordinate: NonNullable<ProfiledGateArgs['coordinate']>): Promise<GateRunTree | undefined> {
+  const tree = await observeImmutableClaimedTree(repoRoot, coordinate.diffBaseCommit, coordinate.repository);
+  return tree.kind === 'tree' && tree.repository === coordinate.repository && tree.head === coordinate.observedHeadCommit
+    && tree.holdsBase && tree.dirtyPaths.length === 0 && tree.toplevel === canonicalPath(repoRoot)
+    ? { worktree: tree.toplevel, head: tree.head } : undefined;
+}
+
+/** Reuses the writer's attempt and subject terms for the bounded adequacy restart. */
+export async function replayPassingAdequacy(scope: GateSubjectScope & { readonly eventStore: EventStore },
+  operationId: string, producerId: string, coordinate: NonNullable<ProfiledGateArgs['coordinate']>) {
+  const attempt = await activePhaseAttemptId(scope.featureId, scope.eventStore);
+  if (typeof attempt !== 'string') return undefined;
+  const effects = await scope.eventStore.query(scope.featureId, { operationId });
+  const tree = effects.length === 0 ? { worktree: canonicalPath(scope.repoRoot), head: coordinate.observedHeadCommit }
+    : await selectedCheckout(scope.repoRoot, coordinate);
+  if (tree === undefined) return undefined;
+  return passingGateReplay({ streamId: scope.featureId, gateClass: scope.gateClass, phaseAttemptId: attempt,
+    requirementId: ladderRequirementId(scope.gateClass), subject: selectSubject(scope, attempt), providerInput: {},
+    tree }, scope.eventStore, operationId, producerId);
 }

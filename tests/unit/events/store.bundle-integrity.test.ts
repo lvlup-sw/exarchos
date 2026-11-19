@@ -93,6 +93,7 @@ describe('EventStore.runBundleIntegrityCheck', () => {
   /**
    * The replay counterexample. The operation settles through the atomic trail with a claim.
    * Replay returns the recorded claim and does not open the bundle, so it stays green after the blob is deleted.
+   * The replay gives false, because the stored claim answered it and it wrote no row.
    * The oracle then names the missing blob.
    * A completed sweep has no `incomplete` marker, so the marker on the timeout verdict discriminates.
    */
@@ -122,7 +123,7 @@ describe('EventStore.runBundleIntegrityCheck', () => {
           [{ type: SETTLED_TYPE, data: { [BUNDLE_REF_FIELD]: [ref] } }],
           operationId,
         ),
-      ).resolves.toBeUndefined();
+      ).resolves.toBe(false);
       const afterReplay = await store.query('feat-bundle');
       expect(
         afterReplay.filter((e) => e.type === SETTLED_TYPE),

@@ -8,6 +8,9 @@
  * of the dispatcher, and it trims itself until it is within the budget.
  */
 
+import type { ExarchosCapsuleV1 } from '../../contract/capsule/exarchos-capsule.js';
+import type { BundleRefV1 } from '../../events/bundle/digest-references.js';
+import { ArtifactIdSchema } from '../../workflow/admission/types.js';
 import { estimateOutputTokens, SUMMARY_FIRST_PAGE_ITEMS } from '../../dispatch/core/economy.js';
 
 export const PREPARE_ECONOMY_BUDGET_TOKENS = 8000;
@@ -67,6 +70,7 @@ export interface PreparedCapsuleReceiptSummary {
   readonly bundleRefs: unknown;
   /** The recompile that the prepare recorded. It is present exactly when the receipt carries one. */
   readonly recompile?: SummaryRecompile;
+  readonly detailRead?: PreparedDetailInvocation;
 }
 
 /**
@@ -82,6 +86,7 @@ interface CappableReceipt {
   readonly tailSequence?: unknown;
   readonly bundleRefs?: unknown;
   readonly capsule?: {
+    readonly provenance?: { readonly compilerVersion?: string };
     readonly graph?: {
       readonly tasks?: ReadonlyArray<{ readonly taskId?: unknown; readonly title?: unknown }>;
     };
@@ -150,6 +155,9 @@ export function summarizePreparedCapsuleReceipt(data: unknown): PreparedCapsuleR
       definitionVersion: receipt.definitionVersion,
       tailSequence: receipt.tailSequence,
       bundleRefs: receipt.bundleRefs,
+      ...(receipt.capsule?.provenance?.compilerVersion === 'exarchos-prepare-8'
+        && typeof receipt.workflowId === 'string' && typeof receipt.capsuleVersion === 'number'
+        ? { detailRead: preparedDetailInvocation(receipt.workflowId, receipt.capsuleVersion, 0, 10) } : {}),
       ...(recorded !== undefined
         ? {
             recompile: {
@@ -171,4 +179,70 @@ export function summarizePreparedCapsuleReceipt(data: unknown): PreparedCapsuleR
   const withoutTaskPage = assemble([], WHOLE_LIST);
   if (fits(withoutTaskPage)) return withoutTaskPage;
   return assemble([], SUMMARY_FIRST_PAGE_ITEMS);
+}
+
+/** The exact read invocation carries no mutable checkout input. */
+export interface PreparedDetailInvocation {
+  readonly tool: 'exarchos_orchestrate';
+  readonly action: 'read_prepared_capsule';
+  readonly arguments: { readonly streamId: string; readonly capsuleVersion: number; readonly offset: number; readonly limit: number };
+}
+
+/** Returns the named historical read, including its next page coordinates. */
+export function preparedDetailInvocation(streamId: string, capsuleVersion: number, offset: number, limit: number): PreparedDetailInvocation {
+  return { tool: 'exarchos_orchestrate', action: 'read_prepared_capsule', arguments: { streamId, capsuleVersion, offset, limit } };
+}
+
+/** Each item retains the full context and its authoritative result contract. */
+export interface PreparedDetailItem {
+  readonly taskId: string;
+  readonly stage: NonNullable<ExarchosCapsuleV1['graph']['tasks'][number]['stage']>;
+  readonly context: NonNullable<ExarchosCapsuleV1['graph']['tasks'][number]['taskContext']>;
+  readonly resultContract: ExarchosCapsuleV1['contracts']['taskResults'][string];
+}
+
+/** Metadata is bounded independently of the authored context. */
+export interface PreparedDetailMetadata {
+  readonly operationId: string;
+  readonly capsule: ExarchosCapsuleV1['identity'];
+  readonly capsuleDigest: string;
+  readonly bundleRefs: readonly [BundleRefV1];
+  readonly total: number;
+}
+
+/** Builds the complete measured response, including continuation and envelope fields. */
+export function preparedDetailCarrier(metadata: PreparedDetailMetadata, items: readonly PreparedDetailItem[], offset: number, limit: number, correlation: Readonly<Record<string, string>> = {}, warnings: readonly string[] = []) {
+  const nextOffset = offset + items.length;
+  const success: true = true;
+  return {
+    success,
+    data: { ...metadata, offset, limit, count: items.length, items: [...items],
+      ...(nextOffset < metadata.total ? { continuation: preparedDetailInvocation(metadata.capsule.workflowId, metadata.capsule.capsuleVersion, nextOffset, limit) } : {}) },
+    ...(warnings.length === 0 ? {} : { warnings: [...warnings] }),
+    next_actions: [], _meta: { ...correlation }, _perf: { ms: 0, bytes: 0, tokens: 0 },
+  };
+}
+
+/** Extracts complete items without shortening authored obligations. */
+export function preparedDetailItems(capsule: ExarchosCapsuleV1): PreparedDetailItem[] {
+  return capsule.graph.tasks.map(task => {
+    const context = task.taskContext;
+    const stage = task.stage;
+    const resultContract = capsule.contracts.taskResults[task.taskId];
+    if (context === undefined || stage === undefined || resultContract === undefined) throw new Error('Prepared task lacks complete detail terms');
+    return { taskId: task.taskId, stage, context, resultContract };
+  });
+}
+
+/** Measures each item with the largest admitted metadata and continuation. */
+export function preparedDetailDeliverable(capsule: ExarchosCapsuleV1): boolean {
+  if (!Number.isSafeInteger(capsule.identity.capsuleVersion)) return false;
+  const id = 'x'.repeat(256);
+  const maximum = Number.MAX_SAFE_INTEGER;
+  const metadata: PreparedDetailMetadata = { operationId: id,
+    capsule: { workflowId: id, definitionVersion: 'f'.repeat(64), designVersion: id, capsuleVersion: maximum },
+    capsuleDigest: 'f'.repeat(64), bundleRefs: [{ artifactId: ArtifactIdSchema.parse(id), digest: { algorithm: 'sha256', value: 'f'.repeat(64) } }], total: maximum };
+  return preparedDetailItems(capsule).every(item => estimateOutputTokens(
+    preparedDetailCarrier(metadata, [item], maximum - 2, 10, { operationId: 'x'.repeat(36), correlationId: 'x'.repeat(36) }),
+  ) <= PREPARE_ECONOMY_BUDGET_TOKENS);
 }

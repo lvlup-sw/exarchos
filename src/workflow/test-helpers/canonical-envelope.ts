@@ -8,7 +8,7 @@
 
 import { expect } from 'vitest';
 import type { WorkflowEvent } from '../../events/schemas.js';
-import { EVENT_DATA_SCHEMAS } from '../../events/schemas.js';
+import { validateEventRowData } from '../../events/event-validation.js';
 
 export interface AssertEnvelopeOptions {
   /**
@@ -40,15 +40,6 @@ export function assertCanonicalEnvelope(
     ).toBe(true);
 
     if (skipDataSchema.has(event.type)) continue;
-    const dataSchema = EVENT_DATA_SCHEMAS[event.type as keyof typeof EVENT_DATA_SCHEMAS];
-    if (dataSchema && event.data !== undefined) {
-      const parsed = dataSchema.safeParse(event.data);
-      expect(
-        parsed.success,
-        `${label}: data must satisfy EVENT_DATA_SCHEMAS — ${
-          parsed.success ? '' : JSON.stringify(parsed.error.issues)
-        }`,
-      ).toBe(true);
-    }
+    expect(() => validateEventRowData(event), `${label}: data must satisfy the row contract`).not.toThrow();
   }
 }

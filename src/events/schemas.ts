@@ -9,7 +9,7 @@
  */
 import * as path from 'node:path';
 import { z } from 'zod';
-import { WorkflowTypeSchema } from '../workflow/schemas.js';
+import { DurableWorkflowTypeSchema } from '../workflow/schemas.js';
 import { DoctorOutputSchema } from '../verbs/doctor/schema.js';
 import { SETTLEMENT_OUTCOMES } from '../verbs/settle/adjudicate.js';
 import { ReconcilePlanSchema, ReconcileResultSchema } from '../dispatch/core/onboarding/types.js';
@@ -649,7 +649,7 @@ export const WorkflowEventBase = z.object({
 
 export const WorkflowStartedData = z.object({
   featureId: z.string(),
-  workflowType: WorkflowTypeSchema,
+  workflowType: DurableWorkflowTypeSchema,
   /**
    * The identity of the initial actionable phase entry. It is optional for streams older than v2.12.
    * Every new writer supplies it.
@@ -667,6 +667,15 @@ export const WorkflowStartedData = z.object({
    */
   repoRoot: z.string().optional(),
 });
+
+/** Only this exact start epoch gives the recorded entry phase authority. */
+export const WORKFLOW_STARTED_SCHEMA_VERSION = '1.1';
+
+/** The complete start contract requires envelope-aware validation for this epoch. */
+export const WorkflowStartedV11Data = WorkflowStartedData.extend({
+  initialPhase: z.string().min(1),
+});
+export type WorkflowStartedV11 = z.infer<typeof WorkflowStartedV11Data>;
 
 export const TaskAssignedData = z.object({
   taskId: z.string().describe('Unique identifier for the task'),
@@ -3250,6 +3259,8 @@ export const WorkflowPreparedData = z
         'Content address of the compiled capsule, as bare sha256 hex; settlement refuses a ' +
           'submitted capsule that does not match it',
       ),
+    bootstrapRequestDigest: z.string().min(1).optional(),
+    planRecordDigest: z.string().min(1).optional(),
     compilerVersion: z.string().min(1).describe('The compiler that produced the capsule'),
     taskCount: z.number().int().min(1).describe('Tasks in the compiled batch'),
     requestDigest: z

@@ -74,7 +74,7 @@ triage → investigate → [hotfix-track | thorough-track] → synthesize → co
 |------|----|-------|-------------|
 | `rca` | `design` | `rca-document-complete` | Set `artifacts.rca` |
 | `design` | `debug-implement` | `fix-design-complete` | Set `artifacts.fixDesign` |
-| `debug-implement` | `debug-validate` | `implementation-complete` | Always passes |
+| `debug-implement` | `debug-validate` | `implementation-complete` | Set `implementation.complete = true` |
 | `debug-validate` | `debug-review` | `validation-passed` | Set `validation.testsPass = true` |
 | `debug-review` | `synthesize` | `review-passed` | All `reviews.{name}.status` passing |
 
@@ -84,7 +84,7 @@ triage → investigate → [hotfix-track | thorough-track] → synthesize → co
 
 | From | To | Guard | Prerequisite |
 |------|----|-------|-------------|
-| `hotfix-implement` | `hotfix-validate` | `implementation-complete` | Always passes |
+| `hotfix-implement` | `hotfix-validate` | `implementation-complete` | Set `implementation.complete = true` |
 | `hotfix-validate` | `completed` | `validation-passed` | Set `validation.testsPass = true` |
 
 ### Shared
@@ -109,7 +109,7 @@ explore → brief → [polish-track | overhaul-track] → completed
 
 | From | To | Guard | Prerequisite |
 |------|----|-------|-------------|
-| `polish-implement` | `polish-validate` | `implementation-complete` | Always passes |
+| `polish-implement` | `polish-validate` | `implementation-complete` | Set `implementation.complete = true` |
 | `polish-validate` | `polish-update-docs` | `goals-verified` | Set `validation.testsPass = true` |
 | `polish-update-docs` | `completed` | `docs-updated` | Set `validation.docsUpdated = true` |
 

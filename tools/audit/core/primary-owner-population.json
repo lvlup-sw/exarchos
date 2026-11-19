@@ -1,20 +1,20 @@
 {
   "totals": {
-    "emissionEdges": 110,
-    "edgesCarryingRole": 110,
-    "edgesCarryingOwner": 110,
-    "distinctEventsWithEdges": 78,
+    "emissionEdges": 119,
+    "edgesCarryingRole": 119,
+    "edgesCarryingOwner": 119,
+    "distinctEventsWithEdges": 81,
     "distinctOwners": 3,
     "registeredEvents": 186,
     "moduleEmitterRows": 24
   },
   "keys": {
     "per-event-type/primary-edges": {
-      "populationSize": 78,
-      "satisfyingCount": 73,
+      "populationSize": 81,
+      "satisfyingCount": 71,
       "zeroPrimaryCount": 0,
       "unownedPrimaryCount": 0,
-      "multiPrimaryCount": 5,
+      "multiPrimaryCount": 10,
       "zeroPrimary": [],
       "unownedPrimary": [],
       "multiPrimary": [
@@ -69,6 +69,46 @@
           ]
         },
         {
+          "key": "phase.entered",
+          "primaryEdges": 2,
+          "primaryOwners": [
+            "workflow"
+          ],
+          "unattributedPrimaryEdges": 0,
+          "declaringEdges": 2,
+          "declaredBy": [
+            "exarchos_orchestrate.prepare",
+            "exarchos_orchestrate.settle"
+          ]
+        },
+        {
+          "key": "phase.exited",
+          "primaryEdges": 2,
+          "primaryOwners": [
+            "workflow"
+          ],
+          "unattributedPrimaryEdges": 0,
+          "declaringEdges": 2,
+          "declaredBy": [
+            "exarchos_orchestrate.prepare",
+            "exarchos_orchestrate.settle"
+          ]
+        },
+        {
+          "key": "state.patched",
+          "primaryEdges": 2,
+          "primaryOwners": [
+            "workflow"
+          ],
+          "unattributedPrimaryEdges": 0,
+          "declaringEdges": 3,
+          "declaredBy": [
+            "exarchos_orchestrate.discover_bridge",
+            "exarchos_orchestrate.prepare",
+            "exarchos_workflow.update"
+          ]
+        },
+        {
           "key": "task.assigned",
           "primaryEdges": 2,
           "primaryOwners": [
@@ -79,6 +119,33 @@
           "declaredBy": [
             "exarchos_orchestrate.prepare",
             "exarchos_orchestrate.prepare_delegation"
+          ]
+        },
+        {
+          "key": "workflow.started",
+          "primaryEdges": 2,
+          "primaryOwners": [
+            "workflow"
+          ],
+          "unattributedPrimaryEdges": 0,
+          "declaringEdges": 2,
+          "declaredBy": [
+            "exarchos_orchestrate.prepare",
+            "exarchos_workflow.init"
+          ]
+        },
+        {
+          "key": "workflow.transition",
+          "primaryEdges": 3,
+          "primaryOwners": [
+            "workflow"
+          ],
+          "unattributedPrimaryEdges": 0,
+          "declaringEdges": 3,
+          "declaredBy": [
+            "exarchos_orchestrate.prepare",
+            "exarchos_orchestrate.settle",
+            "exarchos_workflow.transition"
           ]
         },
         {
@@ -160,7 +227,6 @@
         "shepherd.started",
         "stack.position-filled",
         "stash.detected",
-        "state.patched",
         "synthesize.requested",
         "task.claimed",
         "task.completed",
@@ -169,13 +235,12 @@
         "workflow.checkpoint",
         "workflow.cleanup",
         "workflow.compensation",
+        "workflow.compound-entry",
         "workflow.fix-cycle",
         "workflow.plan-review-dispatched",
         "workflow.prepared",
         "workflow.pruned",
         "workflow.rehydrated",
-        "workflow.started",
-        "workflow.transition",
         "worktree.adopted",
         "worktree.merge_requested",
         "worktree.orphan_detected",
@@ -193,8 +258,8 @@
       }
     },
     "per-event-type/primary-owners": {
-      "populationSize": 78,
-      "satisfyingCount": 78,
+      "populationSize": 81,
+      "satisfyingCount": 81,
       "zeroPrimaryCount": 0,
       "unownedPrimaryCount": 0,
       "multiPrimaryCount": 0,
@@ -237,6 +302,8 @@
         "onboard.executed",
         "onboard.requested",
         "orchestrate.intent_executed",
+        "phase.entered",
+        "phase.exited",
         "pr.comment.executed",
         "pr.comment.requested",
         "pr.create.executed",
@@ -265,6 +332,7 @@
         "workflow.checkpoint",
         "workflow.cleanup",
         "workflow.compensation",
+        "workflow.compound-entry",
         "workflow.fix-cycle",
         "workflow.plan-review-dispatched",
         "workflow.prepared",
@@ -291,8 +359,8 @@
       }
     },
     "per-emission-site/primary-edges": {
-      "populationSize": 110,
-      "satisfyingCount": 107,
+      "populationSize": 119,
+      "satisfyingCount": 116,
       "zeroPrimaryCount": 3,
       "unownedPrimaryCount": 0,
       "multiPrimaryCount": 0,
@@ -392,6 +460,10 @@
         "onboard.executed@exarchos_orchestrate.onboard",
         "onboard.requested@exarchos_orchestrate.onboard",
         "orchestrate.intent_executed@exarchos_orchestrate.execute_intent",
+        "phase.entered@exarchos_orchestrate.prepare",
+        "phase.entered@exarchos_orchestrate.settle",
+        "phase.exited@exarchos_orchestrate.prepare",
+        "phase.exited@exarchos_orchestrate.settle",
         "pr.comment.executed@exarchos_orchestrate.add_pr_comment",
         "pr.comment.requested@exarchos_orchestrate.add_pr_comment",
         "pr.create.executed@exarchos_orchestrate.create_pr",
@@ -410,6 +482,7 @@
         "shepherd.started@exarchos_orchestrate.assess_stack",
         "stack.position-filled@exarchos_orchestrate.stack_place",
         "stash.detected@exarchos_orchestrate.prepare_delegation",
+        "state.patched@exarchos_orchestrate.prepare",
         "state.patched@exarchos_workflow.update",
         "synthesize.requested@exarchos_orchestrate.request_synthesize",
         "task.assigned@exarchos_orchestrate.prepare",
@@ -421,12 +494,16 @@
         "workflow.checkpoint@exarchos_workflow.checkpoint",
         "workflow.cleanup@exarchos_workflow.cleanup",
         "workflow.compensation@exarchos_workflow.cancel",
+        "workflow.compound-entry@exarchos_orchestrate.prepare",
         "workflow.fix-cycle@exarchos_workflow.transition",
         "workflow.plan-review-dispatched@exarchos_orchestrate.prepare_review",
         "workflow.prepared@exarchos_orchestrate.prepare",
         "workflow.pruned@exarchos_orchestrate.prune_stale_workflows",
         "workflow.rehydrated@exarchos_workflow.rehydrate",
+        "workflow.started@exarchos_orchestrate.prepare",
         "workflow.started@exarchos_workflow.init",
+        "workflow.transition@exarchos_orchestrate.prepare",
+        "workflow.transition@exarchos_orchestrate.settle",
         "workflow.transition@exarchos_workflow.transition",
         "worktree.adopted@exarchos_orchestrate.acquire_worktree",
         "worktree.merge_executed@exarchos_orchestrate.reconcile_worktrees",
@@ -449,23 +526,12 @@
       }
     },
     "per-event-and-tool/primary-owners": {
-      "populationSize": 79,
-      "satisfyingCount": 78,
-      "zeroPrimaryCount": 1,
+      "populationSize": 84,
+      "satisfyingCount": 84,
+      "zeroPrimaryCount": 0,
       "unownedPrimaryCount": 0,
       "multiPrimaryCount": 0,
-      "zeroPrimary": [
-        {
-          "key": "state.patched@exarchos_orchestrate",
-          "primaryEdges": 0,
-          "primaryOwners": [],
-          "unattributedPrimaryEdges": 0,
-          "declaringEdges": 1,
-          "declaredBy": [
-            "exarchos_orchestrate.discover_bridge"
-          ]
-        }
-      ],
+      "zeroPrimary": [],
       "unownedPrimary": [],
       "multiPrimary": [],
       "satisfyingKeys": [
@@ -504,6 +570,8 @@
         "onboard.executed@exarchos_orchestrate",
         "onboard.requested@exarchos_orchestrate",
         "orchestrate.intent_executed@exarchos_orchestrate",
+        "phase.entered@exarchos_orchestrate",
+        "phase.exited@exarchos_orchestrate",
         "pr.comment.executed@exarchos_orchestrate",
         "pr.comment.requested@exarchos_orchestrate",
         "pr.create.executed@exarchos_orchestrate",
@@ -522,6 +590,7 @@
         "shepherd.started@exarchos_orchestrate",
         "stack.position-filled@exarchos_orchestrate",
         "stash.detected@exarchos_orchestrate",
+        "state.patched@exarchos_orchestrate",
         "state.patched@exarchos_workflow",
         "synthesize.requested@exarchos_orchestrate",
         "task.assigned@exarchos_orchestrate",
@@ -532,12 +601,15 @@
         "workflow.checkpoint@exarchos_workflow",
         "workflow.cleanup@exarchos_workflow",
         "workflow.compensation@exarchos_workflow",
+        "workflow.compound-entry@exarchos_orchestrate",
         "workflow.fix-cycle@exarchos_workflow",
         "workflow.plan-review-dispatched@exarchos_orchestrate",
         "workflow.prepared@exarchos_orchestrate",
         "workflow.pruned@exarchos_orchestrate",
         "workflow.rehydrated@exarchos_workflow",
+        "workflow.started@exarchos_orchestrate",
         "workflow.started@exarchos_workflow",
+        "workflow.transition@exarchos_orchestrate",
         "workflow.transition@exarchos_workflow",
         "worktree.adopted@exarchos_orchestrate",
         "worktree.merge_executed@exarchos_orchestrate",
@@ -600,7 +672,7 @@
     },
     {
       "tier": "substrate",
-      "eventCount": 47,
+      "eventCount": 50,
       "events": [
         "branch.delete.executed",
         "branch.delete.requested",
@@ -626,6 +698,8 @@
         "onboard.executed",
         "onboard.requested",
         "orchestrate.intent_executed",
+        "phase.entered",
+        "phase.exited",
         "pr.comment.executed",
         "pr.comment.requested",
         "pr.create.executed",
@@ -642,6 +716,7 @@
         "workflow.checkpoint",
         "workflow.cleanup",
         "workflow.compensation",
+        "workflow.compound-entry",
         "workflow.plan-review-dispatched",
         "workflow.prepared",
         "workflow.pruned",

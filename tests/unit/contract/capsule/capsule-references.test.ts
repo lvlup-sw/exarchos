@@ -61,6 +61,9 @@ function bend(
 }
 
 const REFERENCE_CASES: readonly ReferenceCase[] = [
+  bend('compiler-eight-without-semantics', 'compiler-semantics', 'provenance.compilerVersion', base => ({
+    ...base, provenance: { ...base.provenance, compilerVersion: 'exarchos-prepare-8' },
+  })),
   bend(
     'two tasks sharing an id',
     'duplicate-task-id',

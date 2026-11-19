@@ -72,6 +72,8 @@ function unwrapPreprocess(schema: z.ZodType): z.ZodType {
  * unwrapped for clean JSON Schema. When two actions declare one field, the first declaration wins.
  * A different base type, enum value set, or default throws, because the merge hides the later
  * declaration. Other constraint drift is allowed, because the action schemas validate it again.
+ *
+ * Prepare and execute_intent share the intent field. Their wire union preserves both contracts.
  */
 export function buildRegistrationSchema(
   actions: readonly ToolAction[],
@@ -80,7 +82,7 @@ export function buildRegistrationSchema(
   const shape: Record<string, z.ZodType> = {
     action: z.enum(actionNames),
   };
-  const provenance = new Map<string, { action: string; contract: FieldContract }>();
+  const provenance = new Map<string, { action: string; contract: FieldContract; merged?: 'same-kind' | 'wire-union' }>();
 
   for (const action of actions) {
     const fields = action.schema.shape;
@@ -91,12 +93,21 @@ export function buildRegistrationSchema(
       const prior = provenance.get(key);
       if (prior) {
         const conflict = describeContractConflict(prior.contract, contract);
-        if (conflict) {
+        const priorField = shape[key];
+        if (prior.merged === undefined && key === 'intent' && priorField !== undefined
+          && isSharedIntent(prior.action, prior.contract, action.name, contract)) {
+          shape[key] = z.union([unwrapOptional(priorField), unwrapOptional(field)]).optional();
+          provenance.set(key, { ...prior, merged: 'wire-union' });
+          continue;
+        }
+        if (conflict || prior.merged === 'wire-union') {
           throw new Error(
-            `buildRegistrationSchema: field '${key}' declared by action '${action.name}' collides with the declaration from action '${prior.action}'. ${conflict} ` +
+            `buildRegistrationSchema: field '${key}' declared by action '${action.name}' collides with the declaration from action '${prior.action}'. ` +
+            `${conflict ?? 'The wire field already has two declarations.'} ` +
             `Rename the field in one action (see agent_spec.outputFormat, #1127) or align the declarations.`,
           );
         }
+        if (key === 'intent') provenance.set(key, { ...prior, merged: 'same-kind' });
         continue;
       }
 
@@ -119,6 +130,13 @@ interface FieldContract {
   readonly enumValues: readonly string[] | null;
   /** The default as JSON text, or null when there is no default. */
   readonly defaultValue: string | null;
+}
+
+/** Admit the two intent declarations with their existing action-specific shapes. */
+function isSharedIntent(left: string, a: FieldContract, right: string, b: FieldContract): boolean {
+  if (a.defaultValue !== null || b.defaultValue !== null) return false;
+  return (left === 'execute_intent' && a.kind === 'string' && right === 'prepare' && b.kind === 'object')
+    || (left === 'prepare' && a.kind === 'object' && right === 'execute_intent' && b.kind === 'string');
 }
 
 function fieldContract(zodType: z.ZodType): FieldContract {
@@ -146,6 +164,9 @@ function baseKind(schema: z.ZodType): FieldContract['kind'] {
   if (current instanceof z.ZodBoolean) return 'boolean';
   if (current instanceof z.ZodArray) return 'array';
   if (current instanceof z.ZodObject || current instanceof z.ZodRecord) return 'object';
+  if (current instanceof z.ZodDiscriminatedUnion && current.options.every((option) => option instanceof z.ZodObject)) {
+    return 'object';
+  }
   return 'other';
 }
 

@@ -3,7 +3,7 @@
  * A guarded transition appends `workflow.transition` on a pass or `workflow.guard-failed` on a fail, never both.
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import * as os from 'node:os';
@@ -14,6 +14,8 @@ import {
   LEGACY_TRANSITION_CORPUS_POSTURE,
   legacyTransitionCorpus,
 } from './__fixtures__/transition-admission-corpus.js';
+import * as stateMachine from '../../../src/workflow/state-machine.js';
+import { buildEvent } from '../../../src/events/event-factory.js';
 import { getHSMDefinition } from '../../../src/workflow/state-machine.js';
 import { EventStore } from '../../../src/events/store.js';
 import type { WorkflowEvent } from '../../../src/events/schemas.js';
@@ -28,6 +30,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+  vi.restoreAllMocks();
   await rmrfAsync(tmpDir);
 });
 
@@ -129,7 +132,25 @@ describe('legacy transition-decision migration baseline (DR-1)', () => {
  */
 async function patchStateForDelegatePhase(opts: {
   tasks?: Array<{ id: string; title: string; status: string }>;
+  /** With a store, the rows move the fold to `delegate` too, with the task list and a `task.completed` row for each completed id. */
+  eventStore?: EventStore;
+  completed?: readonly string[];
 }): Promise<void> {
+  if (opts.eventStore !== undefined) {
+    await opts.eventStore.append(featureId, {
+      type: 'workflow.transition',
+      data: { from: 'plan', to: 'delegate', trigger: 'test', featureId },
+    });
+    if (opts.tasks !== undefined) {
+      await opts.eventStore.append(featureId, {
+        type: 'state.patched',
+        data: { featureId, fields: ['tasks'], patch: { tasks: opts.tasks } },
+      });
+    }
+    for (const taskId of opts.completed ?? []) {
+      await opts.eventStore.append(featureId, { type: 'task.completed', data: { taskId } });
+    }
+  }
   const stateFile = path.join(tmpDir, `${featureId}.state.json`);
   const raw = JSON.parse(await fs.readFile(stateFile, 'utf-8'));
   raw.phase = 'delegate';
@@ -156,6 +177,7 @@ describe('HSMTransitionGuard.fail_closed (C7, closes #1225)', () => {
     await handleInit({ featureId, workflowType: 'feature' }, tmpDir, eventStore);
     await patchStateForDelegatePhase({
       tasks: [{ id: 't1', title: 'task one', status: 'in_progress' }],
+      eventStore,
     });
 
     const result = await handleSet(
@@ -181,6 +203,7 @@ describe('HSMTransitionGuard.fail_closed (C7, closes #1225)', () => {
     await handleInit({ featureId, workflowType: 'feature' }, tmpDir, eventStore);
     await patchStateForDelegatePhase({
       tasks: [{ id: 't1', title: 'task one', status: 'in_progress' }],
+      eventStore,
     });
 
     const result = await handleSet(
@@ -227,7 +250,7 @@ describe('HSMTransitionGuard.fail_closed (C7, closes #1225)', () => {
   });
 
   /**
-   * An empty task list passes `allTasksComplete`.
+   * One task with a `task.completed` row completes the task list.
    * A log without `team.spawned` passes `teamDisbandedEmitted`.
    * So the `delegate` to `review` guard passes.
    */
@@ -236,7 +259,7 @@ describe('HSMTransitionGuard.fail_closed (C7, closes #1225)', () => {
     await eventStore.initialize();
 
     await handleInit({ featureId, workflowType: 'feature' }, tmpDir, eventStore);
-    await patchStateForDelegatePhase({ tasks: [] });
+    await patchStateForDelegatePhase({ tasks: [{ id: 't1', title: 'task one', status: 'complete' }], eventStore, completed: ['t1'] });
 
     const result = await handleSet(
       { featureId, phase: 'review' },
@@ -274,7 +297,7 @@ describe('HSMTransitionGuard phase.entered freeze (DR-13)', () => {
     await eventStore.initialize();
 
     await handleInit({ featureId, workflowType: 'feature' }, tmpDir, eventStore);
-    await patchStateForDelegatePhase({ tasks: [] });
+    await patchStateForDelegatePhase({ tasks: [{ id: 't1', title: 'task one', status: 'complete' }], eventStore, completed: ['t1'] });
 
     const result = await handleSet({ featureId, phase: 'review' }, tmpDir, eventStore);
     expect(result.success).toBe(true);
@@ -396,6 +419,14 @@ describe('HSM emission boundary schema-validates event data (T-03, #1339)', () =
     raw.phase = 'review';
     raw.reviews = { 'reviewer-a': { status: 'failed' } };
     await fs.writeFile(stateFile, JSON.stringify(raw, null, 2), 'utf-8');
+    await eventStore.append(featureId, {
+      type: 'workflow.transition',
+      data: { from: 'plan', to: 'review', trigger: 'test', featureId },
+    });
+    await eventStore.append(featureId, {
+      type: 'state.patched',
+      data: { featureId, fields: ['reviews'], patch: { reviews: raw.reviews } },
+    });
 
     const result = await handleSet(
       { featureId, phase: 'delegate' },
@@ -415,5 +446,43 @@ describe('HSM emission boundary schema-validates event data (T-03, #1339)', () =
       const parsed = fixCycleSchema!.safeParse(evt.data);
       expect(parsed.success).toBe(true);
     }
+  });
+});
+
+/** The success hook preserves ordered ordinals and observes only an owned commit. */
+describe('atomic legacy success hook', () => {
+  it.each([true, false])('SuccessHook_StagesPrefixOrdinals_AndObservesOnlyOwned_%s', async owned => {
+    vi.spyOn(stateMachine, 'executeTransition').mockReturnValue({ success: true, idempotent: false, newPhase: 'plan-review', effects: [],
+      events: [
+        { type: 'fix-cycle', from: 'plan', to: 'plan-review', trigger: 'test', metadata: { compoundStateId: 'a' } },
+        { type: 'fix-cycle', from: 'plan', to: 'plan-review', trigger: 'test', metadata: { compoundStateId: 'b' } },
+        { type: 'fix-cycle', from: 'plan', to: 'plan-review', trigger: 'test', metadata: { compoundStateId: 'a' } },
+        { type: 'plan-revision', from: 'plan', to: 'plan-review', trigger: 'test' },
+        { type: 'plan-revision', from: 'plan', to: 'plan-review', trigger: 'test' },
+      ] });
+    const observer = vi.fn();
+    const commit = vi.fn(async (rows: readonly WorkflowEvent[]) => {
+      expect(observer).not.toHaveBeenCalled();
+      expect(rows.map(row => row.data?.count)).toEqual([2, 1, 3, 2, 3]);
+      return { sequence: 17, owned };
+    });
+    const result = await new DefaultHSMTransitionGuard().attempt(featureId, 'plan', 'plan-review', {
+      workflowType: 'feature', state: { phase: 'plan', artifacts: { plan: 'plan.md' } }, eventStore: null,
+      sourceRows: [buildEvent(featureId, 1, { type: 'workflow.fix-cycle', data: { compoundStateId: 'a', count: 1, featureId } }),
+        buildEvent(featureId, 2, { type: 'workflow.plan-revision', data: { count: 1, featureId } })],
+      commitSuccess: commit, shadowObserver: observer,
+    });
+    expect(result).toMatchObject({ ok: true, transitionEvent: { sequence: 17 } });
+    expect(commit).toHaveBeenCalledTimes(1);
+    expect(observer).toHaveBeenCalledTimes(owned ? 1 : 0);
+  });
+
+  it('SuccessHook_ConflictRunsNoSuccessfulObserver', async () => {
+    const observer = vi.fn();
+    await expect(new DefaultHSMTransitionGuard().attempt(featureId, 'plan', 'plan-review', {
+      workflowType: 'feature', state: { phase: 'plan', artifacts: { plan: 'plan.md' } }, eventStore: null,
+      sourceRows: [], commitSuccess: async () => { throw new Error('changed tail'); }, shadowObserver: observer,
+    })).rejects.toThrow('changed tail');
+    expect(observer).not.toHaveBeenCalled();
   });
 });

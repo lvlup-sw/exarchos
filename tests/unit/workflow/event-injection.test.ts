@@ -59,10 +59,11 @@ describe('handleSet_EventInjection', () => {
     await handleSet({ featureId: 'inject-test', phase: 'delegate' }, tmpDir, eventStore);
 
     await handleSet(
-      { featureId: 'inject-test', updates: { tasks: [{ id: 't1', status: 'complete' }] } },
+      { featureId: 'inject-test', updates: { tasks: [{ id: 't1', title: 'the one task', status: 'complete' }] } },
       tmpDir,
       eventStore,
     );
+    await eventStore.append('inject-test', { type: 'task.completed', data: { taskId: 't1' } });
 
     await eventStore.append('inject-test', {
       type: 'team.spawned' as import('../../../src/events/schemas.js').EventType,
@@ -114,10 +115,11 @@ describe('handleSet_EventInjection', () => {
     await handleSet({ featureId: 'subagent-test', phase: 'delegate' }, tmpDir, eventStore);
 
     await handleSet(
-      { featureId: 'subagent-test', updates: { tasks: [{ id: 't1', status: 'complete' }] } },
+      { featureId: 'subagent-test', updates: { tasks: [{ id: 't1', title: 'the one task', status: 'complete' }] } },
       tmpDir,
       eventStore,
     );
+    await eventStore.append('subagent-test', { type: 'task.completed', data: { taskId: 't1' } });
 
     const result = await handleSet(
       { featureId: 'subagent-test', phase: 'review' },
@@ -302,10 +304,11 @@ describe('handleSet_UnifiedHydration', () => {
     await handleSet({ featureId: 'spread-test', phase: 'delegate' }, tmpDir, eventStore);
 
     await handleSet(
-      { featureId: 'spread-test', updates: { tasks: [{ id: 't1', status: 'complete' }] } },
+      { featureId: 'spread-test', updates: { tasks: [{ id: 't1', title: 'the one task', status: 'complete' }] } },
       tmpDir,
       eventStore,
     );
+    await eventStore.append('spread-test', { type: 'task.completed', data: { taskId: 't1' } });
 
     await eventStore.append('spread-test', {
       type: 'team.spawned' as import('../../../src/events/schemas.js').EventType,
@@ -346,7 +349,7 @@ describe('handleSet_UnifiedHydration', () => {
     expect(disbanded!.tasksFailed).toBe(0);
   });
 
-  /** The transition must call `eventStore.query` for the stream once, not twice. */
+  /** A transition reads admission rows, then fresh rows for the complete document projection after its commit. */
   it('HandleSet_PhaseTransition_DoesNotDoubleQuery', async () => {
     const eventStore = new EventStore(tmpDir);
 
@@ -370,10 +373,11 @@ describe('handleSet_UnifiedHydration', () => {
     );
     await handleSet({ featureId: 'query-count', phase: 'delegate' }, tmpDir, eventStore);
     await handleSet(
-      { featureId: 'query-count', updates: { tasks: [{ id: 't1', status: 'complete' }] } },
+      { featureId: 'query-count', updates: { tasks: [{ id: 't1', title: 'the one task', status: 'complete' }] } },
       tmpDir,
       eventStore,
     );
+    await eventStore.append('query-count', { type: 'task.completed', data: { taskId: 't1' } });
 
     await eventStore.append('query-count', {
       type: 'team.spawned' as import('../../../src/events/schemas.js').EventType,
@@ -384,7 +388,13 @@ describe('handleSet_UnifiedHydration', () => {
       data: { featureId: 'query-count', totalDurationMs: 1000, tasksCompleted: 1, tasksFailed: 0 },
     });
 
-    const querySpy = vi.spyOn(eventStore, 'query');
+    const originalQuery = eventStore.query.bind(eventStore);
+    const snapshots: Awaited<ReturnType<EventStore['query']>>[] = [];
+    const querySpy = vi.spyOn(eventStore, 'query').mockImplementation(async (...args) => {
+      const rows = await originalQuery(...args);
+      if (args[0] === 'query-count' && args[1] === undefined) snapshots.push(rows);
+      return rows;
+    });
 
     await handleSet(
       { featureId: 'query-count', phase: 'review' },
@@ -395,16 +405,20 @@ describe('handleSet_UnifiedHydration', () => {
     const queryCalls = querySpy.mock.calls.filter(
       (call) => call[0] === 'query-count' && !call[1],
     );
-    expect(queryCalls.length).toBe(1);
+    expect(queryCalls.length).toBe(2);
+    expect(snapshots[0]?.filter((row) => row.type === 'workflow.transition').at(-1)?.data).toMatchObject({ to: 'delegate' });
+    const committedRows = snapshots[1]?.slice(snapshots[0]?.length ?? 0);
+    expect(committedRows?.map((row) => row.type)).toEqual(['workflow.transition', 'phase.exited', 'phase.entered']);
+    expect(committedRows?.[0]?.data).toMatchObject({ from: 'delegate', to: 'review', phaseAttemptId: expect.any(String) });
 
     querySpy.mockRestore();
   });
 
   /**
-   * `eventStore.query` throws during the event load. The handler falls back to an empty event list,
-   * so the call succeeds and returns no `EVENT_QUERY_FAILED` error.
+   * `eventStore.query` throws during the event load. The ledger fold needs the rows.
+   * So the call refuses with `PROJECTION_REPLAY_FAILED`, as a fold that throws does, and writes no document.
    */
-  it('HandleSet_EventStoreQueryFails_FallsBackToEmptyEvents', async () => {
+  it('HandleSet_EventStoreQueryFails_RefusesProjectionReplayFailed', async () => {
     const eventStore = new EventStore(tmpDir);
 
     await handleInit({ featureId: 'fail-test', workflowType: 'feature' }, tmpDir, eventStore);
@@ -424,7 +438,9 @@ describe('handleSet_UnifiedHydration', () => {
       eventStore,
     );
 
-    expect(result.success).toBe(true);
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('PROJECTION_REPLAY_FAILED');
+    expect(result.error?.message).toContain('Connection lost');
 
     querySpy.mockRestore();
   });
@@ -679,10 +695,11 @@ describe('handleSet_MaxNoCoverageInjection', () => {
     );
     await handleSet({ featureId, phase: 'delegate' }, tmpDir, eventStore);
     await handleSet(
-      { featureId, updates: { tasks: [{ id: 't1', status: 'complete' }] } },
+      { featureId, updates: { tasks: [{ id: 't1', title: 'the one task', status: 'complete' }] } },
       tmpDir,
       eventStore,
     );
+    await eventStore.append(featureId, { type: 'task.completed', data: { taskId: 't1' } });
     await handleSet({ featureId, phase: 'review' }, tmpDir, eventStore);
     await handleSet(
       {

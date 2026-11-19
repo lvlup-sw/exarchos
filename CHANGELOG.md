@@ -6,6 +6,15 @@ All notable changes to Exarchos are documented in this file. Organized by semver
 
 ### Operator notes
 
+- Ledger-backed updates validate the full projected state after the raw patch. Combined moves recheck inside their transaction. Standalone patches guard the validated stream tail and retry on conflict. Held claims replay without applying a patch twice. Empty updates retain document validation and schema refusals retain their existing error text.
+- Ledger-backed transition, settlement, cancellation and cleanup paths synchronize complete current ledger effects into the state document. Retries preserve newer moves and operational fields. Combined updates validate before the phase transaction. File writers serialize version checks with publication and allocate each successor from the committed readable object. A stale unconditional writer cannot reuse a saved reader token. Missing or corrupt targets retain the declared fallback. This file guarantee is within one process.
+- Ledger-backed built-in cancellation refuses unreadable or completed ledgers before compensation. Final cancellation and cleanup validate their source inside the append transaction. Cleanup preserves folded evidence and uses precise backfill paths. A completed cleanup still requires explicit transition recovery for a lagging document.
+- Built-in ledger cancellation selects worktrees, tasks and synthesis from the full workflow projection for both dry-run and actual compensation. Whole-container replacement excludes stale document resources and preserves operational fields. Legacy routes keep document resources. This initial snapshot does not lock resources during effects, rerun completed saga actions or repair earlier cancellations.
+
+- The guard-input preview now runs the pure move emitter after admission and applies frozen gate floors to both sides. Circuit-limit refusals stay denied.
+- A capped settlement reply preserves complete admitted targets in edge order, with an omitted count. If target-field overhead cannot fit, the summary states that detail is omitted. The bundle and settlement event do not recover omitted phase targets. Stored receipts and schemas do not change.
+- The settlement outcome determines the next call before phase fallback advice. Delegation fallback includes landing and both backstops: six calls at one task, or `5 + 1*tasks`. The normal count stays `4 + 1*tasks`.
+
 - **`prepare` pins a verification profile in the capsule, and each gate of a segment runs only what the profile pins.** This is a change of behavior, and the upgrade is one way. The compiler is now `exarchos-prepare-5`.
   - `prepare` resolves the verification profile at the checkout and pins it once for each capsule, as `settlementContract.verificationProfile`. The profile holds each command as an argv, the test globs, the test-support segments, the probe, the static-analysis checks, the integration suite, the contract commands, the boundary checks and the `ownership.firstParty` globs. `prepare` refuses no unresolved term: the capsule pins its reason.
   - Under `settle`, each gate of a segment reads only the pinned profile, so a change in the task worktree does not change the commands, the globs or the codes that judge the task. A pinned command still reads some files of the task worktree, as the limit at the end of this note says. A direct gate call outside a segment resolves the profile at its `repoRoot`. Each gate names the path of its profile: `pinned by capsule v<N>` or `resolved at <root>`.
@@ -264,6 +273,13 @@ All notable changes to Exarchos are documented in this file. Organized by semver
   - Limit: `init` does not start a user type yet, so no workflow call starts a stream of a definition of `.exarchos/workflows/`.
 
 ### Changed
+
+- **`settle` moves the phase, and the guards read the ledger fold.** This is a change of behavior. When exactly one plain edge out of the batch step admits, the settle commit appends `workflow.transition`, `phase.exited` and `phase.entered` before its record. The receipt names the move in `phaseMove`. Else `phaseMove` is `stayed` or `not-decided` with a reason, and the delegate skill calls `transition` as before.
+  - `transition`, `cancel` and `cleanup` decide with the edge conditions of the workflow definition on the fold of the stream rows, not on the state document. A `tasks[].status` that `update` wrote admits no move.
+  - Six fail-shaped states that the earlier guards admitted now deny. One example: a debug `transition` to `cancelled` from `investigate` needs `investigation.escalate`, and `cancel` stays the path to `cancelled`. The `implementation-complete` edges of the debug and polish tracks need `implementation.complete: true`.
+  - A `transition` to the current phase succeeds with `idempotent: true` and appends no row, and it levels a state document that lags.
+  - `describe` returns each output schema once, under `outputSchemaJson`, and no longer writes `outputSchema`.
+- **The compiler is now `exarchos-prepare-6`, and the capsule pins the full workflow definition with its extension.** An edit of the extension alone moves `definitionVersion`. A capsule of `exarchos-prepare-5` still settles, and its settle moves no phase (`unpinned-definition`). Prepare again to get the move. No stored shape changes.
 
 - **The `query` mode of `exarchos_workflow get` now returns `{ <query>: <value> }`, not the bare value.** This is a change of behavior. A query of `phase` returns `{ "phase": "plan" }`. A path that resolves to nothing returns `{}`, because the query omits an absent key as a `fields` projection does. Thus `data` is an object in each read mode, and `exarchos wf status -q` returns the same object.
   - The `outputSchema` of `get` now declares its success data. A bare scalar, an array, `null` or a `phase` that is not a string fails the parse. The MCP adapter checks each reply against it.

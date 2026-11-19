@@ -8,6 +8,8 @@
  * - `error`: a file is missing or unreadable, the design has no `DR-N`, or the plan has no tasks.
  */
 
+import { readDesignRecordPair } from '../../workflow/design-record/read.js';
+import { evaluatePlanProvenance, evaluatePlanTraceability } from '../../workflow/design-record/plan-checks.js';
 import * as fs from 'node:fs';
 
 export interface ProvenanceInput {
@@ -18,6 +20,9 @@ export interface ProvenanceInput {
 }
 
 export interface ProvenanceResult {
+  readonly edges?: readonly { readonly taskId: string; readonly requirementId: string }[];
+  readonly digest?: string;
+  readonly findings?: readonly import('../../workflow/design-record/validate.js').PlanFinding[];
   /** Overall status: pass, fail, or error. */
   readonly status: 'pass' | 'fail' | 'error';
   /** Structured markdown report (stdout equivalent). */
@@ -149,21 +154,42 @@ export function verifyProvenanceChain(input: ProvenanceInput): ProvenanceResult 
     return errorResult(`Plan file not found: ${input.planFile}`);
   }
 
-  let designContent: string;
-  let planContent: string;
+  let designBytes: Buffer;
+  let planBytes: Buffer;
   try {
-    designContent = fs.readFileSync(input.designFile, 'utf-8');
+    designBytes = Buffer.from(fs.readFileSync(input.designFile));
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
     return errorResult(`Failed to read design file: ${message}`);
   }
   try {
-    planContent = fs.readFileSync(input.planFile, 'utf-8');
+    planBytes = input.designFile === input.planFile ? designBytes : Buffer.from(fs.readFileSync(input.planFile));
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
     return errorResult(`Failed to read plan file: ${message}`);
   }
 
+  return verifyProvenanceContents(input, designBytes, planBytes);
+}
+
+/** Judge the captured bytes without reading either path again. */
+export function verifyProvenanceContents(input: ProvenanceInput, designBytes: Uint8Array, planBytes: Uint8Array): ProvenanceResult {
+  const errorResult = (error: string): ProvenanceResult => ({ status: 'error', output: '', error,
+    requirements: 0, covered: 0, gaps: 0, orphanRefs: 0, gapDetails: [], orphanDetails: [] });
+  const read = readDesignRecordPair(designBytes, input.designFile, planBytes, input.planFile);
+  if (read.kind === 'invalid') return errorResult(read.message);
+  if (read.kind === 'typed') {
+    const result = evaluatePlanProvenance(read.snapshot);
+    const gapDetails = read.snapshot.requirements.filter((id) => !result.edges.some((edge) => edge.requirementId === id));
+    const orphanDetails = result.findings.filter((finding) => finding.code === 'UNKNOWN_IMPLEMENTS').map((finding) => finding.message);
+    return { status: result.passed ? 'pass' : 'fail', requirements: read.snapshot.requirements.length,
+      covered: read.snapshot.requirements.length - gapDetails.length, gaps: gapDetails.length,
+      orphanRefs: orphanDetails.length, gapDetails, orphanDetails, ...result,
+      output: ['## Provenance Chain Report', evaluatePlanTraceability(read.snapshot).report,
+        ...result.findings.map((finding) => `${finding.code}: ${finding.message}`), `**Result: ${result.passed ? 'PASS' : 'FAIL'}**`].join('\n') };
+  }
+  const designContent = Buffer.from(designBytes).toString('utf8');
+  const planContent = Buffer.from(planBytes).toString('utf8');
   const designReqs = extractDesignRequirements(designRegion(designContent));
   if (designReqs.length === 0) {
     return errorResult('No DR-N identifiers found in design document');

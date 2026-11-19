@@ -41,7 +41,7 @@ import { generateQualityHints } from '../../projections/quality/hints.js';
 import type { QualityHint } from '../../projections/quality/hints.js';
 import { emitGateEvent } from '../gates/gate-utils.js';
 import { ABSOLUTE_REPO_ROOT } from '../prepare/prepare-scope.js';
-import { parseTaskStamps, stampForTask } from '../tasks/parse-task-stamps.js';
+import { readTaskStamps, stampForTask, type TaskStamp } from '../tasks/parse-task-stamps.js';
 import { readFile } from 'node:fs/promises';
 import { queryTelemetryState } from '../../projections/telemetry/telemetry-queries.js';
 import type { TelemetryViewState } from '../../projections/telemetry/telemetry-projection.js';
@@ -535,7 +535,7 @@ export function classifyTasksFailClosed(
  */
 export function applyPlanStamps(
   tasks: readonly TaskInput[],
-  stamps: ReturnType<typeof parseTaskStamps>,
+  stamps: readonly TaskStamp[],
 ): { readonly tasks: TaskInput[]; readonly advisories: string[] } {
   const advisories: string[] = [];
   const merged = tasks.map((t) => {
@@ -760,6 +760,17 @@ function serverDirectoryWarning(serverDirectory: string): string {
 /** The file of `planPath`. A relative path resolves against `repoRoot` when the call gives one. */
 function planFileOf(planPath: string, repoRoot: string | undefined): string {
   return repoRoot === undefined ? planPath : path.resolve(repoRoot, planPath);
+}
+
+/** Keep file read errors separate from an invalid plan. */
+async function readPlanStamps(planPath: string, repoRoot: string | undefined) {
+  let bytes: Buffer;
+  try {
+    bytes = await readFile(planFileOf(planPath, repoRoot));
+  } catch (error) {
+    return { kind: 'unreadable' as const, message: error instanceof Error ? error.message : String(error) };
+  }
+  return readTaskStamps(bytes, planPath);
 }
 
 /**
@@ -1146,6 +1157,16 @@ export async function handlePrepareDelegation(
       warnings.push(`checkpoint: ${gateResult.warning}`);
     }
 
+    const plan = args.planPath ? await readPlanStamps(args.planPath, repoRoot) : undefined;
+    if (plan?.kind === 'invalid') {
+      return {
+        success: false,
+        error: { code: 'INVALID_DESIGN_RECORD', message: plan.message },
+        ...(plan.findings === undefined ? {} : { data: { findings: plan.findings } }),
+        ...withWarnings(),
+      };
+    }
+
     const planned = (Array.isArray(workflowState.tasks) ? workflowState.tasks : [])
       .map(plannedTask)
       .filter((task): task is { readonly id: string; readonly title: string } => task !== undefined);
@@ -1239,16 +1260,15 @@ export async function handlePrepareDelegation(
     const projectConfig = ctx?.projectConfig;
 
     let effectiveTasks = args.tasks;
-    if (args.tasks && args.planPath) {
-      try {
-        const planMarkdown = await readFile(planFileOf(args.planPath, repoRoot), 'utf-8');
-        const lifted = applyPlanStamps(args.tasks, parseTaskStamps(planMarkdown));
+    if (args.tasks && plan) {
+      if (plan.kind === 'unreadable') {
+        warnings.push(
+          `planPath unreadable (${args.planPath}) — proceeding with heuristic tiers: ${plan.message}`,
+        );
+      } else {
+        const lifted = applyPlanStamps(args.tasks, plan.stamps);
         effectiveTasks = lifted.tasks;
         for (const advisory of lifted.advisories) warnings.push(`stamp: ${advisory}`);
-      } catch (err) {
-        warnings.push(
-          `planPath unreadable (${args.planPath}) — proceeding with heuristic tiers: ${err instanceof Error ? err.message : String(err)}`,
-        );
       }
     }
 

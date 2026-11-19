@@ -13,7 +13,7 @@
  *   different meaning is worse than none. Obligations reach a capsule through
  *   its completion predicate.
  *
- * A registered definition lowers the same way. Its digest covers its kernel only, as the digest of a built-in does.
+ * A registered definition lowers the same way. `lowerDefinition` gives the kernel projection, and prepare pins the full definition through `pinDefinition`.
  */
 
 import {

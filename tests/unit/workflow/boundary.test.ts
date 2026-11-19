@@ -133,6 +133,15 @@ describe('Cross-Module Boundary Tests', () => {
     await handleSet({ featureId, phase: 'delegate' }, stateDir, es);
   }
 
+  async function completeOneTask(featureId: string, eventStore: EventStore): Promise<void> {
+    await handleSet(
+      { featureId, updates: { tasks: [{ id: 't1', title: 'the one task', status: 'complete' }] } },
+      stateDir,
+      eventStore,
+    );
+    await eventStore.append(featureId, { type: 'task.completed', data: { taskId: 't1' } });
+  }
+
   it('HandleSet_ThenHandleGet_RoundTrip — write then read artifact via dot-path', async () => {
     await handleInit({ featureId: 'round-trip', workflowType: 'feature' }, stateDir, null);
 
@@ -244,6 +253,7 @@ describe('Cross-Module Boundary Tests', () => {
       await handleInit({ featureId: 'cb-e2e', workflowType: 'feature' }, stateDir, eventStore);
 
       await advanceToDelegate('cb-e2e', eventStore);
+      await completeOneTask('cb-e2e', eventStore);
 
       for (let i = 0; i < 2; i++) {
         await eventStore.append('cb-e2e', {
@@ -279,6 +289,7 @@ describe('Cross-Module Boundary Tests', () => {
       await handleInit({ featureId: 'cb-open', workflowType: 'feature' }, stateDir, eventStore);
 
       await advanceToDelegate('cb-open', eventStore);
+      await completeOneTask('cb-open', eventStore);
 
       for (let i = 0; i < 3; i++) {
         await eventStore.append('cb-open', {

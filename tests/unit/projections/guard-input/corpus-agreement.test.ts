@@ -3,7 +3,8 @@
  * The encoder gives the rows of the fold side and the document side of each fixture.
  * Both sides get the underscore fields of the fixture.
  * Each case asserts that the comparator gives a comparison before it reads the agreement, because a document side with no type gives none.
- * The kill cases show that the agreement can fail: a pass fixture with no completion rows, and a merge at `delegate` without the writer rule.
+ * The kill case shows that the agreement can fail: a pass fixture with no completion rows.
+ * A merge at `delegate` agrees with and without the writer rule, because the decide reads no merge phase at `delegate`.
  *
  * @oracle-sources: ../../workflow/__fixtures__/transition-admission-corpus.ts, ../../../../src/projections/guard-input/fold.ts
  */
@@ -95,10 +96,10 @@ function corpusFixture(id: string): LegacyTransitionFixture {
   return fixture;
 }
 
-/** Returns the verdicts of one guard on both sides, and fails the case when the comparison lists no such guard. */
-function verdictsOf(comparison: GuardInputComparison, guardId: string): { readonly document: string; readonly fold: string } {
-  const entry = comparison.guards.find((verdict) => verdict.guardId === guardId);
-  if (entry === undefined) throw new Error(`the comparison lists no verdict of '${guardId}'`);
+/** Returns the decide verdicts of one edge on both sides, and fails the case when the comparison lists no such edge. */
+function verdictsOf(comparison: GuardInputComparison, transitionId: string): { readonly document: string; readonly fold: string } {
+  const entry = comparison.edges.find((verdict) => verdict.transitionId === transitionId);
+  if (entry === undefined) throw new Error(`the comparison lists no verdict of '${transitionId}'`);
   return { document: entry.document, fold: entry.fold };
 }
 
@@ -111,7 +112,7 @@ describe('the corpus agreement of the ledger fold and the state document', () =>
 
       expect(comparison.workflowType).toBe(fixture.workflowType);
       expect(comparison.phase).toEqual({ document: fixture.from, fold: fixture.from });
-      expect(comparison.guards.length).toBeGreaterThan(0);
+      expect(comparison.edges.length).toBeGreaterThan(0);
       expect(comparison.differences).toEqual([]);
       expect(comparison.classes).toEqual([]);
       expect(comparison.agrees).toBe(true);
@@ -157,25 +158,28 @@ describe('the corpus agreement of the ledger fold and the state document', () =>
       { key: 'tasks.allComplete', document: true, fold: false },
       { key: 'tasks[001].complete', document: true, fold: false },
     ]);
-    expect(verdictsOf(comparison, 'all-tasks-complete+team-disbanded')).toEqual({ document: 'pass', fold: 'fail' });
+    expect(verdictsOf(comparison, 'delegate->review')).toEqual({ document: 'allow', fold: 'deny' });
   });
 
-  /** Without the writer rule, only the fold holds the terminal merge phase, so `merge-pending-entry` passes on the document only. */
-  it('CorpusAgreement_AMergeAtDelegateWithoutTheWriterRule_DisagreesOnMergeOrchestrator', () => {
+  /**
+   * Without the writer rule, only the fold holds the terminal merge phase. The edge `delegate -> merge-pending` reads no merge phase.
+   * So the facts and the decide verdicts are equal, and the two sides agree.
+   */
+  it('CorpusAgreement_AMergeAtDelegateWithoutTheWriterRule_AgreesOnEachDecideVerdict', () => {
     const comparison = comparisonOf(encodedSides(MERGE_AT_DELEGATE, { mergeWriterRule: false }));
 
-    expect(comparison.classes).toEqual(['merge-orchestrator']);
-    expect(comparison.agrees).toBe(false);
+    expect(comparison.classes).toEqual([]);
+    expect(comparison.agrees).toBe(true);
     expect(comparison.differences).toEqual([]);
-    expect(verdictsOf(comparison, 'merge-pending-entry')).toEqual({ document: 'pass', fold: 'fail' });
+    expect(verdictsOf(comparison, 'delegate->merge-pending')).toEqual({ document: 'allow', fold: 'allow' });
   });
 
-  /** With the writer rule, both sides hold the terminal merge phase, and `merge-pending-entry` fails on both. */
+  /** With the writer rule, both sides hold the terminal merge phase, and the edge `delegate -> merge-pending` allows on both. */
   it('CorpusAgreement_AMergeAtDelegateWithTheWriterRule_Agrees', () => {
     const comparison = comparisonOf(encodedSides(MERGE_AT_DELEGATE));
 
     expect(comparison.classes).toEqual([]);
     expect(comparison.agrees).toBe(true);
-    expect(verdictsOf(comparison, 'merge-pending-entry')).toEqual({ document: 'fail', fold: 'fail' });
+    expect(verdictsOf(comparison, 'delegate->merge-pending')).toEqual({ document: 'allow', fold: 'allow' });
   });
 });

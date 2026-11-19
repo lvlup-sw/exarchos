@@ -327,7 +327,7 @@ export async function handleStaticAnalysis(
   const repoRoot = missing === undefined ? pre.repoRoot : '';
 
   return runDurableGateProducer(
-    { ...staticAnalysisSubjectScope(args, repoRoot), stateDir, eventStore, unscanned: missing !== undefined },
+    { ...staticAnalysisSubjectScope(args, repoRoot), coordinate: args.coordinate, stateDir, eventStore, unscanned: missing !== undefined },
     async () => staticAnalysisCarrier(missing ?? runProfiledAnalysis(args, repoRoot)),
   );
 }

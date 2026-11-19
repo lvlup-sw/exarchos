@@ -674,7 +674,7 @@ describe('TOOL_REGISTRY', () => {
     it('should have 71 actions for task management, review triage, gate checks, validation handlers, runbooks, agent spec, oneshot/pruning, onboard (DR-2 task 011), doctor, VCS, classify_review_items (#1159), merge_orchestrate (DR-MO-1), check_integration_suite (#1329), check_invariant_conformance (DR-3), invariants_scaffold/invariants_add (invariants-catalog-wizard P2), check_test_adequacy + check_contract_drift + check_mock_boundary (verification-ladder slice 1), and composite actions', () => {
       const composite = findComposite('exarchos_orchestrate');
       expect(composite).toBeDefined();
-      expect(composite!.actions).toHaveLength(85);
+      expect(composite!.actions).toHaveLength(86);
 
       const actionNames = composite!.actions.map((a) => a.name);
       expect(actionNames).toEqual(
@@ -2816,6 +2816,7 @@ const EXPECTED_EFFECTIVE_BUDGETS: Readonly<Record<string, number>> = {
   'exarchos_orchestrate.cutover_decide': 2000,
   'exarchos_orchestrate.execute_intent': 1000,
   'exarchos_orchestrate.prepare': 8000,
+  'exarchos_orchestrate.read_prepared_capsule': 8000,
   'exarchos_orchestrate.settle': 1000,
   'exarchos_orchestrate.describe': 8000,
   'exarchos_view.pipeline': 2000,
@@ -2927,6 +2928,7 @@ describe('registry economy budgets (DR-1)', () => {
         'exarchos_orchestrate.describe',
         'exarchos_orchestrate.execute_intent',
         'exarchos_orchestrate.prepare',
+        'exarchos_orchestrate.read_prepared_capsule',
         'exarchos_orchestrate.runbook',
         'exarchos_orchestrate.settle',
         'exarchos_view.describe',
@@ -2978,8 +2980,8 @@ describe('registry economy budgets (DR-1)', () => {
    * workflow, orchestrate and view share. The dispatch seam returns such a response unchanged, and
    * it stamps a larger one as degraded.
    *
-   * `describe` returns the output schema of an action twice, so each description in an output
-   * schema counts twice here. The description budget of an action does not measure that text.
+   * `describe` returns the output schema of an action once, so each description in an output
+   * schema counts once here. The description budget of an action does not measure that text.
    * The last assertion shows that the measurement saw the full schemas of `settle`, the largest action.
    */
   it('describeAction_OfOneAction_FitsTheSharedDescribeBudget', async () => {
@@ -3172,6 +3174,90 @@ describe('Task 022 — registry schema batch (DR-1/DR-3/DR-8)', () => {
       adjudicated: { claims: 0, requiredResults: 0, fields: 0, evidence: 0, deviations: 0 },
       requestDigest: `sha256:${'a'.repeat(64)}`, tailSequence: 0,
     },
+    'exarchos_orchestrate.read_prepared_capsule': {
+      "operationId": "prepare:detail-fixture",
+      "capsule": {
+        "workflowId": "detail-fixture",
+        "capsuleVersion": 1,
+        "definitionVersion": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "designVersion": "design-v1"
+      },
+      "capsuleDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "bundleRefs": [
+        {
+          "artifactId": "run-bundle:detail-fixture",
+          "digest": {
+            "algorithm": "sha256",
+            "value": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+          }
+        }
+      ],
+      "total": 2,
+      "offset": 0,
+      "limit": 1,
+      "count": 1,
+      "items": [
+        {
+          "taskId": "task-a",
+          "stage": {
+            "kind": "task-batch",
+            "stepId": "delegate"
+          },
+          "context": {
+            "taskId": "task-a",
+            "title": "Add bounded detail reads",
+            "instructions": "Return the pinned task context.",
+            "files": [
+              "src/detail.ts"
+            ],
+            "testFiles": [
+              "tests/detail.test.ts"
+            ],
+            "acceptance": [
+              "The pinned context is returned without writes."
+            ],
+            "riskTier": "low",
+            "boundaryTouching": false,
+            "testLayer": "unit",
+            "blockedBy": [],
+            "source": {
+              "reference": "docs/specs/detail.md",
+              "digest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+              "span": {
+                "start": 0,
+                "end": 100,
+                "startLine": 1,
+                "endLine": 5
+              }
+            },
+            "resultContractRef": "task-a",
+            "knowledgeSlice": {
+              "invariantIds": [],
+              "adrRefs": [],
+              "symbols": [],
+              "files": []
+            }
+          },
+          "resultContract": [
+            {
+              "name": "worktreePath",
+              "type": "string",
+              "required": true
+            }
+          ]
+        }
+      ],
+      "continuation": {
+        "tool": "exarchos_orchestrate",
+        "action": "read_prepared_capsule",
+        "arguments": {
+          "streamId": "detail-fixture",
+          "capsuleVersion": 1,
+          "offset": 1,
+          "limit": 1
+        }
+      }
+    },
     'exarchos_orchestrate.prepare': {
       operationId: `prepare:${'a'.repeat(64)}`, streamId: 'feat-x', workflowId: 'feat-x',
       capsuleVersion: 1, capsuleDigest: 'a'.repeat(64), definitionVersion: 'a'.repeat(64),
@@ -3343,7 +3429,7 @@ describe('Task 022 — registry schema batch (DR-1/DR-3/DR-8)', () => {
      */
     it('every typed-output action validates a {summary,counts,firstPage} capped envelope', () => {
       const actions = typedOutputActions();
-      expect(actions.length).toBe(35);
+      expect(actions.length).toBe(36);
       for (const { tool, action } of actions) {
         const parsed = action.outputSchema.safeParse(cappedEnvelope());
         expect(
@@ -3639,9 +3725,10 @@ describe('Task 022 — registry schema batch (DR-1/DR-3/DR-8)', () => {
      * The test names that set of events, so the property has a denominator.
      * An event with two routes to one meaning, such as `worktree.released`, has a declaration for each route.
      * `task.completed` is not in the set: `settle` runs `task_complete` as a leaf and does not declare the events of its leaves.
+     * The workflow transition, settlement and bootstrap actions declare phase moves with owner `workflow`.
      *
-     * The declarers of one event must all name one owner, or each name a different owner with at most one `primary`.
-     * `gate.executed` shows many declarers in one area. `state.patched` shows two areas, where `update` is the primary edge.
+     * All primary declarations for one event name the same owner.
+     * The `state.patched` declarations from update and bootstrap share the workflow owner.
      */
     it('EmissionRoles_MultiDeclarerEvent_IsConforming', () => {
       const byEvent = new Map<string, { tool: string; action: string; emission: AutoEmission }[]>();
@@ -3657,32 +3744,22 @@ describe('Task 022 — registry schema batch (DR-1/DR-3/DR-8)', () => {
         'gate.executed',
         'onboard.executed',
         'onboard.requested',
+        'phase.entered',
+        'phase.exited',
         'state.patched',
         'task.assigned',
+        'workflow.started',
+        'workflow.transition',
         'worktree.merge_executed',
         'worktree.released',
       ]);
 
       const violations: string[] = [];
       for (const [event, edges] of multiDeclarer) {
-        const owners = edges.map((e) => e.emission.owner);
-        const distinct = new Set(owners);
-        if (distinct.size === 1) continue;
-        if (distinct.size !== owners.length) {
-          violations.push(
-            `${event}: ${owners.length} edges over ${distinct.size} owners [${[...distinct].join(
-              ', ',
-            )}] — owners must be all-identical or all-distinct`,
-          );
-          continue;
-        }
-        const primaries = edges.filter((e) => e.emission.role === 'primary');
-        if (primaries.length > 1) {
-          violations.push(
-            `${event}: ${primaries.length} primary edges across distinct owners [${primaries
-              .map((e) => `${e.tool}.${e.action}`)
-              .join(', ')}] — at most one may be primary`,
-          );
+        const primaries = edges.filter((edge) => edge.emission.role === 'primary');
+        const primaryOwners = new Set(primaries.map((edge) => edge.emission.owner));
+        if (primaryOwners.size > 1) {
+          violations.push(`${event}: multiple primary owners [${[...primaryOwners].join(', ')}]`);
         }
       }
       expect(violations, `owner-set inconsistency:\n${violations.join('\n')}`).toEqual([]);
@@ -3692,16 +3769,11 @@ describe('Task 022 — registry schema batch (DR-1/DR-3/DR-8)', () => {
       expect([...new Set(gateExecuted.map((e) => e.emission.owner))]).toEqual(['orchestrate']);
 
       const statePatched = byEvent.get('state.patched') ?? [];
-      expect(statePatched).toHaveLength(2);
-      expect([...new Set(statePatched.map((e) => e.emission.owner))].sort()).toEqual([
-        'orchestrate',
-        'workflow',
+      expect(statePatched.map(({ action, emission }) => [action, emission.owner, emission.role]).sort()).toEqual([
+        ['discover_bridge', 'orchestrate', 'recovery'],
+        ['prepare', 'workflow', 'primary'],
+        ['update', 'workflow', 'primary'],
       ]);
-      expect(statePatched.filter((e) => e.emission.role === 'primary')).toHaveLength(1);
-      expect(
-        statePatched.find((e) => e.emission.role === 'primary')?.action,
-        'the canonical state-mutation surface must be the primary edge',
-      ).toBe('update');
     });
   });
 });

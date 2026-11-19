@@ -257,6 +257,7 @@ export async function handleMockBoundary(
 
   return runDurableGateProducer(
     {
+      coordinate: args.coordinate,
       gateClass: 'mock-boundary',
       featureId: args.featureId,
       taskId: args.taskId,
@@ -286,7 +287,7 @@ export async function handleMockBoundary(
         };
       }
 
-      if (baseRef === undefined) {
+      if (baseRef === undefined && args.coordinate === undefined) {
         return {
           success: true,
           data: {
@@ -308,7 +309,12 @@ export async function handleMockBoundary(
 
       const severity = resolveGateSeverity('mock-boundary', 'D1', severityConfig);
 
-      const diffResult = gitExec(repoRoot, ['diff', '--no-ext-diff', `${baseRef}...HEAD`]);
+      const diffResult = args.coordinate === undefined
+        ? gitExec(repoRoot, ['diff', '--no-ext-diff', `${baseRef}...HEAD`])
+        : gitExec(repoRoot, ['diff', '--no-ext-diff', args.coordinate.diffBaseCommit, args.coordinate.observedHeadCommit, '--']);
+      if (args.coordinate !== undefined && diffResult.exitCode !== 0) {
+        return { success: false, error: { code: 'TASK_COORDINATE_REFUSED', message: 'The immutable mock-boundary diff could not be read.' } };
+      }
       const fileDiffs = diffResult.exitCode === 0 ? parseUnifiedDiff(diffResult.stdout) : [];
       const findings = detectMockFindings(fileDiffs, {
         firstPartyGlobs: firstPartyTerm?.globs ?? DEFAULT_FIRST_PARTY_GLOBS,

@@ -1,33 +1,31 @@
 /**
- * `settle`: the adjudication endpoint. One call judges one batch of claims
- * against the capsule that the batch ran under, and records one verdict.
+ * `settle`: the adjudication endpoint. One call judges one batch of claims against the capsule that the batch ran under,
+ * and records one verdict. A refused batch is still a settlement: it returns success with `outcome: 'rejected'`.
  *
- * The adjudication bundle goes into content-addressed custody first. Only then
- * does the ledger record that names it commit. A failed bundle write fails the
- * whole settlement, with no settlement claim and no settlement record.
+ * The adjudication bundle goes into content-addressed custody first, and only then does the record that names it commit.
+ * A failed bundle write fails the whole settlement, with no settlement claim and no record. Settlement reads the pinned
+ * capsule back from custody, and it only compares a submitted capsule with the record.
  *
- * Settlement reads the pinned capsule back from custody. A submitted capsule is
- * only compared with the record. A refused batch is still a settlement: it
- * returns success with `outcome: 'rejected'` and appends the record.
+ * A batch that the shape pass does not stop is verified task by task. Of the halts of a segment, only one at a gate leaf
+ * leaves its task unresolved, also if the gate did not run. Completion wins. A decision round that accepts a material
+ * deviation also commits one design revision, numbered inside the write transaction.
  *
- * A batch that the shape pass does not stop is verified task by task. Of the halts of a segment,
- * only one at a gate leaf leaves its task unresolved, also if the gate did not run. Completion wins.
- *
- * A decision round that accepts a material deviation also commits one design
- * revision. The revision takes its number inside the write transaction.
- *
- * The operation claim derives from the batch identity, not from the caller. A
- * resubmitted batch gets its existing verdict. A correction under a new
- * `batchId` is a new settlement. Settlement does not move the phase.
+ * The operation claim derives from the batch identity, so a resubmitted batch gets its existing verdict. The commit can
+ * also move the phase. It decides on the ledger fold of its own rows, under the pinned definition. It moves only on one
+ * plain explicit edge out of the batch step. The rows of the move come before the record, and settle then levels the
+ * state document.
  */
 
 import { createHash } from 'node:crypto';
 import * as path from 'node:path';
 
+import type { WorkflowDefinitionV1 } from '@lvlup-sw/strategos-contracts';
+
 import { capsuleDigest } from '../../contract/capsule/capsule-digest.js';
 import { resolveCapsuleReferences } from '../../contract/capsule/capsule-references.js';
 import {
   ExarchosCapsuleV1Schema,
+  TaskVerificationCoordinateSchema,
   type CapsuleScope,
   type ExarchosCapsuleV1,
 } from '../../contract/capsule/exarchos-capsule.js';
@@ -39,7 +37,7 @@ import { runExclusivePerOperation } from '../../dispatch/core/operation-serializ
 import { outerCorrelation, stampFromAmbient } from '../../dispatch/core/outer-correlation.js';
 import { resolveSubjectStream } from '../../dispatch/core/subject-stream.js';
 import { runWithDispatchContext } from '../../dispatch/dispatch-context.js';
-import { OperationDigestMismatchError, type EventInput } from '../../events/atomic-appender.js';
+import { OperationDigestMismatchError, type DecideOnceStoredEvent, type EventInput } from '../../events/atomic-appender.js';
 import { EXECUTION_SETTLED_SETTLEMENT, type BundleRefV1 } from '../../events/bundle/digest-references.js';
 import type { RunBundleStore } from '../../events/bundle/run-bundle-store.js';
 import { migrateEvents } from '../../events/event-migration.js';
@@ -50,24 +48,40 @@ import {
   DeviationProposedData,
   ExecutionSettledData,
   type ExecutionSettled,
+  type WorkflowEvent,
 } from '../../events/schemas.js';
 import type { ToolResult } from '../../format.js';
 import { orchestrateLogger } from '../../logger.js';
-import { canonicalPath, observeClaimedTree } from '../../utils/git-tree.js';
+import { rowStatusByTask, foldGuardInput, foldWorkflowState } from '../../projections/guard-input/fold.js';
+import { canonicalPath, observeClaimedTree, observeImmutableClaimedTree } from '../../utils/git-tree.js';
 import { evidenceArtifactResolver } from '../../workflow/admission/evidence-artifact.js';
-import { markTasksCompleteInStateDocument, type TaskStatusSyncOutcome } from '../../workflow/state-store.js';
+import { decide, type EdgeVerdict } from '../../workflow/decide/decide.js';
+import { compileDecideDefinition, type DecideDefinition, type DecideEdge } from '../../workflow/decide/edges.js';
+import { frozenFloorOf, mergeFloors, phaseMoveEvents, statedCoordinate } from '../../workflow/decide/emit.js';
+import { phaseRowsOf } from '../../workflow/decide/rows.js';
+import { pinnedExtensionOf, transitionOptionsOf } from '../../workflow/decide/pinned.js';
+import { validateExtension } from '../../workflow/definitions/extension.js';
+import { allocatePhaseAttemptId, readPhaseAttemptId } from '../../workflow/phase-attempt-id.js';
+import {
+  levelPhaseInStateDocument,
+  markTasksCompleteInStateDocument,
+  type TaskStatusSyncOutcome,
+} from '../../workflow/state-store.js';
 import type { VerificationProfile } from '../../workflow/verification/profile.js';
 import { compileIntent } from '../execute/compile.js';
-import { handleExecuteIntent, type ExecuteIntentDeps } from '../execute/executor.js';
+import { recoverSegmentInput, handleExecuteIntent, type ExecuteIntentDeps } from '../execute/executor.js';
 import type { IntentReceipt } from '../execute/types.js';
 import { readGateRowMarks, SKIPPED_BY_POLICY } from '../gates/gate-utils.js';
 import { DESIGN_REVISED_TYPE, designVersionOf } from '../prepare/design-version.js';
 import { readPlannedTask } from '../prepare/partition-tasks.js';
-import { checkoutProjectConfig, configDigestAt } from '../prepare/prepare-scope.js';
-import { findPreparedCapsule } from '../prepare/prepared-record.js';
+import { checkoutProjectConfig, configDigestAt, GIT_SCOPE } from '../prepare/prepare-scope.js';
+import { preparedRecordOf } from '../prepare/prepared-record.js';
+import { currentStandingProofs, loadPreparedCustody, recheckPreparedAuthority, selectPreparedAuthority, type PreparedAuthority } from '../../workflow/capsule/prepared-custody.js';
+import { SettlementReceiptData } from './schemas.js';
 import { resolveWorkflowState } from '../resolve-state.js';
 import {
   outcomeVerifies,
+  adjudicateSettlement,
   type ProposedDeviation,
   type SettlementClaim,
   type SettlementEvidence,
@@ -86,8 +100,13 @@ import {
   SETTLEMENT_BUNDLE_VERSION,
   type SettlementBundleV1,
 } from './settlement-bundle.js';
-import type { ClaimedTree } from './settle-scope.js';
+import { worktreeBreach, type ClaimedTree } from './settle-scope.js';
+import { taskGraphOrder } from './dag-scheduler.js';
+import { resolveTaskStanding } from './task-standing.js';
 import {
+  type StandingProof,
+  settlementClaimKey,
+  verificationOperationId,
   completedTasksOf,
   haltIsGateVerdict,
   judgementKey,
@@ -104,6 +123,7 @@ import {
   MAX_AFFECTED_TASKS_PER_DEVIATION,
   MAX_DEVIATIONS_PER_BATCH,
   type PendingDeviation,
+  type PhaseMove,
   type SettledCapsuleIdentity,
   type SettlementDecision,
   type SettlementDesignRevision,
@@ -153,25 +173,6 @@ function readString(raw: Record<string, unknown>, key: string): string | undefin
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-/**
- * The operation claim of one settlement. It covers only the subject and the
- * settlement key `(capsuleVersion, batchId)` of one workflow.
- *
- * The rest of the capsule identity goes in the request digest. So a reuse of
- * the key with different terms meets the persisted claim and is refused. The
- * decision round adds its round number to get its own claim.
- */
-function settlementClaimKey(streamId: string, identity: SettledCapsuleIdentity, round = 0): string {
-  const key = canonicalJson({
-    streamId,
-    workflowId: identity.workflowId,
-    capsuleVersion: identity.capsuleVersion,
-    batchId: identity.batchId,
-    ...(round > 0 ? { round } : {}),
-  });
-  return `settle:${createHash('sha256').update(key, 'utf8').digest('hex')}`;
 }
 
 /**
@@ -325,14 +326,87 @@ function designRevisionOf(
   };
 }
 
+type HeldOriginFence = (rows: readonly { readonly streamId: string; readonly sequence: number }[], lookup: (operationId: string) => unknown) => boolean;
+
 type HeldBatchLookup =
   | {
       readonly kind: 'held';
+      readonly recheck?: HeldOriginFence;
       readonly claims: SettlementClaim[];
       readonly deviations: ProposedDeviation[];
     }
   | { readonly kind: 'not-settled' }
   | { readonly kind: 'not-held'; readonly outcome: SettlementOutcome };
+
+/** Held input authority must come from one original claim, its actual members and its custody. */
+function requireHeld(condition: unknown, message: string): asserts condition {
+  if (!condition) throw new Error(`Invalid held origin: ${message}`);
+}
+
+/** Authenticate the original compiler-8 submission and retain its exact rows and claim for commit. */
+async function authenticatedHeldBatch(ctx: DispatchContext, streamId: string, identity: SettledCapsuleIdentity,
+  bundles: RunBundleStore): Promise<HeldBatchLookup> {
+  const rows = await ctx.eventStore.query(streamId);
+  const operationId = settlementClaimKey(streamId, identity);
+  const claim = ctx.eventStore.getAppender().ensureSqliteBackendSync().lookupOperationClaim(operationId);
+  if (claim === undefined) {
+    requireHeld(!rows.some(row => row.type === EXECUTION_SETTLED_SETTLEMENT.type
+      && isRecord(row.data) && row.data.workflowId === identity.workflowId
+      && row.data.capsuleVersion === identity.capsuleVersion && row.data.batchId === identity.batchId), 'the original operation claim is missing');
+    return { kind: 'not-settled' };
+  }
+  const receipt = SettlementReceiptData.parse(claim.result);
+  requireHeld(claim.streamId === streamId && receipt.streamId === streamId && receipt.operationId === operationId
+    && receipt.requestDigest === claim.requestDigest && canonicalJson(receipt.capsule) === canonicalJson(identity)
+    && (receipt.round ?? 0) === 0, 'the original receipt identity differs');
+  requireHeld(Array.isArray(claim.sequences) && Array.isArray(claim.eventIds) && Array.isArray(claim.timestamps)
+    && claim.sequences.length > 0 && claim.sequences.length === claim.eventIds.length && claim.sequences.length === claim.timestamps.length
+    && new Set(claim.sequences).size === claim.sequences.length && new Set(claim.eventIds).size === claim.eventIds.length,
+  'the original claim membership is invalid');
+  const members = claim.sequences.map((sequence, index) => {
+    const matching = rows.filter(row => row.streamId === streamId && row.sequence === sequence);
+    const row = matching[0]; const eventId = row !== undefined && 'eventId' in row ? row.eventId : undefined;
+    requireHeld(matching.length === 1 && row !== undefined && typeof eventId === 'string' && eventId.length > 0
+      && eventId === claim.eventIds[index] && row.timestamp === claim.timestamps[index], 'an original claim member is missing or changed');
+    return row;
+  });
+  const terminals = members.filter(row => row.type === EXECUTION_SETTLED_SETTLEMENT.type);
+  const terminal = terminals[0];
+  requireHeld(terminals.length === 1 && terminal !== undefined && receipt.tailSequence === terminal.sequence,
+    'the original terminal member is ambiguous');
+  const record = ExecutionSettledData.parse(terminal.data);
+  requireHeld(record.operationId === operationId && record.workflowId === identity.workflowId
+    && record.capsuleVersion === identity.capsuleVersion && record.batchId === identity.batchId
+    && record.definitionVersion === identity.definitionVersion && (record.round ?? 0) === 0
+    && record.outcome === receipt.outcome && record.requestDigest === claim.requestDigest
+    && canonicalJson(record.acceptedTasks) === canonicalJson(receipt.acceptedTasks)
+    && canonicalJson(record.adjudicated) === canonicalJson(receipt.adjudicated)
+    && canonicalJson(record.bundleRefs) === canonicalJson(receipt.bundleRefs), 'the terminal differs from its original receipt');
+  if (!SETTLEMENT_OUTCOME_RULES[receipt.outcome].holds) return { kind: 'not-held', outcome: receipt.outcome };
+  const ref = record.bundleRefs[0]; requireHeld(ref !== undefined, 'the original custody reference is missing');
+  const bundle = decodeSettlementBundle(await bundles.resolve(ref.digest));
+  requireHeld(bundle.streamId === streamId && bundle.operationId === operationId && bundle.round === undefined
+    && canonicalJson(bundle.capsule) === canonicalJson(identity) && bundle.outcome === receipt.outcome
+    && bundle.requestDigest === claim.requestDigest && bundle.settledAt === terminal.timestamp && canonicalJson(bundle.acceptedTasks) === canonicalJson(receipt.acceptedTasks)
+    && canonicalJson(bundle.findings) === canonicalJson(receipt.findings)
+    && canonicalJson(bundle.adjudicated) === canonicalJson(receipt.adjudicated)
+    && (bundle.decisions === undefined || bundle.decisions.length === 0), 'the original custody differs from its receipt');
+  const claims = bundle.claims.map(claimOfTrace);
+  const deviations = bundle.deviations.map(held => normalDeviation(held.deviationKind, held.statement, held.affectedTasks, held.proposedChange));
+  requireHeld(requestDigestOf(streamId, identity, claims, deviations) === claim.requestDigest
+    && canonicalJson(pendingDeviationsOf(identity, deviations)) === canonicalJson(receipt.pendingDeviations),
+  'the recovered original inputs do not reproduce the held request');
+  const capturedClaim = canonicalJson(claim);
+  const capturedRows = members.map(row => ({ sequence: row.sequence, value: canonicalJson(row) }));
+  return { kind: 'held', claims, deviations, recheck: (currentRows, lookup) => {
+    try {
+      return canonicalJson(lookup(operationId)) === capturedClaim && capturedRows.every(member => {
+        const matching = currentRows.filter(row => row.streamId === streamId && row.sequence === member.sequence);
+        return matching.length === 1 && canonicalJson(matching[0]) === member.value;
+      });
+    } catch { return false; }
+  } };
+}
 
 /**
  * The batch that a decision round adjudicates, read back from the record of the
@@ -561,6 +635,9 @@ class SettlementReadsChanged extends Error {
   }
 }
 
+/** Corrupt current standing cannot become an absent task or a new accepted outcome. */
+class SettlementStandingCorrupt extends Error {}
+
 /**
  * The blob checks of cited records, added to the checks that the call made before. A record is
  * intact when each blob that it names resolves in the evidence store. A record that names a missing
@@ -587,16 +664,6 @@ async function checkedEvidence(
     checks.set(key, { record, intact });
   }
   return checks;
-}
-
-/**
- * The operation for the verification segment of one task, derived from the
- * settlement claim key and the task. After a crash, a resubmission reaches the
- * committed segments through their claims and runs only the rest. The hash
- * keeps the id inside the executor length bound.
- */
-function verificationOperationId(operationId: string, taskId: string): string {
-  return `settle-task:${createHash('sha256').update(`${operationId}\u0000${taskId}`, 'utf8').digest('hex')}`;
 }
 
 /**
@@ -641,10 +708,14 @@ function verificationArgsOf(
   };
 }
 
+/** The coordinate stays internal until the executor binds the original segment input. */
+type VerificationCoordinate = NonNullable<NonNullable<ExecuteIntentDeps['verificationInput']>['coordinate']>;
+
 interface CompiledVerification {
   readonly taskId: string;
   readonly operationId: string;
   readonly args: Record<string, unknown>;
+  readonly coordinate?: VerificationCoordinate;
 }
 
 type CompiledSegments =
@@ -789,6 +860,7 @@ function bundleTraceOf(trace: SettlementVerificationTrace, run: VerificationRun 
     ...(trace.message === undefined ? {} : { message: trace.message }),
     ...(trace.bundleRefs === undefined ? {} : { bundleRefs: [...trace.bundleRefs] }),
     ...(treeCommit === undefined ? {} : { treeCommit }),
+    ...(trace.outcome === 'verified' && run?.kind === 'ran' && run.coordinate !== undefined ? { coordinate: run.coordinate } : {}),
   };
 }
 
@@ -824,6 +896,20 @@ async function verifyTask(
   if (isIntentReceipt(receipt)) {
     if (receipt.outcome === 'committed') {
       const reading = await traceQualifiersOf(receipt, ctx.eventStore);
+      const binding = execute.verificationInput;
+      let coordinate: VerificationCoordinate | undefined;
+      try {
+        if (binding !== undefined) {
+          const original = await recoverSegmentInput(compiled.operationId, streamId,
+            binding.callerDigest, ctx, execute.bundleStore ?? ctx.eventStore.bundleStore);
+          coordinate = TaskVerificationCoordinateSchema.parse(original?.args.coordinate);
+        }
+      } catch (error) {
+        return { kind: 'refused', halted: false, result: refused('SEGMENT_INPUT_REFUSED', error instanceof Error ? error.message : String(error)) };
+      }
+      if (coordinate !== undefined && reading.treeCommit !== coordinate.observedHeadCommit) {
+        return { kind: 'refused', halted: false, result: refused('SEGMENT_INPUT_REFUSED', 'Verified segment head differs from its original coordinate') };
+      }
       return {
         kind: 'ran',
         outcome: { kind: 'verified' },
@@ -835,6 +921,7 @@ async function verifyTask(
           ...qualifiersField(reading.qualifiers),
         },
         ...(reading.treeCommit === undefined ? {} : { treeCommit: reading.treeCommit }),
+        ...(coordinate === undefined ? {} : { coordinate }),
       };
     }
     const failedLeaf = receipt.failedLeaf ?? '<unknown>';
@@ -1041,7 +1128,8 @@ async function observeClaimedTrees(
   const { scope } = capsule.settlementContract;
   if (scope === undefined) return observed;
   const terms = capsule.settlementContract.taskVerification ?? {};
-  const observe = ctx.treeObserver ?? observeClaimedTree;
+  const observe = ctx.treeObserver ?? (capsule.provenance.compilerVersion === 'exarchos-prepare-8'
+    ? observeImmutableClaimedTree : observeClaimedTree);
   for (const claim of claims) {
     const { worktreePath, branch } = claim.fields;
     const baseCommit = terms[claim.taskId]?.baseCommit;
@@ -1081,6 +1169,12 @@ interface SettlementCall {
   readonly deps: SettleDeps;
   readonly streamId: string;
   readonly identity: SettledCapsuleIdentity;
+  /** The workflow type of the prepared record. The gates of a phase move resolve for it. */
+  readonly workflowType: string;
+  /** The definition that the capsule pins. The commit decides the phase move under it. */
+  readonly pinnedDefinition: WorkflowDefinitionV1;
+  readonly namedAuthority: PreparedAuthority;
+  latestAuthority: PreparedAuthority;
   readonly operationId: string;
   readonly requestDigest: string;
   readonly batchLabel: string;
@@ -1088,13 +1182,17 @@ interface SettlementCall {
   readonly verificationTerms: Readonly<Record<string, VerificationTerms>>;
   readonly reads: SettlementReads;
   readonly runs: Map<string, VerificationRun>;
+  readonly recoveredInputs: Map<string, Record<string, unknown>>;
+  /** Exact proof closures selected for this call, retained for transaction fencing. */
+  readonly standingProofs: Map<string, StandingProof>;
+  readonly heldOrigin?: HeldOriginFence;
   inputs: SettlementInputs;
   checkout?: CheckoutReading;
 }
 
 /** Compiles the segments of the tasks from the claims of the call, so each segment gets the same arguments on each run. */
 function compileFor(call: SettlementCall, taskIds: readonly string[]): CompiledSegments {
-  return compileSegments(
+  const result = compileSegments(
     taskIds,
     call.inputs.claims,
     call.verificationTerms,
@@ -1103,6 +1201,63 @@ function compileFor(call: SettlementCall, taskIds: readonly string[]): CompiledS
     call.streamId,
     call.deps.execute,
   );
+  return result.ok ? { ok: true, compiled: result.compiled.map(task => ({ ...task, args: call.recoveredInputs.get(task.taskId) ?? task.args })) } : result;
+}
+
+/** Builds fresh coordinates from pinned terms, captured heads and authenticated direct blockers. */
+async function coordinateFor(call: SettlementCall, task: CompiledVerification): Promise<VerificationCoordinate> {
+  const capsule = call.namedAuthority.capsule;
+  const terms = capsule.settlementContract.taskVerification?.[task.taskId];
+  const scope = capsule.settlementContract.scope;
+  const claimed = call.inputs.observations?.get(task.taskId);
+  const tree = claimed?.observed;
+  if (scope === undefined || terms?.baseCommit === undefined || claimed === undefined || tree?.kind !== 'tree'
+    || tree.head === undefined || tree.repository !== scope.repository || tree.dirtyPaths.length !== 0) {
+    throw new Error(`Task ${task.taskId} needs an observable clean checkout in the pinned repository`);
+  }
+  const breach = worktreeBreach(claimed.path, claimed.branch, tree, { scope, baseRef: terms.baseRef, baseCommit: terms.baseCommit });
+  if (breach !== undefined) throw new Error(`Task ${task.taskId} is out of scope: ${breach.detail}`);
+  const blockers = capsule.graph.dependencies.filter(edge => edge.to === task.taskId).map(edge => edge.from);
+  const result = task.args.result;
+  const fork = blockers.length === 0 ? terms.baseCommit : isRecord(result) ? result.forkCommit : undefined;
+  if (typeof fork !== 'string' || !/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(fork)) {
+    throw new Error(`Task ${task.taskId} requires a canonical full forkCommit`);
+  }
+  const resolved = await GIT_SCOPE.commitOf(claimed.path, fork);
+  if (resolved.kind !== 'commit' || resolved.commit !== fork) throw new Error(`Task ${task.taskId} forkCommit is not an exact commit`);
+  const requireAncestor = async (ancestor: string, descendant: string) => {
+    const relation = await GIT_SCOPE.isAncestor(claimed.path, ancestor, descendant);
+    if (relation.kind !== 'ancestor') throw new Error(`Task ${task.taskId} requires ancestry ${ancestor} <= ${descendant}`);
+  };
+  await requireAncestor(terms.baseCommit, fork);
+  await requireAncestor(fork, tree.head);
+  const rows = await call.ctx.eventStore.query(call.streamId);
+  const backend = call.ctx.eventStore.getAppender().ensureSqliteBackendSync();
+  const references: VerificationCoordinate['blockers'] = [];
+  for (const taskId of blockers) {
+    const submitted = call.inputs.claims.find(claim => claim.taskId === taskId);
+    const predecessor = call.runs.get(taskId);
+    if (submitted !== undefined && (submitted.status !== undefined
+      || (predecessor !== undefined && (predecessor.kind !== 'ran' || predecessor.outcome.kind !== 'verified')))) {
+      throw new Error(`Task ${task.taskId} is blocked by submitted unsuccessful task ${taskId}`);
+    }
+    const sameOperation = backend.lookupOperationClaim(verificationOperationId(call.operationId, taskId)) !== undefined;
+    if (submitted !== undefined && !sameOperation && !call.inputs.acceptedStanding?.has(taskId)) {
+      throw new Error(`Task ${task.taskId} awaits committed submitted blocker ${taskId}`);
+    }
+    const standing = await resolveTaskStanding({ streamId: call.streamId, taskId, rows,
+      bundles: call.deps.execute.bundleStore ?? call.ctx.eventStore.bundleStore,
+      lookupClaim: id => backend.lookupOperationClaim(id),
+      ...(sameOperation ? { provisional: { outerOperationId: call.operationId, capsule: call.identity } } : {}) });
+    if ((standing.kind !== 'accepted' && standing.kind !== 'provisional') || standing.proof.reference === undefined) {
+      throw new Error(`Task ${task.taskId} lacks eligible standing for blocker ${taskId}`);
+    }
+    await requireAncestor(standing.proof.headCommit, fork);
+    call.standingProofs.set(standing.proof.segmentOperationId, standing.proof);
+    references.push(standing.proof.reference);
+  }
+  return { protocolVersion: '1', taskId: task.taskId, capsule: capsule.identity, repository: scope.repository,
+    rootBaseCommit: terms.baseCommit, diffBaseCommit: fork, observedHeadCommit: tree.head, blockers: references };
 }
 
 /**
@@ -1114,13 +1269,38 @@ async function runCompiled(
   call: SettlementCall,
   compiled: readonly CompiledVerification[],
   ctx: DispatchContext = call.ctx,
+  replayOnly = false,
 ): Promise<ToolResult | undefined> {
-  for (const task of compiled) {
-    const run = await verifyTask(task, call.streamId, call.batchLabel, call.stateDir, ctx, call.deps.execute);
+  const immutable = call.namedAuthority.capsule.provenance.compilerVersion === 'exarchos-prepare-8';
+  const graph = call.inputs.capsule.graph;
+  const byId = new Map(compiled.map(task => [task.taskId, task]));
+  const ready = immutable ? taskGraphOrder(graph.tasks.map(task => task.taskId), graph.dependencies)
+    .flatMap(taskId => { const task = byId.get(taskId); return task === undefined ? [] : [task]; }) : compiled;
+  let coordinateRefusal: ToolResult | undefined;
+  let attempted = 0;
+  for (const original of ready) {
+    let task = original;
+    if (immutable && !replayOnly && !call.recoveredInputs.has(task.taskId)) {
+      try { task = { ...task, coordinate: await coordinateFor(call, task) }; }
+      catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        coordinateRefusal ??= refused('TASK_COORDINATE_REFUSED', message);
+        call.runs.set(task.taskId, { kind: 'ran', outcome: { kind: 'failed', failedLeaf: 'dependency-coordinate', message },
+          trace: { taskId: task.taskId, outcome: 'failed', failedLeaf: 'dependency-coordinate', message } });
+        continue;
+      }
+    }
+    const execute = call.namedAuthority.capsule.provenance.compilerVersion === 'exarchos-prepare-8'
+      ? { ...call.deps.execute, verificationInput: { authority: call.namedAuthority, outerOperationId: call.operationId,
+        callerDigest: call.requestDigest, batchId: call.identity.batchId, round: call.inputs.round, replayOnly, ...(task.coordinate === undefined ? {} : { coordinate: task.coordinate }) } } : call.deps.execute;
+    attempted += 1;
+    const run = await verifyTask(task, call.streamId, call.batchLabel, call.stateDir, ctx, execute);
     if (run.kind === 'refused' && !run.halted) return run.result;
     call.runs.set(task.taskId, run);
   }
-  return undefined;
+  const actualRun = [...call.runs.values()].some(run => run.kind === 'ran' && run.trace.operationId !== undefined);
+  const reportedFailure = call.inputs.claims.some(claim => claim.status !== undefined);
+  return attempted === 0 && !actualRun && !reportedFailure && coordinateRefusal !== undefined ? coordinateRefusal : undefined;
 }
 
 /** The outcome of the three checks before the segments of an attempt: the context of the segments, or the refusal. */
@@ -1253,10 +1433,34 @@ async function replayCommittedSegments(call: SettlementCall): Promise<ToolResult
   const completed = new Set(
     call.inputs.claims.filter((claim) => claim.status === undefined).map((claim) => claim.taskId),
   );
-  const committed = [...completed]
-    .filter((taskId) => backend.lookupOperationClaim(verificationOperationId(call.operationId, taskId)) !== undefined)
+  let committed: string[];
+  try {
+    committed = [...completed]
+    .filter((taskId) => backend.lookupOperationClaim(verificationOperationId(call.operationId, taskId)) !== undefined
+      || (call.namedAuthority.capsule.provenance.compilerVersion === 'exarchos-prepare-8'
+        && backend.lookupSegmentInput(verificationOperationId(call.operationId, taskId)) !== undefined))
     .sort();
+  } catch (error) {
+    if (call.namedAuthority.capsule.provenance.compilerVersion !== 'exarchos-prepare-8') throw error;
+    return refused('SEGMENT_INPUT_REFUSED', error instanceof Error ? error.message : String(error));
+  }
   if (committed.length === 0) return undefined;
+  if (call.namedAuthority.capsule.provenance.compilerVersion === 'exarchos-prepare-8') {
+    const recovered: CompiledVerification[] = [];
+    try {
+      for (const taskId of committed) {
+        const operationId = verificationOperationId(call.operationId, taskId);
+        const input = await recoverSegmentInput(operationId, call.streamId, call.requestDigest, call.ctx,
+          call.deps.execute.bundleStore ?? call.ctx.eventStore.bundleStore);
+        if (input === undefined) throw new Error('Committed segment lacks its required immutable input');
+        const claim = call.inputs.claims.find(claim => claim.taskId === taskId);
+        if (claim === undefined || canonicalJson(claim.fields) !== canonicalJson(input.args.result)) throw new Error('Recovered input differs from caller fields');
+        if (backend.lookupOperationClaim(operationId) !== undefined) recovered.push({ taskId, operationId, args: input.args });
+        else call.recoveredInputs.set(taskId, input.args);
+      }
+    } catch (error) { return refused('SEGMENT_INPUT_REFUSED', error instanceof Error ? error.message : String(error)); }
+    return runCompiled(call, recovered, call.ctx, true);
+  }
   const segments = compileFor(call, committed);
   if (!segments.ok) return segments.refusal;
   return runCompiled(call, segments.compiled);
@@ -1268,12 +1472,62 @@ interface JudgedRead {
   readonly judgement: SettlementJudgement;
 }
 
+/** Resolves accepted custody before judgement. Compatibility completion rows confer no standing. */
+async function acceptedStandingFor(call: SettlementCall, rows: readonly WorkflowEvent[]): Promise<void> {
+  if (call.inputs.capsule.provenance.compilerVersion !== 'exarchos-prepare-8') return;
+  const backend = call.ctx.eventStore.getAppender().ensureSqliteBackendSync();
+  call.standingProofs.clear();
+  const accepted = new Map<string, StandingProof>();
+  const tasks = new Set([...call.inputs.capsule.graph.tasks, ...call.latestAuthority.capsule.graph.tasks].map(task => task.taskId));
+  for (const taskId of tasks) {
+    const task = { taskId };
+    const run = call.runs.get(task.taskId);
+    if (run !== undefined && (run.kind !== 'ran' || run.outcome.kind !== 'verified')) continue;
+    if (run === undefined && call.recoveredInputs.has(task.taskId)) continue;
+    let standing = await resolveTaskStanding({ streamId: call.streamId, taskId: task.taskId, rows,
+      bundles: call.deps.execute.bundleStore ?? call.ctx.eventStore.bundleStore,
+      lookupClaim: id => backend.lookupOperationClaim(id),
+      ...(run === undefined ? {} : { provisional: { outerOperationId: call.operationId, capsule: call.identity } }) });
+    if (run === undefined && standing.kind !== 'accepted' && standing.kind !== 'corrupt'
+      && backend.lookupOperationClaim(verificationOperationId(call.operationId, taskId)) !== undefined) {
+      standing = await resolveTaskStanding({ streamId: call.streamId, taskId: task.taskId, rows,
+        bundles: call.deps.execute.bundleStore ?? call.ctx.eventStore.bundleStore,
+        lookupClaim: id => backend.lookupOperationClaim(id),
+        provisional: { outerOperationId: call.operationId, capsule: call.identity } });
+    }
+    if (standing.kind === 'corrupt') throw new SettlementStandingCorrupt(standing.message);
+    if (run !== undefined) {
+      if (standing.kind !== 'provisional' || standing.proof.segmentOperationId !== run.trace.operationId
+        || canonicalJson(standing.proof.coordinate) !== canonicalJson(run.coordinate)) {
+        call.runs.set(task.taskId, { kind: 'refused', halted: false,
+          result: refused('SEGMENT_INPUT_REFUSED', `Task ${task.taskId} has no authenticated committed standing`) });
+      } else call.standingProofs.set(standing.proof.segmentOperationId, standing.proof);
+    } else if (standing.kind === 'accepted') {
+      accepted.set(task.taskId, standing.proof);
+      call.standingProofs.set(standing.proof.segmentOperationId, standing.proof);
+    } else if (standing.kind === 'provisional') {
+      call.standingProofs.set(standing.proof.segmentOperationId, standing.proof);
+    }
+  }
+  const selected = new Map([...call.standingProofs.values()].map(proof => [proof.taskId, proof]));
+  const current = currentStandingProofs(selected);
+  for (const [taskId, proof] of selected) {
+    if (current.has(taskId)) continue;
+    call.standingProofs.delete(proof.segmentOperationId); accepted.delete(taskId);
+    const run = call.runs.get(taskId);
+    if (run?.kind === 'ran' && run.outcome.kind === 'verified') call.runs.set(taskId, { kind: 'refused', halted: false,
+      result: refused('SEGMENT_INPUT_REFUSED', `Task ${taskId} retains a blocker proof that is no longer current`) });
+  }
+  call.inputs = { ...call.inputs, acceptedStanding: accepted };
+}
+
 /**
  * Reads the whole stream and judges the batch from its facts. When the judgement names a cited record
  * with no blob check, the call checks the record, keeps the check, and judges again.
  */
 async function readAndJudge(call: SettlementCall): Promise<JudgedRead> {
   const rows = await call.ctx.eventStore.query(call.streamId);
+  await acceptedStandingFor(call, rows);
   const facts = settlementFactsOf(rows, call.reads);
   const judgement = judgeSettlement(call.inputs, facts, call.runs);
   if (judgement.needsEvidenceCheck.length === 0) return { rows, judgement };
@@ -1355,6 +1609,181 @@ async function settleAttempt(call: SettlementCall): Promise<ToolResult> {
   return commitJudgement(call, judgement, warnings);
 }
 
+/** The trigger of each row of a settle move. */
+const SETTLE_TRIGGER = 'settle';
+
+/** The prefix of the warning when the state document cannot follow a settle move. */
+const PHASE_LEVEL_FAILED = 'PHASE_LEVEL_FAILED';
+
+/** The reason of a commit that did not decide the phase. */
+type NotDecidedReason = Extract<PhaseMove, { readonly kind: 'not-decided' }>['reason'];
+
+/** The reason of a commit that decided and kept the phase. */
+type StayedReason = Extract<PhaseMove, { readonly kind: 'stayed' }>['reason'];
+
+/** The phase decision of one settle commit: the receipt field, and the rows of a move with no stamp. */
+interface PhaseDecision {
+  readonly phaseMove: PhaseMove;
+  readonly rows: readonly EventInput[];
+}
+
+/** The decision of a commit that did not decide. It appends no row. */
+function notDecided(reason: NotDecidedReason): PhaseDecision {
+  return { phaseMove: { kind: 'not-decided', reason }, rows: [] };
+}
+
+/** The decision of a commit that decided and kept the phase. It appends no row, and it lists each edge verdict. */
+function stayed(phase: string, reason: StayedReason, edges: readonly EdgeVerdict[]): PhaseDecision {
+  return { phaseMove: { kind: 'stayed', phase, reason, edges: [...edges] }, rows: [] };
+}
+
+/**
+ * Compiles the definition that a capsule pins into its decide form. A kernel-only pin of an earlier compiler,
+ * an extension that breaks a reference rule and a condition that does not compile each give `undefined`.
+ */
+function pinnedDecideDefinition(workflowType: string, definition: WorkflowDefinitionV1, skips?: readonly string[]): DecideDefinition | undefined {
+  const extension = pinnedExtensionOf(definition);
+  if (extension === undefined) return undefined;
+  if (validateExtension(definition, definition, extension).length > 0) return undefined;
+  try {
+    return compileDecideDefinition(workflowType, { ...definition, exarchos: extension }, skips);
+  } catch {
+    return undefined;
+  }
+}
+
+/** True when the configured skip list names a step or a group of the pinned definition. */
+function skipsAPinnedStep(def: DecideDefinition, skipPhases: readonly string[] | undefined): boolean {
+  return (skipPhases ?? []).some(
+    (skip) => def.steps.some((step) => step.stepId === skip) || def.groups.some((group) => group.groupId === skip),
+  );
+}
+
+/**
+ * True when an edge is plain. A plain edge keeps its source and its target in the same groups, and it has no fix-cycle
+ * flag and no revision flag. An edge into the cancel target is not plain, because its move gives the cancel trail.
+ */
+function isPlainEdge(def: DecideDefinition, edge: DecideEdge): boolean {
+  const groupOf = (phase: string): string | undefined => def.steps.find((step) => step.stepId === phase)?.groupId;
+  return (
+    groupOf(edge.from) === groupOf(edge.to) &&
+    edge.isFixCycle !== true &&
+    edge.isRevision !== true &&
+    edge.to !== def.cancel?.to
+  );
+}
+
+/** Returns a stored row of a commit snapshot as a workflow event. The fold reads only the identity, the type and the data. */
+function workflowEventOf(stored: DecideOnceStoredEvent): WorkflowEvent {
+  return {
+    streamId: stored.streamId,
+    sequence: stored.sequence,
+    type: stored.type,
+    timestamp: stored.timestamp,
+    schemaVersion: typeof stored.schemaVersion === 'string' ? stored.schemaVersion : '1.0',
+    ...(stored.data === undefined ? {} : { data: stored.data }),
+  };
+}
+
+/** The inputs of the phase decision of one settle commit: the outcome, the revision and the rows of the write transaction. */
+interface PhaseDecisionInput {
+  readonly call: SettlementCall;
+  readonly outcome: SettlementOutcome;
+  readonly revised: boolean;
+  readonly events: readonly DecideOnceStoredEvent[];
+  readonly version: number;
+}
+
+/**
+ * Named and latest authority must agree before a settlement moves the phase.
+ * The named definition freezes skip routing. The latest whole plan supplies membership, with completion from committing rows.
+ * Outcome and revision reasons take precedence over a valid policy mismatch.
+ * One plain explicit edge must admit. The move joins the current coordinate and the target's frozen gate floor.
+ */
+function phaseDecisionOf(input: PhaseDecisionInput): PhaseDecision {
+  const { call, outcome, revised, events, version } = input;
+  if (!SETTLEMENT_OUTCOME_RULES[outcome].movesPhase) return notDecided('outcome-does-not-move');
+  if (revised) return notDecided('design-revision');
+  const named = call.namedAuthority;
+  const latest = call.latestAuthority;
+  if (named.selection.record.planRecordDigest !== latest.selection.record.planRecordDigest
+    || named.capsule.identity.definitionVersion !== latest.capsule.identity.definitionVersion
+    || canonicalJson(named.skipPhases ?? null) !== canonicalJson(latest.skipPhases ?? null)) {
+    return notDecided('prepared-authority-mismatch');
+  }
+  if (call.inputs.capsule.provenance.compilerVersion === 'exarchos-prepare-8'
+    && !latest.capsule.graph.tasks.every(task => {
+      const run = call.runs.get(task.taskId);
+      return run === undefined ? call.inputs.acceptedStanding?.has(task.taskId) === true
+        : run.kind === 'ran' && run.outcome.kind === 'verified';
+    })) return notDecided('outcome-does-not-move');
+  const def = pinnedDecideDefinition(call.workflowType, call.pinnedDefinition, named.skipPhases);
+  if (def === undefined) return notDecided('unpinned-definition');
+  const options = transitionOptionsOf(call.ctx.projectConfig);
+  if (named.skipPhases === undefined && skipsAPinnedStep(def, options?.skipPhases)) return notDecided('skip-phases-config');
+  let rows: readonly WorkflowEvent[];
+  let prior: Readonly<Record<string, unknown>>;
+  let guardInput: Record<string, unknown>;
+  try {
+    rows = migrateEvents(events).map(workflowEventOf);
+    prior = { ...foldWorkflowState(rows) };
+    guardInput = { ...foldGuardInput(rows, { config: options ?? {}, ...(latest.kind === 'typed' ? { authoritativeTasks: latest.snapshot.tasks } : {}) }) };
+  } catch {
+    return notDecided('fold-failed');
+  }
+  if (call.inputs.capsule.provenance.compilerVersion === 'exarchos-prepare-8') {
+    const statuses = rowStatusByTask(rows);
+    if (!latest.capsule.graph.tasks.every(task => statuses.get(task.taskId) === 'complete')) return notDecided('outcome-does-not-move');
+  }
+  const from = typeof prior.phase === 'string' ? prior.phase : '';
+  if (!(call.inputs.capsule.provenance.compilerVersion === 'exarchos-prepare-8' ? latest.capsule : call.inputs.capsule).graph.tasks.every((task) => task.stepId === from)) return notDecided('off-batch-step');
+  const decided = decide(def, guardInput, { kind: 'settle' });
+  if (decided.kind === 'stay') {
+    const admitted = decided.verdicts.filter((verdict) => verdict.verdict === 'allow').length;
+    return stayed(from, admitted === 0 ? 'no-edge-admits' : 'edges-admit', decided.verdicts);
+  }
+  if (decided.kind !== 'admit') return stayed(from, 'no-edge-admits', []);
+  const move = decided.move;
+  if (move.edgeKind !== 'explicit' || !isPlainEdge(def, move)) return stayed(from, 'edge-not-plain', decided.verdicts);
+  const phaseAttemptId = allocatePhaseAttemptId(call.streamId, from, move.to, readPhaseAttemptId(prior), version);
+  const priorCoordinate = statedCoordinate(prior);
+  const floor = mergeFloors([
+    priorCoordinate === null ? null : { coordinates: [priorCoordinate] },
+    frozenFloorOf(rows, move.to),
+  ]);
+  const result = phaseMoveEvents(def, { ...guardInput, _pendingPhaseAttemptId: phaseAttemptId }, move, floor);
+  if (!result.success) return stayed(from, 'phase-blocked', decided.verdicts);
+  const moveEvents = result.events.map((event) => ({ ...event, trigger: SETTLE_TRIGGER }));
+  return {
+    phaseMove: {
+      kind: 'moved',
+      from,
+      to: move.to,
+      transitionId: move.transitionId,
+      ...(move.guardId === undefined ? {} : { guardId: move.guardId }),
+      phaseAttemptId,
+    },
+    rows: phaseRowsOf(moveEvents, call.streamId, { guardId: move.guardId, rows }).map((row) => ({ ...row })),
+  };
+}
+
+/**
+ * Levels the state document with the phase that a commit moved, and returns the warnings of the level. A receipt with no
+ * move levels nothing. A stream with no document gets no level and no warning. A failed level gives one warning that
+ * starts with `PHASE_LEVEL_FAILED`, and the verdict and the rows stand.
+ */
+async function levelMovedPhase(stateDir: string, streamId: string, receipt: SettlementReceipt, eventStore: EventStore): Promise<string[]> {
+  const move = receipt.phaseMove;
+  if (move?.kind !== 'moved') return [];
+  const level = await levelPhaseInStateDocument(path.join(stateDir, `${streamId}.state.json`), eventStore, streamId);
+  if (level.kind !== 'failed') return [];
+  orchestrateLogger.warn({ streamId, phase: move.to, level }, 'settle: the state document did not follow the phase move');
+  return [
+    `${PHASE_LEVEL_FAILED}: the stream moved the phase to '${move.to}', and the state document did not follow after ` +
+      `${level.attempts} attempt(s): ${level.error}. Call transition to '${move.to}' to level the document.`,
+  ];
+}
+
 /**
  * Puts the bundle of a judgement in custody, then commits its record. The commit folds the rows of its
  * write transaction after the event migration, as each read before it does, and judges the batch
@@ -1362,8 +1791,9 @@ async function settleAttempt(call: SettlementCall): Promise<ToolResult> {
  * Then the transaction appends nothing, and the bundle stays as an orphan blob.
  *
  * The revision of a decision round takes its content from the judgement inside the commit, and its
- * number from the same rows. The record is the last event, and the tail sequence comes from a read
- * inside the write lock.
+ * number from the same rows. The rows of a phase move come after the revision, from the same rows. The
+ * record is the last event, and the tail sequence comes from a read inside the write lock. After the
+ * commit, a moved phase levels the state document.
  */
 async function commitJudgement(
   call: SettlementCall,
@@ -1480,7 +1910,31 @@ async function commitJudgement(
           .getAppender()
           .decideOnce<SettlementReceipt>(operationId, requestDigest, (tx) => {
             const snapshot = tx.readStream(streamId);
-            const committed = judgeSettlement(inputs, settlementFactsOf(migrateEvents(snapshot.events), reads), runs);
+            const rows = migrateEvents(snapshot.events);
+            if (call.heldOrigin !== undefined && !call.heldOrigin(rows,
+              id => ctx.eventStore.getAppender().ensureSqliteBackendSync().lookupOperationClaim(id))) {
+              throw new SettlementReadsChanged(batchLabel);
+            }
+            if (!recheckPreparedAuthority(call.latestAuthority.selection, rows)) {
+              throw new SettlementReadsChanged(batchLabel);
+            }
+            if (call.namedAuthority.capsule.provenance.compilerVersion === 'exarchos-prepare-8') {
+              const backend = ctx.eventStore.getAppender().ensureSqliteBackendSync();
+              for (const [taskId, run] of runs) {
+                if (run.kind !== 'ran' || run.outcome.kind !== 'verified') continue;
+                const proof = run.trace.operationId === undefined ? undefined : call.standingProofs.get(run.trace.operationId);
+                if (proof === undefined || proof.taskId !== taskId || canonicalJson(proof.coordinate) !== canonicalJson(run.coordinate)) {
+                  throw new SettlementReadsChanged(batchLabel);
+                }
+              }
+              for (const proof of inputs.acceptedStanding?.values() ?? []) {
+                if (call.standingProofs.get(proof.segmentOperationId) !== proof) throw new SettlementReadsChanged(batchLabel);
+              }
+              for (const proof of call.standingProofs.values()) {
+                if (!proof.recheck(rows, id => backend.lookupOperationClaim(id))) throw new SettlementReadsChanged(batchLabel);
+              }
+            }
+            const committed = judgeSettlement(inputs, settlementFactsOf(rows, reads), runs);
             if (
               judgementKey(committed) !== key ||
               committed.needsSegment.length > 0 ||
@@ -1493,10 +1947,19 @@ async function commitJudgement(
               revised === undefined
                 ? undefined
                 : designRevisionOf(snapshot.events, revised, revisionStamp, settlement, ref);
+            const phase = phaseDecisionOf({
+              call,
+              outcome: verdict.outcome,
+              revised: revision !== undefined,
+              events: snapshot.events,
+              version: snapshot.version,
+            });
+            const phaseRows = phase.rows.map((row) => stampFromAmbient({ ...row, timestamp: settledAt }));
             const events = [
               ...proposals,
               ...decidedRows,
               ...(revision !== undefined ? [revision.row] : []),
+              ...phaseRows,
               record,
             ];
             return {
@@ -1519,10 +1982,12 @@ async function commitJudgement(
                 ...(pending.length > 0 ? { pendingDeviations: pending } : {}),
                 ...(deciding ? { decisions } : {}),
                 ...(revision !== undefined ? { designRevision: revision.receipt } : {}),
+                phaseMove: phase.phaseMove,
               },
             };
           });
-        return receiptResult(persisted, warnings);
+        return repairSettlement({ ctx, deps, stateDir: call.stateDir, streamId, capsuleVersion: identity.capsuleVersion },
+          persisted, inputs.capsule, warnings);
       } catch (error) {
         if (error instanceof OperationDigestMismatchError) {
           return refused(
@@ -1549,6 +2014,98 @@ function readsKeptChanging(batchLabel: string): ToolResult {
       'segments that verified tasks stay recorded. Settle the same batchId again: the retry replays those ' +
       'segments and runs none of their gates again.',
   );
+}
+
+/** Normalized identity inputs permit receipt lookup without immutable custody. */
+interface ReplayRequest {
+  readonly ctx: DispatchContext;
+  readonly deps: SettleDeps;
+  readonly stateDir: string;
+  readonly streamId: string;
+  readonly capsuleVersion: number;
+  readonly batchId: string;
+  readonly round: number;
+  readonly decisions: readonly SettlementDecision[];
+  readonly claims: readonly SettlementClaim[];
+  readonly deviations: readonly ProposedDeviation[];
+  readonly submitted?: ExarchosCapsuleV1;
+}
+
+/** Actual claims decide replay. Ledger rows only supply candidate keys for historical workflow identities. */
+async function replaySettlement(request: ReplayRequest): Promise<ToolResult | undefined> {
+  const { ctx, streamId, capsuleVersion, batchId, round, submitted } = request;
+  const rows = await ctx.eventStore.query(streamId);
+  const workflowIds = new Set([streamId]);
+  for (const row of rows) {
+    if (row.type !== 'execution.settled' && row.type !== 'workflow.prepared') continue;
+    if (isRecord(row.data) && row.data.capsuleVersion === capsuleVersion && typeof row.data.workflowId === 'string') {
+      workflowIds.add(row.data.workflowId);
+    }
+  }
+  for (const workflowId of workflowIds) {
+    const candidate = { workflowId, capsuleVersion, batchId, definitionVersion: '', designVersion: '' };
+    const operationId = settlementClaimKey(streamId, candidate, round);
+    const claim = ctx.eventStore.getAppender().ensureSqliteBackendSync().lookupOperationClaim<SettlementReceipt>(operationId);
+    if (claim === undefined) continue;
+    const decoded = SettlementReceiptData.safeParse(claim.result);
+    if (!decoded.success) return refused('CAPSULE_UNRESOLVED', 'The persisted settlement receipt is invalid.');
+    const receipt = claim.result;
+    if (claim.streamId !== streamId || receipt.streamId !== streamId || receipt.operationId !== operationId || (receipt.round ?? 0) !== round
+      || receipt.capsule.capsuleVersion !== capsuleVersion || receipt.capsule.batchId !== batchId
+      || receipt.capsule.workflowId !== workflowId || settlementClaimKey(streamId, receipt.capsule, round) !== operationId
+      || receipt.requestDigest !== claim.requestDigest) {
+      return refused('CAPSULE_UNRESOLVED', 'The persisted settlement claim identity is inconsistent.');
+    }
+    if (submitted !== undefined) {
+      const recorded = preparedRecordOf(rows, capsuleVersion);
+      if (recorded === undefined || capsuleDigest(submitted) !== recorded.record.capsuleDigest) {
+        return refused('CAPSULE_DIGEST_MISMATCH', 'The submitted capsule differs from the recorded capsule.');
+      }
+    }
+    const digest = round === DECISION_ROUND ? decisionDigestOf(streamId, receipt.capsule, request.decisions)
+      : requestDigestOf(streamId, receipt.capsule, request.claims, request.deviations);
+    if (claim.requestDigest !== digest) return refused('OPERATION_DIGEST_MISMATCH',
+      `Batch '${batchId}' was already ${round === DECISION_ROUND ? 'decided' : 'settled'} under a different request.`);
+    return repairSettlement(request, receipt);
+  }
+  return undefined;
+}
+
+/** Missing custody limits supplemental repair. Accepted task writes retain their receipt-bearing failure contract. */
+async function repairSettlement(
+  request: Pick<ReplayRequest, 'ctx' | 'deps' | 'stateDir' | 'streamId' | 'capsuleVersion'>,
+  receipt: SettlementReceipt,
+  knownCapsule?: ExarchosCapsuleV1,
+  priorWarnings: readonly string[] = [],
+): Promise<ToolResult> {
+  const { ctx, deps, stateDir, streamId, capsuleVersion } = request;
+  const warnings = [...priorWarnings];
+  if (outcomeVerifies(receipt.outcome)) {
+    let capsule = knownCapsule;
+    try {
+      if (capsule === undefined) {
+        const rows = await ctx.eventStore.query(streamId);
+        const record = preparedRecordOf(rows, capsuleVersion);
+        const selected = record === undefined ? undefined
+          : selectPreparedAuthority(rows.filter(row => row.sequence <= record.sequence), streamId);
+        if (selected === undefined) throw new Error('Missing named authority');
+        capsule = (await loadPreparedCustody(selected, deps.bundleStore ?? ctx.eventStore.bundleStore)).capsule;
+      }
+    } catch {
+      warnings.push('SUPPLEMENTAL_REPAIR_UNAVAILABLE: named custody is unavailable. Only accepted task IDs can be repaired.');
+    }
+    const completed = completedTasksOf(await ctx.eventStore.query(streamId, { type: 'task.completed' })).ids;
+    const recorded = capsule === undefined ? [...new Set(receipt.acceptedTasks)].filter(id => completed.has(id)).sort()
+      : recordedCompleteTasks(capsule, receipt.acceptedTasks, completed);
+    if (recorded.length > 0) {
+      const sync = await bringDocumentLevel(stateDir, streamId, recorded);
+      if (sync.kind === 'failed') return documentNotLevel(sync, 'The batch verdict and complete tasks are recorded',
+        'The verdict is on `error.settlementReceipt`. Nothing is adjudicated twice. ' + DOCUMENT_REPAIR_STEPS, receipt);
+      warnings.push(...missingTaskWarnings(sync));
+    }
+  }
+  warnings.push(...await levelMovedPhase(stateDir, streamId, receipt, ctx.eventStore));
+  return receiptResult(receipt, [...new Set(warnings)]);
 }
 
 /**
@@ -1620,25 +2177,54 @@ export async function handleSettle(
     );
   }
 
-  const pinned = await findPreparedCapsule(ctx, streamId, capsuleVersion, deps.bundleStore);
-  if (!pinned.found) {
-    return refused(
-      'CAPSULE_NOT_PREPARED',
-      `no capsule v${capsuleVersion} was prepared for '${streamId}'. Settlement adjudicates only ` +
-        'a capsule a prepare call recorded, so the terms a batch is judged by are the ones it was ' +
-        'compiled under.',
+  const decisions = readDecisions(raw.decisions);
+  if (typeof decisions === 'string') return invalid(decisions);
+  const deciding = raw.decisions !== undefined;
+  if (deciding && decisions.length === 0) {
+    return invalid('decisions must name at least one pending deviation');
+  }
+  if (deciding && (raw.claims !== undefined || raw.deviations !== undefined)) {
+    return invalid(
+      'a decision round carries decisions only: the claims and deviations it decides are the ' +
+        'ones the batch was held with, read back from its record',
     );
   }
-  if (submitted !== undefined && capsuleDigest(submitted) !== pinned.record.capsuleDigest) {
-    return refused(
-      'CAPSULE_DIGEST_MISMATCH',
-      `the submitted capsule is not the one prepared as v${capsuleVersion}: its digest ` +
-        `${capsuleDigest(submitted)} differs from the recorded ${pinned.record.capsuleDigest}. ` +
-        'Settle against the recorded capsule by version, or prepare again.',
-    );
-  }
-  const capsule = pinned.capsule;
+  const submittedClaims = deciding ? [] : readClaims(raw.claims);
+  if (typeof submittedClaims === 'string') return invalid(submittedClaims);
+  const submittedDeviations = deciding ? [] : readDeviations(raw.deviations);
+  if (typeof submittedDeviations === 'string') return invalid(submittedDeviations);
 
+  const round = deciding ? DECISION_ROUND : 0;
+  const replay = (): Promise<ToolResult | undefined> => replaySettlement({
+    ctx, deps, stateDir, streamId, capsuleVersion, batchId: batch.data, round,
+    decisions, claims: submittedClaims, deviations: submittedDeviations, ...(submitted ? { submitted } : {}),
+  });
+  const existing = await replay();
+  if (existing !== undefined) return existing;
+  let namedAuthority: PreparedAuthority;
+  let latestAuthority: PreparedAuthority;
+  try {
+    const rows = await ctx.eventStore.query(streamId);
+    const record = preparedRecordOf(rows, capsuleVersion);
+    if (record === undefined) return refused('CAPSULE_NOT_PREPARED', `No capsule v${capsuleVersion} was prepared for '${streamId}'.`);
+    if (submitted !== undefined && capsuleDigest(submitted) !== record.record.capsuleDigest) {
+      return refused('CAPSULE_DIGEST_MISMATCH', 'The submitted capsule differs from the recorded capsule.');
+    }
+    const named = selectPreparedAuthority(rows.filter(row => row.sequence <= record.sequence), streamId);
+    const latest = selectPreparedAuthority(rows, streamId);
+    if (named === undefined || latest === undefined) throw new Error('Missing prepared authority');
+    namedAuthority = await loadPreparedCustody(named, deps.bundleStore ?? ctx.eventStore.bundleStore);
+    latestAuthority = latest.identity === named.identity ? namedAuthority
+      : await loadPreparedCustody(latest, deps.bundleStore ?? ctx.eventStore.bundleStore);
+  } catch (error) {
+    const winner = await replay();
+    if (winner !== undefined) return winner;
+    return refused('CAPSULE_UNRESOLVED', `Prepared custody is unavailable or invalid: ${String(error)}`);
+  }
+  const winner = await replay();
+  if (winner !== undefined) return winner;
+  const pinned = { ...namedAuthority, record: namedAuthority.selection.record, sequence: namedAuthority.selection.sequence };
+  const capsule = pinned.capsule;
   const references = resolveCapsuleReferences(capsule, { definition: pinned.definition });
   if (!references.ok) {
     return refused(
@@ -1661,23 +2247,6 @@ export async function handleSettle(
     );
   }
 
-  const decisions = readDecisions(raw.decisions);
-  if (typeof decisions === 'string') return invalid(decisions);
-  const deciding = raw.decisions !== undefined;
-  if (deciding && decisions.length === 0) {
-    return invalid('decisions must name at least one pending deviation');
-  }
-  if (deciding && (raw.claims !== undefined || raw.deviations !== undefined)) {
-    return invalid(
-      'a decision round carries decisions only: the claims and deviations it decides are the ' +
-        'ones the batch was held with, read back from its record',
-    );
-  }
-  const submittedClaims = deciding ? [] : readClaims(raw.claims);
-  if (typeof submittedClaims === 'string') return invalid(submittedClaims);
-  const submittedDeviations = deciding ? [] : readDeviations(raw.deviations);
-  if (typeof submittedDeviations === 'string') return invalid(submittedDeviations);
-
   const identity: SettledCapsuleIdentity = {
     workflowId: capsule.identity.workflowId,
     definitionVersion: capsule.identity.definitionVersion,
@@ -1685,7 +2254,6 @@ export async function handleSettle(
     capsuleVersion: capsule.identity.capsuleVersion,
     batchId: batch.data,
   };
-  const round = deciding ? DECISION_ROUND : 0;
   const operationId = settlementClaimKey(streamId, identity, round);
   const requestDigest = deciding
     ? decisionDigestOf(streamId, identity, decisions)
@@ -1693,58 +2261,19 @@ export async function handleSettle(
   const batchLabel = `batch '${identity.batchId}' of capsule v${identity.capsuleVersion}`;
 
   return runExclusivePerOperation(operationId, async (): Promise<ToolResult> => {
-    const claim = ctx.eventStore
-      .getAppender()
-      .ensureSqliteBackendSync()
-      .lookupOperationClaim<SettlementReceipt>(operationId);
-    if (claim !== undefined) {
-      if (claim.requestDigest !== requestDigest) {
-        return refused(
-          'OPERATION_DIGEST_MISMATCH',
-          deciding
-            ? `${batchLabel} was already decided, under a different decision. Nothing was ` +
-                'adjudicated; the decision that stands is returned by resubmitting it.'
-            : `${batchLabel} is already settled under a different request. Nothing was ` +
-                'adjudicated. Resubmitting the same batch returns its verdict; a correction goes ' +
-                'back under a new batchId.',
-        );
-      }
-      const replayWarnings: string[] = [];
-      if (outcomeVerifies(claim.result.outcome)) {
-        const recorded = recordedCompleteTasks(
-          capsule,
-          claim.result.acceptedTasks,
-          completedTasksOf(await ctx.eventStore.query(streamId, { type: 'task.completed' })).ids,
-        );
-        if (recorded.length > 0) {
-          const sync = await bringDocumentLevel(stateDir, streamId, recorded);
-          switch (sync.kind) {
-            case 'failed':
-              return documentNotLevel(
-                sync,
-                `${batchLabel} has its verdict and its complete tasks are recorded`,
-                'The verdict is on `error.settlementReceipt`. Nothing is adjudicated twice. ' +
-                  DOCUMENT_REPAIR_STEPS,
-                claim.result,
-              );
-            case 'synced':
-            case 'unchanged':
-            case 'skipped':
-              replayWarnings.push(...missingTaskWarnings(sync));
-              break;
-            default:
-              return assertNever(sync, 'state document sync outcome');
-          }
-        }
-      }
-      return receiptResult(claim.result, replayWarnings);
-    }
+    const cached = await replay();
+    if (cached !== undefined) return cached;
     if (!deciding && submittedClaims.length === 0) return claimlessBatch(batchLabel);
 
     let claims: SettlementClaim[] = submittedClaims;
     let deviations: ProposedDeviation[] = submittedDeviations;
+    let heldOrigin: HeldOriginFence | undefined;
     if (deciding) {
-      const held = await heldBatch(ctx, streamId, identity, deps.bundleStore);
+      let held: HeldBatchLookup;
+      if (capsule.provenance.compilerVersion === 'exarchos-prepare-8') {
+        try { held = await authenticatedHeldBatch(ctx, streamId, identity, deps.bundleStore ?? ctx.eventStore.bundleStore); }
+        catch (error) { return (await replay()) ?? refused('CAPSULE_UNRESOLVED', `Held origin is unavailable or invalid: ${String(error)}`); }
+      } else held = await heldBatch(ctx, streamId, identity, deps.bundleStore);
       if (held.kind === 'not-settled') {
         return refused(
           'BATCH_NOT_HELD',
@@ -1761,6 +2290,7 @@ export async function handleSettle(
       }
       claims = held.claims;
       deviations = held.deviations;
+      heldOrigin = held.recheck;
       const pending = new Map(pendingDeviationsOf(identity, deviations).map((p) => [p.deviationId, p]));
       const unknown = decisions.filter((decision) => !pending.has(decision.deviationId));
       if (unknown.length > 0) {
@@ -1786,8 +2316,16 @@ export async function handleSettle(
     const decided = (deviation: ProposedDeviation): 'accepted' | 'rejected' | undefined =>
       decidedOf.get(deviationIdOf(identity, deviation));
 
+    if (capsule.provenance.compilerVersion === 'exarchos-prepare-8') {
+      const shape = adjudicateSettlement(capsule, claims, deviations, { evidenceResolves: () => true });
+      const invalidShape = shape.findings.filter(finding => ['unknown-task', 'duplicate-claim', 'undeclared-result-shape',
+        'missing-field', 'field-type-mismatch', 'undeclared-field'].includes(finding.kind));
+      if (invalidShape.length > 0) return invalid(invalidShape.map(finding => `${finding.at}: ${finding.message}`).join('; '));
+    }
+
     const reads = { pinnedSequence: pinned.sequence, cited: claims.flatMap((claim) => claim.evidence) };
-    const observations = await observeClaimedTrees(ctx, capsule, claims);
+    const observations = capsule.provenance.compilerVersion === 'exarchos-prepare-8' ? new Map<string, ClaimedTree>()
+      : await observeClaimedTrees(ctx, capsule, claims);
     let inputs: SettlementInputs = { capsule, claims, deviations, decided, round, evidenceChecks: new Map(), observations };
     if (deviations.some((deviation) => deviation.affectedTasks !== undefined)) {
       const standing = await planStandingLookup(ctx, streamId);
@@ -1801,6 +2339,10 @@ export async function handleSettle(
       deps,
       streamId,
       identity,
+      workflowType: pinned.record.workflowType,
+      pinnedDefinition: pinned.definition,
+      namedAuthority,
+      latestAuthority,
       operationId,
       requestDigest,
       batchLabel,
@@ -1808,15 +2350,49 @@ export async function handleSettle(
       verificationTerms,
       reads,
       runs: new Map(),
+      recoveredInputs: new Map(),
+      standingProofs: new Map(),
+      ...(heldOrigin === undefined ? {} : { heldOrigin }),
       inputs,
     };
     const replayRefusal = await replayCommittedSegments(call);
-    if (replayRefusal !== undefined) return replayRefusal;
+    if (replayRefusal !== undefined) {
+      return capsule.provenance.compilerVersion === 'exarchos-prepare-8' ? (await replay()) ?? replayRefusal : replayRefusal;
+    }
+    if (capsule.provenance.compilerVersion === 'exarchos-prepare-8') {
+      try { await acceptedStandingFor(call, await ctx.eventStore.query(streamId)); }
+      catch (error) {
+        if (!(error instanceof SettlementStandingCorrupt)) throw error;
+        return (await replay()) ?? refused('SEGMENT_INPUT_REFUSED', error.message);
+      }
+      call.inputs = { ...call.inputs, observations: await observeClaimedTrees(ctx, capsule,
+        claims.filter(claim => !call.runs.has(claim.taskId) && !call.recoveredInputs.has(claim.taskId)
+          && !call.inputs.acceptedStanding?.has(claim.taskId))) };
+    }
     for (let attempt = 1; attempt <= MAX_SETTLE_ATTEMPTS; attempt += 1) {
       try {
-        return await settleAttempt(call);
+        const result = await settleAttempt(call);
+        if (!result.success && capsule.provenance.compilerVersion === 'exarchos-prepare-8') {
+          return (await replay()) ?? result;
+        }
+        return result;
       } catch (error) {
+        if (error instanceof SettlementStandingCorrupt) return (await replay()) ?? refused('SEGMENT_INPUT_REFUSED', error.message);
         if (!(error instanceof SettlementReadsChanged)) throw error;
+        const cached = await replay();
+        if (cached !== undefined) return cached;
+        if (attempt === MAX_SETTLE_ATTEMPTS) break;
+        try {
+          const latest = selectPreparedAuthority(await ctx.eventStore.query(streamId), streamId);
+          if (latest === undefined) throw new Error('Missing latest prepared authority');
+          call.latestAuthority = await loadPreparedCustody(latest, deps.bundleStore ?? ctx.eventStore.bundleStore);
+        } catch (custodyError) {
+          const winner = await replay();
+          if (winner !== undefined) return winner;
+          return refused('CAPSULE_UNRESOLVED', `Prepared custody is unavailable or invalid: ${String(custodyError)}`);
+        }
+        const winner = await replay();
+        if (winner !== undefined) return winner;
       }
     }
     return readsKeptChanging(batchLabel);

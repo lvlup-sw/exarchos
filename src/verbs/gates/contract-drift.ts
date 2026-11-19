@@ -33,6 +33,7 @@ export interface ContractDriftArgs {
   readonly repoRoot: string;
   /** Base ref the branch diverged from — the merge-base is computed against this. */
   readonly baseRef: string;
+  readonly coordinate?: { readonly diffBaseCommit: string; readonly observedHeadCommit: string } | undefined;
   /**
    * The `contract` term of the verification profile. An unresolved `codegen` or `diff` skips that leg.
    * An unresolved `typecheck` skips the typecheck leg. When both `codegen` and `diff` are unresolved, the gate skips.
@@ -62,7 +63,7 @@ export interface ContractDriftResult {
    * The discriminant of a skip, or of a pass that did not run the `codegen` or the `diff` leg.
    * In each case the profile does not resolve the term of a leg.
    */
-  readonly discriminant?: typeof PROFILE_UNRESOLVED;
+  readonly discriminant?: typeof PROFILE_UNRESOLVED | 'PROFILE_DIFF_COORDINATE_UNBOUND';
   /**
    * The reason of a skip, or of a pass that did not run a leg. It holds the reason of each unresolved term
    * of `contract.codegen` and `contract.diff`.
@@ -129,6 +130,15 @@ export async function runContractDrift(args: ContractDriftArgs): Promise<Contrac
   const { repoRoot, baseRef, contract, gitExec, runCommand } = args;
   const { codegen, typecheck, diff } = contract;
   const notRun = legsNotRun(contract);
+  const coordinate = args.coordinate;
+  if (coordinate !== undefined && diff.state === 'resolved'
+    && (!diff.argv.slice(1).includes('@baseCommit@') || !diff.argv.slice(1).includes('@headCommit@'))) {
+    return { passed: false, drift: false, breaking: [], discriminant: 'PROFILE_DIFF_COORDINATE_UNBOUND',
+      report: 'The resolved diff command requires standalone @baseCommit@ and @headCommit@ arguments.' };
+  }
+  const diffArgv = diff.state !== 'resolved' ? [] : diff.argv.map((token, index) => coordinate === undefined || index === 0 ? token
+    : token === '@baseCommit@' ? coordinate.diffBaseCommit : token === '@headCommit@' ? coordinate.observedHeadCommit : token);
+
 
   if (codegen.state === 'unresolved' && diff.state === 'unresolved') {
     return {
@@ -145,7 +155,7 @@ export async function runContractDrift(args: ContractDriftArgs): Promise<Contrac
     };
   }
 
-  const baseline = computeMergeBase(gitExec, repoRoot, baseRef);
+  const baseline = coordinate?.diffBaseCommit ?? computeMergeBase(gitExec, repoRoot, baseRef);
   const reportLines: string[] = [];
   reportLines.push(
     baseline
@@ -185,7 +195,7 @@ export async function runContractDrift(args: ContractDriftArgs): Promise<Contrac
   }
 
   if (diff.state === 'resolved') {
-    const df = await runCommand({ repoRoot, argv: diff.argv });
+    const df = await runCommand({ repoRoot, argv: diffArgv });
     const breaking = extractBreaking(df.stdout);
     const isDrift = df.exitCode !== 0 || breaking.length > 0;
     if (isDrift) {

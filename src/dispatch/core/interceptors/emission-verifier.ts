@@ -115,6 +115,11 @@ export const EMISSION_INAPPLICABILITY_REASONS = [
    * the store for events that the action promised not to write.
    */
   'read-only-abstention',
+  /**
+   * The handler succeeded and replied `idempotent: true`. It did no work, so it owes no record of
+   * work. A real move replies with no such field and stays subject to the check.
+   */
+  'handler-no-op',
 ] as const;
 
 export type EmissionInapplicabilityReason =
@@ -422,6 +427,15 @@ export function emissionIndeterminacyWarning(
   );
 }
 
+/**
+ * True when a handler reply says that the call did no work. Only an object reply whose `idempotent`
+ * field is the boolean `true` is a no-op. Another value of the field, or another reply, is not.
+ */
+export function isHandlerNoOpReply(reply: unknown): boolean {
+  if (typeof reply !== 'object' || reply === null) return false;
+  return Reflect.get(reply, 'idempotent') === true;
+}
+
 export interface EmissionVerifierCall {
   /** The composite tool the action is registered under. */
   readonly tool: string;
@@ -468,7 +482,8 @@ export interface EmissionVerifierCall {
 /**
  * Runs the post-dispatch emission verifier for one call. `dispatch()` calls it after the handler
  * returns and before it returns the result. A refused, stubbed, or read-only abstaining handler, a
- * missing unconditional contract, and a missing stream resolve `not-applicable` with no query.
+ * no-op reply, a missing unconditional contract, and a missing stream resolve `not-applicable` with
+ * no query. The refusal check runs first, so a refused reply with `idempotent: true` stays refused.
  *
  * It never throws. A failed store read resolves `indeterminate` with `store-unavailable`. A fault
  * after the read, or a failed write of the finding, resolves `verification-fault`. A violation is
@@ -502,6 +517,15 @@ export async function runEmissionVerifierInterceptor(
     return {
       status: 'not-applicable',
       reason: 'read-only-abstention',
+      missingEvents: [],
+      lifecycleViolations: [],
+      required,
+    };
+  }
+  if (isHandlerNoOpReply(call.reply)) {
+    return {
+      status: 'not-applicable',
+      reason: 'handler-no-op',
       missingEvents: [],
       lifecycleViolations: [],
       required,

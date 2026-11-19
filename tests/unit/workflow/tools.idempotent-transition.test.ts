@@ -99,7 +99,13 @@ describe('handleTransition idempotent same-target no-op (T73, CR #13)', () => {
 
     const stateFile = path.join(tmpDir, `${featureId}.state.json`);
 
+    const initialized = await readStateFile(stateFile);
+    const repair = await handleTransition({ featureId, target: 'plan' }, tmpDir, eventStore);
+    expect(repair).toMatchObject({ success: true, data: { phase: 'plan', idempotent: true } });
+    const beforeBytes = await fs.readFile(stateFile, 'utf8');
     const beforeFirst = await readStateFile(stateFile);
+    expect(beforeFirst._version).toBeGreaterThan(initialized._version);
+    expect(beforeFirst).toMatchObject({ phaseObligation: null, _eventSequence: (await eventStore.query(featureId)).at(-1)?.sequence });
     const beforeFirstUpdatedAt = beforeFirst.updatedAt;
     const beforeFirstVersion = beforeFirst._version;
     const beforeFirstCheckpoint = JSON.parse(
@@ -138,5 +144,6 @@ describe('handleTransition idempotent same-target no-op (T73, CR #13)', () => {
     expect(afterSecondCheckpoint.lastActivityTimestamp).toBe(
       afterFirstCheckpoint.lastActivityTimestamp,
     );
+    expect(await fs.readFile(stateFile, 'utf8')).toBe(beforeBytes);
   });
 });

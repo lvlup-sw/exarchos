@@ -312,6 +312,7 @@ describe('DR-23 / T-31 — durable shadow evidence from the production path', ()
   /**
    * The test walks the debug workflow to `debug-implement` through the composite handler.
    * On `debug-implement → debug-validate`, the legacy `implementation-complete` guard always passes, but admission needs `implementation.complete === true`.
+   * The edge condition of the definition needs the same fact, so the call fails the guard. The legacy attempt still feeds the shadow.
    * The disposition points at the attempt fact that the store holds for the same edge.
    */
   it('ShadowObserver_Disagreement_EmitsDispositionEvent', async () => {
@@ -346,7 +347,8 @@ describe('DR-23 / T-31 — durable shadow evidence from the production path', ()
       { action: 'transition', featureId, target: 'debug-validate' },
       ctx(),
     );
-    expect(defect.success).toBe(true);
+    expect(defect.success).toBe(false);
+    expect(defect.error?.code).toBe('GUARD_FAILED');
 
     await flushLiveShadowEvidence();
 

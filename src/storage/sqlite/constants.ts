@@ -25,3 +25,6 @@ export const SQLITE_BUSY_RETRY_POLICY = {
 } as const;
 
 export const DECIDE_ONCE_CLAIM_STREAM = '__decide_once_operations__';
+
+/** Internal zero-row input bindings never share the terminal operation claim namespace. */
+export const SEGMENT_INPUT_CLAIM_STREAM = '__segment_input_bindings_v1__';
