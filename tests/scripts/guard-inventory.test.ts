@@ -32,6 +32,7 @@ import {
   hasDirectRunExit,
   indexShellIndirection,
   isEnforcingHost,
+  jobAdmitsDispatch,
   jobSkipsPullRequest,
   isPathShaped,
   isTestArtifact,
@@ -829,6 +830,21 @@ describe('Derivations the inventory rests on', () => {
 
     expect(resolveIn('on: [push, workflow_dispatch]')?.preMerge).toBe(true);
     expect(resolveIn('on: [push]')?.preMerge).toBe(false);
+  });
+
+  /** A dispatch trigger counts only for a job whose condition lets a dispatch run start it. */
+  it('HostResolution_JobConditionThatSkipsDispatch_IsNotPreMergeCoverage', () => {
+    expect(jobAdmitsDispatch({})).toBe(true);
+    expect(jobAdmitsDispatch({ if: '${{ !cancelled() }}' })).toBe(true);
+    expect(jobAdmitsDispatch({ if: "github.event_name != 'pull_request'" })).toBe(true);
+    expect(
+      jobAdmitsDispatch({
+        if: "github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'ci:windows')",
+      }),
+    ).toBe(true);
+    expect(jobAdmitsDispatch({ if: "github.event_name == 'push'" })).toBe(false);
+    expect(jobAdmitsDispatch({ if: "github.event_name != 'pull_request' && github.ref == 'refs/heads/main'" })).toBe(false);
+    expect(jobAdmitsDispatch({ if: "startsWith(github.ref, 'refs/tags/')" })).toBe(false);
   });
 
   /** The workflow does not name the guard. Two npm scripts lie between the step and the guard. */

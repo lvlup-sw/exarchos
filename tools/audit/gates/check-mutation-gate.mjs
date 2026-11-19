@@ -5,7 +5,8 @@
  * and runs with `bun run`. The handler needs an `EventStore`, which imports `bun:sqlite`, and
  * only Bun resolves that module. Node and `tsx` fail with `ERR_UNSUPPORTED_ESM_URL_SCHEME`.
  *
- * Skips (exit 0): a non-`pull_request` event, and a `src/**` diff with no files.
+ * Skips (exit 0): an event other than `pull_request` or `workflow_dispatch`, and a `src/**` diff with no files.
+ * A dispatch run with no base diffs against `main`.
  * Exit 1: a score below threshold, NoCoverage over budget, a hard handler error, or a degrade
  * or skip marker on the result. The gate never trusts `data.passed` alone.
  * Exit 2: fail closed on a missing base ref, a git failure, a `--head` other than the checkout,
@@ -363,17 +364,21 @@ function computeVerdict(result) {
   return data;
 }
 
+/** The events that carry a change to diff. A dispatch run has no pull request, so it diffs against `main`. */
+const DIFF_EVENTS = new Set(['pull_request', 'workflow_dispatch']);
+
 /** A `pull_request` event with no base ref is an environment fault, so it fails closed and is not a skip. */
 function main() {
   const args = parseArgs(process.argv);
 
-  if (args.eventName !== 'pull_request') {
+  if (!DIFF_EVENTS.has(args.eventName ?? '')) {
     process.stdout.write(
-      `check-mutation-gate: SKIP — event '${args.eventName ?? '(unset)'}' is not 'pull_request'; ` +
-        'the diff-scoped mutation gate only runs on PR events\n',
+      `check-mutation-gate: SKIP — event '${args.eventName ?? '(unset)'}' is not 'pull_request' or ` +
+        "'workflow_dispatch'; the diff-scoped mutation gate only runs on those events\n",
     );
     process.exit(EXIT_PASS);
   }
+  if (args.eventName === 'workflow_dispatch' && !args.base) args.base = 'main';
 
   if (!args.base) {
     process.stderr.write(

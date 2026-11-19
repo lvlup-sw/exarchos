@@ -250,8 +250,8 @@ export const ADVISORY_REGISTRY: readonly AdvisoryEntry[] = [
     ciFilterRationale:
       'Hosted by ci.yml\'s `test-mcp` job, gated by lane `mcp` via ci-lanes ' +
       '(`fromJSON(needs.plan.outputs.lanes).mcp`) AND by a step-level ' +
-      '`if: github.event_name == \'pull_request\'`. A PR touching only root files never ' +
-      'runs it. Compounding that, `--observe` collapses every failing verdict to exit 0 ' +
+      '`if: github.event_name == \'workflow_dispatch\'`. A push to main never runs it. ' +
+      'Compounding that, `--observe` collapses every failing verdict to exit 0 ' +
       '(the gate\'s own self-test, direction 9, `NoCoverageFailure_ObserveNeverBlocks`), so ' +
       'in its live configuration it cannot block on ANY lane. Both are exit conditions of ' +
       '#1720.',

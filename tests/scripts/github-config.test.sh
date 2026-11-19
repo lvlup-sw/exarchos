@@ -272,7 +272,7 @@ print('yes' if 'stale' in jobs else 'no')
     fi
 fi
 
-# Test 18: Contains auto-merge-renovate job
+# Test 18: auto-merge-renovate job is removed with the PR-only automation
 if [[ -f "$GITHUB_DIR/workflows/project-automation.yml" ]]; then
     HAS_JOB=$(python3 -c "
 import yaml
@@ -282,10 +282,10 @@ jobs = data.get('jobs', {})
 print('yes' if 'auto-merge-renovate' in jobs else 'no')
 " 2>/dev/null)
 
-    if [[ "$HAS_JOB" == "yes" ]]; then
-        pass "project-automation.yml contains auto-merge-renovate job"
+    if [[ "$HAS_JOB" == "no" ]]; then
+        pass "project-automation.yml omits auto-merge-renovate job"
     else
-        fail "project-automation.yml missing auto-merge-renovate job"
+        fail "project-automation.yml still contains auto-merge-renovate job"
     fi
 fi
 

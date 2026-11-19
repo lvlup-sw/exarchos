@@ -257,16 +257,16 @@ jobs:
           RUN_EVALS: '1'
         run: npx vitest run tools/evals/evals/harness.test.ts tools/evals/evals/graders/llm-rubric.test.ts
 
-      # Diff-scoped mutation gate, OBSERVE MODE, on pull_request events only (a push to
-      # main has no PR base to diff). The script fetches the shallow PR base ref
-      # (origin/$GITHUB_BASE_REF) and runs the in-tree mutation-adequacy handler with
+      # Diff-scoped mutation gate, OBSERVE MODE, on manual dispatch only (a push to
+      # main has no base to diff). The script fetches the shallow base ref (main on a
+      # dispatch) and runs the in-tree mutation-adequacy handler with
       # bun (set up above). An empty diff is a logged skip, and a git failure is
       # fail-closed. Observe mode logs the verdict and always exits 0. The step stays in
       # observe mode until #1720 resolves: the StrykerJS dry-run fails on the full suite
       # in CI. Host class: deps, filtered on `mcp`. A grep-gates step re-asserts the
       # script unfiltered. See docs/guides/ci-gate-hosting.md.
-      - name: Mutation gate — observe mode (DR-7), PR events only
-        if: github.event_name == 'pull_request'
+      - name: Mutation gate — observe mode (DR-7), dispatch only
+        if: github.event_name == 'workflow_dispatch'
         run: node "$GITHUB_WORKSPACE/tools/audit/gates/check-mutation-gate.mjs" --observe
 
       # Composed-path Stryker smoke test: resolver, handler, adapter, the real pinned

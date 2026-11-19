@@ -7,7 +7,7 @@
     "testFiles": 1493,
     "parsedFiles": 1448,
     "shellFiles": 45,
-    "cases": 16538,
+    "cases": 16540,
     "dynamicTitles": 288,
     "unparseableFiles": 0
   },
@@ -12034,6 +12034,11 @@
         },
         {
           "suite": "enforcer-wiring gate — trap-class fixtures (each MUST fail)",
+          "name": "EnforcerWiring_DiffDependentGateOnJobThatSkipsDispatch_Fails",
+          "dynamic": false
+        },
+        {
+          "suite": "enforcer-wiring gate — trap-class fixtures (each MUST fail)",
           "name": "EnforcerWiring_DiffDependentGateWithSynchronize_Passes (the class-4 fix)",
           "dynamic": false
         },
@@ -13337,6 +13342,11 @@
         {
           "suite": "Derivations the inventory rests on",
           "name": "HostResolution_DispatchTriggeredWorkflow_IsPreMergeCoverage",
+          "dynamic": false
+        },
+        {
+          "suite": "Derivations the inventory rests on",
+          "name": "HostResolution_JobConditionThatSkipsDispatch_IsNotPreMergeCoverage",
           "dynamic": false
         },
         {

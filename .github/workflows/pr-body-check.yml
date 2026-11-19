@@ -24,7 +24,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
+      # Check out the head of the requested PR, not the dispatch ref. The template
+      # mirrors are read from this checkout.
       - uses: actions/checkout@v4
+        with:
+          ref: refs/pull/${{ inputs.pr }}/head
 
       - name: Setup GitHub CLI
         env:

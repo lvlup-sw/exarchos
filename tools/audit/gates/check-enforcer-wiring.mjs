@@ -1005,12 +1005,15 @@ export function audit({ manifest, scripts, workflows, primaryFiles }) {
         const pr = parseWorkflow(workflows[entry.workflow]).pullRequest;
         const hasSync =
           pr.present && (pr.types === null || pr.types.includes('synchronize'));
-        const onDemand = 'workflow_dispatch' in parseWorkflowTriggers(workflows[entry.workflow]);
+        const onDemand = analyzeCiPathFilters(workflows[entry.workflow], {
+          event: 'workflow_dispatch',
+          stepMatch: entry.ciStepMatch ?? p,
+        }).unfiltered;
         if (!hasSync && !onDemand) {
           violations.push(
             `${p}  [missing-synchronize-trigger]  diff-dependent gate in ${entry.workflow}, whose ` +
               `pull_request trigger omits \`synchronize\` and which has no \`workflow_dispatch\` ` +
-              `trigger — a diff pushed after open leaves a stale green`,
+              `path that reaches the step unfiltered — a diff pushed after open leaves a stale green`,
           );
         }
       }
