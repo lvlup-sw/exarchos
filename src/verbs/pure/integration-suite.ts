@@ -5,6 +5,7 @@
  *
  * A term that selects a report also reads the report of the run. The reader adds the counts and the load failures,
  * so a report with failures fails on exit 0 too. The runner calls an injected `RunCommandFn`, so a unit test starts no process.
+ * {@link interpretReducedIntegration} judges a run that the verifier observed and a report that it reduced with the same parser.
  */
 
 import { parseVitestResult, type IntegrationSuiteParse } from '../../config/suite-reports.js';
@@ -86,7 +87,7 @@ function exitCodeReport(repoRoot: string, argv: readonly string[], exitCode: num
 }
 
 /** The report of a run with a parsed report. A red exit with a clean report fails, so the result line names the exit. */
-function parsedReport(repoRoot: string, parse: IntegrationSuiteParse, exitCode: number): string {
+function parsedReport(repoRoot: string, parse: IntegrationSuiteParse, exitCode: number, fileTotal = parse.loadFailureFiles.length): string {
   const lines: string[] = [
     ...reportHead(repoRoot),
     `**Exit code:** ${exitCode}`,
@@ -103,10 +104,10 @@ function parsedReport(repoRoot: string, parse: IntegrationSuiteParse, exitCode: 
     for (const f of shownFiles) {
       lines.push(`- \`${f}\``);
     }
-    if (parse.loadFailureFiles.length > shownFiles.length) {
-      const remaining = parse.loadFailureFiles.length - shownFiles.length;
+    if (fileTotal > shownFiles.length) {
+      const remaining = fileTotal - shownFiles.length;
       lines.push(
-        `- …and ${remaining} more (${parse.loadFailureFiles.length} load failures total). ` +
+        `- …and ${remaining} more (${fileTotal} load failures total). ` +
           `Re-run the suite locally for the full list.`,
       );
     }
@@ -217,7 +218,7 @@ function exitCodeResult(repoRoot: string, argv: readonly string[], exitCode: num
 }
 
 /** The result of an exit that the term reads, with a parsed report. A report with failures fails on exit 0, and a red exit fails with a clean report. */
-function parsedResult(repoRoot: string, parse: IntegrationSuiteParse, exitCode: number): RunIntegrationSuiteResult {
+function parsedResult(repoRoot: string, parse: IntegrationSuiteParse, exitCode: number, fileTotal?: number): RunIntegrationSuiteResult {
   const passed = parse.passed && exitCode === 0;
   return {
     ...parse,
@@ -227,7 +228,7 @@ function parsedResult(repoRoot: string, parse: IntegrationSuiteParse, exitCode: 
     completeness: 'complete',
     parseError: false,
     exitCode,
-    report: parsedReport(repoRoot, parse, exitCode),
+    report: parsedReport(repoRoot, parse, exitCode, fileTotal),
   };
 }
 
@@ -244,18 +245,52 @@ export function runIntegrationSuite(input: RunIntegrationSuiteInput): RunIntegra
 
   const [program = '', ...args] = command.argv;
   const run = runCommand(program, args, { cwd: repoRoot });
+  return judgeRun(repoRoot, integration, command.argv, run, () => parseVitestResult(run.stdout));
+}
 
+/** Judges one run of a resolved term. The report reader runs only for an exit that the term reads. */
+function judgeRun(
+  repoRoot: string, integration: IntegrationTerm, argv: readonly string[], run: CommandResult,
+  readReport: () => IntegrationSuiteParse | null, fileTotal?: number,
+): RunIntegrationSuiteResult {
+  const [program = ''] = argv;
   const end = noVerdictEndOf(run, program, integration.failureExitCodes.codes);
   if (end !== undefined) return noVerdictResult(repoRoot, run.exitCode, end);
 
-  if (integration.report === 'exit-code') return exitCodeResult(repoRoot, command.argv, run.exitCode);
+  if (integration.report === 'exit-code') return exitCodeResult(repoRoot, argv, run.exitCode);
 
-  const parse = parseVitestResult(run.stdout);
+  const parse = readReport();
   if (parse === null) {
     return noVerdictResult(repoRoot, run.exitCode, {
       cause: 'shape-mismatch',
       detail: 'runner produced no parseable vitest JSON (ran, but the output shape was unrecognized)',
     });
   }
-  return parsedResult(repoRoot, parse, run.exitCode);
+  return parsedResult(repoRoot, parse, run.exitCode, fileTotal);
+}
+
+/** A suite report that the verifier reduced with the shared parser. The file list can be shorter than its total. */
+export interface ReducedIntegrationReport extends IntegrationSuiteParse {
+  readonly loadFailureFileTotal: number;
+}
+
+export interface ReducedIntegrationInput {
+  readonly repoRoot: string;
+  readonly integration: IntegrationTerm;
+  /** The run that the verifier observed, as the result of the injected runner. */
+  readonly run: CommandResult;
+  /** The report that the verifier reduced, or null when its parser found no report. */
+  readonly report: ReducedIntegrationReport | null;
+}
+
+/**
+ * Judges a run that the verifier observed with the rules of {@link runIntegrationSuite}. A no-verdict end blocks first,
+ * an exit-code term reads the exit, and a report term with no reduced report gives `shape-mismatch`.
+ */
+export function interpretReducedIntegration(input: ReducedIntegrationInput): RunIntegrationSuiteResult {
+  const { repoRoot, integration, run, report } = input;
+  if (integration.command.state === 'unresolved') return unresolvedResult(repoRoot, integration.command.reason);
+  if (report === null) return judgeRun(repoRoot, integration, integration.command.argv, run, () => null);
+  const { loadFailureFileTotal, ...parse } = report;
+  return judgeRun(repoRoot, integration, integration.command.argv, run, () => parse, loadFailureFileTotal);
 }

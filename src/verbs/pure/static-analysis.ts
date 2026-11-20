@@ -18,7 +18,9 @@
 import * as fs from 'node:fs';
 import {
   boundaryChecksAt,
+  projectScopeFailure,
   runBoundaryCheck,
+  type BoundaryLeg,
   type BoundaryLintResult,
   type RawIoTaintResult,
 } from '../../config/boundary-adapters.js';
@@ -105,6 +107,12 @@ export interface StaticAnalysisInput {
   readonly projectConfigError?: ExarchosConfigLoadFailure | undefined;
   /** External command runner (dependency injection). */
   readonly runCommand: RunCommandFn;
+  /**
+   * Boundary legs that the verifier already ran and classified, one for each boundary check in order.
+   * When present, no boundary command runs here. A check with no observed leg gives no verdict.
+   * A scope that cannot be read fails the import-boundary leg, as on a local run, unless its config is absent.
+   */
+  readonly observedBoundaryLegs?: readonly BoundaryLeg[] | undefined;
 }
 
 /** Returns the listed names as a tuple of literal types, so one list can feed each closed type and each reader of every name. */
@@ -401,14 +409,24 @@ export function runStaticAnalysis(input: StaticAnalysisInput): StaticAnalysisRes
   const advisorySkips: AdvisorySkip[] = [];
   const unresolvedScope =
     input.unresolvedFirstParty === undefined ? undefined : reportedReason(input.unresolvedFirstParty, input);
-  for (const check of input.boundaryChecks ?? boundaryChecksAt(repoRoot)) {
-    const leg = runBoundaryCheck(check, {
-      repoRoot,
-      runCommand,
-      firstPartyGlobs: input.firstPartyGlobs,
-      unresolvedScope,
-      projectConfigError: input.projectConfigError,
-    });
+  const observed = input.observedBoundaryLegs;
+  const scopeFailure = projectScopeFailure(input.projectConfigError, unresolvedScope);
+  for (const [index, check] of (input.boundaryChecks ?? boundaryChecksAt(repoRoot)).entries()) {
+    const reported = observed === undefined
+      ? runBoundaryCheck(check, {
+        repoRoot,
+        runCommand,
+        firstPartyGlobs: input.firstPartyGlobs,
+        unresolvedScope,
+        projectConfigError: input.projectConfigError,
+      })
+      : observed[index] ?? {
+        name: check.adapter,
+        result: { status: 'NO_VERDICT', cause: 'did-not-start', detail: 'the verifier returned no result for this boundary check' },
+      };
+    const keepsVerdict = reported.result.status === 'FAIL' && reported.result.cause === 'config-or-usage';
+    const leg = observed !== undefined && scopeFailure !== undefined && check.adapter === 'dependency-cruiser' && !keepsVerdict
+      ? { name: reported.name, result: scopeFailure } : reported;
     foldAdvisoryLeg(leg.name, leg.result, checks, advisorySkips);
   }
 

@@ -1,6 +1,17 @@
 import { canonicalJson } from '../../contract/request-context.js';
 import { GateExecutedData, type WorkflowEvent } from '../../events/schemas.js';
 import { createHash } from 'node:crypto';
+import { realpath } from 'node:fs/promises';
+import { z } from 'zod';
+import { contentDigest } from '../../contract/capsule/capsule-digest.js';
+import {
+  VerificationRequest, checkPlanDigest, exchangeHostedVerification, verificationDigest, verificationJson, verificationKey,
+  verificationValueDigest, type BoundHostInput, type CheckPlan, type HostedCheckFacts, type HostedCommandRun,
+  type HostedExchange, type SignedVerification, type TaskCheckOperation, type VerificationHostConnector, type VerificationRequestTerms,
+} from '../../contract/verification/harness-verification.js';
+import type { RunBundleStore } from '../../events/bundle/run-bundle-store.js';
+import type { PinnedVerificationProfile } from '../../workflow/verification/profile.js';
+import type { CommandResult } from '../pure/static-analysis.js';
 
 import type { ContentAddressedStore } from '../../storage/artifacts/content-addressed-store.js';
 import { getDispatchContext } from '../../dispatch/dispatch-context.js';
@@ -23,6 +34,7 @@ import {
   ADMISSION_RUNTIME_CONTRACT_VERSION,
   AdmissionEvidenceV1Schema,
   ArtifactIdSchema,
+  ContentDigestV1Schema,
   OperationIdSchema,
   PhaseAttemptIdSchema,
   PolicyIdSchema,
@@ -48,6 +60,7 @@ import {
   type GateCompletenessDescriptor,
   type GateEvidenceReference,
   type GateSkipDescriptor,
+  type ProfiledGateArgs,
 } from './gate-utils.js';
 
 const GATE_RUNNER_VERSION = '2.12.0';
@@ -680,4 +693,142 @@ export async function passingGateReplay(request: GateRunRequest, eventStore: Eve
   const active = activePredecessor(records, request, provider, request.policy?.policyDigest ?? FALLBACK_POLICY_DIGEST);
   if (active?.evidence.evidenceId !== id || records.filter(record => record.evidence.evidenceId === id).length !== 1) return undefined;
   return [evidenceRow, signalRow];
+}
+
+/** The private verifier terms that the composite adapter supplies. A caller copy of these terms never reaches a handler. */
+export interface HostedCheckInput {
+  readonly connector: VerificationHostConnector;
+  readonly binding?: BoundHostInput;
+  readonly segmentOperationId?: string;
+}
+
+/** The error code of an explicit hosted refusal. No local execution follows it. */
+export const HOSTED_VERIFICATION_REFUSED = 'HOSTED_VERIFICATION_REFUSED';
+
+/** The result of a provisioned or bound route that cannot run its check in the verifier. */
+export function hostedRefusal(message: string): ToolResult {
+  return { success: false, error: { code: HOSTED_VERIFICATION_REFUSED, message } };
+}
+
+const RequestBindingSchema = z.object({ version: z.literal(1), digest: ContentDigestV1Schema }).strict();
+
+/** Bind one complete request before its first submission. A retry reads the original canonical bytes and never a new request. */
+export async function bindVerificationRequest(
+  eventStore: EventStore, bundles: RunBundleStore, bindingKey: string, request: VerificationRequest,
+): Promise<VerificationRequest> {
+  const backend = eventStore.getAppender().ensureSqliteBackendSync();
+  let payload = backend.lookupSegmentInput(bindingKey);
+  if (payload === undefined) {
+    const ref = await bundles.put(Buffer.from(verificationJson(request)));
+    payload = backend.bindSegmentInput(bindingKey, canonicalJson({ version: 1, digest: ref }));
+  }
+  const binding = RequestBindingSchema.parse(JSON.parse(payload));
+  const original = (await bundles.resolve(binding.digest)).toString('utf8');
+  const checked = VerificationRequest.parse(JSON.parse(original));
+  if (verificationJson(checked) !== original) throw new Error('Bound verifier request bytes are not canonical');
+  return checked;
+}
+
+/** True when an earlier call bound a request under this key. The lookup needs no connector. */
+export function verificationRequestBound(eventStore: EventStore, bindingKey: string): boolean {
+  return eventStore.getAppender().ensureSqliteBackendSync().lookupSegmentInput(bindingKey) !== undefined;
+}
+
+/** Map one signed child result onto the runner result that the existing pure interpreters read. */
+export function hostedCommandResult(run: HostedCommandRun): CommandResult {
+  const output = { stdout: run.stdout, stderr: run.stderr };
+  switch (run.end) {
+    case 'exited': return { exitCode: run.exitCode ?? -1, ...output };
+    case 'timeout': return { exitCode: -1, ...output, spawnError: 'ETIMEDOUT' };
+    case 'output-limit': return { exitCode: -1, ...output, spawnError: 'ENOBUFS' };
+    case 'unavailable': return { exitCode: -1, ...output, spawnError: 'EUNAVAILABLE' };
+    case 'signal': return { exitCode: -1, ...output, signal: 'SIGKILL' };
+  }
+}
+
+/** The facts of one admitted hosted check, or an explicit refusal. A pending outcome throws the pending signal. */
+export type HostedCheckAdmission =
+  | { readonly kind: 'facts'; readonly facts: HostedCheckFacts; readonly signed: SignedVerification }
+  | { readonly kind: 'refused'; readonly result: ToolResult };
+
+/**
+ * Admit one exchange. A refusal and a key conflict stay explicit refusals.
+ * Busy, incomplete and pending throw the pending signal with distinct causes, so the original segment stays retryable and records no evidence.
+ * Evidence must name the exact request, the checkout and the repository.
+ */
+export async function admitHostedExchange(
+  exchange: HostedExchange, request: VerificationRequest, checkout: string, repository?: string,
+): Promise<HostedCheckAdmission> {
+  switch (exchange.kind) {
+    case 'refused': return { kind: 'refused', result: hostedRefusal(`The verifier refused the request: ${exchange.reason}`) };
+    case 'conflict': return { kind: 'refused', result: hostedRefusal('The verifier holds a different request under the original key.') };
+    case 'busy': throw new HostedAdequacyPending('The verifier resource is busy. It holds no claim for this request, so a retry can submit it.');
+    case 'incomplete': throw new HostedAdequacyPending('The verifier retains an incomplete original run. Its effects are unknown, so no new run starts.');
+    case 'pending': throw new HostedAdequacyPending(`Hosted verification has no terminal result: ${exchange.reason}`);
+    case 'evidence': break;
+  }
+  const { signed } = exchange;
+  const { evidence } = signed;
+  const canonical = await realpath(checkout).catch(() => checkout);
+  if (evidence.requestDigest !== verificationDigest(request) || verificationJson(evidence.request) !== verificationJson(request)
+    || evidence.resources[0]?.path !== canonical
+    || (repository !== undefined && !evidence.resources.some(resource => resource.path === repository))
+    || !('check' in evidence.outcome) || evidence.outcome.check.operation !== request.operation) {
+    throw new HostedAdequacyPending('The terminal hosted result does not apply to the authenticated subject.');
+  }
+  return { kind: 'facts', facts: evidence.outcome.check, signed };
+}
+
+/** The inputs of one task check in the verifier. */
+export interface HostedTaskCheckInput {
+  readonly host: HostedCheckInput;
+  readonly operation: TaskCheckOperation;
+  readonly plan: CheckPlan;
+  readonly featureId: string;
+  readonly taskId: string | undefined;
+  readonly phaseAttemptId: string;
+  readonly coordinate: ProfiledGateArgs['coordinate'];
+  readonly profile: PinnedVerificationProfile | undefined;
+  readonly repoRoot: string;
+}
+
+/**
+ * Run one task check under the bound segment and its derived leaf. The request binds the exact task head and the reviewed scope.
+ * The original request is bound before transport, so a retry after a lost reply retrieves the original result.
+ * A provisioned route without a bound segment refuses, and no local process starts.
+ */
+export async function runHostedTaskCheck(input: HostedTaskCheckInput): Promise<HostedCheckAdmission> {
+  const { host, coordinate, profile, taskId } = input;
+  const binding = host.binding;
+  const leafId = binding?.leafOperationId;
+  if (binding === undefined || leafId === undefined || host.segmentOperationId === undefined
+    || coordinate === undefined || profile === undefined || taskId === undefined) {
+    return { kind: 'refused', result: hostedRefusal('A provisioned verifier runs this check only for a bound task segment. No local route runs it.') };
+  }
+  if (getDispatchContext()?.operationId !== leafId) {
+    throw new HostedAdequacyPending('Hosted verification requires the authenticated segment and its actual leaf.');
+  }
+  const identity = host.connector.checks?.[input.operation];
+  if (identity === undefined) {
+    return { kind: 'refused', result: hostedRefusal('The provisioned verifier has no approved identity for this check. No local route runs it.') };
+  }
+  const terms: Extract<VerificationRequestTerms, { operation: TaskCheckOperation }> = {
+    version: 1, operation: input.operation, resourceId: identity.resourceId, profileId: identity.profileId,
+    commandDigest: checkPlanDigest(input.plan),
+    subject: {
+      streamId: input.featureId, phaseAttemptId: input.phaseAttemptId, taskId, leafId, operationId: host.segmentOperationId,
+      preparedDigest: binding.preparedDigest, callerDigest: binding.callerDigest, segmentDigest: binding.segmentDigest,
+      configDigest: binding.configDigest, profileDigest: contentDigest(profile.profile), testSelectionDigest: verificationValueDigest([]),
+      baseCommit: coordinate.diffBaseCommit, headCommit: coordinate.observedHeadCommit,
+      blockerHeads: coordinate.blockers.map(blocker => blocker.headCommit),
+    },
+  };
+  const proposed = VerificationRequest.parse({ ...terms, key: verificationKey(terms) });
+  let request: VerificationRequest;
+  try { request = await binding.freezeRequest(proposed); }
+  catch { throw new HostedAdequacyPending('The original hosted request differs from current execution authority.'); }
+  const exchange = await exchangeHostedVerification(host.connector, request);
+  try { await binding.recheck(); }
+  catch { throw new HostedAdequacyPending('Prepared authority changed during hosted verification.'); }
+  return admitHostedExchange(exchange, request, input.repoRoot, coordinate.repository);
 }

@@ -1,23 +1,25 @@
-/** Source-revert measurement uses disposable source images at the registered checkout path. */
+/** Source-revert measurement and check workspaces use disposable source images at the registered checkout path. */
 import { link, lstat, mkdir, mkdtemp, open, readdir, readFile, realpath, rm, writeFile } from 'node:fs/promises';
-import { dirname, join, sep } from 'node:path';
+import { dirname, join, relative, sep } from 'node:path';
 import { constants } from 'node:fs';
 import {
-  hostedAdequacyPassed, verificationValueDigest,
+  hostedAdequacyPassed, isHostedCheckRequest, verificationValueDigest,
   type AdequacyRun, type HostedAdequacyFacts, type VerificationEvidence,
 } from '../../contract/verification/harness-verification.js';
 import { copyPinnedRuntime, measureRuntimeClosure, type AuthorizedVerification } from './authorization.js';
-import { readAdequacyBlobs, readAdequacyGit, recheckVerification, runConfinedProfile } from './processes.js';
+import { readAdequacyBlobs, readAdequacyGit, recheckVerification, runConfinedProfile, spawnConfined, type ConfinedRun } from './processes.js';
 
 const maximumTreeEntries = 4096;
 const maximumTreeBytes = 96 * 1024 * 1024;
+const maximumCheckTreeEntries = 32768;
+const maximumCheckTreeBytes = 256 * 1024 * 1024;
 const regularModes = new Set(['100644', '100755']);
 
 /** Read immutable Git blob identities with no checkout, pathspec or export conversion. */
-async function tree(authorized: AuthorizedVerification, commit: string) {
+async function tree(authorized: AuthorizedVerification, commit: string, maximumEntries = maximumTreeEntries) {
   const listing = await readAdequacyGit(authorized, ['ls-tree', '-r', '-z', commit]);
   const records = new TextDecoder('utf-8', { fatal: true }).decode(listing).split('\0');
-  if (records.pop() !== '' || records.length > maximumTreeEntries) throw new Error('Tree exceeds hosted adequacy bounds');
+  if (records.pop() !== '' || records.length > maximumEntries) throw new Error('Tree exceeds hosted adequacy bounds');
   return new Map(records.map(record => {
     const match = /^([0-7]{6}) blob ([a-f0-9]{40}|[a-f0-9]{64})\t([^\r\n]+)$/.exec(record);
     const mode = match?.[1];
@@ -215,10 +217,11 @@ async function runtimeIdentity(root: string): Promise<string> {
   return verificationValueDigest(rows);
 }
 
-async function putSource(image: string, path: string, entry: TreeEntry, bytes: Buffer) {
+async function putSource(image: string, path: string, entry: TreeEntry, bytes: Buffer, writable = false) {
   const output = join(image, path);
   await mkdir(dirname(output), { recursive: true });
-  await writeFile(output, bytes, { flag: 'wx', mode: entry.mode === '100755' ? 0o500 : 0o400 });
+  const executable = entry.mode === '100755';
+  await writeFile(output, bytes, { flag: 'wx', mode: writable ? (executable ? 0o700 : 0o600) : (executable ? 0o500 : 0o400) });
 }
 
 /** Run identical selected commands with the committed task source and its measured base source. */
@@ -326,4 +329,109 @@ export async function runHostedAdequacy(authorized: AuthorizedVerification, sign
     reason: passed ? 'Recognized source-revert assertion failure' : 'Hosted adequacy did not prove a source-revert failure',
     stdoutBase64: '', stderrBase64: '',
   };
+}
+
+/** One disposable check workspace: an exact image of the task head and private copies of the pinned runtime. */
+export interface CheckWorkspace {
+  /** The host path of the image. Plans read it, and the child sees it at the registered checkout path. */
+  readonly image: string;
+  /** The registered checkout path, where each child finds the image. */
+  readonly checkout: string;
+  /** The child path of an entry of the pinned dependency closure. */
+  readonly entryPath: (entry: string) => string;
+  /** Start one child under the remaining operation deadline. */
+  readonly run: (program: string | undefined, args: readonly string[]) => Promise<ConfinedRun>;
+}
+
+/**
+ * Copy the pinned check runner, dependency closure and binaries into private scratch, and measure each copy against its pin.
+ * The closure copy mounts at the checkout dependency path, and at its approved path when a child can see that path.
+ */
+async function snapshotCheckRuntime(authorized: AuthorizedVerification, runtime: string): Promise<[string, string][]> {
+  const { profile, resource } = authorized;
+  const configured = profile.check;
+  if (configured === undefined) throw new Error('Check authorization required');
+  const node = join(runtime, 'node');
+  await copyPinnedRuntime(profile.executable, node, configured.runnerDigest);
+  const mounts: [string, string][] = [[node, profile.executable]];
+  const { dependencyRoot, dependencyDigest } = configured;
+  if (dependencyRoot !== undefined) {
+    const dependencies = join(runtime, 'node_modules');
+    if (dependencyDigest === undefined || await measureRuntimeClosure(dependencyRoot, dependencies) !== dependencyDigest) {
+      throw new Error('Approved check closure changed before execution');
+    }
+    mounts.push([dependencies, join(resource.checkout, 'node_modules')]);
+    const exposed = [...authorized.runtimePaths, resource.repository, resource.gitDir];
+    if (exposed.some(root => dependencyRoot === root || dependencyRoot.startsWith(root + sep))) mounts.push([dependencies, dependencyRoot]);
+  }
+  let index = 0;
+  for (const leg of configured.legs) {
+    if (leg.executable === undefined || leg.executableDigest === undefined) continue;
+    const copy = join(runtime, `tool-${index++}`);
+    await copyPinnedRuntime(leg.executable, copy, leg.executableDigest);
+    mounts.push([copy, leg.executable]);
+  }
+  return mounts;
+}
+
+/**
+ * Run a check body in a writable disposable image of the exact task or phase head. The registered checkout stays read-only.
+ * The verifier checks the original checkout before and after the body, removes the scratch, and refuses a changed runtime copy.
+ * Every child shares one operation deadline from operator policy.
+ */
+export async function withCheckWorkspace<T>(
+  authorized: AuthorizedVerification, signal: AbortSignal, body: (workspace: CheckWorkspace) => Promise<T>,
+): Promise<T> {
+  const { request, resource, profile, policy } = authorized;
+  const configured = profile.check;
+  if (!isHostedCheckRequest(request) || configured === undefined) throw new Error('Check authorization required');
+  const head = await tree(authorized, request.subject.headCommit, maximumCheckTreeEntries);
+  const blobs = await readAdequacyBlobs(authorized, [...new Set([...head.values()].map(entry => entry.oid))], maximumCheckTreeBytes, signal);
+  await checkOriginal(authorized, head, blobs);
+  const deadline = Date.now() + (configured.timeoutMs ?? profile.timeoutMs);
+  const scratch = await mkdtemp(join(policy.stateDir, 'check-'));
+  let result: T;
+  try {
+    const image = join(scratch, 'image');
+    await mkdir(image);
+    for (const [path, entry] of head) {
+      const bytes = blobs.get(entry.oid);
+      if (bytes === undefined) throw new Error('Missing captured head blob');
+      await putSource(image, path, entry, bytes, true);
+    }
+    const nested = [resource.repository, resource.gitDir].filter(path => path.startsWith(resource.checkout + sep));
+    for (const path of nested) await mkdir(join(image, relative(resource.checkout, path)), { recursive: true });
+    if (nested.length === 0) await writeFile(join(image, '.git'), `gitdir: ${resource.gitDir}\n`, { flag: 'wx', mode: 0o400 });
+    if (configured.dependencyRoot !== undefined) await mkdir(join(image, 'node_modules'), { recursive: true });
+    const runtime = join(scratch, 'runtime');
+    await mkdir(runtime, { mode: 0o700 });
+    const runtimeMounts = await snapshotCheckRuntime(authorized, runtime);
+    const runtimeState = await runtimeIdentity(runtime);
+    const hostsFile = join(scratch, 'hosts');
+    await writeFile(hostsFile, '127.0.0.1 localhost\n::1 localhost\n', { mode: 0o400, flag: 'wx' });
+    result = await body({
+      image,
+      checkout: resource.checkout,
+      entryPath: entry => join(resource.checkout, 'node_modules', entry),
+      run: async (program, args) => {
+        await recheckVerification(authorized);
+        const remaining = deadline - Date.now();
+        const run = remaining <= 0
+          ? { code: null, reason: 'Execution deadline exceeded', stdout: Buffer.alloc(0), stderr: Buffer.alloc(0) }
+          : await spawnConfined(authorized, signal, {
+            image, writable: true, args, runtimeMounts, hostsFile, timeoutMs: remaining,
+            outputLimit: configured.outputBytes ?? 64 * 1024, ...(program === undefined ? {} : { program }),
+          });
+        if (await runtimeIdentity(runtime) !== runtimeState) throw new Error('Private runtime copy changed during a check');
+        return run;
+      },
+    });
+  } finally {
+    await rm(scratch, { force: true, recursive: true });
+    try { await lstat(scratch); throw new Error('Disposable check image was not removed'); }
+    catch (error) { if (!(error instanceof Error && 'code' in error && error.code === 'ENOENT')) throw error; }
+  }
+  await checkOriginal(authorized, head, blobs);
+  if (signal.aborted) throw new Error('Hosted check was interrupted');
+  return result;
 }

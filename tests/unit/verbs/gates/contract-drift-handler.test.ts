@@ -16,6 +16,7 @@ import {
 } from '../../../../src/verbs/gates/contract-drift-handler.js';
 import type { GitExec } from '../../../../src/verbs/pure/execute-merge.js';
 import type { CommandRunFn } from '../../../../src/verbs/gates/contract-drift.js';
+import type { VerificationHostConnector } from '../../../../src/contract/verification/harness-verification.js';
 
 vi.mock('../../../../src/verbs/gates/durable-gate-producer.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../../../src/verbs/gates/durable-gate-producer.js')>();
@@ -122,6 +123,27 @@ describe('check_contract_drift registration + dispatch + steer', () => {
     expect(ONE_SEMANTIC_TEST_STEER).toBe(
       'contracts verify shape, not meaning — keep exactly ONE semantic test for this boundary; delete redundant shape assertions',
     );
+  });
+
+  /** The composite gives the connector only from the context. A provisioned route with no bound segment refuses, and a caller copy selects nothing. */
+  it('HandleOrchestrate_AProvisionedVerifierWithNoBoundSegment_RefusesAndRunsNoLeg', async () => {
+    const arm = await makeArm('contract-hosted-');
+    arms.push(arm);
+    const calls: string[] = [];
+    const runCommand: CommandRunFn = async ({ argv }) => { calls.push(argv.join(' ')); return { exitCode: 0, stdout: 'no breaking changes' }; };
+    const unused = async (): Promise<never> => { throw new Error('The verifier client must not be called'); };
+    const connector: VerificationHostConnector = { publicKey: '', gitPath: '/usr/bin/git', resourceId: 'r', profileId: 'p',
+      client: { submit: unused, retrieve: unused } };
+    const args = { action: 'check_contract_drift', featureId: 'feat-hosted', taskId: 'T-1', baseBranch: 'main', repoRoot: contractRepo(),
+      gitExec: gitMergeBase, runCommand };
+
+    const refused = await handleOrchestrate(args, { ...arm.ctx, verificationHost: connector });
+    expect(refused).toMatchObject({ success: false, error: { code: 'HOSTED_VERIFICATION_REFUSED' } });
+    expect(calls).toEqual([]);
+
+    const copied = await handleOrchestrate({ ...args, hostCheck: { connector } }, arm.ctx);
+    expect(JSON.stringify(copied)).not.toContain('HOSTED_VERIFICATION_REFUSED');
+    expect(calls.length).toBeGreaterThan(0);
   });
 });
 

@@ -4,11 +4,11 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1507,
-    "parsedFiles": 1462,
+    "testFiles": 1508,
+    "parsedFiles": 1463,
     "shellFiles": 45,
-    "cases": 16637,
-    "dynamicTitles": 309,
+    "cases": 16656,
+    "dynamicTitles": 313,
     "unparseableFiles": 0
   },
   "unparseable": [],
@@ -11305,6 +11305,57 @@
         {
           "suite": "",
           "name": "<dynamic-case-2>",
+          "dynamic": true
+        }
+      ]
+    },
+    "tests/process/1928-hosted-gates.test.ts": {
+      "file": "tests/process/1928-hosted-gates.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "",
+          "name": "HostedGates_BoundChecksRunOnlyInVerifierAndColdReplayNeedsNoHost",
+          "dynamic": false
+        },
+        {
+          "suite": "",
+          "name": "<dynamic-case-1>",
+          "dynamic": true
+        },
+        {
+          "suite": "",
+          "name": "HostedGates_NoHostWrongSubjectSignatureAndRefusedProfileNeverRunLocally",
+          "dynamic": false
+        },
+        {
+          "suite": "",
+          "name": "<dynamic-case-2>",
+          "dynamic": true
+        },
+        {
+          "suite": "",
+          "name": "HostedSpecCoverage_PhaseSubjectRunsDeclaredTestsWhilePlanningAndSkipRunMakeNoRequest",
+          "dynamic": false
+        },
+        {
+          "suite": "",
+          "name": "<dynamic-case-3>",
+          "dynamic": true
+        },
+        {
+          "suite": "",
+          "name": "VerifierBundle_ReachesOnlyReportParsersOfConfig",
+          "dynamic": false
+        },
+        {
+          "suite": "",
+          "name": "HostedRuntime_RefusesUnsafeSourcesAndRunnerProfilesBeforeAnyClaim",
+          "dynamic": false
+        },
+        {
+          "suite": "",
+          "name": "<dynamic-case-4>",
           "dynamic": true
         }
       ]
@@ -56724,6 +56775,16 @@
           "suite": "check_integration_suite command resolution (#1537, DR-15)",
           "name": "checkIntegrationSuite_RunnerSpawnFailure_DistinctFromJsonShapeMismatch",
           "dynamic": false
+        },
+        {
+          "suite": "check_integration_suite with a provisioned verifier",
+          "name": "CheckIntegrationSuite_AProvisionedVerifierWithNoBoundSegment_RefusesAndRunsNoSuite",
+          "dynamic": false
+        },
+        {
+          "suite": "check_integration_suite with a provisioned verifier",
+          "name": "CheckIntegrationSuite_AReducedReport_GivesTheLocalVerdictAndTheExactFileTotal",
+          "dynamic": false
         }
       ]
     },
@@ -56918,6 +56979,11 @@
         {
           "suite": "check_contract_drift registration + dispatch + steer",
           "name": "NextActions_OnPass_CarriesOneSemanticTestSteer",
+          "dynamic": false
+        },
+        {
+          "suite": "check_contract_drift registration + dispatch + steer",
+          "name": "HandleOrchestrate_AProvisionedVerifierWithNoBoundSegment_RefusesAndRunsNoLeg",
           "dynamic": false
         }
       ]
@@ -90596,6 +90662,16 @@
           "suite": "the input of the gate",
           "name": "CheckIntegrationSuite_AHighTierTask_RunsTheSuite",
           "dynamic": false
+        },
+        {
+          "suite": "the verdict of a run that the verifier observed",
+          "name": "IntegrationSuite_EachVerifierEnd_KeepsItsNoVerdictCause",
+          "dynamic": false
+        },
+        {
+          "suite": "the verdict of a run that the verifier observed",
+          "name": "IntegrationSuite_AnObservedExit_IsJudgedAsALocalExit",
+          "dynamic": false
         }
       ]
     },
@@ -90719,6 +90795,26 @@
         {
           "suite": "boundary adapters — the report reader of a check",
           "name": "BoundaryAdapters_TheTaintRerun_NamesItsArgvWithoutTheQuietFlag",
+          "dynamic": false
+        },
+        {
+          "suite": "boundary legs that the verifier plans and observes",
+          "name": "BoundaryAdapters_APlannedLeg_RunsTheLocalArgvAndReadsTheSameVerdict",
+          "dynamic": false
+        },
+        {
+          "suite": "boundary legs that the verifier plans and observes",
+          "name": "BoundaryAdapters_APlannedLegWithNoConfig_SettlesAndNamesTheDisplayRoot",
+          "dynamic": false
+        },
+        {
+          "suite": "boundary legs that the verifier plans and observes",
+          "name": "StaticAnalysis_ObservedBoundaryLegs_RunNoBoundaryCommandAndKeepTheScopeFailure",
+          "dynamic": false
+        },
+        {
+          "suite": "boundary legs that the verifier plans and observes",
+          "name": "StaticAnalysis_AProvisionedVerifierWithNoBoundSegment_RefusesAndRunsNoProcess",
           "dynamic": false
         }
       ]
@@ -90918,6 +91014,11 @@
         {
           "suite": "a term that is not resolved",
           "name": "SpecCoverage_AnUnresolvedGlobTerm_FailsInEachPhaseWithProfileUnresolved",
+          "dynamic": false
+        },
+        {
+          "suite": "spec coverage with a provisioned verifier",
+          "name": "SpecCoverage_AProvisionedVerifierWithNoPreparedPhase_RefusesAndRunsNoProbe",
           "dynamic": false
         }
       ]

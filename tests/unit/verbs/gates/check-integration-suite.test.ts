@@ -22,7 +22,8 @@ const mockStore = {
 
 import { parseVitestResult } from '../../../../src/config/suite-reports.js';
 import { handleCheckIntegrationSuite, isSpawnFailure } from '../../../../src/verbs/gates/check-integration-suite.js';
-import { runIntegrationSuite, LOAD_FAILURE_LIST_CAP } from '../../../../src/verbs/pure/integration-suite.js';
+import { interpretReducedIntegration, runIntegrationSuite, LOAD_FAILURE_LIST_CAP } from '../../../../src/verbs/pure/integration-suite.js';
+import type { VerificationHostConnector } from '../../../../src/contract/verification/harness-verification.js';
 import { integrationTerm, pinnedIntegrationProfile, pinnedTestProfile } from '../../../helpers/verification-profile.js';
 
 const STATE_DIR = '/tmp/test-integration-suite';
@@ -390,5 +391,39 @@ describe('check_integration_suite command resolution (#1537, DR-15)', () => {
     expect(shape.parseFailureKind).toBe('shape-mismatch');
     expect(spawn.report).not.toBe(shape.report);
     expect(spawn.report.toLowerCase()).toContain('spawn');
+  });
+});
+
+/** A connector whose client fails the case when a gate calls it. */
+function unusedConnector(): VerificationHostConnector {
+  const unused = async (): Promise<never> => { throw new Error('The verifier client must not be called'); };
+  return { publicKey: '', gitPath: '/usr/bin/git', resourceId: 'r', profileId: 'p', client: { submit: unused, retrieve: unused } };
+}
+
+describe('check_integration_suite with a provisioned verifier', () => {
+  /** A provisioned route with no bound segment refuses, and the suite never runs locally. */
+  it('CheckIntegrationSuite_AProvisionedVerifierWithNoBoundSegment_RefusesAndRunsNoSuite', async () => {
+    const runner = stubRunnerReturning('{}', 0);
+    const result = await handleCheckIntegrationSuite(
+      { featureId: 'feat-1', repoRoot: '/repo', verificationProfile: EXIT_CODE_PIN, hostCheck: { connector: unusedConnector() } },
+      STATE_DIR, mockStore as unknown as EventStore, runner,
+    );
+    expect(result).toMatchObject({ success: false, error: { code: 'HOSTED_VERIFICATION_REFUSED' } });
+    expect(runner).not.toHaveBeenCalled();
+  });
+
+  /** The verifier reduces the report with the same parser. The judgement of the reduced report equals the local judgement, and the file total stays exact. */
+  it('CheckIntegrationSuite_AReducedReport_GivesTheLocalVerdictAndTheExactFileTotal', () => {
+    const files = Array.from({ length: LOAD_FAILURE_LIST_CAP + 25 }, (_, index) => ({ name: `/repo/f${index}.test.ts`, status: 'failed', assertionResults: [] }));
+    const raw = JSON.stringify({ numFailedTestSuites: files.length, numFailedTests: 0, numTotalTests: 3, testResults: files });
+    const parsed = parseVitestResult(raw);
+    expect(parsed).not.toBeNull();
+    if (parsed === null) return;
+    const reduced = interpretReducedIntegration({ repoRoot: '/repo', integration: VITEST_JSON_TERM, run: { exitCode: 1, stdout: '', stderr: '' },
+      report: { ...parsed, loadFailureFiles: parsed.loadFailureFiles.slice(0, LOAD_FAILURE_LIST_CAP), loadFailureFileTotal: parsed.loadFailureFiles.length } });
+    expect(reduced).toMatchObject({ verdict: 'fail', passed: false, parseError: false, loadFailures: 45, failCount: 45, totalTests: 3, exitCode: 1 });
+    expect(reduced.loadFailureFiles).toHaveLength(LOAD_FAILURE_LIST_CAP);
+    expect(reduced.report).toContain('**Load failures (folded in):** 45');
+    expect(reduced.report).toContain('…and 25 more (45 load failures total)');
   });
 });

@@ -3,9 +3,11 @@
  * time it checks only the shape of each declared path. After implementation,
  * each declared file must exist on disk, and its tests must run and pass.
  * The test terms of the verification profile say which path is a test and which command runs it.
+ * A provisioned verifier runs the declared tests under a bound phase subject. A route with a provisioned verifier or a bound request never runs them locally.
  */
 
 import { existsSync, readFileSync } from 'node:fs';
+import { realpath } from 'node:fs/promises';
 import { join } from 'node:path';
 import { DEFAULT_TEST_GLOBS } from '../../config/toolchains.js';
 import { matchesTestName } from '../../config/verification-profile.js';
@@ -16,7 +18,19 @@ import { matchesAnyGlob, testPathWellFormednessError as declaredTestPathError } 
 import { readValidatedDesignRecord } from '../../workflow/design-record/read.js';
 import { createEvidenceSubject } from '../../workflow/admission/evidence-subject.js';
 import { PROFILE_UNRESOLVED, type VerificationProfile } from '../../workflow/verification/profile.js';
-import { runPhaseGateWithEvidence } from './gate-runner.js';
+import {
+  HostedAdequacyPending, admitHostedExchange, bindVerificationRequest, hostedRefusal, runPhaseGateWithEvidence, verificationRequestBound,
+} from './gate-runner.js';
+import { contentDigest } from '../../contract/capsule/capsule-digest.js';
+import {
+  SpecCoverageSelection, VerificationRequest, checkPlanDigest, exchangeHostedVerification, verificationJson, verificationKey,
+  verificationValueDigest, type CheckPlan, type HostedCommandRun, type VerificationHostConnector, type VerificationRequestTerms,
+} from '../../contract/verification/harness-verification.js';
+import {
+  loadPreparedCustody, recheckPreparedAuthority, selectPreparedAuthority, type PreparedAuthoritySelection,
+} from '../../workflow/capsule/prepared-custody.js';
+import { createConstrainedGitReads } from '../../utils/git-tree.js';
+import { createGitObserver } from '../../utils/git-observer.js';
 import { profileOf, withProfileRoute, type ProfiledGateArgs } from './gate-utils.js';
 import { buildScopedTestRunner } from './test-adequacy-handler.js';
 import type { RunOutcome } from './test-adequacy.js';
@@ -75,6 +89,22 @@ interface TestRunsResult {
   readonly checks: readonly CheckEntry[];
   /** The reason of a probe command that is not resolved. No test ran. */
   readonly unresolvedReason?: string;
+}
+
+/** The private verifier context of one call. The connector comes only from the dispatch context. */
+interface SpecCoverageHost {
+  readonly connector?: VerificationHostConnector;
+  readonly eventStore: EventStore;
+  readonly phaseAttemptId: () => string | undefined;
+}
+
+/** A phase route that the verifier owns: its connector, prepared authority and durable binding key. */
+interface HostedSpecRoute {
+  readonly connector: VerificationHostConnector;
+  readonly eventStore: EventStore;
+  readonly selection: PreparedAuthoritySelection;
+  readonly bindingKey: string;
+  readonly phaseAttemptId: string;
 }
 
 const TEST_FILE_PATTERN = /\*\*Test file:\*\*\s*`([^`]+)`/;
@@ -229,6 +259,7 @@ export async function handleSpecCoverageCheck(
   args: SpecCoverageCheckArgs,
   stateDir: string,
   eventStore: EventStore,
+  connector?: VerificationHostConnector,
 ): Promise<ToolResult> {
   if (!args.featureId) {
     return {
@@ -237,20 +268,31 @@ export async function handleSpecCoverageCheck(
     };
   }
 
-  return runPhaseGateWithEvidence({
-    streamId: args.featureId,
-    gateClass: 'spec-coverage',
-    requirementId: 'requirement:spec-coverage',
-    stateDir,
-    eventStore,
-    subject: (phaseAttemptId) =>
-      createEvidenceSubject(
-        { kind: 'phase-attempt', phaseAttemptId },
-        { gate: 'spec-coverage', phase: 'planning' },
-      ),
-    providerInput: args,
-    executeProvider: async () => executeSpecCoverageCheck(args),
-  });
+  let attempt: string | undefined;
+  const host: SpecCoverageHost = { ...(connector === undefined ? {} : { connector }), eventStore, phaseAttemptId: () => attempt };
+  try {
+    return await runPhaseGateWithEvidence({
+      streamId: args.featureId,
+      gateClass: 'spec-coverage',
+      requirementId: 'requirement:spec-coverage',
+      stateDir,
+      eventStore,
+      subject: (phaseAttemptId) => {
+        attempt = phaseAttemptId;
+        return createEvidenceSubject(
+          { kind: 'phase-attempt', phaseAttemptId },
+          { gate: 'spec-coverage', phase: 'planning' },
+        );
+      },
+      providerInput: args,
+      executeProvider: async () => executeSpecCoverageCheck(args, host),
+    });
+  } catch (error) {
+    if (error instanceof HostedAdequacyPending) {
+      return { success: false, error: { code: 'HOSTED_ADEQUACY_PENDING', message: error.message } };
+    }
+    throw error;
+  }
 }
 
 /**
@@ -259,7 +301,7 @@ export async function handleSpecCoverageCheck(
  * can run before the worktree exists. A root that does not exist resolves the
  * co-located globs only. A glob term that is not resolved fails each phase.
  */
-async function executeSpecCoverageCheck(args: SpecCoverageCheckArgs): Promise<ToolResult> {
+async function executeSpecCoverageCheck(args: SpecCoverageCheckArgs, host: SpecCoverageHost): Promise<ToolResult> {
   const { planFile, repoRoot, coveragePhase: phase = 'post-implementation' } = args;
 
   if (!existsSync(planFile)) {
@@ -298,7 +340,7 @@ async function executeSpecCoverageCheck(args: SpecCoverageCheckArgs): Promise<To
   return phase === 'plan'
     ? runPlanSyntaxCheck(planFile, repoRoot, testFiles, globTerm.globs,
       record.kind === 'typed' ? declaredTestPathError : testPathWellFormednessError)
-    : runImplementationCoverageCheck(args, testFiles, tests.probe, record.kind === 'typed' ? globTerm.globs : undefined);
+    : runImplementationCoverageCheck(args, testFiles, tests.probe, record.kind === 'typed' ? globTerm.globs : undefined, host);
 }
 
 /** The FAIL of a glob term that is not resolved. No path of the plan can read as a test, so the result declares none. */
@@ -442,6 +484,141 @@ async function runDeclaredTests(
   return { checks };
 }
 
+/** The reviewed typed scope of a resolved probe term: its argv and its file form. */
+export function specCoveragePlan(probe: ProbeTerm): CheckPlan {
+  return {
+    operation: 'spec-coverage',
+    legs: probe.command.state === 'resolved' ? [{ name: 'probe', kind: 'probe', argv: [...probe.command.argv] }] : [],
+    files: probe.files,
+  };
+}
+
+/** The key of the one spec-coverage request of a phase attempt. It needs no connector, so a retry without one finds the original. */
+function phaseBindingKey(streamId: string, phaseAttemptId: string, preparedDigest: string): string {
+  return 'hosted-phase-request:' + verificationValueDigest({ streamId, phaseAttemptId, preparedDigest });
+}
+
+/**
+ * The verifier route of this call, or undefined for the legacy local route.
+ * A provisioned connector always selects the verifier. A bound request without a connector is pending and never falls back.
+ */
+async function hostedSpecRoute(args: SpecCoverageCheckArgs, host: SpecCoverageHost): Promise<HostedSpecRoute | ToolResult | undefined> {
+  const phaseAttemptId = host.phaseAttemptId();
+  const selection = selectPreparedAuthority(await host.eventStore.query(args.featureId), args.featureId);
+  if (phaseAttemptId === undefined || selection === undefined) {
+    return host.connector === undefined ? undefined
+      : hostedRefusal('A provisioned verifier runs spec coverage only under a prepared phase. No local route runs the tests.');
+  }
+  const bindingKey = phaseBindingKey(args.featureId, phaseAttemptId, selection.record.capsuleDigest);
+  if (host.connector === undefined) {
+    if (verificationRequestBound(host.eventStore, bindingKey)) {
+      throw new HostedAdequacyPending('The connected verifier is unavailable for the original hosted spec-coverage request.');
+    }
+    return undefined;
+  }
+  return { connector: host.connector, eventStore: host.eventStore, selection, bindingKey, phaseAttemptId };
+}
+
+/** Read the exact head of the prepared checkout. The branch comes from the checkout, and the observer rechecks its registration. */
+async function observePhaseHead(gitPath: string, repository: string, checkout: string): Promise<string | undefined> {
+  try {
+    const reads = await createConstrainedGitReads(gitPath);
+    const branch = (await reads.branch(repository, checkout)).trim();
+    const observed = await (await createGitObserver(gitPath)).checkout({ checkout, repository, branch });
+    return observed.kind === 'observed' && observed.value.checkout === checkout ? observed.value.head : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** The run outcome of one signed child. Exit 0 is green, a red code of the term is red, and each other end gives no verdict. */
+function hostedRunOutcome(run: HostedCommandRun, redCodes: readonly number[]): Exclude<RunOutcome, { kind: 'unresolved' }> {
+  switch (run.end) {
+    case 'exited':
+      if (run.exitCode === 0) return { kind: 'ran', result: 'green' };
+      if (run.exitCode !== null && redCodes.includes(run.exitCode)) return { kind: 'ran', result: 'red' };
+      return { kind: 'no-verdict', cause: 'unknown-exit-code',
+        detail: `the command exited ${run.exitCode ?? 'with no status'}, and only exit ${redCodes.join(' or ')} reads as a red run` };
+    case 'timeout': return { kind: 'no-verdict', cause: 'timeout', detail: 'the verifier stopped the run at its pinned time limit' };
+    case 'output-limit': return { kind: 'no-verdict', cause: 'overflow', detail: 'the verifier stopped the run at its pinned output limit' };
+    case 'unavailable': return { kind: 'no-verdict', cause: 'did-not-start', detail: 'the verifier could not start the confined run' };
+    case 'signal': return { kind: 'no-verdict', cause: 'signal', detail: 'a signal stopped the confined run' };
+  }
+}
+
+/**
+ * Runs the declared tests in the verifier under a bound phase subject. The prepared capsule gives the repository, checkout and profile.
+ * Probe-glob fit and an unresolved command refuse before any request, as on the local route.
+ * The complete request binds before its first submission, with the exact head inside it.
+ */
+async function runHostedDeclaredTests(
+  args: SpecCoverageCheckArgs, testFiles: readonly string[], route: HostedSpecRoute,
+): Promise<TestRunsResult | ToolResult> {
+  const { connector, eventStore } = route;
+  const authority = await loadPreparedCustody(route.selection, eventStore.bundleStore);
+  const contract = authority.capsule.settlementContract;
+  const scope = contract.scope;
+  const pinned = contract.verificationProfile;
+  if (scope === undefined || pinned === undefined) {
+    return hostedRefusal('The prepared capsule pins no repository scope or verification profile for hosted spec coverage.');
+  }
+  const probe = pinned.tests.probe;
+  const probeGlobs = probe.command.state === 'resolved' ? probe.globs : undefined;
+  const unfit = probeGlobs === undefined ? [] : testFiles.filter((file) => !matchesAnyGlob(file, probeGlobs));
+  if (unfit.length > 0) {
+    const detail = withProfileRoute(args, runnerFitReason(unfit));
+    return { checks: [{ status: 'FAIL', name: 'Probe command runs each declared test', detail }] };
+  }
+  if (probe.command.state === 'unresolved') {
+    const unresolvedReason = withProfileRoute(args, probe.command.reason);
+    return { checks: [{ status: 'FAIL', name: 'Probe command resolved', detail: `${PROFILE_UNRESOLVED}: ${unresolvedReason}` }], unresolvedReason };
+  }
+  const identity = connector.checks?.['spec-coverage'];
+  if (identity === undefined) return hostedRefusal('The provisioned verifier has no approved identity for spec coverage. No local route runs the tests.');
+  const checkout = await realpath(args.repoRoot);
+  if (checkout !== await realpath(scope.checkout).catch(() => scope.checkout)) {
+    return hostedRefusal('Hosted spec coverage runs only in the prepared checkout.');
+  }
+  const headCommit = await observePhaseHead(connector.gitPath, scope.repository, checkout);
+  if (headCommit === undefined) return hostedRefusal('The prepared checkout has no registered branch head that the verifier can bind.');
+  const selection = SpecCoverageSelection.safeParse({ tests: [...testFiles] });
+  if (!selection.success) return hostedRefusal('The declared tests do not fit one bounded hosted request.');
+  const plan = specCoveragePlan(probe);
+  const terms: Extract<VerificationRequestTerms, { operation: 'spec-coverage' }> = {
+    version: 1, operation: 'spec-coverage', resourceId: identity.resourceId, profileId: identity.profileId,
+    selection: selection.data, commandDigest: checkPlanDigest(plan),
+    subject: {
+      scope: 'phase', streamId: args.featureId, phaseAttemptId: route.phaseAttemptId,
+      preparedDigest: route.selection.record.capsuleDigest, configDigest: scope.configDigest, profileDigest: contentDigest(pinned),
+      testSelectionDigest: verificationValueDigest(selection.data), headCommit,
+    },
+  };
+  const proposed = VerificationRequest.parse({ ...terms, key: verificationKey(terms) });
+  const request = await bindVerificationRequest(eventStore, eventStore.bundleStore, route.bindingKey, proposed);
+  if (verificationJson(request) !== verificationJson(proposed)) {
+    return hostedRefusal('This phase attempt already bound another spec-coverage request. A moved head or a changed selection needs a new phase attempt.');
+  }
+  const exchange = await exchangeHostedVerification(connector, request);
+  if (!recheckPreparedAuthority(route.selection, await eventStore.query(args.featureId))) {
+    throw new HostedAdequacyPending('Prepared authority changed during hosted spec coverage.');
+  }
+  if (await observePhaseHead(connector.gitPath, scope.repository, checkout) !== headCommit) {
+    throw new HostedAdequacyPending('The prepared checkout head moved during hosted spec coverage.');
+  }
+  const admitted = await admitHostedExchange(exchange, request, checkout, scope.repository);
+  if (admitted.kind === 'refused') return admitted.result;
+  const { facts } = admitted;
+  const unscoped = probe.files === 'none';
+  if (facts.operation !== 'spec-coverage' || facts.runs.length !== (unscoped ? 1 : testFiles.length)) {
+    throw new HostedAdequacyPending('The hosted spec-coverage facts do not match the declared tests.');
+  }
+  const codes = probe.failureExitCodes.codes;
+  return {
+    checks: facts.runs.map((run, index) =>
+      checkOfRun(unscoped ? UNSCOPED_RUN_CHECK : `Test passes: ${testFiles[index] ?? ''}`, hostedRunOutcome(run, codes))),
+  };
+}
+
 /**
  * Post-implementation check: each declared test file exists on disk. Unless
  * `skipRun` is set, each file then runs with the probe command of the profile.
@@ -453,6 +630,7 @@ async function runImplementationCoverageCheck(
   testFiles: readonly string[],
   probe: ProbeTerm,
   typedGlobs: readonly string[] | undefined,
+  host: SpecCoverageHost,
 ): Promise<ToolResult> {
   const { planFile, repoRoot, skipRun = false } = args;
   const checks: CheckEntry[] = [];
@@ -494,7 +672,10 @@ async function runImplementationCoverageCheck(
   if (skipRun) {
     checks.push({ status: 'SKIP', name: 'Test execution (--skip-run)' });
   } else if (testFiles.length > 0 && missingList.length === 0 && malformed.length === 0) {
-    const runs = await runDeclaredTests(args, testFiles, probe);
+    const route = await hostedSpecRoute(args, host);
+    if (route !== undefined && 'success' in route) return route;
+    const runs = route === undefined ? await runDeclaredTests(args, testFiles, probe) : await runHostedDeclaredTests(args, testFiles, route);
+    if ('success' in runs) return runs;
     checks.push(...runs.checks);
     unresolvedReason = runs.unresolvedReason;
   }

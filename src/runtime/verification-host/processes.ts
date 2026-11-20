@@ -119,36 +119,56 @@ export async function readAdequacyBlobs(
   return blobs;
 }
 
+/** The options of one confined child. The verifier alone selects each value from operator policy. */
+export interface ConfinedOptions {
+  readonly image?: string;
+  readonly program?: string;
+  readonly args?: readonly string[];
+  readonly writable?: boolean;
+  readonly reporterFile?: string;
+  readonly reportPath?: string;
+  readonly hostsFile?: string;
+  readonly runtimeMounts?: readonly (readonly [string, string])[];
+  readonly outputLimit?: number;
+  readonly timeoutMs?: number;
+}
+
+/** The raw bounded end of one confined child. */
+export interface ConfinedRun {
+  readonly code: number | null;
+  readonly reason: string;
+  readonly stdout: Buffer;
+  readonly stderr: Buffer;
+}
+
 /**
- * Mount an optional disposable worktree image at the same path for both legs.
+ * Start one child in the fixed namespace boundary with an optional disposable image at the checkout path.
  * Private runtime copies mount over their approved paths after the image.
- * An adequacy leg finds the pinned runner first on its search path and reads no runtime npm configuration.
+ * A child with an image finds only the pinned runner directory and /usr/bin on its search path.
  */
-export function runConfinedProfile(
-  authorized: AuthorizedVerification, signal: AbortSignal, image?: string, profileArgs = authorized.profile.args, reporterFile?: string, reportPath?: string,
-  runtimeMounts: readonly (readonly [string, string])[] = [],
-): Promise<VerificationEvidence['outcome']> {
+export function spawnConfined(authorized: AuthorizedVerification, signal: AbortSignal, options: ConfinedOptions = {}): Promise<ConfinedRun> {
+  const { image, reporterFile, reportPath, runtimeMounts = [] } = options;
   const args: string[] = [...namespaceFlags, '--proc', '/proc', '--dev', '/dev', '--tmpfs', '/tmp', '--dir', '/tmp/exarchos-home'];
   for (const path of authorized.runtimePaths) args.push('--ro-bind', path, path);
   args.push('--symlink', 'usr/bin', '/bin', '--symlink', 'usr/lib', '/lib', '--symlink', 'usr/lib64', '/lib64');
-  const vitest = image !== undefined && authorized.profile.adequacy?.reporter === 'vitest';
-  args.push(vitest ? '--bind' : '--ro-bind', image ?? authorized.resource.checkout, authorized.resource.checkout);
+  args.push(image !== undefined && options.writable === true ? '--bind' : '--ro-bind', image ?? authorized.resource.checkout, authorized.resource.checkout);
   for (const [source, target] of runtimeMounts) args.push('--ro-bind', source, target);
-  if (reporterFile !== undefined) {
-    args.push('--ro-bind', reporterFile, '/tmp/exarchos-adequacy-reporter.mjs');
-    args.push('--ro-bind', join(dirname(reporterFile), 'hosts'), '/etc/hosts');
-  }
+  if (reporterFile !== undefined) args.push('--ro-bind', reporterFile, '/tmp/exarchos-adequacy-reporter.mjs');
+  const hosts = options.hostsFile ?? (reporterFile === undefined ? undefined : join(dirname(reporterFile), 'hosts'));
+  if (hosts !== undefined) args.push('--ro-bind', hosts, '/etc/hosts');
   if (reportPath !== undefined) args.push('--bind', reportPath, '/tmp/exarchos-adequacy-report');
   for (const path of new Set([authorized.resource.repository, authorized.resource.gitDir])) args.push('--ro-bind', path, path);
-  const searchPath = [...authorized.runtimePaths.map(path => path + '/bin'), '/usr/bin', '/bin'];
-  if (image !== undefined) searchPath.unshift(dirname(authorized.profile.executable));
-  if (vitest) args.push('--setenv', 'npm_config_globalconfig', '/dev/null');
+  const searchPath = image === undefined
+    ? [...authorized.runtimePaths.map(path => path + '/bin'), '/usr/bin', '/bin']
+    : [dirname(authorized.profile.executable), '/usr/bin'];
+  if (image !== undefined && options.writable === true) args.push('--setenv', 'npm_config_globalconfig', '/dev/null');
   args.push('--chdir', authorized.resource.checkout, '--setenv', 'PATH', searchPath.join(':'),
-    '--setenv', 'LANG', 'C', '--setenv', 'HOME', '/tmp/exarchos-home', '--setenv', 'XDG_STATE_HOME', '/tmp/state', '--', authorized.profile.executable, ...profileArgs);
+    '--setenv', 'LANG', 'C', '--setenv', 'HOME', '/tmp/exarchos-home', '--setenv', 'XDG_STATE_HOME', '/tmp/state', '--',
+    options.program ?? authorized.profile.executable, ...(options.args ?? authorized.profile.args));
+  const outputLimit = options.outputLimit ?? (image === undefined ? 4096 : 64 * 1024);
   return new Promise(resolve => {
-    if (signal.aborted) { resolve({ status: 'failed', exitCode: null, reason: 'Host canceled before execution', stdoutBase64: '', stderrBase64: '' }); return; }
+    if (signal.aborted) { resolve({ code: null, reason: 'Host canceled before execution', stdout: Buffer.alloc(0), stderr: Buffer.alloc(0) }); return; }
     const child = spawn(authorized.bwrap, args, { env: {}, stdio: ['ignore', 'pipe', 'pipe'], detached: true });
-    const outputLimit = image === undefined ? 4096 : 64 * 1024;
     const stdout: Buffer[] = [];
     const stderr: Buffer[] = [];
     let outBytes = 0;
@@ -157,14 +177,36 @@ export function runConfinedProfile(
     const stop = () => { if (child.pid !== undefined) { try { process.kill(-child.pid, 'SIGKILL'); } catch {} } };
     const abort = () => { reason = 'Host canceled execution'; stop(); };
     signal.addEventListener('abort', abort, { once: true });
-    const timer = setTimeout(() => { reason = 'Execution deadline exceeded'; stop(); }, authorized.profile.timeoutMs);
+    const timer = setTimeout(() => { reason = 'Execution deadline exceeded'; stop(); }, options.timeoutMs ?? authorized.profile.timeoutMs);
     child.stdout.on('data', (bytes: Buffer) => { outBytes += bytes.length; if (outBytes > outputLimit) { reason = 'Output limit exceeded'; stop(); } else stdout.push(bytes); });
     child.stderr.on('data', (bytes: Buffer) => { errBytes += bytes.length; if (errBytes > outputLimit) { reason = 'Output limit exceeded'; stop(); } else stderr.push(bytes); });
     child.once('error', () => { reason = 'Confinement process unavailable'; });
     child.once('close', code => {
       clearTimeout(timer);
       signal.removeEventListener('abort', abort);
-      resolve({ status: code === 0 && !reason ? 'passed' : 'failed', exitCode: code, reason: reason || (code === 0 ? 'Approved probe completed' : 'Approved probe failed'), stdoutBase64: Buffer.concat(stdout).toString('base64'), stderrBase64: Buffer.concat(stderr).toString('base64') });
+      resolve({ code, reason, stdout: Buffer.concat(stdout), stderr: Buffer.concat(stderr) });
     });
   });
+}
+
+/**
+ * Mount an optional disposable worktree image at the same path for both legs.
+ * Private runtime copies mount over their approved paths after the image.
+ * An adequacy leg finds the pinned runner first on its search path and reads no runtime npm configuration.
+ */
+export async function runConfinedProfile(
+  authorized: AuthorizedVerification, signal: AbortSignal, image?: string, profileArgs = authorized.profile.args, reporterFile?: string, reportPath?: string,
+  runtimeMounts: readonly (readonly [string, string])[] = [],
+): Promise<VerificationEvidence['outcome']> {
+  const writable = image !== undefined && authorized.profile.adequacy?.reporter === 'vitest';
+  const run = await spawnConfined(authorized, signal, {
+    args: profileArgs, runtimeMounts, writable,
+    ...(image === undefined ? {} : { image }),
+    ...(reporterFile === undefined ? {} : { reporterFile }),
+    ...(reportPath === undefined ? {} : { reportPath }),
+  });
+  const { code, reason } = run;
+  return { status: code === 0 && !reason ? 'passed' : 'failed', exitCode: code,
+    reason: reason || (code === 0 ? 'Approved probe completed' : 'Approved probe failed'),
+    stdoutBase64: run.stdout.toString('base64'), stderrBase64: run.stderr.toString('base64') };
 }

@@ -10,6 +10,9 @@
  *
  * The gate never guesses a base. A run with no `baseBranch` gives the verdict
  * `base-missing`, which is indeterminate and blocks.
+ *
+ * A provisioned verifier runs the legs of a bound segment in a disposable writable image, so codegen never writes the checkout.
+ * A provisioned route never runs a leg locally.
  */
 
 import { runCommandSync } from '../../utils/process.js';
@@ -26,6 +29,9 @@ import {
 } from './gate-utils.js';
 import { runGatePreflight } from '../pure/gate-preflight.js';
 import { runDurableGateProducer } from './durable-gate-producer.js';
+import { HostedAdequacyPending, hostedCommandResult, hostedRefusal, runHostedTaskCheck, type HostedCheckInput } from './gate-runner.js';
+import type { CheckLeg, CheckPlan, HostedCheckFacts } from '../../contract/verification/harness-verification.js';
+import type { VerificationProfile } from '../../workflow/verification/profile.js';
 import type { RiskTier } from '../../workflow/verification-policy.js';
 import type { ResolvedProjectConfig } from '../../config/resolve.js';
 import type { GitExec } from '../pure/execute-merge.js';
@@ -85,6 +91,8 @@ export interface ContractDriftHandlerArgs extends ProfiledGateArgs {
   readonly gitExec?: GitExec;
   /** A test seam. The default is {@link defaultRunCommand}. */
   readonly runCommand?: CommandRunFn;
+  /** The private verifier terms. Only the composite adapter sets them, from the dispatch context. */
+  readonly hostCheck?: HostedCheckInput;
 }
 
 /**
@@ -111,6 +119,47 @@ const defaultRunCommand: CommandRunFn = async ({ repoRoot, argv }) => {
     return { exitCode: e.status ?? 1, stdout: out };
   }
 };
+
+/** The contract legs in the order of the gate. */
+const CONTRACT_LEGS: readonly ('codegen' | 'typecheck' | 'diff')[] = ['codegen', 'typecheck', 'diff'];
+
+/** The reviewed typed scope of the resolved contract legs, in the order of the gate. */
+export function contractDriftPlan(contract: VerificationProfile['contract']): CheckPlan {
+  const legs: CheckLeg[] = [];
+  for (const kind of CONTRACT_LEGS) {
+    const term = contract[kind];
+    if (term.state === 'resolved') legs.push({ name: kind, kind, argv: [...term.argv] });
+  }
+  return { operation: 'contract-drift', legs };
+}
+
+/** True when the gate runs a leg: codegen or diff resolves, and a bound diff names both standalone coordinates. */
+function contractDriftRunsLegs(contract: VerificationProfile['contract'], bound: boolean): boolean {
+  const { codegen, diff } = contract;
+  if (codegen.state === 'unresolved' && diff.state === 'unresolved') return false;
+  return !(bound && diff.state === 'resolved'
+    && (!diff.argv.slice(1).includes('@baseCommit@') || !diff.argv.slice(1).includes('@headCommit@')));
+}
+
+/** A runner that returns each signed leg once in the order of the gate. A missing leg leaves the bound segment pending. */
+function observedLegs(plan: CheckPlan, facts: Extract<HostedCheckFacts, { operation: 'contract-drift' }>): CommandRunFn {
+  let index = 0;
+  return async () => {
+    const planned = plan.legs[index];
+    const leg = facts.legs[index];
+    index++;
+    if (planned === undefined || leg === undefined || planned.kind !== leg.kind) {
+      throw new HostedAdequacyPending('The hosted contract facts lack a leg that the gate reads.');
+    }
+    const result = hostedCommandResult(leg.run);
+    const stopped = leg.run.end === 'exited' ? '' : `[the verifier stopped the leg: ${leg.run.end}] `;
+    const ended = leg.run.end === 'exited' && result.exitCode === 0;
+    return { exitCode: leg.run.end === 'exited' ? result.exitCode : 1, stdout: ended ? leg.run.stdout : `${stopped}${leg.run.stdout}${leg.run.stderr}` };
+  };
+}
+
+/** The legacy git reader of a bound hosted run. The coordinate gives the base, so the governor runs no git command. */
+const NO_GIT: GitExec = () => ({ exitCode: 1, stdout: '' });
 
 /** The discriminant of a run that names no base. */
 const BASE_MISSING = 'base-missing';
@@ -167,6 +216,10 @@ export async function handleContractDrift(
     eventStore,
   );
   if (!pre.ok) return pre.result;
+  const host = args.hostCheck;
+  if (host !== undefined && host.binding === undefined) {
+    return hostedRefusal('A provisioned verifier runs contract drift only for a bound task segment. No local route runs the legs.');
+  }
   const repoRoot = pre.repoRoot;
   const baseRef = args.baseBranch && args.baseBranch.trim().length > 0 ? args.baseBranch.trim() : undefined;
 
@@ -182,7 +235,7 @@ export async function handleContractDrift(
       stateDir,
       eventStore,
     },
-    async () => {
+    async (phaseAttemptId) => {
       const policySkip = resolvePolicySkip({
         gateName: 'check_contract_drift',
         riskTier: args.riskTier,
@@ -217,12 +270,27 @@ export async function handleContractDrift(
         };
       }
 
-      const gitExec = args.gitExec ?? defaultGitExec;
-      const runCommand = args.runCommand ?? defaultRunCommand;
+      const contract = profileOf(args, repoRoot).contract;
+      let gitExec = args.gitExec ?? defaultGitExec;
+      let runCommand = args.runCommand ?? defaultRunCommand;
+      if (host !== undefined) {
+        gitExec = NO_GIT;
+        runCommand = async () => { throw new HostedAdequacyPending('The hosted contract gate has no signed leg to read.'); };
+        if (contractDriftRunsLegs(contract, args.coordinate !== undefined)) {
+          const plan = contractDriftPlan(contract);
+          const admitted = await runHostedTaskCheck({
+            host, operation: 'contract-drift', plan, featureId: args.featureId, taskId: args.taskId,
+            phaseAttemptId, coordinate: args.coordinate, profile: args.verificationProfile, repoRoot,
+          });
+          if (admitted.kind === 'refused') return admitted.result;
+          if (admitted.facts.operation !== 'contract-drift') throw new HostedAdequacyPending('The hosted facts name another operation.');
+          runCommand = observedLegs(plan, admitted.facts);
+        }
+      }
       const drift: ContractDriftResult = await runContractDrift({
         repoRoot,
         baseRef,
-        contract: profileOf(args, repoRoot).contract,
+        contract,
         coordinate: args.coordinate,
         gitExec,
         runCommand,
@@ -243,5 +311,6 @@ export async function handleContractDrift(
         },
       };
     },
+    host?.binding?.checkTree,
   );
 }

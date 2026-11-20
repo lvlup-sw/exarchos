@@ -4,7 +4,35 @@ import { lstat, open, realpath } from 'node:fs/promises';
 import { dirname, isAbsolute, resolve } from 'node:path';
 import { createPrivateKey } from 'node:crypto';
 import { z } from 'zod';
-import { AdequacySelection, VerificationSubject, verifierSignerId } from '../../contract/verification/harness-verification.js';
+import { AdequacySelection, CheckLeg, CheckPlan, PhaseVerificationSubject, SpecCoverageSelection, VerificationSubject, verifierSignerId } from '../../contract/verification/harness-verification.js';
+
+/** The longest operator-pinned duration of one check operation. A check never takes this from a request. */
+export const MAXIMUM_CHECK_TIMEOUT_MS = 900_000;
+/** The largest captured output of one check child. The verifier reduces it before a frame. */
+export const MAXIMUM_CHECK_OUTPUT_BYTES = 64 * 1024 * 1024;
+const pin = z.string().regex(/^[a-f0-9]{64}$/);
+
+/**
+ * One approved check leg. An entry is a script path inside the pinned dependency closure, run by the pinned runner.
+ * An executable is an absolute binary inside an approved runtime directory with its own digest. A leg with neither runs the runner itself.
+ */
+export const HostCheckLeg = CheckLeg.extend({
+  entry: z.string().min(1).max(300).optional(),
+  executable: z.string().min(1).max(4096).optional(),
+  executableDigest: pin.optional(),
+}).strict();
+
+/** The operator policy of one check operation. Every field beyond the typed scope is optional. */
+export const HostCheckProfile = CheckPlan.extend({
+  legs: z.array(HostCheckLeg).min(1).max(20),
+  selection: SpecCoverageSelection.optional(),
+  runnerDigest: pin,
+  dependencyRoot: z.string().optional(),
+  dependencyDigest: pin.optional(),
+  timeoutMs: z.number().int().min(100).max(MAXIMUM_CHECK_TIMEOUT_MS).optional(),
+  outputBytes: z.number().int().min(1024).max(MAXIMUM_CHECK_OUTPUT_BYTES).optional(),
+}).strict();
+export type HostCheckProfile = z.infer<typeof HostCheckProfile>;
 
 export const HostProvisioning = z.object({
   version: z.literal(1), socketPath: z.string(), stateDir: z.string(), tokenPath: z.string(), privateKeyPath: z.string(), publicKey: z.string().max(4096),
@@ -24,8 +52,10 @@ export const HostProvisioning = z.object({
       npmEntry: z.string().optional(),
       npmDigest: z.string().regex(/^[a-f0-9]{64}$/).optional(),
     }).strict().optional(),
+    check: HostCheckProfile.optional(),
   }).strict()).min(1).max(32),
-  resources: z.array(z.object({ id: z.string(), checkout: z.string(), repository: z.string(), gitDir: z.string(), branch: z.string(), subject: VerificationSubject }).strict()).min(1).max(64),
+  resources: z.array(z.object({ id: z.string(), checkout: z.string(), repository: z.string(), gitDir: z.string(), branch: z.string(),
+    subject: z.union([VerificationSubject, PhaseVerificationSubject]) }).strict()).min(1).max(64),
 }).strict();
 export type HostProvisioning = z.infer<typeof HostProvisioning>;
 

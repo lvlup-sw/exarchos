@@ -241,13 +241,15 @@ function coordinateRefusal(args: Record<string, unknown>, ctx: DispatchContext |
  * The severity wrapper of the action table applies the severity and the IMPLEMENT-phase audit mode, so this adapter does not.
  *
  * `verificationProfile` comes only from the context. The adapter removes a value that the args carry, so a wire caller cannot pin a profile.
+ * The private verifier terms come only from the context too. The adapter removes `hostAdequacy` and `hostCheck` from the args.
+ * A `'check'` gate gets the connector whenever the context provisions one, with the binding of a bound leaf, so it never runs locally.
  *
  * @internal Exported so that a test can call the adapter with a gate of its own.
  */
 export function adaptLadderGate<T>(
   handler: (args: T, stateDir: string, eventStore: EventStore) => Promise<ToolResult>,
   coordinateAware = false,
-  hostedAdequacy = false,
+  hosted: boolean | 'check' = false,
 ): ActionHandler {
   return async (args, stateDir, ctx) => {
     if (!ctx?.eventStore) {
@@ -262,7 +264,7 @@ export function adaptLadderGate<T>(
       (args as { projectConfig?: unknown }).projectConfig === undefined
         ? { ...(args as Record<string, unknown>), projectConfig: ctx.projectConfig }
         : args;
-    const { verificationProfile: _carried, hostAdequacy: _host, ...unprofiledArgs } = enrichedArgs;
+    const { verificationProfile: _carried, hostAdequacy: _host, hostCheck: _check, ...unprofiledArgs } = enrichedArgs;
     const gateArgs =
       ctx.verificationProfile === undefined
         ? unprofiledArgs
@@ -270,10 +272,14 @@ export function adaptLadderGate<T>(
     const selectedArgs = coordinateAware && ctx.verificationInput !== undefined
       ? { ...gateArgs, coordinate: ctx.verificationInput.coordinate } : gateArgs;
     const binding = ctx.verificationInput?.hosted;
-    const selected = hostedAdequacy && ctx.verificationHost !== undefined && binding?.leafOperationId !== undefined
-      ? { ...selectedArgs, hostAdequacy: { connector: ctx.verificationHost, binding,
-          segmentOperationId: ctx.verificationInput?.segmentOperationId } }
-      : selectedArgs;
+    const connector = ctx.verificationHost;
+    const segmentOperationId = ctx.verificationInput?.segmentOperationId;
+    const selected = hosted === true && connector !== undefined && binding?.leafOperationId !== undefined
+      ? { ...selectedArgs, hostAdequacy: { connector, binding, segmentOperationId } }
+      : hosted === 'check' && connector !== undefined
+        ? { ...selectedArgs, hostCheck: binding?.leafOperationId === undefined || segmentOperationId === undefined
+          ? { connector } : { connector, binding, segmentOperationId } }
+        : selectedArgs;
     return handler(selected as unknown as T, stateDir, ctx.eventStore);
   };
 }
@@ -449,7 +455,7 @@ export const ACTION_HANDLERS: Readonly<Record<string, ActionHandler>> = {
   check_exploration_depth: adaptWithEventStore(handleCheckExplorationDepth),
   /** Verification-ladder gate. {@link adaptLadderGate} copies the dispatch config into the args, and the severity wrapper applies the severity. */
   check_test_adequacy: adaptLadderGate(handleTestAdequacy, true, true),
-  check_contract_drift: adaptLadderGate(handleContractDrift, true),
+  check_contract_drift: adaptLadderGate(handleContractDrift, true, 'check'),
   check_mock_boundary: adaptLadderGate(handleMockBoundary, true),
   /**
    * Action of the mutation-adequacy review dimension. It is advisory by default, because its seeded gate default is warning-only.
@@ -458,8 +464,8 @@ export const ACTION_HANDLERS: Readonly<Record<string, ActionHandler>> = {
    */
   [MUTATION_GATE_NAME]: adaptLadderGate(handleMutationAdequacy),
   check_post_merge: adaptWithEventStore(handlePostMerge),
-  check_static_analysis: adaptLadderGate(handleStaticAnalysis, true),
-  check_integration_suite: adaptLadderGate(handleCheckIntegrationSuite, true),
+  check_static_analysis: adaptLadderGate(handleStaticAnalysis, true, 'check'),
+  check_integration_suite: adaptLadderGate(handleCheckIntegrationSuite, true, 'check'),
   check_security_scan: adaptWithEventStore(handleSecurityScan),
   check_context_economy: adaptWithEventStore(handleContextEconomy),
   check_operational_resilience: adaptWithEventStore(handleOperationalResilience),
@@ -484,7 +490,8 @@ export const ACTION_HANDLERS: Readonly<Record<string, ActionHandler>> = {
   extract_fix_tasks: adaptArgsWithStateDirAndEventStore(handleExtractFixTasks),
   classify_review_items: adaptArgsWithEventStore(handleClassifyReviewItems),
   generate_traceability: adaptArgs(handleGenerateTraceability),
-  spec_coverage_check: adaptWithEventStore(handleSpecCoverageCheck),
+  /** The connector comes only from the dispatch context. Spec coverage reads no connector from its args. */
+  spec_coverage_check: adaptWithEventStore(handleSpecCoverageCheck, (context) => context.verificationHost),
   verify_worktree_baseline: adapt(handleVerifyWorktreeBaseline),
   setup_worktree: adaptSetupWorktree(),
   verify_delegation_saga: adaptArgs(handleVerifyDelegationSaga),

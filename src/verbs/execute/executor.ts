@@ -17,9 +17,9 @@ import { replayPassingAdequacy } from '../gates/durable-gate-producer.js';
 import { createHash, randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { canonicalJson } from '../../contract/request-context.js';
-import { VerificationRequest, verificationJson, verificationValueDigest } from '../../contract/verification/harness-verification.js';
+import { verificationJson, verificationValueDigest, type VerificationRequest } from '../../contract/verification/harness-verification.js';
 import { TaskVerificationCoordinateSchema } from '../../contract/capsule/exarchos-capsule.js';
-import { HostedAdequacyPending } from '../gates/gate-runner.js';
+import { HostedAdequacyPending, bindVerificationRequest } from '../gates/gate-runner.js';
 import { recheckPreparedAuthority, type PreparedAuthority } from '../../workflow/capsule/prepared-custody.js';
 import { observeImmutableClaimedTree } from '../../utils/git-tree.js';
 import { createGitObserver } from '../../utils/git-observer.js';
@@ -592,26 +592,19 @@ function hostedRequestBindingKey(operationId: string, leafId: string): string {
   return 'hosted-request:' + verificationValueDigest({ operationId, leafId });
 }
 
-/** Keep the original request before transport, including a crash before first submission. */
+/** The task leaves whose original request the verifier owns. A retry of such a leaf never runs locally. */
+const HOSTED_LEAF_ACTIONS: ReadonlySet<string> = new Set([
+  'check_test_adequacy', 'check_static_analysis', 'check_contract_drift', 'check_integration_suite',
+]);
+
+/** Keep the original request before transport, including a crash before first submission. A phase subject never binds to a task leaf. */
 async function freezeHostedRequest(
   request: VerificationRequest, ctx: DispatchContext, bundles: RunBundleStore,
 ): Promise<VerificationRequest> {
+  if (request.operation === 'spec-coverage') throw new Error('A phase subject cannot bind to a task leaf');
   const { operationId, leafId } = request.subject;
-  const bindingKey = hostedRequestBindingKey(operationId, leafId);
-  const backend = ctx.eventStore.getAppender().ensureSqliteBackendSync();
-  const bytes = Buffer.from(verificationJson(request));
-  const existing = backend.lookupSegmentInput(bindingKey);
-  let payload = existing;
-  if (payload === undefined) {
-    const ref = await bundles.put(bytes);
-    payload = backend.bindSegmentInput(bindingKey, canonicalJson({ version: 1, digest: ref }));
-  }
-  const binding = z.object({ version: z.literal(1), digest: ContentDigestV1Schema }).strict().parse(JSON.parse(payload));
-  const original = await bundles.resolve(binding.digest);
-  const checked = VerificationRequest.parse(JSON.parse(original.toString('utf8')));
-  if (!original.equals(bytes) || verificationJson(checked) !== original.toString('utf8')) {
-    throw new Error('Hosted verifier request changed after binding');
-  }
+  const checked = await bindVerificationRequest(ctx.eventStore, bundles, hostedRequestBindingKey(operationId, leafId), request);
+  if (verificationJson(checked) !== verificationJson(request)) throw new Error('Hosted verifier request changed after binding');
   return checked;
 }
 
@@ -709,7 +702,7 @@ async function executeBoundInput(intent: string, streamId: string, operationId: 
     if (!compiled.ok) throw new Error(compiled.refusal.message);
     if (canonicalJson(compiled.segment.args) !== canonicalJson(input.args)) throw new Error('Compiled input changed after binding');
     if (ctx.verificationHost === undefined && compiled.segment.leaves.some(leaf =>
-      leaf.action === 'check_test_adequacy' && backend.lookupSegmentInput(hostedRequestBindingKey(
+      HOSTED_LEAF_ACTIONS.has(leaf.action) && backend.lookupSegmentInput(hostedRequestBindingKey(
         operationId, derivedLeafOperationId(operationId, leaf.index, leaf.action),
       )) !== undefined)) {
       throw new HostedAdequacyPending('The connected verifier is unavailable for the original hosted request.');
@@ -745,6 +738,7 @@ async function executeBoundInput(intent: string, streamId: string, operationId: 
           },
         }),
         freezeRequest: request => {
+          if (request.operation === 'spec-coverage') throw new Error('A phase subject cannot bind to a task segment');
           const subject = request.subject;
           if (subject.operationId !== operationId || subject.streamId !== streamId ||
               subject.taskId !== coordinate.taskId || subject.segmentDigest !== digestValue(requestDigest).value) {

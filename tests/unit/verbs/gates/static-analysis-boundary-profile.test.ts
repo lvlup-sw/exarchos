@@ -13,7 +13,9 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 
-import { runBoundaryLint, runRawIoTaint } from '../../../../src/config/boundary-adapters.js';
+import { planBoundaryCheck, positiveCount, runBoundaryLint, runRawIoTaint } from '../../../../src/config/boundary-adapters.js';
+import type { VerificationHostConnector } from '../../../../src/contract/verification/harness-verification.js';
+import { runStaticAnalysis } from '../../../../src/verbs/pure/static-analysis.js';
 import { EventStore } from '../../../../src/events/store.js';
 import type { ToolResult } from '../../../../src/format.js';
 import { handleStaticAnalysis } from '../../../../src/verbs/gates/static-analysis.js';
@@ -30,7 +32,7 @@ import {
 /** Each argv that reaches the process call, and the report that the stub cruiser prints. A case can change the report. */
 const spawns = vi.hoisted(() => {
   const ran: (readonly string[])[] = [];
-  return { ran, cruiserReport: '' };
+  return { ran, cruiserReport: '', produced: 0 };
 });
 
 vi.mock('../../../../src/utils/process.js', async (importOriginal) => {
@@ -45,7 +47,7 @@ vi.mock('../../../../src/utils/process.js', async (importOriginal) => {
 });
 
 vi.mock('../../../../src/verbs/gates/durable-gate-producer.js', () => ({
-  runDurableGateProducer: (_scope: unknown, executeProvider: () => Promise<ToolResult>) => executeProvider(),
+  runDurableGateProducer: (_scope: unknown, executeProvider: () => Promise<ToolResult>) => { spawns.produced++; return executeProvider(); },
 }));
 
 /** The version of the capsule of each pinned case. */
@@ -119,6 +121,7 @@ function stubRunner(result: CommandResult): { readonly runner: RunCommandFn; rea
 beforeEach(() => {
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'boundary-profile-'));
   spawns.ran.splice(0);
+  spawns.produced = 0;
   spawns.cruiserReport = CLEAN_REPORT;
 });
 
@@ -380,5 +383,71 @@ describe('boundary adapters — the report reader of a check', () => {
     expect(result.status === 'FAIL' ? result.detail : '').toContain(
       'Re-run `semgrep --error --config rules/taint.yml .` without --quiet to read its message',
     );
+  });
+});
+
+describe('boundary legs that the verifier plans and observes', () => {
+  /** The verifier plans the leg on its image, runs the planned argv, and reads the complete result with the reader of the local runner. */
+  it('BoundaryAdapters_APlannedLeg_RunsTheLocalArgvAndReadsTheSameVerdict', () => {
+    const repoRoot = fixtureRoot({ '.dependency-cruiser.cjs': CRUISER_CONFIG, 'src/a.ts': '' });
+    const bin = path.join(repoRoot, 'node_modules', '.bin', BIN_NAME);
+    const violating = JSON.stringify({ summary: { error: 1, totalCruised: 2,
+      violations: [{ rule: { name: 'no-cycle', severity: 'error' }, from: 'src/a.ts', to: 'src/b.ts' }] } });
+    const report: CommandResult = { exitCode: 0, stdout: violating, stderr: '' };
+    const { runner, calls } = stubRunner(report);
+    const local = runBoundaryLint({ repoRoot, check: cruiserCheck(), runCommand: runner, findDepcruise: () => bin });
+    const planned = planBoundaryCheck(cruiserCheck(), { repoRoot, findDepcruise: () => bin });
+
+    expect(planned).toMatchObject({ adapter: 'dependency-cruiser', name: 'Import boundaries', plan: { kind: 'run' } });
+    if (planned.plan.kind !== 'run') return;
+    expect([planned.plan.bin, ...planned.plan.args]).toEqual(calls[0]);
+    expect(planned.plan.classify(report)).toEqual(local);
+    expect(local).toMatchObject({ status: 'FAIL', cause: 'violations' });
+  });
+
+  /** A missing config settles with no process. The detail names the registered checkout and never the private image. */
+  it('BoundaryAdapters_APlannedLegWithNoConfig_SettlesAndNamesTheDisplayRoot', () => {
+    const repoRoot = fixtureRoot({ 'src/a.ts': '' });
+    const planned = planBoundaryCheck(cruiserCheck(), { repoRoot, displayRoot: '/registered/checkout' });
+
+    expect(planned.plan).toMatchObject({ kind: 'settled', result: { status: 'FAIL', cause: 'config-or-usage' } });
+    expect(JSON.stringify(planned.plan)).toContain('/registered/checkout');
+    expect(JSON.stringify(planned.plan)).not.toContain(repoRoot);
+  });
+
+  /** Observed legs run no boundary command. A scope that cannot be read still fails the import-boundary leg, as on a local run. */
+  it('StaticAnalysis_ObservedBoundaryLegs_RunNoBoundaryCommandAndKeepTheScopeFailure', () => {
+    const repoRoot = fixtureRoot({ '.dependency-cruiser.cjs': CRUISER_CONFIG, 'src/a.ts': '' });
+    const cruised = positiveCount(2);
+    if (cruised === undefined) throw new Error('Missing positive count');
+    const checks: VerificationProfile['staticAnalysis'] = { state: 'resolved', source: 'config',
+      checks: [{ name: 'lint', command: { state: 'resolved', source: 'config', argv: ['lint'] } }] };
+    const observedBoundaryLegs = [{ name: 'Import boundaries', result: { status: 'PASS' as const, cruised, detail: '2 modules checked' } }];
+    const { runner, calls } = stubRunner({ exitCode: 0, stdout: '', stderr: '' });
+    const observed = runStaticAnalysis({ repoRoot, checks, boundaryChecks: [cruiserCheck()], runCommand: runner, observedBoundaryLegs });
+
+    expect(calls).toEqual([['lint']]);
+    expect(observed.status).toBe('pass');
+    expect(observed.output).toContain('Import boundaries — 2 modules checked');
+
+    const broken = runStaticAnalysis({ repoRoot, checks, boundaryChecks: [cruiserCheck()], runCommand: runner, observedBoundaryLegs,
+      projectConfigError: { source: '.exarchos.yml', message: 'bad YAML' } });
+    expect(broken.status).toBe('fail');
+    expect(broken.output).toContain('the project config .exarchos.yml does not load');
+  });
+
+  /** A provisioned route with no bound segment refuses before the producer, and no process starts. */
+  it('StaticAnalysis_AProvisionedVerifierWithNoBoundSegment_RefusesAndRunsNoProcess', async () => {
+    const worktree = fixtureRoot({ '.dependency-cruiser.cjs': CRUISER_CONFIG, 'src/a.ts': '' });
+    const unused = async (): Promise<never> => { throw new Error('The verifier client must not be called'); };
+    const connector: VerificationHostConnector = { publicKey: '', gitPath: '/usr/bin/git', resourceId: 'r', profileId: 'p',
+      client: { submit: unused, retrieve: unused } };
+
+    const result = await handleStaticAnalysis({ featureId: 'feat-hosted', repoRoot: worktree,
+      verificationProfile: { capsuleVersion: VERSION, profile: boundaryProfile([cruiserCheck()]) }, hostCheck: { connector } }, tmpDir, new EventStore(tmpDir));
+
+    expect(result).toMatchObject({ success: false, error: { code: 'HOSTED_VERIFICATION_REFUSED' } });
+    expect(spawns.ran).toEqual([]);
+    expect(spawns.produced).toBe(0);
   });
 });

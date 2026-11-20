@@ -13,8 +13,19 @@ export const VerificationSubject = z.object({
   configDigest: digest, profileDigest: digest, testSelectionDigest: digest,
   baseCommit: oid, headCommit: oid, blockerHeads: z.array(oid).max(64),
 }).strict();
+export type VerificationSubject = z.infer<typeof VerificationSubject>;
 const requestTerms = z.object({
   version: z.literal(1), key: digest, resourceId: name, profileId: name, subject: VerificationSubject,
+});
+
+/** A phase operation names no task. A strict schema refuses each task field, so no task subject can stand in for it. */
+export const PhaseVerificationSubject = z.object({
+  scope: z.literal('phase'), streamId: name, phaseAttemptId: name,
+  preparedDigest: digest, configDigest: digest, profileDigest: digest, testSelectionDigest: digest, headCommit: oid,
+}).strict();
+export type PhaseVerificationSubject = z.infer<typeof PhaseVerificationSubject>;
+const phaseTerms = z.object({
+  version: z.literal(1), key: digest, resourceId: name, profileId: name, subject: PhaseVerificationSubject,
 });
 
 const selectedPath = z.string().min(1).max(300).refine(path =>
@@ -27,11 +38,70 @@ export const AdequacySelection = z.object({
 }).strict().refine(value => value.tests.every(path => !value.sources.includes(path)));
 export type AdequacySelection = z.infer<typeof AdequacySelection>;
 
+/** The task gate checks that one verifier operation runs against the exact head of a bound task. */
+export const TASK_CHECK_OPERATIONS: readonly ['static-analysis', 'contract-drift', 'integration-suite'] = ['static-analysis', 'contract-drift', 'integration-suite'];
+export type TaskCheckOperation = (typeof TASK_CHECK_OPERATIONS)[number];
+/** Every check operation. Only spec coverage takes a phase subject. */
+export const HOSTED_CHECK_OPERATIONS: readonly [...typeof TASK_CHECK_OPERATIONS, 'spec-coverage'] = [...TASK_CHECK_OPERATIONS, 'spec-coverage'];
+export type HostedCheckOperation = (typeof HOSTED_CHECK_OPERATIONS)[number];
+
+/** Declared tests of one phase. The total path length keeps the echoed request far below the frame limit. */
+export const SpecCoverageSelection = z.object({
+  tests: z.array(selectedPath).min(1).max(128).refine(paths =>
+    new Set(paths).size === paths.length && paths.reduce((total, path) => total + path.length, 0) <= 16384),
+}).strict();
+export type SpecCoverageSelection = z.infer<typeof SpecCoverageSelection>;
+
 export const VerificationRequest = z.discriminatedUnion('operation', [
   requestTerms.extend({ operation: z.literal('probe') }).strict(),
   requestTerms.extend({ operation: z.literal('adequacy'), selection: AdequacySelection, commandDigest: digest }).strict(),
+  requestTerms.extend({ operation: z.literal('static-analysis'), commandDigest: digest }).strict(),
+  requestTerms.extend({ operation: z.literal('contract-drift'), commandDigest: digest }).strict(),
+  requestTerms.extend({ operation: z.literal('integration-suite'), commandDigest: digest }).strict(),
+  phaseTerms.extend({ operation: z.literal('spec-coverage'), selection: SpecCoverageSelection, commandDigest: digest }).strict(),
 ]);
 export type VerificationRequest = z.infer<typeof VerificationRequest>;
+/** Request terms before the key. Each member keeps its own operation and subject. */
+export type VerificationRequestTerms = VerificationRequest extends infer Member
+  ? Member extends VerificationRequest ? Omit<Member, 'key'> : never : never;
+/**
+ * The terms that key derivation reads. The subject kind selects the derivation, and the schema binds each kind to its operations.
+ * A caller that spreads a request keeps this shape, so the helpers stay usable before a full schema parse.
+ */
+export interface VerificationKeyTerms {
+  readonly operation: VerificationRequest['operation'];
+  readonly subject: VerificationSubject | PhaseVerificationSubject;
+}
+/** A complete keyed carrier before its schema parse. Each consumer parses it before use. */
+export type VerificationRequestCarrier = VerificationKeyTerms & { readonly key: string };
+
+/** One approved leg. The verifier maps the argv to its own pinned executable and never runs a checkout program. */
+export const CheckLeg = z.object({
+  name, kind: z.enum(['command', 'dependency-cruiser', 'semgrep-taint', 'codegen', 'typecheck', 'diff', 'integration', 'probe']),
+  argv: z.array(z.string().min(1).max(1024)).min(1).max(64),
+  config: z.string().min(1).max(300).optional(),
+}).strict();
+export type CheckLeg = z.infer<typeof CheckLeg>;
+
+/** The reviewed typed scope of one check. Its digest binds the request to the operator command policy. */
+export const CheckPlan = z.object({
+  operation: z.enum(HOSTED_CHECK_OPERATIONS),
+  legs: z.array(CheckLeg).max(20),
+  report: z.enum(['exit-code', 'vitest-json']).optional(),
+  files: z.enum(['as-arguments', 'after-separator', 'none']).optional(),
+  firstParty: z.array(z.string().min(1).max(300)).max(64).optional(),
+}).strict();
+export type CheckPlan = z.infer<typeof CheckPlan>;
+
+/** Digest the closed check scope with the canonical encoding of the signed carrier. */
+export function checkPlanDigest(plan: CheckPlan): string {
+  return verificationValueDigest(CheckPlan.parse(plan));
+}
+
+/** True for a request that the check owner runs. */
+export function isHostedCheckRequest(request: VerificationRequest): request is Extract<VerificationRequest, { operation: HostedCheckOperation }> {
+  return request.operation !== 'probe' && request.operation !== 'adequacy';
+}
 export const VerificationCommand = z.discriminatedUnion('action', [
   z.object({ version: z.literal(1), token: z.string().min(32).max(4096), action: z.literal('submit'), request: VerificationRequest }).strict(),
   z.object({ version: z.literal(1), token: z.string().min(32).max(4096), action: z.literal('retrieve'), key: digest, digest }).strict(),
@@ -58,13 +128,61 @@ export const HostedAdequacyFacts = z.object({
 }).strict();
 export type HostedAdequacyFacts = z.infer<typeof HostedAdequacyFacts>;
 
+/** One bounded child result. The end names a timeout, an output overflow, a missing process or a signal. */
+export const HostedCommandRun = z.object({
+  end: z.enum(['exited', 'timeout', 'output-limit', 'unavailable', 'signal']),
+  exitCode: z.number().int().nullable(),
+  stdout: z.string().max(8192), stderr: z.string().max(4096), outputDigest: digest,
+}).strict();
+export type HostedCommandRun = z.infer<typeof HostedCommandRun>;
+
+const legDetail = z.string().max(4096);
+const processNoVerdict = z.enum(['missing-tool', 'did-not-start', 'signal', 'out-of-memory', 'output-limit']);
+const boundaryNoVerdict = z.enum(['missing-tool', 'did-not-start', 'signal', 'out-of-memory', 'output-limit', 'no-source-root', 'zero-modules']);
+/** A boundary leg that the verifier classified from its full report. Only the compact verdict crosses the frame. */
+export const HostedBoundaryLeg = z.discriminatedUnion('adapter', [
+  z.object({ adapter: z.literal('dependency-cruiser'), name, result: z.discriminatedUnion('status', [
+    z.object({ status: z.literal('PASS'), cruised: z.number().int().positive(), detail: legDetail }).strict(),
+    z.object({ status: z.literal('FAIL'), cause: z.enum(['violations', 'config-or-usage', 'project-config']), detail: legDetail }).strict(),
+    z.object({ status: z.literal('NO_VERDICT'), cause: boundaryNoVerdict, detail: legDetail }).strict(),
+    z.object({ status: z.literal('NOT_CONFIGURED'), detail: legDetail }).strict(),
+  ]) }).strict(),
+  z.object({ adapter: z.literal('semgrep-taint'), name, result: z.discriminatedUnion('status', [
+    z.object({ status: z.literal('PASS') }).strict(),
+    z.object({ status: z.literal('FAIL'), cause: z.enum(['findings', 'ruleset-or-usage', 'unknown-exit']), detail: legDetail }).strict(),
+    z.object({ status: z.literal('NO_VERDICT'), cause: processNoVerdict, detail: legDetail }).strict(),
+    z.object({ status: z.literal('NOT_CONFIGURED'), detail: legDetail }).strict(),
+  ]) }).strict(),
+]);
+export type HostedBoundaryLeg = z.infer<typeof HostedBoundaryLeg>;
+
+/** The suite report that the verifier reduced with the shared parser. The file list keeps a count of every file. */
+export const ReducedSuiteReport = z.object({
+  passed: z.boolean(), failedSuites: z.number().int().nonnegative(), failedTests: z.number().int().nonnegative(),
+  loadFailures: z.number().int().nonnegative(), totalTests: z.number().int().nonnegative(), failCount: z.number().int().nonnegative(),
+  loadFailureFiles: z.array(z.string().max(300)).max(20), loadFailureFileTotal: z.number().int().nonnegative(),
+}).strict();
+export type ReducedSuiteReport = z.infer<typeof ReducedSuiteReport>;
+
+/** Compact signed facts of one check operation. */
+export const HostedCheckFacts = z.discriminatedUnion('operation', [
+  z.object({ operation: z.literal('static-analysis'), commands: z.array(HostedCommandRun).max(16), boundary: z.array(HostedBoundaryLeg).max(4) }).strict(),
+  z.object({ operation: z.literal('contract-drift'), legs: z.array(z.object({ kind: z.enum(['codegen', 'typecheck', 'diff']), run: HostedCommandRun }).strict()).max(3) }).strict(),
+  z.object({ operation: z.literal('integration-suite'), run: HostedCommandRun, report: ReducedSuiteReport.nullable() }).strict(),
+  z.object({ operation: z.literal('spec-coverage'), runs: z.array(HostedCommandRun).max(128) }).strict(),
+]);
+export type HostedCheckFacts = z.infer<typeof HostedCheckFacts>;
+
 export const VerificationEvidence = z.object({
   version: z.literal(1), hostVersion: z.literal(VERIFIER_VERSION), signerId: digest,
   request: VerificationRequest, requestDigest: digest, hostPolicyDigest: digest,
   resources: z.array(ResourceIdentity).min(1).max(3),
   completedAt: z.string().datetime(),
-  outcome: z.union([ProbeOutcome, ProbeOutcome.extend({ adequacy: HostedAdequacyFacts }).strict()]),
-}).strict().refine(evidence => (evidence.request.operation === 'adequacy') === ('adequacy' in evidence.outcome));
+  outcome: z.union([ProbeOutcome, ProbeOutcome.extend({ adequacy: HostedAdequacyFacts }).strict(), ProbeOutcome.extend({ check: HostedCheckFacts }).strict()]),
+}).strict().refine(evidence => (evidence.request.operation === 'adequacy') === ('adequacy' in evidence.outcome)
+  && (isHostedCheckRequest(evidence.request)
+    ? 'check' in evidence.outcome && evidence.outcome.check.operation === evidence.request.operation
+    : !('check' in evidence.outcome)));
 export type VerificationEvidence = z.infer<typeof VerificationEvidence>;
 export const SignedVerification = z.object({ evidence: VerificationEvidence, signature: z.string().regex(/^[A-Za-z0-9+/]{86}==$/) }).strict();
 export type SignedVerification = z.infer<typeof SignedVerification>;
@@ -104,22 +222,35 @@ export function hostedAdequacyPassed(facts: HostedAdequacyFacts): boolean {
 }
 
 /** Request identity includes every immutable field and the original operation key. */
-export function verificationDigest(request: VerificationRequest): string {
+export function verificationDigest(request: VerificationRequestCarrier): string {
   return createHash('sha256').update(verificationJson(VerificationRequest.parse(request))).digest('hex');
 }
 
-/** A request key cannot be changed to re-execute the same authorized operation. */
-export function verificationOperation(request: Omit<VerificationRequest, 'key'>): string {
-  const { streamId, phaseAttemptId, taskId, leafId, operationId } = request.subject;
-  const execution = request.operation === 'adequacy'
-    ? { streamId, taskId, leafId, operationId, operation: request.operation }
-    : { streamId, phaseAttemptId, taskId, leafId, operationId };
+/**
+ * A request key cannot be changed to re-execute the same authorized operation.
+ * A task check names its leaf and no phase attempt, so a re-entered phase cannot replace the original request.
+ * A phase operation names its stream, phase attempt and operation.
+ */
+export function verificationOperation(request: VerificationKeyTerms): string {
+  const { subject } = request;
+  if ('scope' in subject) {
+    const { streamId, phaseAttemptId } = subject;
+    return verificationValueDigest({ streamId, phaseAttemptId, operation: request.operation });
+  }
+  const { streamId, phaseAttemptId, taskId, leafId, operationId } = subject;
+  const execution = request.operation === 'probe'
+    ? { streamId, phaseAttemptId, taskId, leafId, operationId }
+    : { streamId, taskId, leafId, operationId, operation: request.operation };
   return verificationValueDigest(execution);
 }
 
-/** Claim keys bind the original operation and segment while durable operation uniqueness prevents alias replay. */
-export function verificationKey(request: Omit<VerificationRequest, 'key'>): string {
-  return createHash('sha256').update(verificationJson({ operation: verificationOperation(request), segment: request.subject.segmentDigest })).digest('hex');
+/** Claim keys bind the original operation and segment while durable operation uniqueness prevents alias replay. A phase key binds the prepared identity. */
+export function verificationKey(request: VerificationKeyTerms): string {
+  const { subject } = request;
+  const bound = 'scope' in subject
+    ? { operation: verificationOperation(request), prepared: subject.preparedDigest }
+    : { operation: verificationOperation(request), segment: subject.segmentDigest };
+  return createHash('sha256').update(verificationJson(bound)).digest('hex');
 }
 
 /** Signer identity is the digest of the actual Ed25519 public key bytes. */
@@ -188,15 +319,62 @@ export type VerificationReply = z.infer<typeof VerificationReply>;
 
 type VerifierExchange = VerificationReply | { kind: 'unavailable'; reason: string };
 
+/** The operator identities of one check operation. */
+export interface HostedCheckIdentity {
+  readonly resourceId: string;
+  readonly profileId: string;
+}
+
 export interface VerificationHostConnector {
   readonly publicKey: string;
   readonly gitPath: string;
   readonly resourceId: string;
   readonly profileId: string;
+  /** Per-check operator identities. A check without an identity refuses and never runs locally. */
+  readonly checks?: Readonly<Partial<Record<HostedCheckOperation, HostedCheckIdentity>>>;
   readonly client: {
     submit(request: VerificationRequest): Promise<VerifierExchange>;
     retrieve(key: string, digest: string): Promise<VerifierExchange>;
+    /** Submit once, then retrieve again only after an exchange deadline, until a terminal reply or the poll bound. */
+    poll?(request: VerificationRequest): Promise<VerifierExchange>;
   };
+}
+
+/** The governor outcome of one exchange. Refused, conflict, busy, incomplete and pending stay distinct. */
+export type HostedExchange =
+  | { readonly kind: 'evidence'; readonly signed: SignedVerification }
+  | { readonly kind: 'refused'; readonly reason: string }
+  | { readonly kind: 'conflict' }
+  | { readonly kind: 'busy' }
+  | { readonly kind: 'incomplete' }
+  | { readonly kind: 'pending'; readonly reason: string };
+
+/**
+ * Recover the original disposition before a new submission, then authenticate each reply.
+ * An absent claim after a submission or a transport failure is pending. A transport deadline never proves that a check did not run.
+ */
+export async function exchangeHostedVerification(connector: VerificationHostConnector, request: VerificationRequest): Promise<HostedExchange> {
+  const digest = verificationDigest(request);
+  const authenticate = (exchange: VerifierExchange): VerificationReply | string => {
+    if ('kind' in exchange) return exchange.reason;
+    try { return authenticateVerificationReply(exchange, connector.publicKey, request.key, digest); }
+    catch { return 'The verifier reply is not authenticated for the original request'; }
+  };
+  let reply = authenticate(await connector.client.retrieve(request.key, digest));
+  if (typeof reply !== 'string' && reply.response.kind === 'absent') {
+    const { poll } = connector.client;
+    reply = authenticate(poll === undefined ? await connector.client.submit(request) : await poll(request));
+  }
+  if (typeof reply === 'string') return { kind: 'pending', reason: reply };
+  const response = reply.response;
+  switch (response.kind) {
+    case 'evidence': return { kind: 'evidence', signed: response.signed };
+    case 'refused': return { kind: 'refused', reason: response.reason };
+    case 'conflict': return { kind: 'conflict' };
+    case 'busy': return { kind: 'busy' };
+    case 'incomplete': return { kind: 'incomplete' };
+    case 'absent': return { kind: 'pending', reason: 'The verifier holds no claim for the original request' };
+  }
 }
 
 export interface BoundHostInput {

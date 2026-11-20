@@ -16,7 +16,8 @@ vi.mock('node:child_process', () => ({
   execFileSync: vi.fn(),
 }));
 
-vi.mock('../../../../src/verbs/gates/gate-runner.js', () => ({
+vi.mock('../../../../src/verbs/gates/gate-runner.js', async (importOriginal) => ({
+  ...await importOriginal<typeof import('../../../../src/verbs/gates/gate-runner.js')>(),
   runPhaseGateWithEvidence: (request: { readonly executeProvider: () => Promise<ToolResult> }) => request.executeProvider(),
 }));
 
@@ -30,6 +31,7 @@ import {
   type SpecCoverageCheckArgs,
 } from '../../../../src/verbs/gates/spec-coverage-check.js';
 import { rmrf } from '../../../../tools/test-helpers/temp-dir.js';
+import type { VerificationHostConnector } from '../../../../src/contract/verification/harness-verification.js';
 import {
   pinnedTestProfile,
   pinnedUnresolvedGlobProfile,
@@ -326,5 +328,28 @@ describe('a term that is not resolved', () => {
       expect(data.reason).toContain('Capsule v4 pins this term');
     }
     expect(runs()).toEqual([]);
+  });
+});
+
+describe('spec coverage with a provisioned verifier', () => {
+  /** Planning and skipRun make no request. A post-implementation run with no prepared phase refuses, and no probe runs locally. */
+  it('SpecCoverage_AProvisionedVerifierWithNoPreparedPhase_RefusesAndRunsNoProbe', async () => {
+    writeFiles({ 'package.json': JSON.stringify({ scripts: { test: 'vitest' } }), 'src/a.test.ts': '' });
+    const planFile = join(root, 'plan.md');
+    writeFileSync(planFile, filesList(['src/a.test.ts']));
+    const calls: string[] = [];
+    const record = async (): Promise<never> => { calls.push('verifier'); throw new Error('The verifier client must not be called'); };
+    const connector: VerificationHostConnector = { publicKey: '', gitPath: '/usr/bin/git', resourceId: 'r', profileId: 'p',
+      client: { submit: record, retrieve: record } };
+    const call = (extra: Partial<SpecCoverageCheckArgs>) => handleSpecCoverageCheck(
+      { featureId: 'feat-hosted-coverage', planFile, repoRoot: root, verificationProfile: pinnedTestProfile(1), ...extra },
+      root, new EventStore(root), connector,
+    );
+
+    expect(await call({ coveragePhase: 'plan' })).toMatchObject({ success: true, data: { phase: 'plan', passed: true } });
+    expect(await call({ coveragePhase: 'post-implementation', skipRun: true })).toMatchObject({ success: true, data: { passed: true } });
+    expect(await call({ coveragePhase: 'post-implementation' })).toMatchObject({ success: false, error: { code: 'HOSTED_VERIFICATION_REFUSED' } });
+    expect(runs()).toEqual([]);
+    expect(calls).toEqual([]);
   });
 });
