@@ -1,0 +1,116 @@
+# =============================================================================
+# Composite Action: CI Lanes
+# =============================================================================
+# Starts only the CI jobs a change can affect, without letting a skip hide a
+# failure. A consumer commits a lane manifest (.github/ci-lanes.toml by
+# default) that maps each lane to the paths its jobs read.
+#
+# Modes:
+#   plan     In a planner job: diff the pull request, publish `lanes` (a JSON
+#            object of lane -> "true" | "false"). With `lane:`, also publish
+#            `relevant` for that one lane (an in-step selector). Every event
+#            that is not a pull_request runs every lane.
+#   verdict  In a gate job: fail unless every covered job succeeded, or was
+#            skipped on a lane the planner reported as exactly "false".
+#   check    In the consumer's contract gate: prove the manifest and the
+#            workflows that read it still agree (needs PyYAML, pinned here).
+#
+# The one skip expression a targeted inline job may carry (`check` pins it):
+#   if: ${{ !cancelled() && (needs.plan.result != 'success' || fromJSON(needs.plan.outputs.lanes).<lane> != 'false') }}
+# `check` still accepts the older `always()` guard, but a cancelled run then starts
+# every pending job. Use `!cancelled()` with `cancel-in-progress`.
+# Only the exact string 'false' licenses a skip. A failed planner, or a lane
+# key the planner did not report, runs the job.
+#
+# The logic is the Python package next to this file. It runs on a uv-managed
+# CPython 3.12 with no third-party runtime dependency in plan/verdict, and no
+# network or token use: the diff comes from the local checkout, which must
+# have full history (fetch-depth: 0; `filter: blob:none` is enough).
+#
+# Exit codes: 0 pass, 1 violation, 2 INDETERMINATE (never reported as a pass).
+# See docs/designs/2026-09-15-ci-lane-targeting.md.
+# =============================================================================
+
+name: 'CI Lanes'
+description: 'Start only the CI jobs a change can affect: plan lanes from the PR diff, gate skipped jobs fail-closed, and check the workflows that read them.'
+
+inputs:
+  mode:
+    description: 'plan (default) | verdict | check'
+    required: false
+    default: 'plan'
+  manifest:
+    description: 'Repository-relative lane manifest.'
+    required: false
+    default: '.github/ci-lanes.toml'
+  lane:
+    description: 'mode=plan only: also publish `relevant` (true | false) for this one lane.'
+    required: false
+    default: ''
+  gate:
+    description: 'mode=verdict only: the gate job id, as declared in the manifest.'
+    required: false
+    default: ''
+  needs:
+    # GitHub evaluates expressions inside action metadata, so this description
+    # must not contain one: a literal toJSON(needs) expression here makes the
+    # whole action fail to load.
+    description: 'mode=verdict only: the gate job needs context, passed through toJSON.'
+    required: false
+    default: ''
+  working-directory:
+    description: 'Repository root to plan or check.'
+    required: false
+    default: '.'
+
+outputs:
+  lanes:
+    description: 'mode=plan: JSON object of lane -> "true" | "false". Read it as fromJSON(needs.<planner>.outputs.lanes).<lane>.'
+    value: ${{ steps.ci-lanes.outputs.lanes }}
+  relevant:
+    description: 'mode=plan with `lane:`: "true" or "false" for that lane.'
+    value: ${{ steps.ci-lanes.outputs.relevant }}
+
+runs:
+  using: composite
+  steps:
+    - name: Setup uv (pinned)
+      uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+      with:
+        version: '0.9.26'
+        enable-cache: 'false'
+
+    - name: Run ci-lanes
+      id: ci-lanes
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      # Every value reaches the script through env, never through ${{ }} in the
+      # script body, so no input can change what the shell parses.
+      env:
+        CI_LANES_MODE: ${{ inputs.mode }}
+        CI_LANES_MANIFEST: ${{ inputs.manifest }}
+        CI_LANES_LANE: ${{ inputs.lane }}
+        CI_LANES_GATE: ${{ inputs.gate }}
+        CI_LANES_NEEDS: ${{ inputs.needs }}
+        CI_LANES_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        CI_LANES_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        CI_LANES_PACKAGE: ${{ github.action_path }}
+      run: |
+        set -euo pipefail
+        export PYTHONPATH="${CI_LANES_PACKAGE}" PYTHONSAFEPATH=1 PYTHONDONTWRITEBYTECODE=1
+        uv_run=(uv run --no-project --no-config --managed-python --python 3.12)
+        case "${CI_LANES_MODE}" in
+          plan)
+            exec "${uv_run[@]}" python -m ci_lanes plan --manifest "${CI_LANES_MANIFEST}" --lane "${CI_LANES_LANE}"
+            ;;
+          verdict)
+            exec "${uv_run[@]}" python -m ci_lanes verdict --manifest "${CI_LANES_MANIFEST}" --gate "${CI_LANES_GATE}"
+            ;;
+          check)
+            exec "${uv_run[@]}" --with 'PyYAML==6.0.2' python -m ci_lanes check --manifest "${CI_LANES_MANIFEST}"
+            ;;
+          *)
+            echo "::error title=ci-lanes INDETERMINATE::mode must be plan, verdict or check, got '${CI_LANES_MODE}'"
+            exit 2
+            ;;
+        esac

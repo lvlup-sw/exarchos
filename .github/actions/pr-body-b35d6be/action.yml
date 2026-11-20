@@ -1,0 +1,103 @@
+# =============================================================================
+# Composite Action: PR Body
+# =============================================================================
+# Refuses a pull-request body that does not follow the template. The template
+# is the policy: by default the org template this action ships with
+# (.github/PULL_REQUEST_TEMPLATE.md in lvlup-sw/.github), which GitHub also
+# offers as the default body in every repository that has no template of its own.
+# It fails when:
+#
+#   1. a template heading is missing, repeated or out of order, or the body
+#      carries any other heading (a "sixth heading");
+#   2. a template section is empty (write None.);
+#   3. an HTML comment (a template hint) is left in the body;
+#   4. a line starts with "Generated with" or "Made with" (a generator footer);
+#   5. the body holds more than max-words words;
+#   6. a same-as file is not byte-identical to the template;
+#   7. a changed path is under a marker-paths prefix and no body line starts
+#      with the marker and a reason.
+#
+# The body comes from the event payload (GITHUB_EVENT_PATH, or the event-file
+# input), never from a shell expression. Rule 7 reads git diff base...head from the checkout, so it
+# needs fetch-depth: 0. No rule uses the network or a token.
+#
+# The logic is the Python package next to this file. It runs on a uv-managed
+# CPython 3.12 with the standard library only.
+#
+# Exit codes: 0 pass (or a skipped author), 1 violation, 2 INDETERMINATE (no
+# template heading, no pull request in the event, a failed git diff). Never
+# reported as a pass.
+# =============================================================================
+
+name: 'PR Body'
+description: 'Fail a pull request whose body does not follow the template: headings in order, no extra heading, no hints, no footer, a word cap.'
+
+inputs:
+  template:
+    description: 'Repository-relative template file. Empty (the default) uses the org template that ships with this action.'
+    required: false
+    default: ''
+  same-as:
+    description: 'Repository-relative files, one per line, that must be byte-identical to the template.'
+    required: false
+    default: ''
+  max-words:
+    description: 'The most words the body may hold. 0 turns the cap off.'
+    required: false
+    default: '250'
+  skip-authors:
+    description: 'Pull-request author logins, one per line, that the check skips.'
+    required: false
+    default: |
+      dependabot[bot]
+      renovate[bot]
+  marker:
+    description: 'A line prefix, for example GOLDEN-FIXTURE-UPDATE:, that the body must carry with a reason when a marker path changes.'
+    required: false
+    default: ''
+  marker-paths:
+    description: 'Repository-relative path prefixes, one per line, whose change requires the marker. Needs fetch-depth 0.'
+    required: false
+    default: ''
+  event-file:
+    description: 'The pull_request event JSON to read. Empty (the default) reads the event of this run.'
+    required: false
+    default: ''
+  working-directory:
+    description: 'Repository root, relative to the workspace.'
+    required: false
+    default: '.'
+
+runs:
+  using: composite
+  steps:
+    - name: Setup uv (pinned)
+      uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+      with:
+        version: '0.9.26'
+        enable-cache: 'false'
+
+    - name: Run pr-body
+      shell: bash
+      # Every value reaches the script through env, never through ${{ }} in the
+      # script body, so no input and no body text can change what the shell parses.
+      env:
+        PR_BODY_PACKAGE: ${{ github.action_path }}
+        PR_BODY_ROOT: ${{ inputs.working-directory }}
+        PR_BODY_TEMPLATE: ${{ inputs.template }}
+        PR_BODY_SAME_AS: ${{ inputs.same-as }}
+        PR_BODY_MAX_WORDS: ${{ inputs.max-words }}
+        PR_BODY_SKIP_AUTHORS: ${{ inputs.skip-authors }}
+        PR_BODY_MARKER: ${{ inputs.marker }}
+        PR_BODY_MARKER_PATHS: ${{ inputs.marker-paths }}
+        PR_BODY_EVENT_FILE: ${{ inputs.event-file }}
+      run: |
+        set -euo pipefail
+        template="${PR_BODY_TEMPLATE:-${PR_BODY_PACKAGE}/PULL_REQUEST_TEMPLATE.md}"
+        event="${PR_BODY_EVENT_FILE:-${GITHUB_EVENT_PATH}}"
+        export PYTHONPATH="${PR_BODY_PACKAGE}" PYTHONSAFEPATH=1 PYTHONDONTWRITEBYTECODE=1
+        exec uv run --no-project --no-config --managed-python --python 3.12 \
+          python -m pr_body --root="${PR_BODY_ROOT}" --template="${template}" \
+            --event-file="${event}" --same-as="${PR_BODY_SAME_AS}" \
+            --max-words="${PR_BODY_MAX_WORDS}" --skip-authors="${PR_BODY_SKIP_AUTHORS}" \
+            --marker="${PR_BODY_MARKER}" --marker-paths="${PR_BODY_MARKER_PATHS}"

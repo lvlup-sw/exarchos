@@ -1,0 +1,59 @@
+# =============================================================================
+# Composite Action: Workflow Hygiene
+# =============================================================================
+# Refuses the two workflow defects that burn Actions minutes without anyone
+# noticing. It scans <root>/.github/workflows/*.yml and *.yaml and fails when:
+#
+#   1. A workflow triggered by pull_request or pull_request_target has no
+#      concurrency with a truthy cancel-in-progress, at workflow level or on
+#      every job. Truthy is true, 'true', or a ${{ }} expression. Location:
+#      <workflow-file>:*
+#   2. A job that is not a reusable-workflow call (job-level uses:) has no
+#      timeout-minutes. Location: <workflow-file>:<job>
+#
+# The pattern that satisfies rule 1 and never cancels pushes to main:
+#   concurrency:
+#     group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.run_id }}
+#     cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+#
+# Exemptions: <root>/.github/workflow-hygiene.toml, an [exempt] table of
+# "<workflow-file>:<job>" (rule 2) or "<workflow-file>:*" (rule 1) = "reason".
+# An empty reason, or an exemption that matches nothing, is a violation.
+#
+# The logic is the Python package next to this file. It runs on a uv-managed
+# CPython 3.12 with PyYAML pinned here, and uses no network and no token.
+#
+# Exit codes: 0 pass, 1 violation, 2 INDETERMINATE (zero workflow files, a file
+# that is not valid YAML, an unreadable exemption file). Never reported as a pass.
+# =============================================================================
+
+name: 'Workflow Hygiene'
+description: 'Fail when a pull-request workflow never cancels superseded runs, or a job has no timeout-minutes.'
+
+inputs:
+  root:
+    description: 'Repository root that holds .github/workflows, relative to the workspace.'
+    required: false
+    default: '.'
+
+runs:
+  using: composite
+  steps:
+    - name: Setup uv (pinned)
+      uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+      with:
+        version: '0.9.26'
+        enable-cache: 'false'
+
+    - name: Run workflow-hygiene
+      shell: bash
+      # Every value reaches the script through env, never through ${{ }} in the
+      # script body, so no input can change what the shell parses.
+      env:
+        WORKFLOW_HYGIENE_ROOT: ${{ inputs.root }}
+        WORKFLOW_HYGIENE_PACKAGE: ${{ github.action_path }}
+      run: |
+        set -euo pipefail
+        export PYTHONPATH="${WORKFLOW_HYGIENE_PACKAGE}" PYTHONSAFEPATH=1 PYTHONDONTWRITEBYTECODE=1
+        exec uv run --no-project --no-config --managed-python --python 3.12 --with 'PyYAML==6.0.2' \
+          python -m workflow_hygiene --root "${WORKFLOW_HYGIENE_ROOT}"

@@ -54,7 +54,7 @@ jobs:
       # at most 250 words. Both local templates must stay copies of it.
       # v1.11 is the first org release that ships actions/pr-body.
       - name: Validate PR body
-        uses: lvlup-sw/.github/actions/pr-body@v1.11
+        uses: lvlup-sw/exarchos/.github/actions/pr-body-b35d6be@a62fab3f935b93258654807da7fda58359878c97
         with:
           event-file: ${{ runner.temp }}/pr-event.json
           same-as: |
