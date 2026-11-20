@@ -1,6 +1,7 @@
 /**
  * Baseline check for a worktree. It resolves the test command through `resolveTestRuntime`, runs it, and returns a markdown report.
  * When the caller supplies `agentBranch`, it also classifies each uncommitted change as a merge-time leak or as dirt.
+ * A provisioned verifier runs the test command under a checkout subject with no stream. A provisioned route never runs it locally.
  */
 
 import { existsSync } from 'node:fs';
@@ -14,6 +15,8 @@ import {
 } from '../../config/test-runtime-resolver.js';
 import { BUILTIN_TOOLCHAINS } from '../../config/toolchains.js';
 import { splitCommand } from '../../config/tokenize-command.js';
+import type { VerificationHostConnector } from '../../contract/verification/harness-verification.js';
+import { HostedAdequacyPending, admitLifecycleLegs, hostedPendingResult, hostedRefusal } from './gate-runner.js';
 
 interface VerifyWorktreeBaselineArgs {
   readonly worktreePath: string;
@@ -221,9 +224,34 @@ function formatReport(
   return lines.join('\n');
 }
 
+/**
+ * Run the baseline test command in the verifier. The single execution rests on the host claim of the deterministic request key.
+ * A refusal and a pending result keep distinct codes. A run with no verdict is pending and never reads as a failed baseline.
+ */
+async function hostedBaselineRun(
+  connector: VerificationHostConnector, worktreePath: string, detection: ProjectDetection,
+): Promise<{ readonly passed: boolean; readonly output: string; readonly exitCode: number } | ToolResult> {
+  let legs: Awaited<ReturnType<typeof admitLifecycleLegs>>;
+  try {
+    legs = await admitLifecycleLegs({ connector, checkout: worktreePath, legs: [{ kind: 'command', argv: [detection.cmd, ...detection.args] }] });
+  } catch (error) {
+    return hostedPendingResult(error);
+  }
+  if ('success' in legs) return legs;
+  const run = legs[0]?.run;
+  if (run?.exitCode === undefined || run.exitCode === null) return hostedPendingResult(new HostedAdequacyPending('The verifier returned no baseline test leg.'));
+  return { passed: run.exitCode === 0, exitCode: run.exitCode, output: [run.stdout, run.stderr].filter(Boolean).join('\n') };
+}
+
+/**
+ * Run the baseline. A connector comes only from the dispatch context.
+ * With a connector, the handler refuses leak detection, because leak detection needs clean-tree evidence of the harness.
+ * It then runs the test command only in the verifier.
+ */
 export async function handleVerifyWorktreeBaseline(
   args: VerifyWorktreeBaselineArgs,
   _stateDir: string,
+  connector?: VerificationHostConnector,
 ): Promise<ToolResult> {
   const { worktreePath, agentBranch } = args;
 
@@ -264,6 +292,16 @@ export async function handleVerifyWorktreeBaseline(
   }
 
   const { projectType, testCommand, cmd, args: cmdArgs } = detection;
+
+  if (connector !== undefined) {
+    if (agentBranch) {
+      return hostedRefusal('A provisioned verifier refuses baseline leak detection, because it needs clean-tree evidence of the harness. No local route inspects the tree.');
+    }
+    const hosted = await hostedBaselineRun(connector, worktreePath, detection);
+    if ('success' in hosted) return hosted;
+    const report = formatReport(worktreePath, projectType, testCommand, hosted.passed, hosted.output, hosted.exitCode);
+    return { success: true, data: { passed: hosted.passed, projectType, testCommand, report } };
+  }
 
   const leakDetection: LeakDetection | undefined = agentBranch
     ? detectLeakedEdits(worktreePath, agentBranch)

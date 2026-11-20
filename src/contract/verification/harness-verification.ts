@@ -28,6 +28,23 @@ const phaseTerms = z.object({
   version: z.literal(1), key: digest, resourceId: name, profileId: name, subject: PhaseVerificationSubject,
 });
 
+/**
+ * A checkout operation names an operator checkout and the exact head that the governor observed.
+ * Stream, phase attempt and task only scope the request. A strict schema refuses each other task and phase field.
+ * The subject never carries a profile digest, because its operator resource pins the profile.
+ */
+export const CheckoutVerificationSubject = z.object({
+  scope: z.literal('checkout'), streamId: name.optional(), phaseAttemptId: name.optional(), taskId: name.optional(), headCommit: oid,
+  profileDigest: z.never().optional(),
+}).strict();
+export type CheckoutVerificationSubject = z.infer<typeof CheckoutVerificationSubject>;
+const checkoutTerms = z.object({
+  version: z.literal(1), key: digest, resourceId: name, profileId: name, subject: CheckoutVerificationSubject,
+});
+
+/** The closed refusal reason of a checkout that differs from its exact head. The verifier returns it before any claim. */
+export const DIRTY_CHECKOUT_REFUSAL = 'The checkout has uncommitted changes. Commit them first.';
+
 const selectedPath = z.string().min(1).max(300).refine(path =>
   !path.includes('\\') && !/[\x00-\x1f\x7f]/.test(path)
   && path.split('/').every(part => part !== '' && part !== '.' && part !== '..' && part.toLowerCase() !== '.git'));
@@ -41,8 +58,8 @@ export type AdequacySelection = z.infer<typeof AdequacySelection>;
 /** The task gate checks that one verifier operation runs against the exact head of a bound task. */
 export const TASK_CHECK_OPERATIONS: readonly ['static-analysis', 'contract-drift', 'integration-suite'] = ['static-analysis', 'contract-drift', 'integration-suite'];
 export type TaskCheckOperation = (typeof TASK_CHECK_OPERATIONS)[number];
-/** Every check operation. Only spec coverage takes a phase subject. */
-export const HOSTED_CHECK_OPERATIONS: readonly [...typeof TASK_CHECK_OPERATIONS, 'spec-coverage'] = [...TASK_CHECK_OPERATIONS, 'spec-coverage'];
+/** Every check operation. Only spec coverage takes a phase subject, and only the lifecycle check takes a checkout subject. */
+export const HOSTED_CHECK_OPERATIONS: readonly [...typeof TASK_CHECK_OPERATIONS, 'spec-coverage', 'lifecycle'] = [...TASK_CHECK_OPERATIONS, 'spec-coverage', 'lifecycle'];
 export type HostedCheckOperation = (typeof HOSTED_CHECK_OPERATIONS)[number];
 
 /** Declared tests of one phase. The total path length keeps the echoed request far below the frame limit. */
@@ -59,6 +76,7 @@ export const VerificationRequest = z.discriminatedUnion('operation', [
   requestTerms.extend({ operation: z.literal('contract-drift'), commandDigest: digest }).strict(),
   requestTerms.extend({ operation: z.literal('integration-suite'), commandDigest: digest }).strict(),
   phaseTerms.extend({ operation: z.literal('spec-coverage'), selection: SpecCoverageSelection, commandDigest: digest }).strict(),
+  checkoutTerms.extend({ operation: z.literal('lifecycle'), commandDigest: digest }).strict(),
 ]);
 export type VerificationRequest = z.infer<typeof VerificationRequest>;
 /** Request terms before the key. Each member keeps its own operation and subject. */
@@ -70,7 +88,11 @@ export type VerificationRequestTerms = VerificationRequest extends infer Member
  */
 export interface VerificationKeyTerms {
   readonly operation: VerificationRequest['operation'];
-  readonly subject: VerificationSubject | PhaseVerificationSubject;
+  readonly subject: VerificationSubject | PhaseVerificationSubject | CheckoutVerificationSubject;
+  /** The operator resource. Only a checkout key reads it. */
+  readonly resourceId?: string;
+  /** The approved command digest. Only a checkout key reads it. */
+  readonly commandDigest?: string;
 }
 /** A complete keyed carrier before its schema parse. Each consumer parses it before use. */
 export type VerificationRequestCarrier = VerificationKeyTerms & { readonly key: string };
@@ -90,6 +112,8 @@ export const CheckPlan = z.object({
   report: z.enum(['exit-code', 'vitest-json']).optional(),
   files: z.enum(['as-arguments', 'after-separator', 'none']).optional(),
   firstParty: z.array(z.string().min(1).max(300)).max(64).optional(),
+  /** A lifecycle check that stops after a failed test leg, as its local route stops. */
+  onTestFailure: z.literal('stop').optional(),
 }).strict();
 export type CheckPlan = z.infer<typeof CheckPlan>;
 
@@ -170,6 +194,9 @@ export const HostedCheckFacts = z.discriminatedUnion('operation', [
   z.object({ operation: z.literal('contract-drift'), legs: z.array(z.object({ kind: z.enum(['codegen', 'typecheck', 'diff']), run: HostedCommandRun }).strict()).max(3) }).strict(),
   z.object({ operation: z.literal('integration-suite'), run: HostedCommandRun, report: ReducedSuiteReport.nullable() }).strict(),
   z.object({ operation: z.literal('spec-coverage'), runs: z.array(HostedCommandRun).max(128) }).strict(),
+  z.object({ operation: z.literal('lifecycle'), legs: z.array(z.object({
+    name, kind: z.enum(['command', 'typecheck']), run: HostedCommandRun,
+  }).strict()).max(4) }).strict(),
 ]);
 export type HostedCheckFacts = z.infer<typeof HostedCheckFacts>;
 
@@ -233,6 +260,10 @@ export function verificationDigest(request: VerificationRequestCarrier): string 
  */
 export function verificationOperation(request: VerificationKeyTerms): string {
   const { subject } = request;
+  if ('scope' in subject && subject.scope === 'checkout') {
+    const { resourceId, commandDigest } = checkoutKeyTerms(request);
+    return verificationValueDigest({ operation: request.operation, subject, resourceId, commandDigest });
+  }
   if ('scope' in subject) {
     const { streamId, phaseAttemptId } = subject;
     return verificationValueDigest({ streamId, phaseAttemptId, operation: request.operation });
@@ -244,9 +275,25 @@ export function verificationOperation(request: VerificationKeyTerms): string {
   return verificationValueDigest(execution);
 }
 
-/** Claim keys bind the original operation and segment while durable operation uniqueness prevents alias replay. A phase key binds the prepared identity. */
+/** The resource and command of a checkout key. A checkout key without them refuses. */
+function checkoutKeyTerms(request: VerificationKeyTerms): { readonly resourceId: string; readonly commandDigest: string } {
+  const { resourceId, commandDigest } = request;
+  if (resourceId === undefined || commandDigest === undefined) throw new Error('A checkout key binds its resource and command');
+  return { resourceId, commandDigest };
+}
+
+/**
+ * Claim keys bind the original operation and segment while durable operation uniqueness prevents alias replay. A phase key binds the prepared identity.
+ * A checkout key binds the operation, subject, resource, head and command digest. A new head gives a new key, and the same head reads the original.
+ */
 export function verificationKey(request: VerificationKeyTerms): string {
   const { subject } = request;
+  if ('scope' in subject && subject.scope === 'checkout') {
+    const { resourceId, commandDigest } = checkoutKeyTerms(request);
+    return createHash('sha256').update(verificationJson({
+      operation: verificationOperation(request), resource: resourceId, head: subject.headCommit, command: commandDigest,
+    })).digest('hex');
+  }
   const bound = 'scope' in subject
     ? { operation: verificationOperation(request), prepared: subject.preparedDigest }
     : { operation: verificationOperation(request), segment: subject.segmentDigest };
@@ -325,13 +372,26 @@ export interface HostedCheckIdentity {
   readonly profileId: string;
 }
 
+/** The operator identity of one checkout and one approved command. The repository and branch name the registered checkout. */
+export interface HostedCheckoutIdentity extends HostedCheckIdentity {
+  readonly checkout: string;
+  readonly repository: string;
+  readonly branch: string;
+  readonly commandDigest: string;
+}
+
+/** Per-check operator identities. Each eligible checkout has its own lifecycle identity, so each task worktree runs under its own resource. */
+export type HostedCheckIdentities = Readonly<Partial<Record<Exclude<HostedCheckOperation, 'lifecycle'>, HostedCheckIdentity>>> & {
+  readonly lifecycle?: readonly HostedCheckoutIdentity[];
+};
+
 export interface VerificationHostConnector {
   readonly publicKey: string;
   readonly gitPath: string;
   readonly resourceId: string;
   readonly profileId: string;
   /** Per-check operator identities. A check without an identity refuses and never runs locally. */
-  readonly checks?: Readonly<Partial<Record<HostedCheckOperation, HostedCheckIdentity>>>;
+  readonly checks?: HostedCheckIdentities;
   readonly client: {
     submit(request: VerificationRequest): Promise<VerifierExchange>;
     retrieve(key: string, digest: string): Promise<VerifierExchange>;

@@ -40,6 +40,9 @@ vi.mock('../../../../src/verbs/gates/gate-runner.js', () => ({
       };
     }
   }),
+  admitLifecycleLegs: vi.fn(),
+  hostedPendingResult: vi.fn((error: unknown) => { throw error; }),
+  hostedRefusal: vi.fn((message: string) => ({ success: false, error: { code: 'HOSTED_VERIFICATION_REFUSED', message } })),
 }));
 
 vi.mock('../../../../src/vcs/factory.js', () => ({
@@ -52,6 +55,8 @@ import * as fsPromises from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as nodePath from 'node:path';
 import { handlePreSynthesisCheck } from '../../../../src/verbs/gates/pre-synthesis-check.js';
+import { admitLifecycleLegs } from '../../../../src/verbs/gates/gate-runner.js';
+import type { VerificationHostConnector } from '../../../../src/contract/verification/harness-verification.js';
 import { EventStore } from '../../../../src/events/store.js';
 import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
 
@@ -156,6 +161,15 @@ function mockTestsOnly(): void {
     .mockReturnValueOnce(Buffer.from('Tests: 5 passed'))
     .mockReturnValueOnce(Buffer.from(''));
 }
+
+/** A connector whose verifier no case reaches directly. The hosted helper is a stub in this file. */
+const connector: VerificationHostConnector = {
+  publicKey: 'unused', gitPath: '/nonexistent/git', resourceId: 'unused', profileId: 'unused',
+  client: {
+    submit: async () => ({ kind: 'unavailable', reason: 'unused' }),
+    retrieve: async () => ({ kind: 'unavailable', reason: 'unused' }),
+  },
+};
 
 describe('handlePreSynthesisCheck', () => {
   beforeEach(() => {
@@ -644,5 +658,34 @@ describe('handlePreSynthesisCheck', () => {
     expect(data.passed).toBe(false);
     expect(data.report).toContain('Invalid JSON');
     expect(data.report).not.toContain('Phase is synthesize');
+  });
+
+  /** A provisioned route sends the test and typecheck legs to the verifier in one stopping request and runs no local command. */
+  it('Provisioned_TestsRunOnlyThroughHostedLifecycleLegs', async () => {
+    setupValidState(makeState());
+    const run = { end: 'exited' as const, exitCode: 0, stdout: '', stderr: '', outputDigest: 'a'.repeat(64) };
+    vi.mocked(admitLifecycleLegs).mockResolvedValue([{ name: 'test', kind: 'command', run }, { name: 'typecheck', kind: 'typecheck', run }]);
+
+    const result = await handlePreSynthesisCheck({ ...gateWiring(), repoRoot: '/repo', skipStack: true }, createMockProvider(), connector);
+
+    expect(result.success).toBe(true);
+    expect((result.data as CheckReport).report).toContain('**PASS**: Tests pass');
+    expect(admitLifecycleLegs).toHaveBeenCalledTimes(1);
+    expect(admitLifecycleLegs).toHaveBeenCalledWith(expect.objectContaining({
+      connector, checkout: '/repo', stopAfterTestFailure: true, streamId: FEATURE_ID,
+    }));
+    expect(vi.mocked(admitLifecycleLegs).mock.calls[0]?.[0].legs[0]?.kind).toBe('command');
+    expect(execFileSync).not.toHaveBeenCalled();
+  });
+
+  /** A provisioned route refuses a caller test-command override before any request. */
+  it('Provisioned_TestCommandOverride_RefusesBeforeAnyRequest', async () => {
+    setupValidState(makeState());
+
+    const result = await handlePreSynthesisCheck({ ...gateWiring(), repoRoot: '/repo', skipStack: true, testCommand: 'node test.cjs' }, createMockProvider(), connector);
+
+    expect(result).toMatchObject({ success: false, error: { code: 'HOSTED_VERIFICATION_REFUSED' } });
+    expect(admitLifecycleLegs).not.toHaveBeenCalled();
+    expect(execFileSync).not.toHaveBeenCalled();
   });
 });

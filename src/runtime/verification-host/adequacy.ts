@@ -1,9 +1,10 @@
-/** Source-revert measurement and check workspaces use disposable source images at the registered checkout path. */
+/** Source-revert measurement and check workspaces use disposable source images at the registered checkout path. A dirty checkout refuses before a claim. */
 import { link, lstat, mkdir, mkdtemp, open, readdir, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { dirname, join, relative, sep } from 'node:path';
 import { constants } from 'node:fs';
+import { createHash } from 'node:crypto';
 import {
-  hostedAdequacyPassed, isHostedCheckRequest, verificationValueDigest,
+  DIRTY_CHECKOUT_REFUSAL, hostedAdequacyPassed, isHostedCheckRequest, verificationValueDigest,
   type AdequacyRun, type HostedAdequacyFacts, type VerificationEvidence,
 } from '../../contract/verification/harness-verification.js';
 import { copyPinnedRuntime, measureRuntimeClosure, type AuthorizedVerification } from './authorization.js';
@@ -60,6 +61,33 @@ async function checkTrackedFiles(image: string, entries: Tree, blobs: ReadonlyMa
       throw new Error('Source image differs from its exact committed tree');
     }
   }
+}
+
+/** The Git blob identity of exact file bytes. The object ID length selects the repository hash. */
+function blobId(bytes: Buffer, oid: string): string {
+  return createHash(oid.length === 64 ? 'sha256' : 'sha1').update(`blob ${bytes.length}\0`).update(bytes).digest('hex');
+}
+
+/**
+ * Return the closed refusal reason when the registered checkout differs from its exact head, or undefined when it is clean.
+ * The check reads the head tree, the index and the untracked paths through the immutable Git reader.
+ * It compares each tracked file by its blob identity in this process, so no checkout filter runs.
+ */
+export async function dirtyCheckoutReason(authorized: AuthorizedVerification): Promise<string | undefined> {
+  const head = await tree(authorized, authorized.request.subject.headCommit, maximumCheckTreeEntries);
+  const index = await readAdequacyGit(authorized, ['ls-files', '--stage', '-z']);
+  const expected = [...head].map(([path, { mode, oid }]) => `${mode} ${oid} 0\t${path}`).sort();
+  const actual = new TextDecoder('utf-8', { fatal: true }).decode(index).split('\0');
+  if (actual.pop() !== '' || verificationValueDigest(actual.sort()) !== verificationValueDigest(expected)
+    || (await readAdequacyGit(authorized, ['ls-files', '--others', '--exclude-standard', '-z'])).length !== 0) return DIRTY_CHECKOUT_REFUSAL;
+  const checkout = authorized.resource.checkout;
+  for (const [path, entry] of head) {
+    const full = join(checkout, path);
+    const file = await lstat(full).catch(() => undefined);
+    if (file === undefined || !file.isFile() || await realpath(full) !== full
+      || ((file.mode & 0o111) !== 0) !== (entry.mode === '100755') || blobId(await readFile(full), entry.oid) !== entry.oid) return DIRTY_CHECKOUT_REFUSAL;
+  }
+  return undefined;
 }
 
 /** Ask Node's test reporter for counts, stable identities and real assertion error codes. */

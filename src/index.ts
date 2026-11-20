@@ -200,6 +200,7 @@ function hookReadStdin(): Promise<string> {
  * `--version`, `-V` and a plain `version` print the version with no backend, because concurrent backend opens can race on WAL recovery and fail with SQLITE_BUSY_RECOVERY.
  *
  * `run-tests` runs the consumer test command for the PostToolUse hook. It is not a hook command, because hook commands only observe.
+ * It waits for the hosted result when startup supplies a verifier connector. Startup supplies none yet, so the verb keeps its local route and exit contract.
  * `verify-worktree-boundary` is the PreToolUse guard. It denies a write outside the worktree with exit code 2, and allows when stdin is a TTY.
  *
  * Every other command opens the backend and goes through Commander. Only the MCP tool registration reads `slimRegistration` from the context.
@@ -233,8 +234,12 @@ async function main() {
   }
 
   if (process.argv[2] === 'run-tests') {
-    const { handleRunTests } = await import('./lifecycle/run-tests.js');
-    process.exitCode = handleRunTests(process.argv.slice(3), { cwd: process.cwd() });
+    const [{ handleRunTests }, { standaloneTestHost }] = await Promise.all([
+      import('./lifecycle/run-tests.js'),
+      import('./verbs/gates/gate-runner.js'),
+    ]);
+    const host = standaloneTestHost();
+    process.exitCode = await handleRunTests(process.argv.slice(3), { cwd: process.cwd(), ...(host === undefined ? {} : { host }) });
     return;
   }
 

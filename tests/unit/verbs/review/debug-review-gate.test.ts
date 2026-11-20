@@ -19,6 +19,8 @@ vi.mock('node:fs', async (importOriginal) => {
 import { execFileSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { handleDebugReviewGate } from '../../../../src/verbs/review/debug-review-gate.js';
+import { admitLifecycleLegs } from '../../../../src/verbs/gates/gate-runner.js';
+import type { VerificationHostConnector } from '../../../../src/contract/verification/harness-verification.js';
 import type { EventStore } from '../../../../src/events/store.js';
 import { rmrf } from '../../../../tools/test-helpers/temp-dir.js';
 vi.mock('../../../../src/verbs/gates/gate-runner.js', () => ({
@@ -42,6 +44,8 @@ vi.mock('../../../../src/verbs/gates/gate-runner.js', () => ({
       };
     }
   }),
+  admitLifecycleLegs: vi.fn(),
+  hostedPendingResult: vi.fn((error: unknown) => { throw error; }),
 }));
 
 const STATE_DIR = '/tmp/test-debug-review-gate';
@@ -78,6 +82,25 @@ describe('handleDebugReviewGate', () => {
 
   afterEach(() => {
     for (const dir of fixtureDirs.splice(0)) rmrf(dir);
+  });
+
+  /** A provisioned route runs the resolved test command only in the verifier. The diff read stays a plain Git read. */
+  it('provisioned route runs the tests only in the verifier', async () => {
+    vi.mocked(execFileSync).mockReturnValueOnce(mockOutput('src/widget.ts\nsrc/widget.test.ts\n'));
+    const run = { end: 'exited' as const, exitCode: 0, stdout: '', stderr: '', outputDigest: 'a'.repeat(64) };
+    vi.mocked(admitLifecycleLegs).mockResolvedValue([{ name: 'test', kind: 'command', run }]);
+    const connector: VerificationHostConnector = {
+      publicKey: 'unused', gitPath: '/nonexistent/git', resourceId: 'unused', profileId: 'unused',
+      client: { submit: async () => ({ kind: 'unavailable', reason: 'unused' }), retrieve: async () => ({ kind: 'unavailable', reason: 'unused' }) },
+    };
+
+    const result = await handleDebugReviewGate({ featureId: FEATURE_ID, repoRoot, baseBranch: 'main' }, STATE_DIR, eventStore, connector);
+
+    expect(vi.mocked(execFileSync).mock.calls.map((call) => call[0])).toEqual(['git']);
+    expect(admitLifecycleLegs).toHaveBeenCalledWith(expect.objectContaining({
+      connector, checkout: repoRoot, streamId: FEATURE_ID, legs: [{ kind: 'command', argv: ['vitest', 'run'] }],
+    }));
+    expect((result.data as { report: string }).report).toContain('**PASS**: Tests pass (vitest run)');
   });
 
   it('returns passed when test files exist and tests pass', async () => {

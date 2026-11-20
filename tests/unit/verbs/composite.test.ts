@@ -6,6 +6,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { ToolResult } from '../../../src/format.js';
 import type { DispatchContext } from '../../../src/dispatch/core/dispatch.js';
+import type { VerificationHostConnector } from '../../../src/contract/verification/harness-verification.js';
 import { EventStore } from '../../../src/events/store.js';
 
 vi.mock('../../../src/verbs/tasks/tools.js', () => ({
@@ -403,6 +404,30 @@ describe('handleOrchestrate', () => {
         STATE_DIR,
         CTX.eventStore,
       );
+    });
+
+    /** A provisioned context supplies its connector as an extra argument. A caller copy of a private verifier term never reaches the handler. */
+    it('HandleOrchestrate_ProvisionedLifecycleActions_PassContextConnectorOnly', async () => {
+      const verificationHost: VerificationHostConnector = {
+        publicKey: 'unused', gitPath: '/nonexistent/git', resourceId: 'unused', profileId: 'unused',
+        client: {
+          submit: async () => ({ kind: 'unavailable', reason: 'unused' }),
+          retrieve: async () => ({ kind: 'unavailable', reason: 'unused' }),
+        },
+      };
+      const ctx: DispatchContext = { ...CTX, verificationHost };
+      const expected = successResult({ passed: true });
+      vi.mocked(handlePostMerge).mockResolvedValue(expected);
+      vi.mocked(handlePrepareSynthesis).mockResolvedValue(expected);
+
+      await handleOrchestrate({ action: 'check_post_merge', featureId: 'feat-1', prUrl: 'u', mergeSha: 'abc1234', repoRoot: '/repo',
+        verificationHost: 'caller copy' }, ctx);
+      await handleOrchestrate({ action: 'prepare_synthesis', featureId: 'feat-1', hostCheck: 'caller copy' }, ctx);
+
+      expect(handlePostMerge).toHaveBeenCalledWith(
+        { featureId: 'feat-1', prUrl: 'u', mergeSha: 'abc1234', repoRoot: '/repo' }, STATE_DIR, CTX.eventStore, verificationHost,
+      );
+      expect(handlePrepareSynthesis).toHaveBeenCalledWith({ featureId: 'feat-1' }, STATE_DIR, CTX.eventStore, verificationHost);
     });
 
     it('HandleOrchestrate_AssessStack_DelegatesToHandler', async () => {

@@ -19,6 +19,7 @@ import { z } from 'zod';
 
 import type { ToolResult } from '../../format.js';
 import type { EventStore } from '../../events/store.js';
+import type { VerificationHostConnector } from '../../contract/verification/harness-verification.js';
 import type { ResolvedProjectConfig } from '../../config/resolve.js';
 import {
   resolveVerificationRuntime,
@@ -698,6 +699,13 @@ function survivorAffordances(report: MutationReport): string[] {
   return actions;
 }
 
+/** The error code of a mutation-adequacy call on a provisioned route. */
+const MUTATION_TESTING_RETIRED = 'MUTATION_TESTING_RETIRED';
+
+/** The message of a mutation-adequacy call on a provisioned route. */
+const MUTATION_RETIREMENT_MESSAGE =
+  'Exarchos retires mutation testing. A provisioned verifier runs no mutation adequacy check, and no local Stryker run replaces it.';
+
 /** Lists each NoCoverage mutant as `file:line`, in order, for the failure message of the NoCoverage axis. */
 function noCoverageMutants(report: MutationReport): Array<{ file: string; line: number }> {
   const out: Array<{ file: string; line: number }> = [];
@@ -720,12 +728,17 @@ function noCoverageMutants(report: MutationReport): Array<{ file: string; line: 
  * start. An empty mutant surface is a trivial pass only when the diff changed no
  * mutatable file, and a degrade otherwise. The NoCoverage axis applies only to
  * diff scope. The dispatch adapter applies severity after the handler returns.
+ * With a connector from the dispatch context, it returns the retirement error first and resolves, starts and appends nothing.
  */
 export async function handleMutationAdequacy(
   args: MutationAdequacyArgs,
   _stateDir: string,
   eventStore: EventStore,
+  connector?: VerificationHostConnector,
 ): Promise<ToolResult> {
+  if (connector !== undefined) {
+    return { success: false, error: { code: MUTATION_TESTING_RETIRED, message: MUTATION_RETIREMENT_MESSAGE } };
+  }
   if (!eventStore) {
     return {
       success: false,

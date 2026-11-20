@@ -4,11 +4,11 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1508,
-    "parsedFiles": 1463,
+    "testFiles": 1509,
+    "parsedFiles": 1464,
     "shellFiles": 45,
-    "cases": 16656,
-    "dynamicTitles": 313,
+    "cases": 16676,
+    "dynamicTitles": 316,
     "unparseableFiles": 0
   },
   "unparseable": [],
@@ -11356,6 +11356,42 @@
         {
           "suite": "",
           "name": "<dynamic-case-4>",
+          "dynamic": true
+        }
+      ]
+    },
+    "tests/process/1928-lifecycle-host.test.ts": {
+      "file": "tests/process/1928-lifecycle-host.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "",
+          "name": "LifecycleHost_ApprovedOperationsRunOnlyInVerifierWithExactSubjects",
+          "dynamic": false
+        },
+        {
+          "suite": "",
+          "name": "<dynamic-case-1>",
+          "dynamic": true
+        },
+        {
+          "suite": "",
+          "name": "LifecycleHost_NoHostDirtyHeadAndRefusedProfileNeverRunLocally",
+          "dynamic": false
+        },
+        {
+          "suite": "",
+          "name": "<dynamic-case-2>",
+          "dynamic": true
+        },
+        {
+          "suite": "",
+          "name": "LifecycleHost_WrongSubjectCrossKindAndHeadMismatchRefuseAtTheVerifier",
+          "dynamic": false
+        },
+        {
+          "suite": "",
+          "name": "<dynamic-case-3>",
           "dynamic": true
         }
       ]
@@ -36990,6 +37026,21 @@
           "suite": "handleRunTests",
           "name": "RunTests_DryRun_PrintsResolvedCommandWithoutExecuting",
           "dynamic": false
+        },
+        {
+          "suite": "handleRunTests",
+          "name": "RunTests_Hosted_ReturnsSignedChildExitCodeWithoutLocalRun",
+          "dynamic": false
+        },
+        {
+          "suite": "handleRunTests",
+          "name": "RunTests_Hosted_RefusalExits77AndUnavailableExits75WithDistinctMessages",
+          "dynamic": false
+        },
+        {
+          "suite": "handleRunTests",
+          "name": "RunTests_Hosted_UnresolvedMalformedAndDryRunMakeNoRequest",
+          "dynamic": false
         }
       ]
     },
@@ -54372,6 +54423,11 @@
         },
         {
           "suite": "handleOrchestrate > composite actions",
+          "name": "HandleOrchestrate_ProvisionedLifecycleActions_PassContextConnectorOnly",
+          "dynamic": false
+        },
+        {
+          "suite": "handleOrchestrate > composite actions",
           "name": "HandleOrchestrate_AssessStack_DelegatesToHandler",
           "dynamic": false
         },
@@ -58474,6 +58530,11 @@
           "suite": "mutation-adequacy real runner — cwd is the config package (DR-8)",
           "name": "RealRunner_ShellsOutInTheConfigPackage_ProvenByTheChildsOwnCwd",
           "dynamic": false
+        },
+        {
+          "suite": "mutation adequacy on a provisioned route",
+          "name": "MutationAdequacy_ProvisionedRoute_ReturnsRetirementErrorWithNoRowOrRun",
+          "dynamic": false
         }
       ]
     },
@@ -58979,6 +59040,16 @@
           "suite": "handlePostMerge",
           "name": "PostMerge_GateEventAppendFails_WithholdsTheSuccessCarrier",
           "dynamic": false
+        },
+        {
+          "suite": "handlePostMerge",
+          "name": "handlePostMerge_Provisioned_RunsTheSuiteOnlyInTheVerifier",
+          "dynamic": false
+        },
+        {
+          "suite": "handlePostMerge",
+          "name": "handlePostMerge_Provisioned_MissingSignedLeg_GivesNoVerdict",
+          "dynamic": false
         }
       ]
     },
@@ -59089,6 +59160,16 @@
         {
           "suite": "handlePreSynthesisCheck",
           "name": "MalformedStateFileWithEventStoreFallback_SurfacesInvalidJson",
+          "dynamic": false
+        },
+        {
+          "suite": "handlePreSynthesisCheck",
+          "name": "Provisioned_TestsRunOnlyThroughHostedLifecycleLegs",
+          "dynamic": false
+        },
+        {
+          "suite": "handlePreSynthesisCheck",
+          "name": "Provisioned_TestCommandOverride_RefusesBeforeAnyRequest",
           "dynamic": false
         }
       ]
@@ -60663,6 +60744,11 @@
         {
           "suite": "handleVerifyWorktreeBaseline",
           "name": "detectProjectType_PnpmProject_ReturnsPnpmTest",
+          "dynamic": false
+        },
+        {
+          "suite": "handleVerifyWorktreeBaseline",
+          "name": "Provisioned_LeakDetectionAndUnidentifiedCheckout_RefuseWithoutLocalRun",
           "dynamic": false
         }
       ]
@@ -65010,6 +65096,11 @@
       "cases": [
         {
           "suite": "handleDebugReviewGate",
+          "name": "provisioned route runs the tests only in the verifier",
+          "dynamic": false
+        },
+        {
+          "suite": "handleDebugReviewGate",
           "name": "returns passed when test files exist and tests pass",
           "dynamic": false
         },
@@ -68231,6 +68322,11 @@
         },
         {
           "suite": "handlePostDelegationCheck",
+          "name": "provisionedRoute_checksEachWorktreeInTheVerifier",
+          "dynamic": false
+        },
+        {
+          "suite": "handlePostDelegationCheck",
           "name": "worktreeGoModule_runsTheResolvedTestCommand",
           "dynamic": false
         },
@@ -69283,6 +69379,16 @@
         {
           "suite": "handlePrepareSynthesis",
           "name": "PrepareSynthesis_ConfiguredCommands_RunInArgumentForm",
+          "dynamic": false
+        },
+        {
+          "suite": "handlePrepareSynthesis",
+          "name": "PrepareSynthesis_Provisioned_RunsBothLegsOnlyInTheVerifier",
+          "dynamic": false
+        },
+        {
+          "suite": "handlePrepareSynthesis",
+          "name": "PrepareSynthesis_Provisioned_CommandThatResolvesOnlyOnALaterRead_NeverRunsLocally",
           "dynamic": false
         },
         {

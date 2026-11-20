@@ -1,5 +1,5 @@
 /**
- * The verifier runs approved task and phase checks in disposable images of the exact head.
+ * The verifier runs approved task, phase and checkout checks in disposable images of the exact head.
  * Each child starts through the process owner. The verifier reduces each large report with the shared parsers.
  * Only compact signed facts cross the frame.
  */
@@ -156,6 +156,21 @@ async function specCoverage(configured: HostCheckProfile, workspace: CheckWorksp
   return { operation: 'spec-coverage', runs };
 }
 
+/**
+ * Run the test and typecheck legs of a lifecycle check in order in the image of the exact checkout head.
+ * A plan that stops after a failed test leg runs no later leg, as its local route stops.
+ */
+async function lifecycle(configured: HostCheckProfile, workspace: CheckWorkspace): Promise<HostedCheckFacts> {
+  const legs: Extract<HostedCheckFacts, { operation: 'lifecycle' }>['legs'][number][] = [];
+  for (const leg of configured.legs) {
+    if (leg.kind !== 'command' && leg.kind !== 'typecheck') throw new Error('Unsupported lifecycle leg');
+    const run = commandRun(await runLeg(workspace, leg, leg.argv.slice(1)), 3000, 1000);
+    legs.push({ name: leg.name, kind: leg.kind, run });
+    if (leg.kind === 'command' && configured.onTestFailure === 'stop' && (run.end !== 'exited' || run.exitCode !== 0)) break;
+  }
+  return { operation: 'lifecycle', legs };
+}
+
 /** Each child that the facts record ended with exit 0. */
 function everyRunPassed(facts: HostedCheckFacts): boolean {
   const passed = (run: HostedCommandRun) => run.end === 'exited' && run.exitCode === 0;
@@ -164,6 +179,7 @@ function everyRunPassed(facts: HostedCheckFacts): boolean {
     case 'contract-drift': return facts.legs.every(leg => passed(leg.run));
     case 'integration-suite': return passed(facts.run);
     case 'spec-coverage': return facts.runs.every(passed);
+    case 'lifecycle': return facts.legs.every(leg => passed(leg.run));
   }
 }
 
@@ -180,6 +196,7 @@ export async function runHostedCheck(authorized: AuthorizedVerification, signal:
       case 'contract-drift': return contractDrift(configured, workspace, request.subject.baseCommit, request.subject.headCommit);
       case 'integration-suite': return integrationSuite(configured, workspace);
       case 'spec-coverage': return specCoverage(configured, workspace, request.selection.tests);
+      case 'lifecycle': return lifecycle(configured, workspace);
     }
   });
   const passed = everyRunPassed(facts);

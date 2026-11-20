@@ -15,6 +15,7 @@ import * as path from 'node:path';
 import { EventStore } from '../../../../src/events/store.js';
 import { orchestrateLogger } from '../../../../src/logger.js';
 import type { DispatchContext } from '../../../../src/dispatch/core/dispatch.js';
+import type { VerificationHostConnector } from '../../../../src/contract/verification/harness-verification.js';
 import { handleOrchestrate } from '../../../../src/verbs/composite.js';
 import type { ResolvedVerificationRuntime } from '../../../../src/config/test-runtime-resolver.js';
 import { resolveConfig } from '../../../../src/config/resolve.js';
@@ -1700,5 +1701,31 @@ describe('mutation-adequacy real runner — cwd is the config package (DR-8)', (
     expect(result.data.total).toBe(1);
     expect(result.data.killed).toBe(1);
     expect(result.data.runnerCwd).toBe('services/billing-engine');
+  });
+});
+
+describe('mutation adequacy on a provisioned route', () => {
+  /** A provisioned call returns the retirement error before any repository resolution, process start or row append. */
+  it('MutationAdequacy_ProvisionedRoute_ReturnsRetirementErrorWithNoRowOrRun', async () => {
+    const { stateDir, eventStore } = await newStore();
+    const exchanges: string[] = [];
+    const verificationHost: VerificationHostConnector = {
+      publicKey: 'unused', gitPath: '/nonexistent/git', resourceId: 'unused', profileId: 'unused',
+      client: {
+        submit: async () => { exchanges.push('submit'); return { kind: 'unavailable', reason: 'unused' }; },
+        retrieve: async () => { exchanges.push('retrieve'); return { kind: 'unavailable', reason: 'unused' }; },
+      },
+    };
+
+    const result = await handleOrchestrate(
+      { action: 'mutation-adequacy', featureId: 'mutation-retired', base: 'main', worktreePath: '/nonexistent/worktree' },
+      { ...makeCtx(stateDir, eventStore), verificationHost },
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('MUTATION_TESTING_RETIRED');
+    expect(result.error?.message).toContain('Exarchos retires mutation testing');
+    expect(await eventStore.query('mutation-retired')).toEqual([]);
+    expect(exchanges).toEqual([]);
   });
 });

@@ -1,4 +1,6 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
+import { realpath } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 
 vi.mock('node:fs', () => ({
   existsSync: vi.fn(),
@@ -13,9 +15,21 @@ vi.mock('node:child_process', () => ({
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { handleVerifyWorktreeBaseline } from '../../../../src/verbs/gates/verify-worktree-baseline.js';
+import type { VerificationHostConnector } from '../../../../src/contract/verification/harness-verification.js';
 
 /** A package.json with the `test:run` script that the npm path of the resolver requires. */
 const NPM_PACKAGE_JSON = JSON.stringify({ scripts: { 'test:run': 'vitest run' } });
+
+/** A connector whose verifier no case reaches. Each exchange records its call. */
+function unreachableConnector(exchanges: string[]): VerificationHostConnector {
+  return {
+    publicKey: 'unused', gitPath: '/nonexistent/git', resourceId: 'unused', profileId: 'unused',
+    client: {
+      submit: async () => { exchanges.push('submit'); return { kind: 'unavailable', reason: 'unused' }; },
+      retrieve: async () => { exchanges.push('retrieve'); return { kind: 'unavailable', reason: 'unused' }; },
+    },
+  };
+}
 
 describe('handleVerifyWorktreeBaseline', () => {
   const stateDir = '/tmp/test-state';
@@ -468,5 +482,31 @@ describe('handleVerifyWorktreeBaseline', () => {
     const calls = vi.mocked(execFileSync).mock.calls;
     const pnpmCall = calls.find((c) => String(c[0]).replace(/\.cmd$/, '') === 'pnpm');
     expect(pnpmCall?.[1]).toEqual(['test']);
+  });
+
+  /**
+   * A provisioned route refuses leak detection and an existing checkout that has no operator identity.
+   * No local test command runs, and no exchange starts.
+   */
+  it('Provisioned_LeakDetectionAndUnidentifiedCheckout_RefuseWithoutLocalRun', async () => {
+    const checkout = await realpath(tmpdir());
+    vi.mocked(existsSync).mockImplementation((p) => String(p) === checkout || String(p) === `${checkout}/package.json`);
+    vi.mocked(readdirSync).mockReturnValue([]);
+    vi.mocked(readFileSync).mockImplementation((p) => {
+      if (String(p).endsWith('package.json')) return NPM_PACKAGE_JSON;
+      throw new Error(`unexpected readFileSync: ${String(p)}`);
+    });
+    vi.mocked(execFileSync).mockReturnValue('.git\n');
+    const exchanges: string[] = [];
+
+    const leaks = await handleVerifyWorktreeBaseline({ worktreePath: checkout, agentBranch: 'task/a' }, stateDir, unreachableConnector(exchanges));
+    const unidentified = await handleVerifyWorktreeBaseline({ worktreePath: checkout }, stateDir, unreachableConnector(exchanges));
+
+    expect(leaks).toMatchObject({ success: false, error: { code: 'HOSTED_VERIFICATION_REFUSED' } });
+    expect(leaks.error?.message).toContain('leak detection');
+    expect(unidentified).toMatchObject({ success: false, error: { code: 'HOSTED_VERIFICATION_REFUSED' } });
+    expect(unidentified.error?.message).toContain('no approved identity for this checkout');
+    expect(vi.mocked(execFileSync).mock.calls.every((call) => call[0] === 'git')).toBe(true);
+    expect(exchanges).toEqual([]);
   });
 });

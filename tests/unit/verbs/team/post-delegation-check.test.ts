@@ -37,11 +37,15 @@ vi.mock('../../../../src/verbs/gates/gate-runner.js', () => ({
       };
     }
   }),
+  admitLifecycleLegs: vi.fn(),
+  hostedPendingResult: vi.fn((error: unknown) => { throw error; }),
 }));
 
 import { existsSync, readFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { handlePostDelegationCheck } from '../../../../src/verbs/team/post-delegation-check.js';
+import { admitLifecycleLegs } from '../../../../src/verbs/gates/gate-runner.js';
+import type { VerificationHostConnector } from '../../../../src/contract/verification/harness-verification.js';
 import type { EventStore } from '../../../../src/events/store.js';
 import { rmrf } from '../../../../tools/test-helpers/temp-dir.js';
 
@@ -151,6 +155,38 @@ describe('handlePostDelegationCheck', () => {
     expect(data.passed).toBe(true);
     expect(data.checks.fail).toBe(0);
     expect(data.report).toContain('PASS');
+  });
+
+  /** A provisioned route checks each worktree in the verifier under its own task subject and runs no local command. */
+  it('provisionedRoute_checksEachWorktreeInTheVerifier', async () => {
+    const repoRoot = fixtureRepo();
+    for (const worktree of ['wt-a', 'wt-b']) {
+      realFs.mkdirSync(join(repoRoot, worktree));
+      realFs.writeFileSync(join(repoRoot, worktree, 'go.mod'), 'module example.com/fixture\n');
+    }
+    useRealFs();
+    currentStore = storeFrom(makeState([makeCompleteTask('task-a', 'wt-a'), makeCompleteTask('task-b', 'wt-b')]));
+    const run = (exitCode: number) => ({ end: 'exited' as const, exitCode, stdout: '', stderr: '', outputDigest: 'a'.repeat(64) });
+    vi.mocked(admitLifecycleLegs)
+      .mockResolvedValueOnce([{ name: 'test', kind: 'command', run: run(0) }])
+      .mockResolvedValueOnce([{ name: 'test', kind: 'command', run: run(1) }]);
+    const connector: VerificationHostConnector = {
+      publicKey: 'unused', gitPath: '/nonexistent/git', resourceId: 'unused', profileId: 'unused',
+      client: { submit: async () => ({ kind: 'unavailable', reason: 'unused' }), retrieve: async () => ({ kind: 'unavailable', reason: 'unused' }) },
+    };
+
+    const result = await handlePostDelegationCheck({ ...gateWiring(), repoRoot }, connector);
+
+    expect(mockExecFileSync).not.toHaveBeenCalled();
+    expect(vi.mocked(admitLifecycleLegs).mock.calls.map(([input]) => [input.checkout.replace(/^.*\//, ''), input.taskId, input.streamId, input.legs]))
+      .toEqual([
+        ['wt-a', 'task-a', FEATURE_ID, [{ kind: 'command', argv: ['go', 'test', './...'] }]],
+        ['wt-b', 'task-b', FEATURE_ID, [{ kind: 'command', argv: ['go', 'test', './...'] }]],
+      ]);
+    const data = result.data as { passed: boolean; report: string };
+    expect(data.passed).toBe(false);
+    expect(data.report).toContain('**PASS**: Worktree tests: wt-a (go test ./...)');
+    expect(data.report).toContain('**FAIL**: Worktree tests: wt-b — go test ./... failed');
   });
 
   /** A worktree without a package.json still runs its tests. A Go module resolves `go test ./...`. */

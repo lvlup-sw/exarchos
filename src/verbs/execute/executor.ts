@@ -597,12 +597,13 @@ const HOSTED_LEAF_ACTIONS: ReadonlySet<string> = new Set([
   'check_test_adequacy', 'check_static_analysis', 'check_contract_drift', 'check_integration_suite',
 ]);
 
-/** Keep the original request before transport, including a crash before first submission. A phase subject never binds to a task leaf. */
+/** Keep the original request before transport, including a crash before first submission. Only a task subject binds to a task leaf. */
 async function freezeHostedRequest(
   request: VerificationRequest, ctx: DispatchContext, bundles: RunBundleStore,
 ): Promise<VerificationRequest> {
-  if (request.operation === 'spec-coverage') throw new Error('A phase subject cannot bind to a task leaf');
-  const { operationId, leafId } = request.subject;
+  const subject = request.subject;
+  if ('scope' in subject) throw new Error('Only a task subject binds to a task leaf');
+  const { operationId, leafId } = subject;
   const checked = await bindVerificationRequest(ctx.eventStore, bundles, hostedRequestBindingKey(operationId, leafId), request);
   if (verificationJson(checked) !== verificationJson(request)) throw new Error('Hosted verifier request changed after binding');
   return checked;
@@ -738,8 +739,8 @@ async function executeBoundInput(intent: string, streamId: string, operationId: 
           },
         }),
         freezeRequest: request => {
-          if (request.operation === 'spec-coverage') throw new Error('A phase subject cannot bind to a task segment');
           const subject = request.subject;
+          if ('scope' in subject) throw new Error('Only a task subject binds to a task segment');
           if (subject.operationId !== operationId || subject.streamId !== streamId ||
               subject.taskId !== coordinate.taskId || subject.segmentDigest !== digestValue(requestDigest).value) {
             throw new Error('Hosted request differs from the original segment');

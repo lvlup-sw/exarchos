@@ -1,6 +1,7 @@
 /**
  * Handler for the `prepare_synthesis` action. It runs the readiness checks before synthesis: task completion, test suite, typecheck, document coverage and branch stack.
  * It emits a `gate.executed` event for the test suite, the typecheck and the document leg.
+ * A provisioned verifier runs the test and typecheck legs in one request under a checkout subject. A provisioned route never runs them locally.
  */
 
 import { execSync, execFileSync } from 'node:child_process';
@@ -13,7 +14,10 @@ import { emitGateEvent } from '../gates/gate-utils.js';
 import type { ResolvedProjectConfig } from '../../config/resolve.js';
 import { globToRegExp } from '../../architecture/glob-to-regexp.js';
 import { createEvidenceSubject } from '../../workflow/admission/evidence-subject.js';
-import { runPhaseGateWithEvidence } from '../gates/gate-runner.js';
+import type { VerificationHostConnector } from '../../contract/verification/harness-verification.js';
+import {
+  HostedAdequacyPending, admitLifecycleLegs, hostedPendingResult, runPhaseGateWithEvidence, type LifecycleLeg,
+} from '../gates/gate-runner.js';
 
 interface SynthesisReadinessState {
   tasksComplete: boolean;
@@ -100,19 +104,83 @@ function runLeg(
   }
 }
 
+/** The runner of one leg. The local runner ignores the leg kind, and a hosted runner reads the signed leg of that kind. */
+type LegRunner = (
+  kind: LifecycleLeg['kind'], command: Extract<RunnableCommand, { kind: 'runnable' }>, repoRoot: string, timeout: number,
+) => LegRun;
+
+/** The local runner of each leg. */
+const localLegRunner: LegRunner = (_kind, command, repoRoot, timeout) => runLeg(command, repoRoot, timeout);
+
+/**
+ * A provisioned call with no planned leg never runs a leg in the governor.
+ * A leg that the plan does not hold refuses here instead of running locally.
+ */
+const unplannedHostedLeg: LegRunner = (kind) => {
+  throw new Error(`The ${kind} leg is not in the verifier request, so the governor refuses to run it`);
+};
+
+/** The test and typecheck commands of one call. The call reads them once, so the plan and the legs see the same commands. */
+interface LegCommands {
+  readonly test: RunnableCommand;
+  readonly typecheck: RunnableCommand;
+}
+
+/** Read the test and typecheck commands of the checkout once. */
+function legCommandsOf(repoRoot: string): LegCommands {
+  return { test: resolveRunnableCommand(repoRoot, 'test'), typecheck: resolveRunnableCommand(repoRoot, 'typecheck') };
+}
+
+/** The verifier of one call, the stream and the phase attempt that scope its request. */
+interface PrepareSynthesisHost {
+  readonly connector: VerificationHostConnector;
+  readonly phaseAttemptId: () => string | undefined;
+}
+
+/**
+ * Run each resolvable leg in one verifier request and return a runner that reads the signed legs.
+ * Both legs run, as on the local route. A refusal returns as the gate result. A pending result and a leg with no verdict throw the pending signal.
+ * The runner refuses a leg whose command differs from the planned leg, so no command outside the request runs.
+ */
+async function hostedLegRunner(
+  streamId: string, repoRoot: string, host: PrepareSynthesisHost, commands: LegCommands,
+): Promise<LegRunner | ToolResult> {
+  const legs: LifecycleLeg[] = [];
+  for (const [kind, resolved] of [['command', commands.test], ['typecheck', commands.typecheck]] satisfies [LifecycleLeg['kind'], RunnableCommand][]) {
+    if (resolved.kind === 'runnable') legs.push({ kind, argv: [resolved.bin, ...resolved.args] });
+  }
+  if (legs.length === 0) return unplannedHostedLeg;
+  const phaseAttemptId = host.phaseAttemptId();
+  const admitted = await admitLifecycleLegs({
+    connector: host.connector, checkout: repoRoot, legs, streamId, ...(phaseAttemptId === undefined ? {} : { phaseAttemptId }),
+  });
+  if ('success' in admitted) return admitted;
+  return (kind, command) => {
+    const planned = legs.find((leg) => leg.kind === kind);
+    if (planned === undefined || planned.argv.join('\0') !== [command.bin, ...command.args].join('\0')) return unplannedHostedLeg(kind, command, repoRoot, 0);
+    const run = admitted.find((leg) => leg.kind === kind)?.run;
+    if (run === undefined) throw new Error(`The verifier returned no ${kind} leg`);
+    const output = [run.stdout, run.stderr].filter((chunk) => chunk.length > 0).join('\n');
+    return { exitedZero: run.exitCode === 0, output };
+  };
+}
+
 function outputText(chunk: Buffer | string): string {
   return typeof chunk === 'string' ? chunk : chunk.toString('utf-8');
 }
 
 /** Runs the resolved test command. No resolved command fails the leg. */
-function runTestSuite(repoRoot: string): TestResult {
-  const resolved = resolveRunnableCommand(repoRoot, 'test');
+function runTestSuite(repoRoot: string, run: LegRunner, resolved: RunnableCommand): TestResult {
   if (resolved.kind !== 'runnable') {
     return { passed: false, passCount: 0, failCount: 0, command: null, reason: resolved.reason };
   }
-  const run = runLeg(resolved, repoRoot, 120_000);
+  return testResultOf(resolved.command, run('command', resolved, repoRoot, 120_000));
+}
+
+/** The test leg result of one run. */
+function testResultOf(command: string, run: LegRun): TestResult {
   const { passCount, failCount } = parseTestOutput(run.output);
-  return { passed: run.exitedZero, passCount, failCount, command: resolved.command, output: run.output };
+  return { passed: run.exitedZero, passCount, failCount, command, output: run.output };
 }
 
 /** Counts printed as "<n> passed" and "<n> failed". Informational only. */
@@ -126,15 +194,14 @@ function parseTestOutput(output: string): { passCount: number; failCount: number
 }
 
 /** Runs the resolved typecheck command when the toolchain declares one. */
-function runTypecheck(repoRoot: string): TypecheckResult {
-  const resolved = resolveRunnableCommand(repoRoot, 'typecheck');
+function runTypecheck(repoRoot: string, runner: LegRunner, resolved: RunnableCommand): TypecheckResult {
   if (resolved.kind === 'unresolved') {
     return { passed: true, errorCount: 0, command: null, reason: resolved.reason };
   }
   if (resolved.kind === 'invalid') {
     return { passed: false, errorCount: 1, command: null, errors: [resolved.reason], reason: resolved.reason };
   }
-  const run = runLeg(resolved, repoRoot, 60_000);
+  const run = runner('typecheck', resolved, repoRoot, 60_000);
   if (run.exitedZero) {
     return { passed: true, errorCount: 0, command: resolved.command };
   }
@@ -305,10 +372,15 @@ interface PrepareSynthesisArgs {
   readonly projectConfig?: ResolvedProjectConfig;
 }
 
+/**
+ * Runs the readiness legs through the shared phase-gate runner.
+ * A connector comes only from the dispatch context. A pending hosted result maps to its existing code with no evidence.
+ */
 export async function handlePrepareSynthesis(
   args: PrepareSynthesisArgs,
   stateDir: string,
   eventStore: EventStore,
+  connector?: VerificationHostConnector,
 ): Promise<ToolResult> {
   if (!args.featureId) {
     return {
@@ -317,19 +389,28 @@ export async function handlePrepareSynthesis(
     };
   }
 
-  return runPhaseGateWithEvidence({
-    streamId: args.featureId,
-    gateClass: 'prepare-synthesis',
-    requirementId: 'requirement:prepare-synthesis',
-    stateDir,
-    eventStore,
-    subject: (phaseAttemptId) => createEvidenceSubject(
-      { kind: 'phase-attempt', phaseAttemptId },
-      { gate: 'prepare-synthesis' },
-    ),
-    providerInput: args,
-    executeProvider: async () => executePrepareSynthesis(args, stateDir, eventStore),
-  });
+  let attempt: string | undefined;
+  const host = connector === undefined ? undefined : { connector, phaseAttemptId: () => attempt };
+  try {
+    return await runPhaseGateWithEvidence({
+      streamId: args.featureId,
+      gateClass: 'prepare-synthesis',
+      requirementId: 'requirement:prepare-synthesis',
+      stateDir,
+      eventStore,
+      subject: (phaseAttemptId) => {
+        attempt = phaseAttemptId;
+        return createEvidenceSubject(
+          { kind: 'phase-attempt', phaseAttemptId },
+          { gate: 'prepare-synthesis' },
+        );
+      },
+      providerInput: args,
+      executeProvider: async () => executePrepareSynthesis(args, stateDir, eventStore, host),
+    });
+  } catch (error) {
+    return hostedPendingResult(error);
+  }
 }
 
 /**
@@ -345,6 +426,7 @@ async function executePrepareSynthesis(
   args: PrepareSynthesisArgs,
   stateDir: string,
   eventStore: EventStore,
+  host?: PrepareSynthesisHost,
 ): Promise<ToolResult> {
   if (!args.featureId) {
     return {
@@ -420,7 +502,10 @@ async function executePrepareSynthesis(
     }
     const repoRoot = args.repoRoot;
 
-    const tests = runTestSuite(repoRoot);
+    const commands = legCommandsOf(repoRoot);
+    const runner = host === undefined ? localLegRunner : await hostedLegRunner(streamId, repoRoot, host, commands);
+    if (typeof runner !== 'function') return runner;
+    const tests = runTestSuite(repoRoot, runner, commands.test);
     await emitGateEvent(store, streamId, 'test-suite', 'CI', tests.passed, {
       dimension: 'D1',
       phase: 'synthesize',
@@ -430,7 +515,7 @@ async function executePrepareSynthesis(
       ...(tests.reason !== undefined ? { reason: tests.reason } : {}),
     });
 
-    const typecheck = runTypecheck(repoRoot);
+    const typecheck = runTypecheck(repoRoot, runner, commands.typecheck);
     if (typecheck.command !== null || !typecheck.passed) {
       await emitGateEvent(store, streamId, 'typecheck', 'CI', typecheck.passed, {
         dimension: 'D1',
@@ -511,6 +596,7 @@ async function executePrepareSynthesis(
 
     return { success: true, data: result };
   } catch (err) {
+    if (err instanceof HostedAdequacyPending) throw err;
     return {
       success: false,
       error: {

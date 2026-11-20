@@ -221,6 +221,7 @@ export function checkPlanOf(profile: HostCheckProfile) {
     ...(profile.report === undefined ? {} : { report: profile.report }),
     ...(profile.files === undefined ? {} : { files: profile.files }),
     ...(profile.firstParty === undefined ? {} : { firstParty: profile.firstParty }),
+    ...(profile.onTestFailure === undefined ? {} : { onTestFailure: profile.onTestFailure }),
   };
 }
 
@@ -229,7 +230,7 @@ export function checkPlanOf(profile: HostCheckProfile) {
  * The first authorization measures the closure. A recheck skips that measurement, because each leg mounts a measured private copy.
  */
 async function authorizeCheck(
-  request: Extract<VerificationRequest, { operation: 'static-analysis' | 'contract-drift' | 'integration-suite' | 'spec-coverage' }>,
+  request: Extract<VerificationRequest, { operation: 'static-analysis' | 'contract-drift' | 'integration-suite' | 'spec-coverage' | 'lifecycle' }>,
   configured: HostCheckProfile | undefined, executable: string, exposed: readonly string[],
   mountedRuntime: (file: string) => boolean, runtimePaths: readonly string[], measureClosures: boolean,
 ): Promise<string[]> {
@@ -240,6 +241,10 @@ async function authorizeCheck(
     if (configured.selection === undefined || verificationJson(configured.selection) !== verificationJson(request.selection)
       || verificationValueDigest(request.selection) !== request.subject.testSelectionDigest) throw new Error('Declared test selection is not authorized');
   } else if (configured.selection !== undefined) throw new Error('A task check takes no declared test selection');
+  if (request.operation === 'lifecycle'
+    ? configured.legs.some(leg => leg.kind !== 'command' && leg.kind !== 'typecheck') : configured.onTestFailure !== undefined) {
+    throw new Error('A lifecycle check runs only test and typecheck legs');
+  }
   if (basename(executable) !== 'node' || exposed.some(path => pathsOverlap(path, executable))) throw new Error('A check runner must be the pinned node executable');
   await requireRuntimeDigest(executable, configured.runnerDigest);
   const { dependencyRoot, dependencyDigest } = configured;
@@ -269,6 +274,17 @@ async function authorizeCheck(
 }
 
 /**
+ * A head-free checkout resource authorizes only the lifecycle check under its pinned profile.
+ * Every other resource authorizes only an operation of another kind with an exactly equal subject and profile digest.
+ */
+function subjectAuthorized(pinned: HostProvisioning['resources'][number]['subject'], profileDigest: string, request: VerificationRequest): boolean {
+  if ('scope' in pinned && pinned.scope === 'checkout') {
+    return request.operation === 'lifecycle' && request.subject.scope === 'checkout' && pinned.profileId === request.profileId;
+  }
+  return request.operation !== 'lifecycle' && verificationJson(pinned) === verificationJson(request.subject) && profileDigest === request.subject.profileDigest;
+}
+
+/**
  * Resolve operator policy into immutable resource identities and a fixed executable profile.
  * The first authorization measures approved runtime closures to refuse a wrong pin before a claim.
  * A recheck skips that measurement, because each leg mounts a measured private copy.
@@ -282,7 +298,7 @@ export async function authorizeVerification(
   const profile = policy.profiles.find(value => value.id === request.profileId);
   if (!resource || !profile || policy.resources.filter(value => value.id === request.resourceId).length !== 1
     || policy.profiles.filter(value => value.id === request.profileId).length !== 1
-    || verificationJson(resource.subject) !== verificationJson(request.subject) || profile.digest !== request.subject.profileDigest) throw new Error('Request does not match operator policy');
+    || !subjectAuthorized(resource.subject, profile.digest, request)) throw new Error('Request does not match operator policy');
   if (request.operation === 'adequacy' &&
       (profile.adequacy === undefined
       || verificationJson(profile.adequacy.selection) !== verificationJson(request.selection)

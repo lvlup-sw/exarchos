@@ -1,9 +1,12 @@
-/** Authorized requests resolve original durable evidence before consulting current execution policy. */
+/**
+ * Authorized requests resolve original durable evidence before consulting current execution policy.
+ * A check request on a dirty checkout refuses with its closed reason before any claim, so it holds no resource.
+ */
 import { timingSafeEqual } from 'node:crypto';
-import { VerificationCommand, type VerificationResponse, verificationDigest, signVerification, authenticateVerification, signVerificationReply, encodeVerificationFrame, VERIFIER_VERSION } from '../../contract/verification/harness-verification.js';
+import { VerificationCommand, type VerificationResponse, verificationDigest, signVerification, authenticateVerification, signVerificationReply, encodeVerificationFrame, isHostedCheckRequest, VERIFIER_VERSION } from '../../contract/verification/harness-verification.js';
 import { authorizeVerification } from './authorization.js';
 import { VerificationClaims } from './claims.js';
-import { runHostedAdequacy } from './adequacy.js';
+import { dirtyCheckoutReason, runHostedAdequacy } from './adequacy.js';
 import { runHostedCheck } from './checks.js';
 import { runVerificationProbe } from './processes.js';
 import type { loadHostProvisioning } from './provisioning.js';
@@ -34,8 +37,11 @@ export function createVerificationDispositions(config: Awaited<ReturnType<typeof
           const request = command.request;
           const authorized = await authorizeVerification(config.policy, config.provisioningPath, request);
           if (closed) throw new Error('Verifier closing');
-          const existing = claims.acquire(request, digest, authorized.identities.map(value => `${value.device}:${value.inode}`));
-          if (existing) response = existing.kind === 'busy' || existing.kind === 'conflict' ? existing : original(key, digest);
+          const dirty = isHostedCheckRequest(request) ? await dirtyCheckoutReason(authorized) : undefined;
+          if (closed) throw new Error('Verifier closing');
+          const existing = dirty === undefined ? claims.acquire(request, digest, authorized.identities.map(value => `${value.device}:${value.inode}`)) : undefined;
+          if (dirty !== undefined) response = { kind: 'refused', reason: dirty };
+          else if (existing) response = existing.kind === 'busy' || existing.kind === 'conflict' ? existing : original(key, digest);
           else {
             const execution = (async (): Promise<VerificationResponse> => {
               try {

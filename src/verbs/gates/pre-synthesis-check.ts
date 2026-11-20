@@ -8,6 +8,7 @@
  *   6. A PR stack exists (skippable).
  *   7. The tests pass (skippable).
  * Checks 2 to 5 run only when check 1 passes.
+ * A provisioned verifier runs check 7 under a checkout subject of the phase attempt. A provisioned route never runs it locally.
  */
 
 import { execFileSync } from 'node:child_process';
@@ -20,7 +21,8 @@ import type { VcsProvider } from '../../vcs/provider.js';
 import { createVcsProvider } from '../../vcs/factory.js';
 import { classifyStateFile, resolveWorkflowState } from '../resolve-state.js';
 import { createEvidenceSubject } from '../../workflow/admission/evidence-subject.js';
-import { runPhaseGateWithEvidence } from './gate-runner.js';
+import type { VerificationHostConnector } from '../../contract/verification/harness-verification.js';
+import { admitLifecycleLegs, hostedPendingResult, hostedRefusal, runPhaseGateWithEvidence, type LifecycleLeg } from './gate-runner.js';
 import { emitGateEvent, sameOperationGateKey } from './gate-utils.js';
 
 export interface PreSynthesisCheckArgs {
@@ -459,13 +461,87 @@ function checkTestsPass(
   checkPass(ctx, 'Tests pass');
 }
 
+/** The verifier of one call and the phase attempt that scopes its request. */
+interface PreSynthesisHost {
+  readonly connector: VerificationHostConnector;
+  readonly phaseAttemptId: () => string | undefined;
+}
+
+/** The argument vector of a resolved command, or undefined when it is empty or does not split. */
+function argvOf(command: string): readonly string[] | undefined {
+  try {
+    const { cmd, args } = splitCommand(command);
+    return cmd === '' ? undefined : [cmd, ...args];
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Check 7 in the verifier. The test leg and the typecheck leg run in one request, and a failed test leg stops it, as the local route stops.
+ * A refusal returns as the gate result. A pending result and a leg with no verdict throw the pending signal.
+ */
+async function checkTestsPassHosted(
+  ctx: CheckContext,
+  args: PreSynthesisCheckArgs,
+  repoRoot: string,
+  host: PreSynthesisHost,
+): Promise<ToolResult | undefined> {
+  if (args.skipTests) {
+    checkSkip(ctx, 'Tests pass (--skip-tests)');
+    return undefined;
+  }
+  let resolved: ReturnType<typeof resolveTestRuntime>;
+  try {
+    resolved = resolveTestRuntime(repoRoot);
+  } catch (err) {
+    checkFail(ctx, 'Tests pass', err instanceof Error ? err.message : String(err));
+    return undefined;
+  }
+  if (resolved.source === 'unresolved') {
+    checkSkip(ctx, `Tests pass — ${resolved.remediation ?? 'no test runtime resolved'}`);
+    return undefined;
+  }
+  if (resolved.test === null) {
+    checkSkip(ctx, 'Tests pass (no test runner detected)');
+    return undefined;
+  }
+  const test = argvOf(resolved.test);
+  if (test === undefined) {
+    checkFail(ctx, 'Tests pass', `${resolved.test} failed`);
+    return undefined;
+  }
+  const typecheck = resolved.typecheck === null ? undefined : argvOf(resolved.typecheck);
+  const legs: LifecycleLeg[] = [{ kind: 'command', argv: test }];
+  if (typecheck !== undefined) legs.push({ kind: 'typecheck', argv: typecheck });
+  const phaseAttemptId = host.phaseAttemptId();
+  const admitted = await admitLifecycleLegs({
+    connector: host.connector, checkout: repoRoot, legs, stopAfterTestFailure: true,
+    streamId: args.featureId, ...(phaseAttemptId === undefined ? {} : { phaseAttemptId }),
+  });
+  if ('success' in admitted) return admitted;
+  if (admitted[0]?.run.exitCode !== 0) {
+    checkFail(ctx, 'Tests pass', `${resolved.test} failed`);
+    return undefined;
+  }
+  if (resolved.typecheck !== null && (typecheck === undefined || admitted[1]?.run.exitCode !== 0)) {
+    checkFail(ctx, 'Tests pass', `${resolved.typecheck} failed`);
+    return undefined;
+  }
+  checkPass(ctx, 'Tests pass');
+  return undefined;
+}
+
 /**
  * Runs the readiness checks through `runPhaseGateWithEvidence`. The runner
  * records durable gate evidence before a success result returns.
+ * A connector comes only from the dispatch context. With a connector, a caller test-command override refuses before any request,
+ * and a pending hosted result maps to its existing code with no evidence.
  */
 export async function handlePreSynthesisCheck(
   args: PreSynthesisCheckArgs,
   provider?: VcsProvider,
+  connector?: VerificationHostConnector,
 ): Promise<ToolResult> {
   if (!args.featureId) {
     return {
@@ -484,20 +560,32 @@ export async function handlePreSynthesisCheck(
     };
   }
 
-  return runPhaseGateWithEvidence({
-    streamId: args.featureId,
-    gateClass: 'pre-synthesis',
-    requirementId: 'requirement:pre-synthesis',
-    stateDir,
-    eventStore,
-    subject: (phaseAttemptId) =>
-      createEvidenceSubject(
-        { kind: 'phase-attempt', phaseAttemptId },
-        { gate: 'pre-synthesis', phase: 'synthesize' },
-      ),
-    providerInput: args,
-    executeProvider: async () => executePreSynthesisCheck(args, eventStore, provider),
-  });
+  if (connector !== undefined && args.testCommand !== undefined) {
+    return hostedRefusal('A provisioned verifier refuses a caller test-command override. Only the approved command runs in the verifier.');
+  }
+
+  let attempt: string | undefined;
+  const host = connector === undefined ? undefined : { connector, phaseAttemptId: () => attempt };
+  try {
+    return await runPhaseGateWithEvidence({
+      streamId: args.featureId,
+      gateClass: 'pre-synthesis',
+      requirementId: 'requirement:pre-synthesis',
+      stateDir,
+      eventStore,
+      subject: (phaseAttemptId) => {
+        attempt = phaseAttemptId;
+        return createEvidenceSubject(
+          { kind: 'phase-attempt', phaseAttemptId },
+          { gate: 'pre-synthesis', phase: 'synthesize' },
+        );
+      },
+      providerInput: args,
+      executeProvider: async () => executePreSynthesisCheck(args, eventStore, provider, host),
+    });
+  } catch (error) {
+    return hostedPendingResult(error);
+  }
 }
 
 /**
@@ -511,6 +599,7 @@ async function executePreSynthesisCheck(
   args: PreSynthesisCheckArgs,
   store: EventStore,
   provider?: VcsProvider,
+  host?: PreSynthesisHost,
 ): Promise<ToolResult> {
   const { stateFile, featureId, eventStore, repoRoot = '.', skipTests = false, skipStack = false, testCommand } = args;
   const vcs = provider ?? await createVcsProvider();
@@ -548,7 +637,11 @@ async function executePreSynthesisCheck(
 
   await checkPrStack(ctx, repoRoot, skipStack, vcs);
 
-  checkTestsPass(ctx, repoRoot, skipTests, testCommand);
+  if (host === undefined) checkTestsPass(ctx, repoRoot, skipTests, testCommand);
+  else {
+    const refused = await checkTestsPassHosted(ctx, args, repoRoot, host);
+    if (refused !== undefined) return refused;
+  }
 
   const total = ctx.counters.pass + ctx.counters.fail;
   const passed = ctx.counters.fail === 0;

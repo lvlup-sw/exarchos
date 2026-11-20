@@ -6,6 +6,12 @@ import { createPrivateKey } from 'node:crypto';
 import { z } from 'zod';
 import { AdequacySelection, CheckLeg, CheckPlan, PhaseVerificationSubject, SpecCoverageSelection, VerificationSubject, verifierSignerId } from '../../contract/verification/harness-verification.js';
 
+/**
+ * The head-free pin of an operator checkout resource. It names the profile and no head.
+ * The verifier observes the registered branch head itself, and such a resource serves only the lifecycle check.
+ */
+export const CheckoutResourcePin = z.object({ scope: z.literal('checkout'), profileId: z.string().min(1).max(200) }).strict();
+
 /** The longest operator-pinned duration of one check operation. A check never takes this from a request. */
 export const MAXIMUM_CHECK_TIMEOUT_MS = 900_000;
 /** The largest captured output of one check child. The verifier reduces it before a frame. */
@@ -55,7 +61,7 @@ export const HostProvisioning = z.object({
     check: HostCheckProfile.optional(),
   }).strict()).min(1).max(32),
   resources: z.array(z.object({ id: z.string(), checkout: z.string(), repository: z.string(), gitDir: z.string(), branch: z.string(),
-    subject: z.union([VerificationSubject, PhaseVerificationSubject]) }).strict()).min(1).max(64),
+    subject: z.union([VerificationSubject, PhaseVerificationSubject, CheckoutResourcePin]) }).strict()).min(1).max(64),
 }).strict();
 export type HostProvisioning = z.infer<typeof HostProvisioning>;
 

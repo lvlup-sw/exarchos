@@ -12,6 +12,13 @@ vi.mock('node:child_process', () => ({
 
 import { execSync, execFileSync } from 'node:child_process';
 
+vi.mock('../../../../src/config/test-runtime-resolver.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../../../src/config/test-runtime-resolver.js')>();
+  return { ...actual, resolveRunnableCommand: vi.fn(actual.resolveRunnableCommand) };
+});
+
+import { resolveRunnableCommand } from '../../../../src/config/test-runtime-resolver.js';
+
 vi.mock('../../../../src/projections/views/tools.js', () => ({
   getOrCreateMaterializer: vi.fn(),
 }));
@@ -37,6 +44,9 @@ vi.mock('../../../../src/verbs/gates/gate-runner.js', () => ({
       };
     }
   }),
+  HostedAdequacyPending: class extends Error {},
+  admitLifecycleLegs: vi.fn(),
+  hostedPendingResult: vi.fn((error: unknown) => { throw error; }),
 }));
 
 import { getOrCreateMaterializer } from '../../../../src/projections/views/tools.js';
@@ -48,6 +58,8 @@ import {
   type DocumentLegConfig,
 } from '../../../../src/verbs/team/prepare-synthesis.js';
 import type { ResolvedProjectConfig } from '../../../../src/config/resolve.js';
+import { admitLifecycleLegs } from '../../../../src/verbs/gates/gate-runner.js';
+import type { VerificationHostConnector } from '../../../../src/contract/verification/harness-verification.js';
 import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
 
 const STATE_DIR = '/tmp/test-state-prepare-synthesis';
@@ -540,6 +552,59 @@ describe('handlePrepareSynthesis', () => {
     const data = result.data as { tests: { command: string | null }; typecheck: { command: string | null } };
     expect(data.tests.command).toBe('pytest -q');
     expect(data.typecheck.command).toBe('mypy src');
+  });
+
+  /** A provisioned route runs both legs in one verifier request, as the local route runs both, and starts no local command. */
+  it('PrepareSynthesis_Provisioned_RunsBothLegsOnlyInTheVerifier', async () => {
+    await fs.writeFile(path.join(tmpDir, '.exarchos.yml'), "test: 'pytest -q'\ntypecheck: 'mypy src'\n");
+    const mockStore = createMockEventStore();
+    const run = (exitCode: number, stdout: string) => ({ end: 'exited' as const, exitCode, stdout, stderr: '', outputDigest: 'a'.repeat(64) });
+    vi.mocked(admitLifecycleLegs).mockResolvedValue([
+      { name: 'test', kind: 'command', run: run(0, '3 passed') },
+      { name: 'typecheck', kind: 'typecheck', run: run(2, 'src/a.py: error TS1 found') },
+    ]);
+    const connector: VerificationHostConnector = {
+      publicKey: 'unused', gitPath: '/nonexistent/git', resourceId: 'unused', profileId: 'unused',
+      client: { submit: async () => ({ kind: 'unavailable', reason: 'unused' }), retrieve: async () => ({ kind: 'unavailable', reason: 'unused' }) },
+    };
+
+    const result = await handlePrepareSynthesis({ featureId: 'test-feature', repoRoot: tmpDir }, tmpDir, mockStore as unknown as EventStore, connector);
+
+    expect(runsOf('pytest')).toEqual([]);
+    expect(runsOf('mypy')).toEqual([]);
+    expect(admitLifecycleLegs).toHaveBeenCalledTimes(1);
+    expect(admitLifecycleLegs).toHaveBeenCalledWith(expect.objectContaining({
+      connector, checkout: tmpDir, streamId: 'test-feature',
+      legs: [{ kind: 'command', argv: ['pytest', '-q'] }, { kind: 'typecheck', argv: ['mypy', 'src'] }],
+    }));
+    expect(vi.mocked(admitLifecycleLegs).mock.calls[0]?.[0].stopAfterTestFailure).toBeUndefined();
+    const data = result.data as { tests: { passed: boolean; passCount: number }; typecheck: { passed: boolean; command: string | null } };
+    expect(data.tests).toMatchObject({ passed: true, passCount: 3 });
+    expect(data.typecheck).toMatchObject({ passed: false, command: 'mypy src' });
+  });
+
+  /**
+   * A provisioned call reads each command once. A test command that resolves only on a later read never runs in the governor,
+   * and the call sends no request for it.
+   */
+  it('PrepareSynthesis_Provisioned_CommandThatResolvesOnlyOnALaterRead_NeverRunsLocally', async () => {
+    await fs.writeFile(path.join(tmpDir, '.exarchos.yml'), "test: 'pytest -q'\n");
+    const mockStore = createMockEventStore();
+    vi.mocked(resolveRunnableCommand)
+      .mockReturnValueOnce({ kind: 'unresolved', reason: 'not yet configured' })
+      .mockReturnValueOnce({ kind: 'unresolved', reason: 'not yet configured' });
+    const connector: VerificationHostConnector = {
+      publicKey: 'unused', gitPath: '/nonexistent/git', resourceId: 'unused', profileId: 'unused',
+      client: { submit: async () => ({ kind: 'unavailable', reason: 'unused' }), retrieve: async () => ({ kind: 'unavailable', reason: 'unused' }) },
+    };
+
+    const result = await handlePrepareSynthesis({ featureId: 'test-feature', repoRoot: tmpDir }, tmpDir, mockStore as unknown as EventStore, connector);
+
+    expect(runsOf('pytest')).toEqual([]);
+    expect(admitLifecycleLegs).not.toHaveBeenCalled();
+    expect(vi.mocked(resolveRunnableCommand).mock.calls.map((call) => call[1])).toEqual(['test', 'typecheck']);
+    expect(result.success).toBe(true);
+    expect((result.data as { tests: { passed: boolean; command: string | null } }).tests).toMatchObject({ passed: false, command: null });
   });
 
   /** No project markers and no configuration: the test leg fails closed and names the remediation. */

@@ -16,8 +16,8 @@ import { splitCommand } from '../config/tokenize-command.js';
 
 /** Injectable seams, so unit tests do not spawn a real process. */
 export interface RunCommandIo {
-  /** Command runner. Returns the child exit code. */
-  run: (cmd: string, args: readonly string[], cwd: string) => number;
+  /** Command runner. Returns the child exit code. A hosted runner returns it after the authenticated result arrives. */
+  run: (cmd: string, args: readonly string[], cwd: string) => number | Promise<number>;
   stdout: (s: string) => void;
   stderr: (s: string) => void;
 }
@@ -69,7 +69,7 @@ export function defaultStderr(s: string): void {
  * Runs a resolved command under the shared exit-code contract and returns the exit code. The
  * caller sets `process.exitCode`, so this function does not call `process.exit`.
  */
-export function runResolvedCommand(args: RunResolvedCommandArgs): number {
+export async function runResolvedCommand(args: RunResolvedCommandArgs): Promise<number> {
   const { verb, command, remediation, dryRun, cwd, unresolvedExitCode, io } = args;
 
   if (command === null || command.trim().length === 0) {
