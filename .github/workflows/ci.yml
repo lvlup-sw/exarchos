@@ -60,7 +60,7 @@ jobs:
           fetch-depth: 0
           filter: blob:none
       - id: plan
-        uses: lvlup-sw/.github/actions/ci-lanes@v1
+        uses: lvlup-sw/exarchos/.github/actions/ci-lanes-faf3b5c@a62fab3f935b93258654807da7fda58359878c97
 
   # Untargeted contract check: prove the manifest and this workflow still agree.
   # Not in CI Gate (the gate may only cover jobs that need `plan`).
@@ -70,7 +70,7 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
-      - uses: lvlup-sw/.github/actions/ci-lanes@v1
+      - uses: lvlup-sw/exarchos/.github/actions/ci-lanes-faf3b5c@a62fab3f935b93258654807da7fda58359878c97
         with:
           mode: check
 
@@ -1083,7 +1083,7 @@ jobs:
       # .github/workflow-hygiene.toml.
       - name: Workflow hygiene (concurrency + timeouts)
         if: ${{ !cancelled() }}
-        uses: lvlup-sw/.github/actions/workflow-hygiene@v1
+        uses: lvlup-sw/exarchos/.github/actions/workflow-hygiene-faf3b5c@a62fab3f935b93258654807da7fda58359878c97
 
   # ─────────────────────────────────────────────────────────────────────
   # e2e-process
@@ -1309,7 +1309,7 @@ jobs:
       # The verdict reads `.github/ci-lanes.toml` from the checkout. Without this step the
       # action cannot read the manifest, and the required check fails on each PR.
       - uses: actions/checkout@v4
-      - uses: lvlup-sw/.github/actions/ci-lanes@v1
+      - uses: lvlup-sw/exarchos/.github/actions/ci-lanes-faf3b5c@a62fab3f935b93258654807da7fda58359878c97
         with:
           mode: verdict
           gate: ci-gate
