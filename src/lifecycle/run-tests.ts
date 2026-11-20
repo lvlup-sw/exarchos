@@ -4,18 +4,18 @@
  * Thus the same hook works for every toolchain.
  *
  * Exit contract:
- *   - Command resolved: run it and return its exit code.
+ *   - Command resolved: the verifier runs it, and the verb returns the exit code of the child.
  *   - No command resolved: print the remediation to stderr and exit 0.
  *   - Malformed or unreadable `.exarchos.yml`: print the error to stderr and exit 1.
+ *   - No provisioned verifier: an actual run runs nothing and exits 78, with a message that tells the user to provision the verifier.
  *   - Provisioned verifier: a host refusal, a key conflict or a dirty tree exits 77. An unavailable or pending verifier exits 75.
  *
- * `--dry-run` prints the resolved command and does not run it.
+ * `--dry-run` prints the resolved command and does not run it. The verb never runs the command locally.
  */
 
 import { resolveTestRuntime, type ResolvedRuntime } from '../config/test-runtime-resolver.js';
 import {
   runResolvedCommand,
-  defaultRun,
   defaultStdout,
   defaultStderr,
 } from './run-verification-command.js';
@@ -32,6 +32,9 @@ export const HOST_REFUSED_EXIT_CODE = 77;
 /** Exit code of an unavailable, busy, incomplete or pending verifier, and of a hosted run with no verdict. */
 export const HOST_UNAVAILABLE_EXIT_CODE = 75;
 
+/** Exit code of an actual run on a machine with no provisioned verifier. */
+export const NOT_PROVISIONED_EXIT_CODE = 78;
+
 /** The outcome of one hosted test run. Only an exited run carries the child exit code. */
 export type HostedTestRun =
   | { readonly kind: 'exited'; readonly exitCode: number; readonly stdout: string; readonly stderr: string }
@@ -43,24 +46,24 @@ export interface RunTestsHost {
   run(cwd: string, argv: readonly string[]): Promise<HostedTestRun>;
 }
 
-/** Injectable seams, so that unit tests do not spawn a real test process. */
+/** The inputs of one run. No input selects a local run, so a run with no host has one outcome. */
 export interface RunTestsDeps {
   /** Project root to resolve and run in. Defaults to `process.cwd()`. */
   cwd?: string;
   /** Test-runtime resolver. Defaults to the canonical `resolveTestRuntime`. */
   resolve?: (repoRoot: string) => ResolvedRuntime;
-  /** Command runner. Returns the child exit code. Defaults to `execFileSync` with inherited stdio. */
-  run?: (cmd: string, args: readonly string[], cwd: string) => number;
-  /** The verifier host of a provisioned machine. Without it, the verb keeps its local route. */
+  /** The verifier host of a provisioned machine. Without it, an actual run exits 78. */
   host?: RunTestsHost;
+  /** The platform that the exit 78 message names when it is not Linux. Defaults to `process.platform`. */
+  platform?: NodeJS.Platform;
   stdout?: (s: string) => void;
   stderr?: (s: string) => void;
 }
 
 /**
- * Resolves and runs the project test command, and returns the exit code for `process.exitCode`.
+ * Resolves the project test command, runs it in the verifier, and returns the exit code for `process.exitCode`.
  * A resolver error is a hard failure (exit 1). The handler does not fall back to a Node command.
- * With a host, the handler waits for the authenticated hosted result and never runs the command locally.
+ * With a host, the handler waits for the authenticated hosted result. Without a host, an actual run exits 78 and runs nothing.
  */
 export async function handleRunTests(argv: readonly string[], deps: RunTestsDeps = {}): Promise<number> {
   const cwd = deps.cwd ?? process.cwd();
@@ -78,6 +81,7 @@ export async function handleRunTests(argv: readonly string[], deps: RunTestsDeps
   }
 
   const host = deps.host;
+  const platform = deps.platform ?? process.platform;
   return runResolvedCommand({
     verb: 'run-tests',
     command: resolved.test,
@@ -86,11 +90,21 @@ export async function handleRunTests(argv: readonly string[], deps: RunTestsDeps
     cwd,
     unresolvedExitCode: UNRESOLVED_EXIT_CODE,
     io: {
-      run: host === undefined ? deps.run ?? defaultRun : (cmd, args) => runHostedTests(host, cwd, [cmd, ...args], stdout, stderr),
+      run: host === undefined ? () => notProvisioned(platform, stderr) : (cmd, args) => runHostedTests(host, cwd, [cmd, ...args], stdout, stderr),
       stdout,
       stderr,
     },
   });
+}
+
+/** Report an actual run on a machine with no verifier. On a platform other than Linux, the message names that platform. */
+function notProvisioned(platform: NodeJS.Platform, stderr: (s: string) => void): number {
+  stderr(platform === 'linux'
+    ? 'exarchos run-tests: no verifier is provisioned on this machine, so the test command did not run. '
+      + 'Provision the verifier client at ~/.exarchos/verifier/client.json, then run the tests again.'
+    : `exarchos run-tests: the hosted verifier does not support the ${platform} platform, so the test command did not run. `
+      + 'Provision the verifier on a supported Linux machine, then run the tests there.');
+  return NOT_PROVISIONED_EXIT_CODE;
 }
 
 /** Wait for the hosted run and map each cause to its own exit code and message. */

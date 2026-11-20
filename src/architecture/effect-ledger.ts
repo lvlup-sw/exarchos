@@ -693,20 +693,6 @@ function registerLedger(): readonly EffectOwnershipRule[] {
     ),
     rule(
       'process',
-      'config/',
-      'config-probe-owner',
-      'idempotent: config toolchain probes are read-only',
-      'none: probes mutate no state',
-    ),
-    rule(
-      'process',
-      'hooks/',
-      'hook-process-owner',
-      'best-effort: hook subprocesses are side-channel',
-      'none: hooks are advisory, not on the compensation path',
-    ),
-    rule(
-      'process',
       'runtime/launcher/',
       'launcher-process-owner',
       'idempotent: teardown/liveness probes tolerate re-run',

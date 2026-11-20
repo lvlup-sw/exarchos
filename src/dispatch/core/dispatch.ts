@@ -24,7 +24,6 @@ import type { EventStore } from '../../events/store.js';
 import type { ExarchosConfig } from '../../config/define.js';
 import type { ResolvedProjectConfig } from '../../config/resolve.js';
 import type { VcsProvider } from '../../vcs/provider.js';
-import type { ConfigHookRunner } from '../../hooks/config-hooks.js';
 import type { Outbox } from '../../sync/outbox.js';
 import type { ChannelEmitter } from '../../adapters/channel/emitter.js';
 import type { CapabilityResolver } from '../../workflow/capabilities/resolver.js';
@@ -110,7 +109,6 @@ export interface DispatchContext {
   readonly config?: ExarchosConfig;
   readonly projectConfig?: ResolvedProjectConfig;
   readonly vcsProvider?: VcsProvider;
-  readonly hookRunner?: ConfigHookRunner;
   readonly slimRegistration?: boolean;
   readonly outbox?: Outbox;
   readonly channelEmitter?: ChannelEmitter;
@@ -224,6 +222,24 @@ function owedEnsures(
     return { kind: 'none', because: 'a successful no-op reply did no work, so it owes no success ensure' };
   }
   return { kind: 'declared', values: [first, ...rest] };
+}
+
+/**
+ * The closed set of codes of a check that did not run.
+ * The codes are a hosted refusal, a pending hosted result, the retired mutation gate and a machine with no verifier.
+ * A failed result with one of these codes owes no ensure, because no work ran. The emission enforcement still runs before this check.
+ * The literals stay here, so dispatch imports no gate module.
+ */
+export const DID_NOT_RUN_CODES: readonly string[] = Object.freeze([
+  'HOSTED_VERIFICATION_REFUSED',
+  'HOSTED_ADEQUACY_PENDING',
+  'MUTATION_TESTING_RETIRED',
+  'VERIFIER_NOT_PROVISIONED',
+]);
+
+/** True for a failed result whose code is in {@link DID_NOT_RUN_CODES}. */
+function didNotRun(result: ToolResult): boolean {
+  return !result.success && result.error !== undefined && DID_NOT_RUN_CODES.includes(result.error.code);
 }
 
 function formatMissingEnsures(missing: readonly { readonly source: string }[]): string {
@@ -900,7 +916,8 @@ export async function dispatch(
     dispatchedContract !== undefined &&
     dispatchedContract.ensures.kind === 'declared' &&
     !STUBBED_COMPOSITES.has(tool) &&
-    !readOnlyAbstention
+    !readOnlyAbstention &&
+    !didNotRun(result)
   ) {
     const ensures = owedEnsures(
       dispatchedContract.ensures,

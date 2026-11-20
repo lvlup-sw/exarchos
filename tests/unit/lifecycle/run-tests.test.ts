@@ -3,7 +3,6 @@ import { handleRunTests, type HostedTestRun, type RunTestsDeps, type RunTestsHos
 import type { ResolvedRuntime } from '../../../src/config/test-runtime-resolver.js';
 
 interface Recorder {
-  runs: Array<{ cmd: string; args: readonly string[]; cwd: string }>;
   out: string[];
   err: string[];
 }
@@ -12,16 +11,12 @@ function makeDeps(
   resolved: ResolvedRuntime | Error,
   overrides: Partial<RunTestsDeps> = {},
 ): { deps: RunTestsDeps; rec: Recorder } {
-  const rec: Recorder = { runs: [], out: [], err: [] };
+  const rec: Recorder = { out: [], err: [] };
   const deps: RunTestsDeps = {
     cwd: '/repo',
     resolve: () => {
       if (resolved instanceof Error) throw resolved;
       return resolved;
-    },
-    run: (cmd, args, cwd) => {
-      rec.runs.push({ cmd, args, cwd });
-      return 0;
     },
     stdout: (s) => rec.out.push(s),
     stderr: (s) => rec.err.push(s),
@@ -45,23 +40,27 @@ function hostOf(outcome: HostedTestRun): { host: RunTestsHost; calls: Array<{ cw
 }
 
 describe('handleRunTests', () => {
-  it('RunTests_ResolvedCommand_ExecsItAndReturnsExitCode', async () => {
-    const { deps, rec } = makeDeps(RESOLVED('pytest -q'));
+  /** Without a verifier host, an actual run runs nothing, exits 78 and tells the user to provision the verifier. */
+  it('RunTests_NoHost_Exits78AndTellsTheUserToProvision', async () => {
+    const { deps, rec } = makeDeps(RESOLVED('pytest -q'), { platform: 'linux' });
 
     const code = await handleRunTests([], deps);
 
-    expect(code).toBe(0);
-    expect(rec.runs).toEqual([{ cmd: 'pytest', args: ['-q'], cwd: '/repo' }]);
+    expect(code).toBe(78);
+    expect(rec.out).toEqual([]);
+    expect(rec.err.join('\n')).toContain('no verifier is provisioned');
+    expect(rec.err.join('\n')).toContain('~/.exarchos/verifier/client.json');
   });
 
-  it('RunTests_TestProcessFails_PropagatesNonZeroExitCode', async () => {
-    const { deps } = makeDeps(RESOLVED('cargo test'), {
-      run: () => 2,
-    });
+  /** On a platform other than Linux, the exit 78 message names that platform. */
+  it('RunTests_NoHostOnAnotherPlatform_Exits78NamingThePlatform', async () => {
+    const { deps, rec } = makeDeps(RESOLVED('cargo test'), { platform: 'darwin' });
 
     const code = await handleRunTests([], deps);
 
-    expect(code).toBe(2);
+    expect(code).toBe(78);
+    expect(rec.err.join('\n')).toContain('does not support the darwin platform');
+    expect(rec.err.join('\n')).toContain('Provision the verifier');
   });
 
   /** The skip is visible because its reason goes to stderr. */
@@ -73,8 +72,8 @@ describe('handleRunTests', () => {
     const code = await handleRunTests([], deps);
 
     expect(code).toBe(0);
-    expect(rec.runs).toHaveLength(0);
     expect(rec.err.join('\n')).toContain('No project markers');
+    expect(rec.err.join('\n')).not.toContain('provision');
   });
 
   it('RunTests_MalformedConfig_SurfacesErrorAndExitsNonZero', async () => {
@@ -83,7 +82,6 @@ describe('handleRunTests', () => {
     const code = await handleRunTests([], deps);
 
     expect(code).toBe(1);
-    expect(rec.runs).toHaveLength(0);
     expect(rec.err.join('\n')).toContain('.exarchos.yml');
   });
 
@@ -93,7 +91,7 @@ describe('handleRunTests', () => {
     const code = await handleRunTests(['--dry-run'], deps);
 
     expect(code).toBe(0);
-    expect(rec.runs).toHaveLength(0);
+    expect(rec.err).toEqual([]);
     expect(rec.out.join('\n')).toContain('npm run test:run');
   });
 
@@ -105,7 +103,6 @@ describe('handleRunTests', () => {
     const code = await handleRunTests([], deps);
 
     expect(code).toBe(3);
-    expect(rec.runs).toHaveLength(0);
     expect(calls).toEqual([{ cwd: '/repo', argv: ['node', 'test.cjs', '--flag'] }]);
     expect(rec.out).toEqual(['suite output']);
     expect(rec.err).toEqual(['suite diagnostics']);
@@ -124,7 +121,7 @@ describe('handleRunTests', () => {
     expect(await handleRunTests([], second.deps)).toBe(75);
     expect(second.rec.err.join('\n')).toContain('pinned time limit');
     expect(second.rec.err.join('\n')).toContain('no result');
-    expect([...first.rec.runs, ...second.rec.runs]).toHaveLength(0);
+    expect([...refused.calls, ...unavailable.calls]).toHaveLength(2);
   });
 
   /** With a host, an unresolved command, a malformed config and a dry run keep their own exits and make no hosted request. */

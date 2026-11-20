@@ -45,6 +45,20 @@
       "why": "Not an enabler. It is a PREDICATE over an install manifest — `installManifest` + `VouchesForDir`, returning a boolean — and matches `^install[A-Z]` by prefix coincidence alone. Nothing is gated on calling it, so there is no dark path behind it. Encoding 'is a predicate' into the name rule is harder than recording the one case, and a rule that tried would start producing false negatives.",
       "owner": "@rsalus",
       "expiry": "2027-02-23"
+    },
+    {
+      "symbol": "registerCustomWorkflows",
+      "file": "src/config/register.ts",
+      "why": "Data-only startup removes the only production caller, because startup no longer evaluates executable configuration. The v3.0 migration deletes the registry.",
+      "owner": "@rsalus",
+      "expiry": "2027-02-28"
+    },
+    {
+      "symbol": "registerCustomTool",
+      "file": "src/registry/custom-tools.ts",
+      "why": "Data-only startup removes the only production caller, because startup no longer imports custom tool modules. The v3.0 migration deletes the registry.",
+      "owner": "@rsalus",
+      "expiry": "2027-02-28"
     }
   ],
   "allowlistSchema": {

@@ -13,18 +13,27 @@ import { configureCleanupSnapshotStore } from '../../workflow/cleanup.js';
 import { configureStateStoreBackend } from '../../workflow/state-store.js';
 import { loadTopology } from '../../workflow/topology/loader.js';
 import { assertRegistrationWeldsAtStartup } from '../../events/registration-validate.js';
+import { logger } from '../../logger.js';
+import type { VerificationHostConnector } from '../../contract/verification/harness-verification.js';
+import type { ResolvedProjectConfig } from '../../config/resolve.js';
 
-const JS_PROJECT_CONFIG_FILES = ['exarchos.config.ts', 'exarchos.config.js'] as const;
+/** The executable configuration files that startup no longer evaluates. */
+const EXECUTABLE_CONFIG_FILES: readonly string[] = ['exarchos.config.ts', 'exarchos.config.js'];
 
 /**
- * True when `exarchos.config.ts` or `exarchos.config.js` is in `projectRoot`. Without one, the
- * context skips the costly load of `config/loader.js` and the registrars.
+ * The migration finding of a project that still holds executable configuration or configured event hooks.
+ * Startup checks only that a configuration file exists. It never imports the file and never runs a hook.
+ * The finding is one warning on the startup logger, and it appends no event.
  */
-function hasJsProjectConfig(projectRoot: string): boolean {
-  for (const name of JS_PROJECT_CONFIG_FILES) {
-    if (fs.existsSync(path.join(projectRoot, name))) return true;
-  }
-  return false;
+function warnRetiredExecutableConfiguration(projectRoot: string, projectConfig: ResolvedProjectConfig): void {
+  const files = EXECUTABLE_CONFIG_FILES.filter((name) => fs.existsSync(path.join(projectRoot, name)));
+  const hookEvents = Object.keys(projectConfig.hooks.on);
+  if (files.length === 0 && hookEvents.length === 0) return;
+  logger.warn(
+    { finding: 'executable-configuration-retired', projectRoot, files, hookEvents },
+    'Exarchos does not evaluate executable configuration or run configured event hooks. ' +
+      'Startup ignored the files and hooks that this finding names. Move each workflow definition to .exarchos/workflows/.',
+  );
 }
 
 /**
@@ -42,18 +51,20 @@ export interface InitializeContextOptions {
    * backend, which is the only substrate.
    */
   readonly backend?: StorageBackend;
-  /** Optional project root directory to load exarchos.config.ts/.js from. */
+  /** The project root of the YAML configuration, the VCS provider and the topology. */
   readonly projectRoot?: string;
+  /** The verifier connector that startup read. When it is absent, the context is unprovisioned. */
+  readonly verificationHost?: VerificationHostConnector;
 }
 
 /**
  * Creates the DispatchContext for the MCP and CLI adapters. It first checks the event
  * registration welds, so an unresolvable `EffectProviderId` halts startup before the first append.
  *
- * Without `projectRoot`, it skips config, VCS, hooks, and topology. With it, it lazy-imports the
- * YAML config, VCS, and hook modules, applies the storage durability before the first append, and
- * loads `topology.yaml`. It imports the JS/TS config loader and the registrars only when a JS/TS config file is present.
- * This keeps the CLI cold start fast. Without that file, `config` is `{}`.
+ * The context returns the supplied connector as `verificationHost`. It never reads the home directory.
+ * Without `projectRoot`, it skips config, VCS and topology. With it, it lazy-imports the YAML config
+ * and VCS modules, applies the storage durability before the first append, and loads `topology.yaml`.
+ * Startup is data-only. It never imports executable configuration and never runs a hook, and `config` is `{}`.
  */
 export async function initializeContext(
   stateDir: string,
@@ -74,71 +85,42 @@ export async function initializeContext(
 
   const enableTelemetry = process.env.EXARCHOS_TELEMETRY !== 'false';
   const capabilityResolver = buildDefaultCapabilityResolver();
+  const verificationHost = options?.verificationHost;
+  const base = {
+    stateDir,
+    eventStore,
+    enableTelemetry,
+    capabilityResolver,
+    ...(backend !== undefined ? { storage: backend } : {}),
+    ...(verificationHost !== undefined ? { verificationHost } : {}),
+  };
 
   if (!options?.projectRoot) {
-    return { stateDir, eventStore, enableTelemetry, capabilityResolver, ...(backend !== undefined ? { storage: backend } : {}) };
+    return base;
   }
 
   const projectRoot = options.projectRoot;
-  const hasJsConfig = hasJsProjectConfig(projectRoot);
 
   const [
     { loadProjectConfig },
     { resolveConfig },
     { createVcsProvider },
-    { createConfigHookRunner },
   ] = await Promise.all([
     import('../../config/yaml-loader.js'),
     import('../../config/resolve.js'),
     import('../../vcs/factory.js'),
-    import('../../hooks/config-hooks.js'),
   ]);
 
   const projectConfig = resolveConfig(loadProjectConfig(projectRoot));
   const vcsProvider = await createVcsProvider({ config: projectConfig });
-  const hookRunner = createConfigHookRunner(projectConfig);
 
   eventStore.setStorageDurability(projectConfig.storage.synchronous);
 
+  warnRetiredExecutableConfiguration(projectRoot, projectConfig);
+
   await loadTopologyIfPresent(projectRoot, eventStore);
 
-  if (!hasJsConfig) {
-    return {
-      stateDir,
-      eventStore,
-      enableTelemetry,
-      capabilityResolver,
-      ...(backend !== undefined ? { storage: backend } : {}),
-      config: {},
-      projectConfig,
-      vcsProvider,
-      hookRunner,
-    };
-  }
-
-  const [
-    { loadConfig },
-    { registerCustomWorkflows, registerCustomViews, registerCustomTools },
-  ] = await Promise.all([
-    import('../../config/loader.js'),
-    import('../../config/register.js'),
-  ]);
-
-  const config = await loadConfig(projectRoot);
-
-  if (config) {
-    if (config.workflows || config.events) {
-      registerCustomWorkflows(config);
-    }
-    if (config.views) {
-      await registerCustomViews(config, projectRoot);
-    }
-    if (config.tools) {
-      await registerCustomTools(config, projectRoot);
-    }
-  }
-
-  return { stateDir, eventStore, enableTelemetry, capabilityResolver, ...(backend !== undefined ? { storage: backend } : {}), config, projectConfig, vcsProvider, hookRunner };
+  return { ...base, config: {}, projectConfig, vcsProvider };
 }
 
 /**

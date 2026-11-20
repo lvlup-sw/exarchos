@@ -296,10 +296,10 @@ it.runIf(process.platform === 'linux')('LifecycleHost_ApprovedOperationsRunOnlyI
 it.runIf(process.platform === 'linux')('LifecycleHost_NoHostDirtyHeadAndRefusedProfileNeverRunLocally', async () => {
   const f = await lifecycleFixture();
   try {
-    const legacy = await f.runTests(f.repo.checkout);
-    expect(legacy.code).toBe(0);
-    expect(await exists(f.marker('main-test'))).toBe(true);
-    await rm(f.marker('main-test'));
+    const unprovisioned = await f.runTests(f.repo.checkout);
+    expect(unprovisioned.code).toBe(78);
+    expect(unprovisioned.err).toContain('Provision the verifier');
+    expect(await exists(f.marker('main-test'))).toBe(false);
 
     const host = f.connector(ALL);
     const unavailable = await f.runTests(f.repo.checkout, host);

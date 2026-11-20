@@ -1,3 +1,4 @@
+// RESERVED(issue: #1928, owner: exarchos, expires: 2027-02-28) — data-only startup removed the last production importer, the executable configuration loader. The v3.0 migration deletes this schema.
 import { z } from 'zod';
 import { BUILT_IN_WORKFLOW_TYPES } from '../workflow/admission/built-in-workflow-ir.js';
 
@@ -82,8 +83,8 @@ export const viewDefinitionSchema = z.object({
 
 /**
  * @deprecated since v2.10.0. The `tools:` block in `exarchos.config.ts` goes
- * away in v3.0.0. Move custom tools to the Workflow Builder SDK. The first
- * `registerCustomTools` call with this block in a process logs a warning.
+ * away in v3.0.0. Move custom tools to the Workflow Builder SDK. Startup
+ * does not evaluate executable configuration, so no custom tool registers.
  */
 export const toolActionDefinitionSchema = z.object({
   name: z.string().min(1, 'Action name must not be empty'),

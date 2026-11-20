@@ -311,7 +311,6 @@ export const LAYER_ALLOWED_IMPORTS: readonly LayerAllowance[] = Object.freeze([
     'L9 cooperative agents — drives launches and worktrees through the dispatch core, the verb surface, the workflow primitives and the event store.',
   ),
   allowance('pruner', ['workflow'], 'Pruner safeguards read the topology contract, which task 013 folded into workflow/.'),
-  allowance('hooks', ['config'], 'Hook wiring reads only config; hooks are an advisory side-channel.'),
   allowance(
     'runbooks',
     ['utils', ROOT_LAYER],
@@ -373,11 +372,10 @@ export const LAYER_ALLOWED_IMPORTS: readonly LayerAllowance[] = Object.freeze([
   ),
   allowance(
     'config',
-    [ROOT_LAYER, 'events', 'projections', 'registry', 'utils', 'verbs', 'workflow'],
+    [ROOT_LAYER, 'events', 'utils', 'verbs', 'workflow'],
     'Config resolution reaches the verb surface — the narrowest row that is arguably inverted, and now visible. ' +
-      'The `registry` edge is the action-contract declaration: `config/register.ts` stamps a contract onto an ' +
-      'action through the declaration helpers, so it reaches the directory that OWNS the declaration rather ' +
-      'than restating its shape.',
+      'Data-only startup removed the view and tool registrars, so config no longer reaches the projections or ' +
+      'the action-contract declaration.',
   ),
   allowance(
     'contract',
@@ -412,7 +410,7 @@ export const LAYER_ALLOWED_IMPORTS: readonly LayerAllowance[] = Object.freeze([
   ),
   allowance(
     'lifecycle',
-    ['config', 'events', 'ndjson', 'projections', 'runtime', 'utils', 'verbs'],
+    ['config', 'events', 'ndjson', 'projections', 'runtime', 'verbs'],
     'Process lifecycle; no root-surface edge, and frames output as NDJSON like the CLI does.',
   ),
   allowance(
@@ -474,7 +472,7 @@ export const LAYER_ALLOWED_IMPORTS: readonly LayerAllowance[] = Object.freeze([
     'events',
     [
       ROOT_LAYER, 'architecture', 'contract', 'describe',
-      'dispatch', 'hooks', 'projections', 'storage', 'utils', 'verbs',
+      'dispatch', 'projections', 'storage', 'utils', 'verbs',
       'workflow',
     ],
     'The event store. That the WRITE side reaches the verb surface is still the finding — an event ' +
@@ -494,11 +492,11 @@ export const LAYER_ALLOWED_IMPORTS: readonly LayerAllowance[] = Object.freeze([
   allowance(
     'dispatch',
     [
-      ROOT_LAYER, 'adapters', 'adapters/cli', 'config', 'contract', 'events', 'hooks',
+      ROOT_LAYER, 'adapters', 'adapters/cli', 'config', 'contract', 'events',
       'install', 'projections', 'registry', 'review', 'runtime', 'storage', 'sync',
       'utils', 'vcs', 'verbs', 'workflow',
     ],
-    'The dispatch core — 18 targets after the nested CLI adapter split out of the parent facade and the ' +
+    'The dispatch core — 17 targets after the nested CLI adapter split out of the parent facade and the ' +
       'action contract took up residence under `registry/`, which dispatch reads to decide admission. ' +
       'It is the hub, so breadth is expected; the row exists so the breadth stops growing silently. ' +
       'The `utils` edge is the store-path resolver: the chokepoint refuses a mutation whose resolved ' +

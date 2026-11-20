@@ -4,11 +4,11 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1509,
-    "parsedFiles": 1464,
+    "testFiles": 1505,
+    "parsedFiles": 1460,
     "shellFiles": 45,
-    "cases": 16676,
-    "dynamicTitles": 316,
+    "cases": 16655,
+    "dynamicTitles": 321,
     "unparseableFiles": 0
   },
   "unparseable": [],
@@ -5061,6 +5061,21 @@
           "suite": "dispatch gates success on applicable ensures",
           "name": "Dispatch_ReadOnlyAbstention_SkipsAppendCheck",
           "dynamic": false
+        },
+        {
+          "suite": "dispatch keeps the code of a check that did not run",
+          "name": "DidNotRunCodes_LiveLiteralsMatchTheirProducersAndOneIsReserved",
+          "dynamic": false
+        },
+        {
+          "suite": "dispatch keeps the code of a check that did not run",
+          "name": "Dispatch_DidNotRunCode_KeepsItsOwnCodeInsteadOfTheEnsureViolation",
+          "dynamic": false
+        },
+        {
+          "suite": "dispatch keeps the code of a check that did not run",
+          "name": "Dispatch_UnboundAdequacyOnProvisionedMachine_RefusesBeforeAnyLocalRun",
+          "dynamic": false
         }
       ]
     },
@@ -8666,7 +8681,7 @@
         },
         {
           "suite": "fast paths of the compiled binary",
-          "name": "RunTests_FixtureCommand_ReturnsItsExitCode",
+          "name": "RunTests_NoVerifierProvisioning_Exits78WithoutRunningTheCommand",
           "dynamic": false
         },
         {
@@ -10375,11 +10390,6 @@
         },
         {
           "suite": "action-contract registration boundary",
-          "name": "RegisterExtensionTool_MissingContract_IsRejected",
-          "dynamic": false
-        },
-        {
-          "suite": "action-contract registration boundary",
           "name": "built-in and extension admission accept the same contract language",
           "dynamic": false
         }
@@ -11280,6 +11290,62 @@
           "suite": "telemetry action/transport split outcome (#1364)",
           "name": "Telemetry_AfterJsThrow_IncrementsTransportErrors",
           "dynamic": false
+        }
+      ]
+    },
+    "tests/process/1928-data-only.test.ts": {
+      "file": "tests/process/1928-data-only.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "",
+          "name": "DataOnly_PackagedEntries_StartNoGitAndRunNoConfigurationHookOrTestCommand",
+          "dynamic": false
+        },
+        {
+          "suite": "",
+          "name": "<dynamic-case-1>",
+          "dynamic": true
+        },
+        {
+          "suite": "",
+          "name": "DataOnly_OldTerminalWorkflow_ReadsWithNoCheckoutVerifierOrProvider",
+          "dynamic": false
+        },
+        {
+          "suite": "",
+          "name": "<dynamic-case-2>",
+          "dynamic": true
+        },
+        {
+          "suite": "",
+          "name": "DataOnly_UnusableProvisioning_RunTestsExits77AndUnboundAdequacyRefusesWithItsOwnCode",
+          "dynamic": false
+        },
+        {
+          "suite": "",
+          "name": "<dynamic-case-3>",
+          "dynamic": true
+        },
+        {
+          "suite": "",
+          "name": "DataOnly_ProvisionedVerifier_RunTestsExitsWithTheChildCode77Or75",
+          "dynamic": false
+        },
+        {
+          "suite": "",
+          "name": "<dynamic-case-4>",
+          "dynamic": true
+        },
+        {
+          "suite": "",
+          "name": "DataOnly_FormerExecutableConfigurationType_RefusesAsNoDefinitionAndConfigNeverRuns",
+          "dynamic": false
+        },
+        {
+          "suite": "",
+          "name": "<dynamic-case-5>",
+          "dynamic": true
         }
       ]
     },
@@ -19809,32 +19875,6 @@
         }
       ]
     },
-    "tests/unit/config/guards.test.ts": {
-      "file": "tests/unit/config/guards.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "Custom Guard Execution",
-          "name": "ExecuteGuard_CommandSucceeds_GuardPasses",
-          "dynamic": false
-        },
-        {
-          "suite": "Custom Guard Execution",
-          "name": "ExecuteGuard_CommandFails_GuardFails",
-          "dynamic": false
-        },
-        {
-          "suite": "Custom Guard Execution",
-          "name": "ExecuteGuard_Timeout_GuardFails",
-          "dynamic": false
-        },
-        {
-          "suite": "Custom Guard Execution",
-          "name": "ExecuteGuard_CommandNotFound_GuardFailsGracefully",
-          "dynamic": false
-        }
-      ]
-    },
     "tests/unit/config/load-exarchos-config.test.ts": {
       "file": "tests/unit/config/load-exarchos-config.test.ts",
       "runner": "vitest:root",
@@ -19881,6 +19921,11 @@
         },
         {
           "suite": "loadExarchosConfig",
+          "name": "loadConfig_DefaultWalk_MatchesGitTopLevelForADirectoryAndAGitdirFile",
+          "dynamic": false
+        },
+        {
+          "suite": "loadExarchosConfig",
           "name": "loadConfig_RepoRootResolutionFails_FallsBackToWorktreeOnly",
           "dynamic": false
         },
@@ -19912,72 +19957,6 @@
         {
           "suite": "loadExarchosConfig",
           "name": "loadConfigOutcome_FileThatCannotBeRead_IsInvalidWithTheReadError",
-          "dynamic": false
-        }
-      ]
-    },
-    "tests/unit/config/loader.test.ts": {
-      "file": "tests/unit/config/loader.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "loadConfig",
-          "name": "LoadConfig_NoConfigFile_ReturnsEmptyObject",
-          "dynamic": false
-        },
-        {
-          "suite": "loadConfig",
-          "name": "LoadConfig_ValidJsConfig_ReturnsConfig",
-          "dynamic": false
-        },
-        {
-          "suite": "loadConfig",
-          "name": "LoadConfig_InvalidConfig_Throws",
-          "dynamic": false
-        },
-        {
-          "suite": "loadConfig",
-          "name": "LoadConfig_BuiltinWorkflowName_Throws",
-          "dynamic": false
-        },
-        {
-          "suite": "loadConfig",
-          "name": "LoadConfig_PrefersTs_OverJs",
-          "dynamic": false
-        },
-        {
-          "suite": "loadConfig",
-          "name": "LoadConfig_EmptyDefaultExport_ReturnsEmpty",
-          "dynamic": false
-        },
-        {
-          "suite": "loadConfig",
-          "name": "LoadConfig_WithEvents_ParsesEventDefinitions",
-          "dynamic": false
-        },
-        {
-          "suite": "loadConfig",
-          "name": "LoadConfig_WithInvalidEventSource_Fails",
-          "dynamic": false
-        },
-        {
-          "suite": "loadConfig",
-          "name": "LoadConfig_WithViews_ParsesViewDefinitions",
-          "dynamic": false
-        },
-        {
-          "suite": "loadConfig",
-          "name": "LoadConfig_WithInvalidViews_Throws",
-          "dynamic": false
-        },
-        {
-          "suite": "loadConfig",
-          "name": "LoadConfig_WithTools_ParsesToolDefinitions",
-          "dynamic": false
-        },
-        {
-          "suite": "loadConfig",
-          "name": "LoadConfig_WithInvalidTools_Throws",
           "dynamic": false
         }
       ]
@@ -20039,7 +20018,7 @@
         },
         {
           "suite": "Registration Pipeline",
-          "name": "RegisterCustomWorkflows_WithGuards_GuardsRegisteredAndResolved",
+          "name": "RegisterCustomWorkflows_WithGuards_MarksTheGuardCustomAndStoresNoCommand",
           "dynamic": false
         },
         {
@@ -20060,31 +20039,6 @@
         {
           "suite": "Registration Pipeline",
           "name": "RegisterCustomWorkflows_EventRegistrationFails_RollsBack",
-          "dynamic": false
-        },
-        {
-          "suite": "View Registration",
-          "name": "RegisterCustomWorkflows_WithViews_RegistersViews",
-          "dynamic": false
-        },
-        {
-          "suite": "View Registration",
-          "name": "RegisterCustomWorkflows_NoViews_Noop",
-          "dynamic": false
-        },
-        {
-          "suite": "Tool Registration",
-          "name": "RegisterCustomWorkflows_WithTools_RegistersTools",
-          "dynamic": false
-        },
-        {
-          "suite": "Tool Registration",
-          "name": "RegisterCustomTools_PartialFailure_RollsBackPreviousTools",
-          "dynamic": false
-        },
-        {
-          "suite": "Tool Registration",
-          "name": "RegisterCustomWorkflows_NoTools_Noop",
           "dynamic": false
         }
       ]
@@ -24854,7 +24808,7 @@
         },
         {
           "suite": "initializeContext",
-          "name": "InitializeContext_WithProjectRoot_LoadsConfig",
+          "name": "InitializeContext_WithExecutableConfig_DoesNotEvaluateIt",
           "dynamic": false
         },
         {
@@ -24864,7 +24818,17 @@
         },
         {
           "suite": "initializeContext",
-          "name": "InitializeContext_WithConfigWorkflows_CallsRegisterCustomWorkflows",
+          "name": "InitializeContext_WithConfigWorkflows_RegistersNoCustomWorkflow",
+          "dynamic": false
+        },
+        {
+          "suite": "initializeContext",
+          "name": "InitializeContext_SuppliedConnector_ReturnsItAsVerificationHost",
+          "dynamic": false
+        },
+        {
+          "suite": "initializeContext",
+          "name": "InitializeContext_ExecutableConfigOrHooks_LogsOneMigrationFinding",
           "dynamic": false
         },
         {
@@ -24904,12 +24868,7 @@
         },
         {
           "suite": "initializeContext — projectConfig (YAML)",
-          "name": "initializeContext_WithProjectRoot_HookRunnerAvailable",
-          "dynamic": false
-        },
-        {
-          "suite": "initializeContext — projectConfig (YAML)",
-          "name": "initializeContext_NoProjectRoot_HookRunnerUndefined",
+          "name": "initializeContext_WithProjectRoot_HasNoHookRunner",
           "dynamic": false
         },
         {
@@ -27027,47 +26986,6 @@
         {
           "suite": "DR-5: concurrent CLI append safety",
           "name": "ConcurrentCliEventAppend_SameFeatureId_ProducesConsistentStore",
-          "dynamic": false
-        }
-      ]
-    },
-    "tests/unit/events/composite-hooks.test.ts": {
-      "file": "tests/unit/events/composite-hooks.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "handleEvent — hook runner wiring (R7)",
-          "name": "handleEvent_AppendWithHookRunner_FiresHookAfterAppend",
-          "dynamic": false
-        },
-        {
-          "suite": "handleEvent — hook runner wiring (R7)",
-          "name": "handleEvent_AppendWithoutHookRunner_SucceedsNormally",
-          "dynamic": false
-        },
-        {
-          "suite": "handleEvent — hook runner wiring (R7)",
-          "name": "handleEvent_AppendFailure_DoesNotFireHook",
-          "dynamic": false
-        },
-        {
-          "suite": "handleEvent — hook runner wiring (R7)",
-          "name": "handleEvent_QueryAction_DoesNotFireHook",
-          "dynamic": false
-        },
-        {
-          "suite": "handleEvent — hook runner wiring (R7)",
-          "name": "handleEvent_HookRunnerThrows_DoesNotAffectResult",
-          "dynamic": false
-        },
-        {
-          "suite": "handleEvent — hook runner wiring (R7)",
-          "name": "handleEvent_BatchAppendWithHookRunner_FiresHookForEachEvent",
-          "dynamic": false
-        },
-        {
-          "suite": "handleEvent — hook runner wiring (R7)",
-          "name": "handleEvent_BatchAppendWithoutHookRunner_SucceedsNormally",
           "dynamic": false
         }
       ]
@@ -32166,68 +32084,6 @@
         }
       ]
     },
-    "tests/unit/hooks/config-hooks-integration.test.ts": {
-      "file": "tests/unit/hooks/config-hooks-integration.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "Config Hook Integration",
-          "name": "EventStore_Append_TriggersConfigHook",
-          "dynamic": false
-        },
-        {
-          "suite": "Config Hook Integration",
-          "name": "EventStore_Append_NoProjectConfig_NoHooks",
-          "dynamic": false
-        },
-        {
-          "suite": "Config Hook Integration",
-          "name": "EventStore_BatchAppend_TriggersHooksForEach",
-          "dynamic": false
-        }
-      ]
-    },
-    "tests/unit/hooks/config-hooks.test.ts": {
-      "file": "tests/unit/hooks/config-hooks.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "createConfigHookRunner",
-          "name": "ConfigHookRunner_MatchingEvent_ExecutesCommand",
-          "dynamic": false
-        },
-        {
-          "suite": "createConfigHookRunner",
-          "name": "ConfigHookRunner_NoMatchingHooks_Noop",
-          "dynamic": false
-        },
-        {
-          "suite": "createConfigHookRunner",
-          "name": "ConfigHookRunner_StdinReceivesEventJson",
-          "dynamic": false
-        },
-        {
-          "suite": "createConfigHookRunner",
-          "name": "ConfigHookRunner_EnvVarsSet_Correctly",
-          "dynamic": false
-        },
-        {
-          "suite": "createConfigHookRunner",
-          "name": "ConfigHookRunner_CommandFailure_DoesNotThrow",
-          "dynamic": false
-        },
-        {
-          "suite": "createConfigHookRunner",
-          "name": "ConfigHookRunner_MultipleHooks_AllFired",
-          "dynamic": false
-        },
-        {
-          "suite": "createConfigHookRunner",
-          "name": "ConfigHookRunner_TestEnv_SkipsExecution",
-          "dynamic": false
-        }
-      ]
-    },
     "tests/unit/index.init-hardening.test.ts": {
       "file": "tests/unit/index.init-hardening.test.ts",
       "runner": "vitest:root",
@@ -37004,12 +36860,12 @@
       "cases": [
         {
           "suite": "handleRunTests",
-          "name": "RunTests_ResolvedCommand_ExecsItAndReturnsExitCode",
+          "name": "RunTests_NoHost_Exits78AndTellsTheUserToProvision",
           "dynamic": false
         },
         {
           "suite": "handleRunTests",
-          "name": "RunTests_TestProcessFails_PropagatesNonZeroExitCode",
+          "name": "RunTests_NoHostOnAnotherPlatform_Exits78NamingThePlatform",
           "dynamic": false
         },
         {
@@ -77382,7 +77238,7 @@
         },
         {
           "suite": "handleSet_CustomGuardExecution",
-          "name": "HandleSet_CustomGuardPasses_TransitionSucceeds",
+          "name": "HandleSet_CommandGuard_FailsClosedWithoutRunningTheCommand",
           "dynamic": false
         },
         {
@@ -77428,6 +77284,21 @@
         {
           "suite": "handleSet_PlanRevisionCapInjection",
           "name": "DefaultCap_NoInjection_BlockedAtOneRevision",
+          "dynamic": false
+        },
+        {
+          "suite": "handleSet_PlanRevisionCapInjection",
+          "name": "DefaultCap_InitialReviewOnly_BlockedIsGuarded",
+          "dynamic": false
+        },
+        {
+          "suite": "handleSet_PlanRevisionCapInjection",
+          "name": "GuardAndPrepareReview_AgreeOnTheCap_ForEachDispatchCount",
+          "dynamic": false
+        },
+        {
+          "suite": "handleSet_PlanRevisionCapInjection",
+          "name": "Overhaul_ReReviewAfterReviseEdge_IsProvisionedAtDefaultCap",
           "dynamic": false
         },
         {
@@ -78815,7 +78686,7 @@
         },
         {
           "suite": "HsmTransitionGuard_AllEmittedEvents_HaveCanonicalEnvelope",
-          "name": "hsm-transition-guard.ts:429 — custom-async-guard failure event has canonical envelope",
+          "name": "hsm-transition-guard.ts — command guard fails closed and appends no guard event",
           "dynamic": false
         }
       ]

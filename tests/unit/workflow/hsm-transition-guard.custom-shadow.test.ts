@@ -8,7 +8,6 @@ import { afterEach, describe, expect, it } from 'vitest';
 
 import { DefaultHSMTransitionGuard } from '../../../src/workflow/hsm-transition-guard.js';
 import { registerWorkflowType, unregisterWorkflowType } from '../../../src/workflow/state-machine.js';
-import { clearRegisteredGuards } from '../../../src/config/register.js';
 import type { LegacyTransitionObservation } from '../../../src/workflow/admission/shadow-decision.js';
 import type { WorkflowDefinition } from '../../../src/config/define.js';
 
@@ -31,7 +30,6 @@ afterEach(() => {
     unregisterWorkflowType(WF);
   } catch {
   }
-  clearRegisteredGuards();
 });
 
 describe('HSMTransitionGuard custom-guard early-return shadow (P07-02)', () => {

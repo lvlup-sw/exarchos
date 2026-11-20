@@ -1,6 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { z } from 'zod';
-import { registerCustomTools, clearRegisteredTools } from '../../src/config/register.js';
 import {
   ActionContractError,
   none,
@@ -58,7 +57,6 @@ function customTool(contract: unknown): CompositeTool {
 }
 
 afterEach(() => {
-  clearRegisteredTools();
   clearCustomTools();
 });
 
@@ -79,53 +77,6 @@ describe('action-contract registration boundary', () => {
       expect((error as Error).message).toMatch(/exarchos_contract_probe\.run/);
     }
     expect(() => registerCustomTool(customTool(undefined))).toThrow(ActionContractError);
-  });
-
-  it('RegisterExtensionTool_MissingContract_IsRejected', async () => {
-    await expect(
-      registerCustomTools(
-        {
-          tools: {
-            exarchos_extension_probe: {
-              description: 'Extension admission probe',
-              actions: [
-                {
-                  name: 'run',
-                  description: 'Run the extension probe',
-                  handler: './missing-handler.js',
-                },
-              ],
-            },
-          },
-        },
-        '/tmp/exarchos-contract-registration',
-      ),
-    ).rejects.toThrow(/actionContract/);
-    try {
-      await registerCustomTools(
-        {
-          tools: {
-            exarchos_extension_probe: {
-              description: 'Extension admission probe',
-              actions: [
-                {
-                  name: 'run',
-                  description: 'Run the extension probe',
-                  handler: './missing-handler.js',
-                },
-              ],
-            },
-          },
-        },
-        '/tmp/exarchos-contract-registration',
-      );
-      expect.fail('expected missing extension actionContract to fail');
-    } catch (error) {
-      expect(error).toBeInstanceOf(Error);
-      expect((error as Error).message).toMatch(/Failed to register custom tools/);
-      expect((error as Error).message).toMatch(/exarchos_extension_probe\.run/);
-      expect((error as Error).message).toMatch(/missing required actionContract/);
-    }
   });
 
   it('built-in and extension admission accept the same contract language', () => {

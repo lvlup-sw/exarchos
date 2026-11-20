@@ -10,6 +10,7 @@
 import type { V2McpServer } from './contract/sdk/seam.js';
 import * as path from 'node:path';
 import * as fs from 'node:fs';
+import * as os from 'node:os';
 import { realpathSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
@@ -22,6 +23,9 @@ import { resolvePackageVersion } from './adapters/cli/version.js';
 import { isHookCommand, handleHookCommand } from './adapters/cli/hooks.js';
 import type { DispatchContext } from './dispatch/core/dispatch.js';
 import type { McpSessionGrant } from './dispatch/caller-identity.js';
+import type { VerifierProvisioning } from './dispatch/core/verifier-client.js';
+import type { VerificationHostConnector } from './contract/verification/harness-verification.js';
+import type { RunTestsHost } from './lifecycle/run-tests.js';
 
 export const SERVER_NAME = 'exarchos-mcp';
 /**
@@ -45,6 +49,47 @@ export interface CreateServerOptions {
   backend?: StorageBackend;
   /** The grant of each MCP session. Without it, a session is read-only. */
   grant?: McpSessionGrant;
+  /**
+   * The verifier connector that the caller read. When it is absent, `createServer` reads the provisioning through the same loader once.
+   * No value turns off that read.
+   */
+  verificationHost?: VerificationHostConnector;
+}
+
+/** The one provisioning read of this process. It keeps an unusable result too, and it does not read again after a failure. */
+let provisioningRead: Promise<VerifierProvisioning> | undefined;
+
+/**
+ * Read the verifier client provisioning from `os.homedir()/.exarchos/verifier/client.json` once per process.
+ * No environment variable overrides the location. A provisioning change needs a restart of a long-lived server.
+ */
+function readVerifierProvisioning(): Promise<VerifierProvisioning> {
+  provisioningRead ??= import('./dispatch/core/verifier-client.js').then(({ loadVerifierProvisioning }) =>
+    loadVerifierProvisioning(path.join(os.homedir(), '.exarchos', 'verifier', 'client.json')));
+  return provisioningRead;
+}
+
+/** The connector of a provisioning read. Only an absent provisioning gives no connector. */
+function connectorOfProvisioning(provisioning: VerifierProvisioning): VerificationHostConnector | undefined {
+  return provisioning.kind === 'absent' ? undefined : provisioning.connector;
+}
+
+/**
+ * The standalone test host of a provisioning read. An absent provisioning gives no host, so an actual run exits 78.
+ * An unusable provisioning gives a host that refuses with the provisioning reason, so the run exits 77 and starts no exchange.
+ */
+function runTestsHostOf(
+  provisioning: VerifierProvisioning,
+  standaloneTestHost: (connector?: VerificationHostConnector) => RunTestsHost | undefined,
+): RunTestsHost | undefined {
+  switch (provisioning.kind) {
+    case 'absent': return undefined;
+    case 'unusable': {
+      const message = `The verifier client provisioning is not usable: ${provisioning.reason}`;
+      return { run: async () => ({ kind: 'refused', message }) };
+    }
+    case 'usable': return standaloneTestHost(provisioning.connector);
+  }
 }
 
 /**
@@ -127,7 +172,9 @@ export function registerBackendCleanup(backend: StorageBackend): void {
  *
  * The context carries the storage backend, so consumers do not import `bun:sqlite`.
  * The context turns on slim `tools/list` registration. Each tool shows its short `slimDescription`, and `describe` gives the full detail.
- * For new code, use `initializeContext()` and `createMcpServer()` directly.
+ *
+ * The context gets the supplied connector. Without one, `createServer` reads the provisioning through the shared loader once.
+ * For new code, use `initializeContext()` and `createMcpServer()` directly. A caller on a provisioned machine passes the loader result to `initializeContext()`.
  * A session gets the operator grant only when `options.grant` is `operator`. Otherwise it is read-only.
  */
 export async function createServer(
@@ -155,7 +202,12 @@ export async function createServer(
 
   const capabilityResolver = buildDefaultProcessResolver();
 
-  const ctx: DispatchContext = { stateDir, eventStore, enableTelemetry, capabilityResolver, storage: backend, slimRegistration: true };
+  const verificationHost = options?.verificationHost ?? connectorOfProvisioning(await readVerifierProvisioning());
+
+  const ctx: DispatchContext = {
+    stateDir, eventStore, enableTelemetry, capabilityResolver, storage: backend, slimRegistration: true,
+    ...(verificationHost === undefined ? {} : { verificationHost }),
+  };
 
   const { createMcpServer } = await import('./adapters/mcp/mcp.js');
   return createMcpServer(ctx, options?.grant !== undefined ? { grant: options.grant } : {});
@@ -200,7 +252,9 @@ function hookReadStdin(): Promise<string> {
  * `--version`, `-V` and a plain `version` print the version with no backend, because concurrent backend opens can race on WAL recovery and fail with SQLITE_BUSY_RECOVERY.
  *
  * `run-tests` runs the consumer test command for the PostToolUse hook. It is not a hook command, because hook commands only observe.
- * It waits for the hosted result when startup supplies a verifier connector. Startup supplies none yet, so the verb keeps its local route and exit contract.
+ * It reads the verifier provisioning and waits for the hosted result. Without provisioning, an actual run exits 78 and runs nothing.
+ * The provisioning read comes after the hook, version and boundary fast paths, so those paths do not pay for it.
+ *
  * `verify-worktree-boundary` is the PreToolUse guard. It denies a write outside the worktree with exit code 2, and allows when stdin is a TTY.
  *
  * Every other command opens the backend and goes through Commander. Only the MCP tool registration reads `slimRegistration` from the context.
@@ -238,7 +292,7 @@ async function main() {
       import('./lifecycle/run-tests.js'),
       import('./verbs/gates/gate-runner.js'),
     ]);
-    const host = standaloneTestHost();
+    const host = runTestsHostOf(await readVerifierProvisioning(), standaloneTestHost);
     process.exitCode = await handleRunTests(process.argv.slice(3), { cwd: process.cwd(), ...(host === undefined ? {} : { host }) });
     return;
   }
@@ -261,11 +315,13 @@ async function main() {
 
   const { initializeContext } = await import('./dispatch/core/context.js');
   const { buildCli, runCli } = await import('./adapters/cli/cli.js');
+  const verificationHost = connectorOfProvisioning(await readVerifierProvisioning());
 
   const ctx: DispatchContext = {
     ...(await initializeContext(stateDir, {
       backend,
       projectRoot: process.cwd(),
+      ...(verificationHost === undefined ? {} : { verificationHost }),
     })),
     slimRegistration: true,
   };

@@ -1,8 +1,10 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
+import { execFile } from 'node:child_process';
+import { mkdtempSync, mkdirSync, realpathSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { loadExarchosConfig, loadExarchosConfigOutcome } from '../../../src/config/load-exarchos-config.js';
+import { promisify } from 'node:util';
+import { loadExarchosConfig, loadExarchosConfigOutcome, walkToRepoRoot } from '../../../src/config/load-exarchos-config.js';
 import { readInvariantsConfig } from '../../../src/architecture/invariants-loader.js';
 import { rmrf } from '../../../tools/test-helpers/temp-dir.js';
 
@@ -121,6 +123,46 @@ describe('loadExarchosConfig', () => {
     expect(() => loadExarchosConfig(worktree, { findRepoRoot: () => null })).toThrow(
       /Invalid \.exarchos\.yml at .*test.*disallowed shell metacharacters/s,
     );
+  });
+
+  /**
+   * The default root walk starts no process. It finds the root of a `.git` directory.
+   * It also finds the root of a linked worktree whose `.git` is a `gitdir:` file.
+   * It gives the path that `git rev-parse --show-toplevel` gives, and `GIT_DIR` does not move it.
+   */
+  it('loadConfig_DefaultWalk_MatchesGitTopLevelForADirectoryAndAGitdirFile', async () => {
+    const git = (args: string[]) => promisify(execFile)('git', ['-c', 'user.name=fixture', '-c', 'user.email=fixture@example.invalid', ...args]);
+    const repo = join(tmpRoot, 'repo');
+    const deep = join(repo, 'sub', 'deep');
+    mkdirSync(deep, { recursive: true });
+    await git(['init', '-q', repo]);
+    await git(['-C', repo, 'commit', '-q', '--allow-empty', '-m', 'base']);
+    const linked = join(tmpRoot, 'linked');
+    await git(['-C', repo, 'worktree', 'add', '-q', '-b', 'linked', linked]);
+    const linkedDeep = join(linked, 'nested');
+    mkdirSync(linkedDeep, { recursive: true });
+    writeFileSync(join(repo, '.exarchos.yml'), 'test: repo-test\n', 'utf-8');
+    writeFileSync(join(linked, '.exarchos.yml'), 'test: linked-test\n', 'utf-8');
+    const outside = join(tmpRoot, 'outside');
+    mkdirSync(outside);
+
+    const cases: ReadonlyArray<readonly [string, string]> = [[deep, repo], [linkedDeep, linked]];
+    for (const [start, root] of cases) {
+      const topLevel = (await git(['-C', start, 'rev-parse', '--show-toplevel'])).stdout.trim();
+      expect(walkToRepoRoot(start)).toBe(topLevel);
+      expect(walkToRepoRoot(start)).toBe(realpathSync(root).replace(/\\/g, '/'));
+    }
+    expect(loadExarchosConfig(deep)?.config.test).toBe('repo-test');
+    expect(loadExarchosConfig(linkedDeep)?.config.test).toBe('linked-test');
+    const priorGitDir = process.env.GIT_DIR;
+    process.env.GIT_DIR = join(repo, '.git');
+    try {
+      expect(walkToRepoRoot(linkedDeep)).toBe(realpathSync(linked).replace(/\\/g, '/'));
+    } finally {
+      if (priorGitDir === undefined) delete process.env.GIT_DIR;
+      else process.env.GIT_DIR = priorGitDir;
+    }
+    expect(walkToRepoRoot(outside) === null || !walkToRepoRoot(outside)?.startsWith(realpathSync(tmpRoot))).toBe(true);
   });
 
   it('loadConfig_RepoRootResolutionFails_FallsBackToWorktreeOnly', () => {

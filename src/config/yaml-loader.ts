@@ -1,7 +1,7 @@
 import { parse as parseYaml } from 'yaml';
 import { readFileSync, existsSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
-import { execSync } from 'node:child_process';
+import { walkToRepoRoot } from './load-exarchos-config.js';
 import { ProjectConfigSchema, FullExarchosConfigSchema, type ProjectConfig } from './yaml-schema.js';
 import { logger } from '../logger.js';
 
@@ -88,7 +88,7 @@ function parseSections(parsed: unknown): ProjectConfig {
  *
  * 1. `EXARCHOS_PROJECT_ROOT` environment variable
  * 2. Walk up from `cwd` looking for `.exarchos.yml` / `.exarchos.yaml`
- * 3. Git repository root (`git rev-parse --show-toplevel`)
+ * 3. Git repository root, found by a walk up to a `.git` entry that starts no process
  * 4. Fall back to the provided `cwd` (or `process.cwd()`)
  */
 export function discoverProjectRoot(cwd?: string): string {
@@ -108,14 +108,5 @@ export function discoverProjectRoot(cwd?: string): string {
     dir = parent;
   }
 
-  try {
-    return execSync('git rev-parse --show-toplevel', {
-      cwd: startDir,
-      encoding: 'utf-8',
-      stdio: ['pipe', 'pipe', 'pipe'],
-    }).trim();
-  } catch {
-  }
-
-  return startDir;
+  return walkToRepoRoot(startDir) ?? startDir;
 }

@@ -11,10 +11,9 @@
  *     between verbs.
  */
 
-import { runCommandSync } from '../utils/process.js';
 import { splitCommand } from '../config/tokenize-command.js';
 
-/** Injectable seams, so unit tests do not spawn a real process. */
+/** The output writers and the runner of one verb. The runner is the verifier host of the verb, or its refusal. */
 export interface RunCommandIo {
   /** Command runner. Returns the child exit code. A hosted runner returns it after the authenticated result arrives. */
   run: (cmd: string, args: readonly string[], cwd: string) => number | Promise<number>;
@@ -39,20 +38,6 @@ export interface RunResolvedCommandArgs {
    */
   readonly unresolvedExitCode: number;
   readonly io: RunCommandIo;
-}
-
-/**
- * Default runner: it streams the child stdio and returns the exit code of the child.
- * `execFileSync` throws on a non-zero exit, and its `status` holds the code.
- */
-export function defaultRun(cmd: string, args: readonly string[], cwd: string): number {
-  try {
-    runCommandSync(cmd, args as string[], { cwd, stdio: 'inherit' });
-    return 0;
-  } catch (err) {
-    const status = (err as { status?: number }).status;
-    return typeof status === 'number' ? status : 1;
-  }
 }
 
 /** Default stdout writer that ensures a trailing newline. */

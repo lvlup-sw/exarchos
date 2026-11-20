@@ -8,10 +8,17 @@ import {
   observeActionPostconditions,
 } from '../../src/dispatch/core/action-postconditions.js';
 import {
+  DID_NOT_RUN_CODES,
   dispatch,
   stubCompositeHandler,
   type DispatchContext,
 } from '../../src/dispatch/core/dispatch.js';
+import { deriveMcpCallerIdentity } from '../../src/dispatch/caller-identity.js';
+import { EventStore as DurableEventStore } from '../../src/events/store.js';
+import type { VerificationHostConnector } from '../../src/contract/verification/harness-verification.js';
+import { HostedAdequacyPending, hostedPendingResult, hostedRefusal } from '../../src/verbs/gates/gate-runner.js';
+import { handleMutationAdequacy } from '../../src/verbs/gates/mutation-adequacy.js';
+import { createInMemoryResolver } from '../../src/workflow/capabilities/resolver.js';
 import { getDispatchContext } from '../../src/dispatch/dispatch-context.js';
 import { replayedEvidence } from '../../src/dispatch/core/effect-carrier.js';
 import { ContentAddressedStore } from '../../src/storage/artifacts/content-addressed-store.js';
@@ -885,5 +892,100 @@ describe('dispatch gates success on applicable ensures', () => {
     expect(result.error?.code).not.toBe('ENSURE_CONTRACT_VIOLATED');
     const rows = await eventStore.query('feat-readonly-abstention');
     expect(rows).toEqual([]);
+  });
+});
+
+/** A usable stub connector. It counts each exchange and never reaches a verifier. */
+function countingConnector(): { connector: VerificationHostConnector; exchanges: () => number } {
+  let exchanges = 0;
+  const unavailable: { kind: 'unavailable'; reason: string } = { kind: 'unavailable', reason: 'stub verifier' };
+  const connector: VerificationHostConnector = {
+    publicKey: 'stub-key', gitPath: '/usr/bin/git', resourceId: 'tree', profileId: 'node',
+    client: {
+      submit: async () => { exchanges += 1; return unavailable; },
+      retrieve: async () => { exchanges += 1; return unavailable; },
+    },
+  };
+  return { connector, exchanges: () => exchanges };
+}
+
+/**
+ * A failed result with a code of a check that did not run keeps that code. Dispatch evaluates no owed ensure for it,
+ * and the emission enforcement still runs before that point.
+ */
+describe('dispatch keeps the code of a check that did not run', () => {
+  afterEach(() => {
+    clearCustomTools();
+  });
+
+  /** The three live literals equal the codes of their producers. The fourth literal is reserved for the later producers. */
+  it('DidNotRunCodes_LiveLiteralsMatchTheirProducersAndOneIsReserved', async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), 'did-not-run-producers-'));
+    const store = new DurableEventStore(stateDir);
+    await store.initialize();
+    try {
+      const retired = await handleMutationAdequacy({ featureId: 'feat-retired', base: 'main' }, stateDir, store, countingConnector().connector);
+      const produced = [
+        hostedRefusal('refused').error?.code,
+        hostedPendingResult(new HostedAdequacyPending('pending')).error?.code,
+        retired.error?.code,
+      ];
+      expect(DID_NOT_RUN_CODES.slice(0, 3)).toEqual(produced);
+      expect(DID_NOT_RUN_CODES).toEqual([
+        'HOSTED_VERIFICATION_REFUSED', 'HOSTED_ADEQUACY_PENDING', 'MUTATION_TESTING_RETIRED', 'VERIFIER_NOT_PROVISIONED',
+      ]);
+    } finally {
+      store.close();
+      await rmrfAsync(stateDir);
+    }
+  });
+
+  /** An always ensure with no observed row masks no did-not-run code. Any other failed code still gives the ensure violation. */
+  it('Dispatch_DidNotRunCode_KeepsItsOwnCodeInsteadOfTheEnsureViolation', async () => {
+    const eventStore = memoryEventStore();
+    const context: DispatchContext = { stateDir: path.join(os.tmpdir(), 'ensure-dispatch-unused'), eventStore, enableTelemetry: false };
+    const contract = probeContract({
+      ensures: declared({ source: 'event-append', when: 'always', event: 'gate.executed' }),
+    });
+    for (const code of [...DID_NOT_RUN_CODES, 'HANDLER_REFUSED']) {
+      clearCustomTools();
+      registerProbe({ action: 'gate', contract, handler: async () => ({ success: false, error: { code, message: 'no run' } }) });
+      const result = await dispatch(PROBE_TOOL, { action: 'gate', featureId: 'feat-did-not-run' }, context);
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe(code === 'HANDLER_REFUSED' ? 'ENSURE_CONTRACT_VIOLATED' : code);
+    }
+    expect(await eventStore.query('feat-did-not-run')).toEqual([]);
+  });
+
+  /**
+   * On a provisioned machine, an unbound `check_test_adequacy` call refuses before its handler, through real dispatch.
+   * The call carries no coordinate, so the coordinate check does not refuse first. No exchange starts and no row lands.
+   */
+  it('Dispatch_UnboundAdequacyOnProvisionedMachine_RefusesBeforeAnyLocalRun', async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), 'unbound-adequacy-'));
+    const repoRoot = await mkdtemp(path.join(os.tmpdir(), 'unbound-adequacy-repo-'));
+    const stream = 'feat-unbound-adequacy';
+    const store = new DurableEventStore(stateDir);
+    await store.initialize();
+    try {
+      await store.append(stream, { type: 'workflow.started', data: { featureId: stream, workflowType: 'feature' } });
+      const before = (await store.query(stream)).length;
+      const { connector, exchanges } = countingConnector();
+      const result = await dispatch('exarchos_orchestrate', {
+        action: 'check_test_adequacy', featureId: stream, taskId: 'task-1', repoRoot, baseBranch: 'main',
+        riskTier: 'high', boundaryTouching: true,
+      }, {
+        stateDir, eventStore: store, enableTelemetry: false, verificationHost: connector,
+        callerIdentity: deriveMcpCallerIdentity({ sessionId: 'unbound-adequacy' }),
+        capabilityResolver: createInMemoryResolver(['fs:read', 'fs:write', 'mcp:exarchos', 'shell:exec']),
+      });
+      expect(result, JSON.stringify(result)).toMatchObject({ success: false, error: { code: 'HOSTED_VERIFICATION_REFUSED' } });
+      expect(exchanges()).toBe(0);
+      expect((await store.query(stream)).length).toBe(before);
+    } finally {
+      store.close();
+      await rmrfAsync(stateDir);
+      await rmrfAsync(repoRoot);
+    }
   });
 });

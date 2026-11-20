@@ -5,8 +5,9 @@
  * the version forms, the hook commands, `run-tests` and `verify-worktree-boundary`. Claude Code
  * runs the hooks on every session event and every subagent write, so a change to the entry must
  * keep these answers. Each test spawns the binary that `ensureBinaryBuilt` builds from this tree.
+ * `HOME` is a scratch directory, so the verifier provisioning of the real machine cannot change a verdict.
  */
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -20,23 +21,26 @@ const REPO_ROOT = findRepoRoot(fileURLToPath(new URL('.', import.meta.url)));
 let binaryPath: string;
 let scratch: string;
 let stateDir: string;
+let home: string;
 
 beforeAll(async () => {
   ({ binaryPath } = await ensureBinaryBuilt(REPO_ROOT));
   scratch = makeTempDir('fast-paths-');
   stateDir = join(scratch, 'state');
+  home = join(scratch, 'home');
   mkdirSync(stateDir, { recursive: true });
+  mkdirSync(home, { recursive: true });
 }, 120_000);
 
 afterAll(async () => {
   await rmrfAsync(scratch);
 });
 
-/** Runs the binary with an isolated state directory, and returns its exit code and output. */
+/** Runs the binary with an isolated state directory and home directory, and returns its exit code and output. */
 async function run(args: string[], options: { input?: string; cwd?: string } = {}) {
   const result = await spawnAsync(binaryPath, args, {
     cwd: options.cwd ?? scratch,
-    env: { ...process.env, WORKFLOW_STATE_DIR: stateDir },
+    env: { ...process.env, WORKFLOW_STATE_DIR: stateDir, HOME: home, USERPROFILE: home },
     input: options.input ?? '',
     timeout: 30_000,
   });
@@ -79,14 +83,17 @@ describe('fast paths of the compiled binary', () => {
     expect((JSON.parse(result.stdout) as { error: { code: string } }).error.code).toBe('MISSING_SESSION_ID');
   });
 
-  /** `run-tests` runs the test command of `.exarchos.yml` and returns its exit code. */
-  it('RunTests_FixtureCommand_ReturnsItsExitCode', async () => {
+  /** With no verifier provisioning, `run-tests` runs nothing, exits 78 and tells the user to provision the verifier. */
+  it('RunTests_NoVerifierProvisioning_Exits78WithoutRunningTheCommand', async () => {
     const project = join(scratch, 'project');
     mkdirSync(project, { recursive: true });
-    writeFileSync(join(project, 'exit3.mjs'), 'process.exit(3);\n');
+    const marker = join(project, 'ran');
+    writeFileSync(join(project, 'exit3.mjs'), `import { writeFileSync } from 'node:fs';\nwriteFileSync(${JSON.stringify(marker)}, 'ran');\nprocess.exit(3);\n`);
     writeFileSync(join(project, '.exarchos.yml'), 'test: node exit3.mjs\n');
     const result = await run(['run-tests'], { cwd: project });
-    expect(result.status).toBe(3);
+    expect(result.status).toBe(78);
+    expect(result.stderr).toContain('Provision the verifier');
+    expect(existsSync(marker)).toBe(false);
   });
 
   /** The PreToolUse guard blocks a write outside the worktree with exit 2. */
