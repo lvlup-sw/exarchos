@@ -1,3 +1,5 @@
+import { inspectInput, inspectProject, inspectSuccess } from '../inspection/analyze.js';
+import { qualifiedVersions, supportsFramework } from './targets.js';
 import { z } from 'zod';
 import { domainSchema } from '../domains/schema.js';
 import { scaffoldInput, scaffold, scaffoldProblem } from './scaffold.js';
@@ -12,7 +14,7 @@ import { emitTyped, inputWithinBudget, typedRequestProblem } from './typed-dispa
 import { expandCases } from '../generators/cases.js';
 import { emitVitest } from '../emitters/vitest/emit.js';
 import { emitTUnit } from '../emitters/tunit/emit.js';
-import { errors, frameworkSelection, metamorphicInput, propertyInput, resultSchema, frameworkVersions } from './schemas.js';
+import { errors, frameworkSelection, metamorphicInput, propertyInput, resultSchema } from './schemas.js';
 import type { ErrorCode, GenerationResult, TestInput } from './schemas.js';
 
 export type GenerationMethod = TypedMethod | 'stateful';
@@ -64,7 +66,7 @@ export function describeOperations() {
   return {
     errors,
     capabilities: {
-      frameworks: Object.entries(frameworkVersions).map(([framework, version]) => ({ framework, version })),
+      frameworks: Object.entries(qualifiedVersions).flatMap(([framework, versions]) => versions.map((version) => ({ framework, version }))),
       methods: Object.entries(generationOperations).map(([operation, definition]) => ({ operation, method: definition.kind })),
       domains: (domain.oneOf ?? domain.anyOf ?? []).flatMap((variant) => {
         const kind = variant.properties?.kind;
@@ -78,11 +80,16 @@ export function describeOperations() {
         'Inspect each operation schema for generation, reduction, and structural budgets.',
       ],
     },
-    operations: Object.entries(operations).map(([name, definition]) => ({
+    operations: [...Object.entries(operations).map(([name, definition]) => ({
       name, description: definition.description,
       inputSchema: z.toJSONSchema(definition.input),
       outputSchema: z.toJSONSchema(resultSchema),
-    })),
+    })), {
+      name: 'inspect_project',
+      description: 'Inspect bounded repository metadata without evaluating configuration.',
+      inputSchema: z.toJSONSchema(inspectInput),
+      outputSchema: z.toJSONSchema(inspectSuccess),
+    }],
   };
 }
 
@@ -109,8 +116,7 @@ function invalidInput(input: unknown, error: z.ZodError): GenerationResult {
   const selection = frameworkSelection.safeParse(input);
   if (selection.success) {
     const { framework, frameworkVersion } = selection.data;
-    const supported = framework === 'tunit' && frameworkVersion === frameworkVersions.tunit
-      || framework === 'vitest' && frameworkVersion === frameworkVersions.vitest;
+    const supported = supportsFramework(framework, frameworkVersion);
     if (!supported) return failure('UNSUPPORTED_FRAMEWORK', 'Use a framework and version listed by describe for this operation.');
   }
   const details = error.issues.map(({ path, message }) => `${path.join('.') || 'request'}: ${message}`);
@@ -156,4 +162,13 @@ function validatedEmission(emit: () => unknown): GenerationResult {
   } catch {
     return failure('INTERNAL_ERROR', 'Emitter failed.');
   }
+}
+
+export function dispatchInspection(input: unknown) {
+  if (!inputWithinBudget(input)) return { ok: false as const, error: { code: 'INVALID_INPUT' as const, message: 'Inspection exceeds the metadata budget.' } };
+  const parsed = inspectInput.safeParse(input);
+  if (!parsed.success || new Set(parsed.data.files.map(({ path }) => path)).size !== parsed.data.files.length) {
+    return { ok: false as const, error: { code: 'INVALID_INPUT' as const, message: 'Supply valid, unique repository metadata paths.' } };
+  }
+  return inspectProject(parsed.data);
 }

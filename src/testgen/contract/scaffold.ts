@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { domainSchema, domainProblem } from '../domains/schema.js';
 import type { Domain } from '../domains/schema.js';
 import { simplest } from '../domains/generate.js';
-import { frameworkVersions, identifier, tunit } from './targets.js';
+import { frameworkVersions, qualifiedVersions, identifier, tunit } from './targets.js';
 import { typedInput } from './typed.js';
 import { statefulInput } from './stateful.js';
 
@@ -19,10 +19,12 @@ const common = {
 };
 export const scaffoldInput = z.discriminatedUnion('framework', [
   z.strictObject({
-    ...common, framework: z.literal('vitest'), frameworkVersion: z.literal(frameworkVersions.vitest).default(frameworkVersions.vitest),
+    ...common, framework: z.literal('vitest'), frameworkVersion: z.enum(qualifiedVersions.vitest).default(frameworkVersions.vitest),
   }),
+  z.strictObject({ ...common, framework: z.literal('node-test'), frameworkVersion: z.enum(qualifiedVersions['node-test']).default(qualifiedVersions['node-test'][0]) }),
+  z.strictObject({ ...common, framework: z.literal('bun-test'), frameworkVersion: z.enum(qualifiedVersions['bun-test']).default(qualifiedVersions['bun-test'][0]) }),
   z.strictObject({
-    ...common, framework: z.literal('tunit'), frameworkVersion: z.literal(frameworkVersions.tunit).default(frameworkVersions.tunit),
+    ...common, framework: z.literal('tunit'), frameworkVersion: z.enum(qualifiedVersions.tunit).default(frameworkVersions.tunit),
     project: tunit.target.shape.project,
     namespace: tunit.target.shape.namespace.default('Testgen.Generated'),
   }),

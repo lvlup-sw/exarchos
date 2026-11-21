@@ -1,3 +1,4 @@
+import { typescriptValidation } from '../emitters/shared/typescript-runner.js';
 import type { StatefulInput, StatefulSuccess } from './stateful.js';
 import { generateHistories } from '../generators/histories.js';
 import { emitStatefulVitest } from '../emitters/vitest/stateful.js';
@@ -5,12 +6,12 @@ import { emitStatefulTUnit } from '../emitters/tunit/stateful.js';
 
 export function emitStateful(input: StatefulInput): StatefulSuccess {
   const scenarios = generateHistories(input);
-  const source = input.framework === 'vitest' ? emitStatefulVitest(input, scenarios) : emitStatefulTUnit(input, scenarios);
+  const source = input.framework === 'tunit' ? emitStatefulTUnit(input, scenarios) : emitStatefulVitest(input, scenarios);
   const lines = source.trimEnd().split('\n');
   const path = input.target.path;
   return {
     ok: true, contractVersion: 2,
-    generatorVersion: input.framework === 'vitest' ? 'vitest/stateful-1' : 'tunit/stateful-1',
+    generatorVersion: `${input.framework}/stateful-1`,
     patch: [
       `diff --git a/${path} b/${path}`, 'new file mode 100644', '--- /dev/null', `+++ b/${path}`,
       `@@ -0,0 +1,${lines.length} @@`, ...lines.map((line) => `+${line}`), '',
@@ -23,8 +24,8 @@ export function emitStateful(input: StatefulInput): StatefulSuccess {
       'Generated candidate pools are filtered by model preconditions during native execution. Exhaustion reports an invalid history.',
       'Sequential model checks cover ordered operations. Concurrency, durability, and liveness require separate evidence.',
     ],
-    validation: input.framework === 'vitest'
-      ? { executable: 'npm', args: ['exec', '--no', '--', 'vitest', 'run', path] }
-      : { executable: 'dotnet', args: ['run', '--project', input.target.project, '-c', 'Release'] },
+    validation: input.framework === 'tunit'
+      ? { executable: 'dotnet', args: ['run', '--project', input.target.project, '-c', 'Release'] }
+      : typescriptValidation(input.framework, path),
   };
 }

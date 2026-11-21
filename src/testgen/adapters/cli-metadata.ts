@@ -29,6 +29,10 @@ export const commandMetadata = {
     {
       "name": "replay_tests",
       "description": "Rebuild a native suite from a matching request and concrete failure record."
+    },
+    {
+      "name": "inspect_project",
+      "description": "Inspect bounded repository metadata without evaluating configuration."
     }
   ]
 } as const;

@@ -34,9 +34,16 @@ it('carries the same result through the CLI and a connected MCP client', async (
     expect(tools.map(({ name }) => name)).toEqual(commandMetadata.operations.map(({ name }) => name));
     const propertyTool = tools.find(({ name }) => name === 'generate_property_tests');
     expect((propertyTool?.inputSchema.anyOf as Array<{ oneOf: unknown[] }>)[0]?.oneOf).toMatchObject([
-      { properties: { framework: { const: 'tunit' }, frameworkVersion: { const: '1.2.11' } } },
-      { properties: { framework: { const: 'vitest' }, frameworkVersion: { const: '3.2.7' } } },
+      { properties: { framework: { const: 'tunit' }, frameworkVersion: { enum: ['1.2.11', '1.69.16', '1.83.8'] } } },
+      { properties: { framework: { const: 'vitest' }, frameworkVersion: { enum: ['3.2.7', '4.1.12', '5.1.0'] } } },
     ]);
+    const inspection = { files: [{ path: 'package.json', text: '{"scripts":{"test":"node --test"}}' }] };
+    await writeFile(file, JSON.stringify(inspection));
+    let inspected = '';
+    expect(await runCli(['inspect_project', '--input', file, '--json'], (chunk) => { inspected += chunk; }, () => {})).toBe(0);
+    const mcpInspection = await client.callTool({ name: 'inspect_project', arguments: inspection });
+    expect(mcpInspection.structuredContent).toEqual(JSON.parse(inspected));
+    expect(mcpInspection.isError).toBe(false);
     for (const [fixture, name] of [
       ['property', 'generate_property_tests'],
       ['advance', 'generate_metamorphic_tests'],

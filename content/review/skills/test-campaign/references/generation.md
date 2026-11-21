@@ -1,8 +1,14 @@
 # Generate native tests
 
-Use `testgen describe --json` from the installed package as the capability authority. Version 2 supports property, metamorphic, differential, and stateful methods for TUnit 1.2.11 and Vitest 3.2.7. Older published packages may expose fewer methods. Requests without `contractVersion: 2` retain the [legacy integer-vector contract](legacy-vectors.md).
+Use `testgen describe --json` from the installed package as the capability authority. Version 2 supports property, metamorphic, differential, and stateful methods on advertised TUnit, Vitest, Node test, and Bun test profiles. Older published packages may expose fewer methods. Requests without `contractVersion: 2` retain the [legacy integer-vector contract](legacy-vectors.md).
 
 The CLI and optional `testgen-mcp` stdio server share validation, generation, and result schemas. They return create-only patches. They do not apply files, discover application semantics, execute tests, or start an execution service. Use the repository's existing runner and typecheck commands.
+
+## Select the native test project
+
+Run `testgen inspect --root . --json` in a Git checkout. Select one result by manifest or project path. Compare the resolved version, evidence files, commands, and unresolved fields against the repository’s CI and a neighboring test. A supported version qualifies the emitter, while project filters, setup, providers, and package scripts determine whether a new test runs. Use `testgen init <name> --inspect-project <path> --directory <native-test-directory>` for a resolved profile. Use explicit framework and version flags when static inspection cannot resolve the setup. An MCP client can submit the bounded metadata snapshot to `inspect_project`.
+
+For Node tests, compile through the repository’s existing TypeScript test configuration and pass the compiled JavaScript to `node --test --test-isolation=none` when collecting replay logs. This preserves structured diagnostics emitted by the test process. For Bun tests, run `bun test <path>` and the repository’s native typecheck. Keep workspace selection, test environment, and file patterns from the owning project.
 
 ## Start a suite
 
@@ -103,3 +109,12 @@ Run the replay with the same reviewed bindings, application revision, dependenci
 For each language and selected method, require native discovery, a valid passing baseline, a deliberately introduced fault detected by the intended oracle, and replay of concrete failure data. Record binding and review effort separately from generation time. Keep compiler failures, invalid domains, timeouts, missing prerequisites, and unreached faults separate from assertion failures.
 
 The package smoke checks all four methods in both languages outside an Exarchos checkout. Application bindings still need their own controls. Exarchos's text normalization and replay-ledger fixtures exercise real TypeScript functions; the Bifrost WorkerRegistry campaign exercises real C# lifecycle operations. These finite checks do not certify an emitter, oracle, or application free of defects.
+
+
+## Application fixtures
+
+- **Convex.** Create a fresh `convexTest` instance and synthetic identity per history and reduction attempt. Keep clock control in the binding. Drain scheduled work and restore timers in cleanup. Follow the repository’s Convex test environment and confirm it discovers the generated suite.
+- **Service tests.** Use the repository’s existing provider fixtures. Pin the fixture mode and keep independent model state in memory. Record provider startup and cleanup failures separately from assertion failures.
+- **Cross-language contracts.** Apply the same concrete cases and independent expected observations in both native suites. Include expected rejection and acceptance vectors. A serializer and deserializer round trip alone cannot detect agreement on an incorrect wire representation.
+- **Existing property checks.** Keep native FsCheck and fast-check bindings and their replay format. Use testgen for additional methods and concrete shared cases where they add coverage. Record native seed and concrete counterexample separately.
+- **Adequacy.** Read the repository’s existing coverage and mutation reports. Select a specific uncovered branch or surviving mutation, name the expected observation, and run the native scoped command. Use the repository’s score policy. Report unreached mutations, harness errors, and timeouts separately from detected assertion faults.
