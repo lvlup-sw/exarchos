@@ -4,10 +4,10 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1493,
-    "parsedFiles": 1448,
+    "testFiles": 1494,
+    "parsedFiles": 1449,
     "shellFiles": 45,
-    "cases": 16540,
+    "cases": 16543,
     "dynamicTitles": 288,
     "unparseableFiles": 0
   },
@@ -92977,6 +92977,27 @@
         {
           "suite": "testgen cases",
           "name": "fails closed when an emitter breaks its output contract",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/testgen/inspection.test.ts": {
+      "file": "tests/unit/testgen/inspection.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "",
+          "name": "resolves scoped TUnit pins and does not qualify conditional references",
+          "dynamic": false
+        },
+        {
+          "suite": "",
+          "name": "distinguishes a workspace lock resolution from a manifest range",
+          "dynamic": false
+        },
+        {
+          "suite": "",
+          "name": "rejects metadata traversal paths and duplicate entries",
           "dynamic": false
         }
       ]
