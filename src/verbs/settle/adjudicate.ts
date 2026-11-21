@@ -13,6 +13,7 @@
  */
 
 import type { ExarchosCapsuleV1 } from '../../contract/capsule/exarchos-capsule.js';
+import { compilerPolicy } from '../../contract/capsule/compiler-policy.js';
 
 /** Every kind of finding adjudication can report. */
 export const SETTLEMENT_FINDING_KINDS = [
@@ -433,6 +434,12 @@ export type ClaimScope =
   | { readonly kind: 'in-scope' }
   | { readonly kind: 'out-of-scope'; readonly cause: string; readonly message: string };
 
+/** The failure of the integration tip of a compiler 8-vcs settlement. `ref` is the full integration ref, and `message` gives the cause. */
+export interface IntegrationFailure {
+  readonly ref: string;
+  readonly message: string;
+}
+
 /** What adjudication needs beyond the capsule and the batch. */
 export interface AdjudicationContext {
   /**
@@ -477,6 +484,12 @@ export interface AdjudicationContext {
    * It also holds the outcome of each required task that the stream shows complete and the batch does not claim.
    */
   readonly verification?: ReadonlyMap<string, TaskVerificationOutcome>;
+  /**
+   * The failure of the integration tip. Only the final pass reads it, with `verification`.
+   * Each claim that passes its other checks then gets a `verification-failed` finding, so the batch accepts no task.
+   * The subject of the finding stays the task id, and the message names the integration ref.
+   */
+  readonly integrationFailure?: IntegrationFailure;
 }
 
 /** The batch verdict: the outcome, every finding, and what was adjudicated. */
@@ -691,7 +704,7 @@ export function adjudicateSettlement(
     decisions: 0,
   };
 
-  const immutable = capsule.provenance.compilerVersion === 'exarchos-prepare-8';
+  const immutable = compilerPolicy(capsule.provenance.compilerVersion).immutable;
   const dependent = new Set(capsule.graph.dependencies.map(edge => edge.to));
   const taskIds = new Set(capsule.graph.tasks.map((task) => task.taskId));
   const admissibleEvidence = new Set(capsule.contracts.evidenceKinds);
@@ -866,6 +879,16 @@ export function adjudicateSettlement(
         message:
           `verification of task ${JSON.stringify(claim.taskId)} halted on ` +
           `'${outcome.failedLeaf}': ${outcome.message}`,
+      });
+      return;
+    }
+    const integration = context.integrationFailure;
+    if (integration !== undefined) {
+      findings.push({
+        kind: 'verification-failed',
+        subject: claim.taskId,
+        at: 'settlementContract.integration.ref',
+        message: `the integration ref ${integration.ref} does not accept task ${JSON.stringify(claim.taskId)}: ${integration.message}`,
       });
       return;
     }

@@ -20,6 +20,7 @@ import {
   type CapsuleReferenceViolationKind,
   resolveCapsuleReferences,
 } from '../../../../src/contract/capsule/capsule-references.js';
+import { compilerPolicy } from '../../../../src/contract/capsule/compiler-policy.js';
 
 /** A kernel definition that the published contract accepts, with one step for each id. */
 function kernelDefinition(stepIds: readonly string[]): unknown {
@@ -440,5 +441,59 @@ describe('capsule reference integrity', () => {
       },
     });
     expect(verdict.violations.map((v) => v.kind)).toEqual(['unsound-kernel-definition']);
+  });
+});
+
+/** Only compiler 8-vcs pins an integration ref. Each other compiler keeps its historical result and refuses the term. */
+describe('compiler 8-vcs integration term', () => {
+  const integration = { ref: 'refs/heads/integration' };
+  const named = (version: string, withTerm: boolean): ExarchosCapsuleV1 => {
+    const base = baseValidCapsule();
+    return ExarchosCapsuleV1Schema.parse({ ...base, provenance: { ...base.provenance, compilerVersion: version },
+      settlementContract: { ...base.settlementContract, ...(withTerm ? { integration } : {}) } });
+  };
+  const places = (capsule: ExarchosCapsuleV1): string[] =>
+    resolveCapsuleReferences(capsule).violations.map((v) => `${v.kind}@${v.at}`).sort();
+
+  /** Compiler 8-vcs without the term refuses at the term, and with the term it keeps exactly the compiler 8 result. */
+  it('CompilerPolicy_EightVcsRequiresTheIntegrationRef', () => {
+    const eight = places(named('exarchos-prepare-8', false));
+    expect(eight).toContain('compiler-semantics@provenance.compilerVersion');
+    expect(places(named('exarchos-prepare-8-vcs', true))).toEqual(eight);
+    expect(places(named('exarchos-prepare-8-vcs', false))).toEqual([...eight, 'compiler-semantics@settlementContract.integration'].sort());
+    const missing = resolveCapsuleReferences(named('exarchos-prepare-8-vcs', false)).violations
+      .find((v) => v.at === 'settlementContract.integration');
+    expect(missing).toMatchObject({ ref: 'exarchos-prepare-8-vcs', message: 'Compiler 8-vcs requires the integration ref.' });
+  });
+
+  /** Compiler 8 and the historical fixture compiler keep their results, and each refuses an integration term. */
+  it('CompilerPolicy_OtherCompilersRefuseTheIntegrationRef', () => {
+    expect(resolveCapsuleReferences(named('capsule-compiler-0', false))).toEqual({ ok: true, violations: [] });
+    for (const version of ['capsule-compiler-0', 'exarchos-prepare-7', 'exarchos-prepare-8']) {
+      const withTerm = places(named(version, true));
+      expect(withTerm, version).toEqual([...places(named(version, false)), 'compiler-semantics@settlementContract.integration'].sort());
+    }
+  });
+
+  /** The decoder maps 8 and 8-vcs to the immutable semantics, only 8-vcs to integration, and keeps each historical name. */
+  it('CompilerPolicy_DecoderKeepsEveryHistoricalMapping', () => {
+    expect(compilerPolicy('exarchos-prepare-8')).toEqual({ immutable: true, integration: false, fullDefinition: true });
+    expect(compilerPolicy('exarchos-prepare-8-vcs')).toEqual({ immutable: true, integration: true, fullDefinition: true });
+    for (const version of ['exarchos-prepare-7', 'exarchos-prepare-9', 'exarchos-prepare-99']) {
+      expect(compilerPolicy(version), version).toEqual({ immutable: false, integration: false, fullDefinition: true });
+    }
+    for (const version of ['capsule-compiler-0', 'exarchos-prepare-5', 'exarchos-prepare-6', 'exarchos-prepare-8-other', 'new-compiler', '']) {
+      expect(compilerPolicy(version), version).toEqual({ immutable: false, integration: false, fullDefinition: false });
+    }
+    expect(compilerPolicy(undefined)).toEqual({ immutable: false, integration: false, fullDefinition: false });
+  });
+
+  /** The term is a full local branch ref. A short name, a remote ref, a range and a revision expression are refused by the schema pattern. */
+  it('CompilerPolicy_IntegrationRefIsAFullBranchRefPattern', () => {
+    const base = named('exarchos-prepare-8-vcs', true);
+    for (const ref of ['integration', 'refs/heads/a..b', 'refs/remotes/origin/main', 'refs/heads/-x', 'refs/heads/a@{1}']) {
+      const parsed = ExarchosCapsuleV1Schema.safeParse({ ...base, settlementContract: { ...base.settlementContract, integration: { ref } } });
+      expect(parsed.success, ref).toBe(false);
+    }
   });
 });

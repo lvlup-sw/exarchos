@@ -3,6 +3,7 @@ import type { z } from 'zod';
 import type { TaskVerificationCoordinateSchema } from '../../contract/capsule/exarchos-capsule.js';
 import { capsuleDigest, contentDigest } from '../../contract/capsule/capsule-digest.js';
 import { decodePreparedBundle, type PreparedBundleV1 } from '../../contract/capsule/prepared-bundle.js';
+import { compilerPolicy } from '../../contract/capsule/compiler-policy.js';
 import type { RunBundleStore } from '../../events/bundle/run-bundle-store.js';
 import { WorkflowPreparedData, type WorkflowPrepared } from '../../events/schemas.js';
 import { compileDecideDefinition } from '../decide/edges.js';
@@ -81,7 +82,7 @@ function definitionOf(bundle: PreparedBundleV1, record: WorkflowPrepared): Exarc
   if (bundle.definition.name !== record.workflowType && bundle.definition.name !== `exarchos.${record.workflowType}`) {
     throw new Error('Prepared workflow type does not match its definition');
   }
-  const required = record.planRecordDigest !== undefined || /^exarchos-prepare-(?:[7-9]|[1-9][0-9]+)$/.test(record.compilerVersion);
+  const required = record.planRecordDigest !== undefined || compilerPolicy(record.compilerVersion).fullDefinition;
   const full = Object.hasOwn(bundle.definition, 'exarchos');
   if (!full && !required) return undefined;
   const checked = checkDefinitionDocument(bundle.definition, () => []);

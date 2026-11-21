@@ -386,6 +386,24 @@ export const CapsuleTaskVerificationSchema = z
   .strict();
 
 /**
+ * A full local branch ref under `refs/heads/`. The name holds no `..`, no `@` and no whitespace, so it never names a range or a revision expression.
+ * It is a pattern, not a refinement, so the JSON Schema projection carries the same rule.
+ */
+const CapsuleBranchRefSchema = z
+  .string()
+  .max(256)
+  .regex(
+    /^refs\/heads\/(?!.*\.\.)[A-Za-z0-9_][A-Za-z0-9._/+-]*$/,
+    'an integration ref is a full ref under refs/heads/ that contains no ".." and uses only letters, digits and . _ / + -',
+  );
+
+/**
+ * The integration terms of a capsule. `ref` is the full ref of the integration branch that prepare read from the workflow.
+ * Settle requires each accepted task head to be an ancestor of the tip of this ref, and a passing suite for that tip.
+ */
+const CapsuleIntegrationTermSchema = z.object({ ref: CapsuleBranchRefSchema }).strict();
+
+/**
  * The settlement terms for each batch of this capsule. The batch id is not here.
  * Settlement is idempotent on `(capsuleVersion, batchId)`, and a rejected batch resubmits as a new batch under the same terms.
  * A compiled `batchId` makes that resubmission the same key with a different request, which the claim refuses.
@@ -407,6 +425,8 @@ export const CapsuleSettlementContractSchema = z
      * One profile serves each task of the capsule. A capsule of an earlier compiler has none.
      */
     verificationProfile: VerificationProfileSchema.optional(),
+    /** The integration terms. Only compiler 8-vcs pins them, and the reference pass refuses them for each other compiler. */
+    integration: CapsuleIntegrationTermSchema.optional(),
   })
   .strict();
 

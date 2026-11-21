@@ -4,11 +4,11 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1507,
-    "parsedFiles": 1462,
+    "testFiles": 1509,
+    "parsedFiles": 1464,
     "shellFiles": 45,
-    "cases": 16699,
-    "dynamicTitles": 322,
+    "cases": 16735,
+    "dynamicTitles": 325,
     "unparseableFiles": 0
   },
   "unparseable": [],
@@ -4555,6 +4555,67 @@
     }
   ],
   "files": {
+    "tests/acceptance/1928-settle-integration.test.ts": {
+      "file": "tests/acceptance/1928-settle-integration.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "compiler 8-vcs settlement",
+          "name": "SettleIntegration_HarnessLanding_AcceptsAtTheTipAndReplaysTerminally",
+          "dynamic": false
+        },
+        {
+          "suite": "compiler 8-vcs settlement",
+          "name": "SettleIntegration_WrongBranchOrRepository_RefusesBeforeAnyClaim",
+          "dynamic": false
+        },
+        {
+          "suite": "compiler 8-vcs settlement",
+          "name": "SettleIntegration_UnmergedHead_FailsWithNoSuiteRequest",
+          "dynamic": false
+        },
+        {
+          "suite": "compiler 8-vcs settlement",
+          "name": "SettleIntegration_UnresolvedSuite_FailsWithNoVerifierRequestAndReplays",
+          "dynamic": false
+        },
+        {
+          "suite": "compiler 8-vcs settlement",
+          "name": "SettleIntegration_RedSuite_FailsAtTheTip",
+          "dynamic": false
+        },
+        {
+          "suite": "compiler 8-vcs settlement",
+          "name": "SettleIntegration_StaleProviderResult_CommitsNothing",
+          "dynamic": false
+        },
+        {
+          "suite": "compiler 8-vcs settlement",
+          "name": "SettleIntegration_MovedTip_OneFreshAttemptThenRetryableRefusal",
+          "dynamic": false
+        },
+        {
+          "suite": "compiler 8-vcs settlement",
+          "name": "SettleIntegration_PartialDagHeldAndCommitFence",
+          "dynamic": false
+        },
+        {
+          "suite": "compiler 8-vcs settlement",
+          "name": "SettleIntegration_OldCompilerEightReceipt_ReplaysUnchanged",
+          "dynamic": false
+        },
+        {
+          "suite": "compiler 8-vcs settlement",
+          "name": "SettleIntegration_PrepareWithoutRecordedIntegrationBranch_RefusesBeforeAnyRecord",
+          "dynamic": false
+        },
+        {
+          "suite": "compiler 8-vcs settlement",
+          "name": "SettleIntegration_RestartRecovery_ResubmitsTheBoundRequest",
+          "dynamic": false
+        }
+      ]
+    },
     "tests/acceptance/action-admission-parity.test.ts": {
       "file": "tests/acceptance/action-admission-parity.test.ts",
       "runner": "vitest:root",
@@ -6491,6 +6552,26 @@
         {
           "suite": "identifier stability across decomposition",
           "name": "Snapshot_CountsAgreeWithItsOwnContents",
+          "dynamic": false
+        },
+        {
+          "suite": "stored settlement shapes carry a version decision",
+          "name": "StoredShapes_OfThisBuild_MatchTheLatestVersionDecision",
+          "dynamic": false
+        },
+        {
+          "suite": "stored settlement shapes carry a version decision",
+          "name": "StoredShapes_DecisionLog_StartsAtTheOneWayUpgradeAndEachEntryRecordsAChange",
+          "dynamic": false
+        },
+        {
+          "suite": "stored settlement shapes carry a version decision",
+          "name": "StoredShapes_DecisionLog_HoldsEachRecordedDecisionUnchanged",
+          "dynamic": false
+        },
+        {
+          "suite": "stored settlement shapes carry a version decision",
+          "name": "StoredShapes_AnAddedOptionalField_ChangesTheDigestAndADescriptionDoesNot",
           "dynamic": false
         }
       ]
@@ -10293,6 +10374,57 @@
           "suite": "",
           "name": "<dynamic-case-2>",
           "dynamic": true
+        }
+      ]
+    },
+    "tests/integration/1928-integration-retry.test.ts": {
+      "file": "tests/integration/1928-integration-retry.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "integration attempts on a real host",
+          "name": "IntegrationRetry_BindingLostDeliveryReentryAndRestart_ExactExecutionCounts",
+          "dynamic": false
+        },
+        {
+          "suite": "integration attempts on a real host",
+          "name": "<dynamic-case-1>",
+          "dynamic": true
+        },
+        {
+          "suite": "integration attempts on a real host",
+          "name": "IntegrationRetry_TwoTipsInOnePhaseAttempt_EachClaimsExactlyOnce",
+          "dynamic": false
+        },
+        {
+          "suite": "integration attempts on a real host",
+          "name": "<dynamic-case-2>",
+          "dynamic": true
+        },
+        {
+          "suite": "integration attempts on a real host",
+          "name": "IntegrationRetry_HostAuthorization_AdmitsOnlyThePinnedIntegrationSubject",
+          "dynamic": false
+        },
+        {
+          "suite": "integration attempts on a real host",
+          "name": "<dynamic-case-3>",
+          "dynamic": true
+        },
+        {
+          "suite": "verifier key stability",
+          "name": "IntegrationRetry_HistoricalTaskPhaseAndCheckoutKeys_KeepTheirBytes",
+          "dynamic": false
+        },
+        {
+          "suite": "verifier key stability",
+          "name": "IntegrationRetry_IntegrationKeyBindsEverySubjectFieldResourceAndCommand",
+          "dynamic": false
+        },
+        {
+          "suite": "verifier key stability",
+          "name": "IntegrationRetry_IntegrationSubjectBindsAtMost64SortedUniqueHeads",
+          "dynamic": false
         }
       ]
     },
@@ -22162,12 +22294,37 @@
         },
         {
           "suite": "capsule reference integrity",
+          "name": "CapsuleReferences_AStepCollectionNestedInALooseObject_DoesNotResolve",
+          "dynamic": false
+        },
+        {
+          "suite": "capsule reference integrity",
           "name": "CapsuleReferences_AStepNestedInsideTheKernelsOwnStructures_DoesResolve",
           "dynamic": false
         },
         {
           "suite": "capsule reference integrity",
           "name": "CapsuleReferences_AnUnsoundDefinition_SuppressesStepResolution",
+          "dynamic": false
+        },
+        {
+          "suite": "compiler 8-vcs integration term",
+          "name": "CompilerPolicy_EightVcsRequiresTheIntegrationRef",
+          "dynamic": false
+        },
+        {
+          "suite": "compiler 8-vcs integration term",
+          "name": "CompilerPolicy_OtherCompilersRefuseTheIntegrationRef",
+          "dynamic": false
+        },
+        {
+          "suite": "compiler 8-vcs integration term",
+          "name": "CompilerPolicy_DecoderKeepsEveryHistoricalMapping",
+          "dynamic": false
+        },
+        {
+          "suite": "compiler 8-vcs integration term",
+          "name": "CompilerPolicy_IntegrationRefIsAFullBranchRefPattern",
           "dynamic": false
         }
       ]
@@ -26113,6 +26270,16 @@
         {
           "suite": "loadVerifierProvisioning",
           "name": "LoadVerifierProvisioning_Usable_KeepsTheExactIdentityBytes",
+          "dynamic": false
+        },
+        {
+          "suite": "loadVerifierProvisioning",
+          "name": "LoadVerifierProvisioning_IntegrationIdentity_IsExposedToSettle",
+          "dynamic": false
+        },
+        {
+          "suite": "loadVerifierProvisioning",
+          "name": "LoadVerifierProvisioning_MalformedIntegrationIdentity_IsUnusable",
           "dynamic": false
         }
       ]
@@ -63212,6 +63379,11 @@
         },
         {
           "suite": "the capped prepare receipt",
+          "name": "PrepareEconomy_ASparseReceiptOverTheBudget_SummarisesWithoutItsAbsentFields",
+          "dynamic": false
+        },
+        {
+          "suite": "the capped prepare receipt",
           "name": "PrepareEconomy_ASummaryOverTheBudget_LosesItsTaskPageBeforeAnyRecompileTask",
           "dynamic": false
         },
@@ -63222,7 +63394,17 @@
         },
         {
           "suite": "the capped prepare receipt",
+          "name": "PrepareEconomy_ACappedResponse_NamesTheReadsOfTheDetailAndNoWindow",
+          "dynamic": false
+        },
+        {
+          "suite": "the capped prepare receipt",
           "name": "PrepareEconomy_Compiler8Invocation_PreservesOriginalReceipt",
+          "dynamic": false
+        },
+        {
+          "suite": "the capped prepare receipt",
+          "name": "PrepareEconomy_Compiler8VcsInvocation_KeepsTheCustodyPointer",
           "dynamic": false
         }
       ]
@@ -96094,6 +96276,11 @@
         },
         {
           "suite": "prepared custody",
+          "name": "Custody_EightVcsRequiresAFullDefinition_AndOtherNamesKeepTheirRule",
+          "dynamic": false
+        },
+        {
+          "suite": "prepared custody",
           "name": "Custody_MarkerAndSourceCannotHideChangedRawText",
           "dynamic": false
         },
@@ -96491,6 +96678,11 @@
         {
           "suite": "immutable segment input",
           "name": "LeafCommittedBeforeCrash_OriginalCoordinate",
+          "dynamic": false
+        },
+        {
+          "suite": "immutable segment input",
+          "name": "LeafCommittedBeforeCrash_EightVcsRestartReplaysOriginalInput",
           "dynamic": false
         },
         {

@@ -92,6 +92,8 @@ import { resolveTaskStanding } from '../settle/task-standing.js';
 import { pendingRevisionOf, recompiledSliceOf } from './recompiled-slice.js';
 import { compilableSteps, locateStep, type StepFindingRule } from './step-locator.js';
 import type { PreparedCapsuleReceipt, PreparedRecompile, PrepareRefusal } from './types.js';
+import { compilerPolicy, IMMUTABLE_COMPILER_VERSION } from '../../contract/capsule/compiler-policy.js';
+import { constrainedBranchRef } from '../../utils/git-tree.js';
 
 /** The runbook that settlement composes for each accepted task. Its leaf needs are the batch needs. */
 const SETTLEMENT_SEGMENT_INTENT = 'task-completion';
@@ -488,6 +490,16 @@ function branchOf(state: Record<string, unknown>): unknown {
   return isRecord(state.synthesis) ? state.synthesis.integrationBranch : undefined;
 }
 
+/**
+ * The full integration ref of a recorded integration branch, or undefined when the workflow records none or a malformed one.
+ * It accepts a short branch name or a full `refs/heads/` ref. It never takes the current branch or the feature id.
+ */
+function integrationRefOf(recorded: unknown): string | undefined {
+  if (typeof recorded !== 'string' || recorded.length === 0) return undefined;
+  try { return constrainedBranchRef(recorded.startsWith('refs/heads/') ? recorded : `refs/heads/${recorded}`); }
+  catch { return undefined; }
+}
+
 function preparedAuthorityRefusal(error: unknown): ToolResult {
   const message = error instanceof Error ? error.message : String(error);
   return refused({ code: 'PREPARED_AUTHORITY_INVALID', message: `Cannot read the latest prepared authority. ${message}` });
@@ -824,17 +836,21 @@ async function prepareFromSnapshot(
     if (!approved.ok) return refused(approved.refusal);
     snapshot = approved.snapshot;
   }
-  const compilerVersion = deps.compilerVersion ?? (snapshot === undefined ? PREPARE_COMPILER_VERSION : 'exarchos-prepare-8');
-  if (compilerVersion === 'exarchos-prepare-8' && snapshot !== undefined) {
+  const compilerVersion = deps.compilerVersion ?? (snapshot === undefined ? PREPARE_COMPILER_VERSION : IMMUTABLE_COMPILER_VERSION);
+  const integrationRef = compilerPolicy(compilerVersion).integration ? integrationRefOf(branchOf(state)) : undefined;
+  if (compilerPolicy(compilerVersion).integration && integrationRef === undefined) {
+    return refused({ code: 'BASE_UNRESOLVED', message: 'Compiler 8-vcs requires a recorded integration branch of the workflow (synthesis.integrationBranch).' });
+  }
+  if (compilerPolicy(compilerVersion).immutable && snapshot !== undefined) {
     snapshot = { ...snapshot, reference: path.posix.normalize(snapshot.reference) };
   }
-  if (compilerVersion === 'exarchos-prepare-8' && snapshot === undefined) {
+  if (compilerPolicy(compilerVersion).immutable && snapshot === undefined) {
     return refused(unsoundRecord('Compiler 8 requires an approved typed plan.'));
   }
   const plan: readonly unknown[] = snapshot !== undefined
     ? typedPlanTasks(snapshot, rowStatusByTask(events))
     : Array.isArray(state.tasks) ? state.tasks : [];
-  const partition = compilerVersion === 'exarchos-prepare-8' && snapshot !== undefined
+  const partition = compilerPolicy(compilerVersion).immutable && snapshot !== undefined
     ? partitionTypedGraph(snapshot, location.step.stepId)
     : partitionDelegationBatch(plan, location.step.stepId);
   if (!partition.ok) return refused(partition.refusal);
@@ -844,8 +860,8 @@ async function prepareFromSnapshot(
   const bundles = deps.bundleStore ?? ctx.eventStore.bundleStore;
   let checkedPin: Awaited<ReturnType<typeof loadPreparedCustody>> | undefined;
   let authenticatedReplayBase = false;
-  const emptyStandingHistory = compilerVersion === 'exarchos-prepare-8' && authority?.kind === 'typed'
-    && authority.record.compilerVersion === 'exarchos-prepare-8'
+  const emptyStandingHistory = compilerPolicy(compilerVersion).immutable && authority?.kind === 'typed'
+    && compilerPolicy(authority.record.compilerVersion).immutable
     && !events.some(row => row.type === 'execution.settled' || row.type === 'design.revised' || row.type === 'capsule.recompiled');
   let branch = branchOf(state);
   if (intent !== undefined) {
@@ -928,8 +944,8 @@ async function prepareFromSnapshot(
   if (legacyDesign?.read.kind === 'invalid') return refused(unsoundRecord(legacyDesign.read.message));
   const designRecordDigest = snapshot?.digest ?? legacyDesign?.digest;
   const designVersion = designVersionOf(events);
-  let recompile = recompileOf(events, plan, compilerVersion === 'exarchos-prepare-8');
-  const skipPhases = bootstrap !== undefined || compilerVersion === PREPARE_COMPILER_VERSION || compilerVersion === 'exarchos-prepare-8'
+  let recompile = recompileOf(events, plan, compilerPolicy(compilerVersion).immutable);
+  const skipPhases = bootstrap !== undefined || compilerVersion === PREPARE_COMPILER_VERSION || compilerPolicy(compilerVersion).immutable
     ? projectConfig.workflow.skipPhases : undefined;
   if (skipPhases !== undefined) {
     try {
@@ -950,7 +966,7 @@ async function prepareFromSnapshot(
 
   const retainedStanding: unknown[] = [];
   const emptyStandingReplay = authenticatedReplayBase && emptyStandingHistory;
-  if (compilerVersion === 'exarchos-prepare-8' && snapshot !== undefined && authority !== undefined && !emptyStandingReplay) {
+  if (compilerPolicy(compilerVersion).immutable && snapshot !== undefined && authority !== undefined && !emptyStandingReplay) {
     try {
       checkedPin ??= await loadPreparedCustody(authority, bundles);
       if (recompile !== undefined) {
@@ -966,7 +982,8 @@ async function prepareFromSnapshot(
       if (!changes.ok) return refused(changes.refusal);
       const candidate = compileDelegationCapsule({ workflowId: streamId, capsuleVersion, lowered, batch, catalogInvariants,
         designRef, ...(designRecordDigest === undefined ? {} : { designRecordDigest }), designVersion, designRevisions: revisions,
-        acceptedChanges: changes.changes, compilerVersion, baseRef, pin: { scope, baseCommit }, verificationProfile,
+        acceptedChanges: changes.changes, compilerVersion, baseRef, ...(integrationRef === undefined ? {} : { integrationRef }),
+        pin: { scope, baseCommit }, verificationProfile,
         executionProfile: { capabilities }, verificationSequence: sequenceOf, disabledGates,
         ...(skipPhases === undefined ? {} : { skipPhases }), compiledAt: (deps.now ?? (() => new Date().toISOString()))() });
       if (!candidate.ok) return refused(candidate.refusal);
@@ -1006,7 +1023,8 @@ async function prepareFromSnapshot(
     designRef: designRef ?? null,
     designVersion,
     compilerVersion,
-    ...(compilerVersion === 'exarchos-prepare-8' ? { retainedStanding } : {}),
+    ...(compilerPolicy(compilerVersion).immutable ? { retainedStanding } : {}),
+    ...(integrationRef === undefined ? {} : { integrationRef }),
     executionProfile: { capabilities },
     verificationTerms,
     baseRef,
@@ -1086,6 +1104,7 @@ async function prepareFromSnapshot(
       acceptedChanges: accepted.changes,
       compilerVersion,
       baseRef,
+      ...(integrationRef === undefined ? {} : { integrationRef }),
       pin: { scope, baseCommit },
       verificationProfile,
       executionProfile: { capabilities },

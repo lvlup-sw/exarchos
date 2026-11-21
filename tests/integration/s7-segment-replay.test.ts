@@ -45,7 +45,8 @@ class InterruptedStore extends RunBundleStore {
 }
 
 /** The fixture uses approved source bytes, a real clean checkout and actual operation claims. */
-async function setup(unsafe = false, enforcement: 'block' | 'advisory' = 'block', quiet = false, pinnedConfig = false, declarePath = true) {
+async function setup(unsafe = false, enforcement: 'block' | 'advisory' = 'block', quiet = false, pinnedConfig = false, declarePath = true,
+  compilerVersion = 'exarchos-prepare-8') {
   const repo = await scopedRepository({ integrationBranch: 'integration', files: { 'file.txt': 'base' } });
   const worktree = await repo.worktreeFor('root');
   closes.push(() => rmrfAsync(repo.root));
@@ -60,7 +61,7 @@ async function setup(unsafe = false, enforcement: 'block' | 'advisory' = 'block'
   const read = readDesignRecord(Buffer.from(text), bundle.designRecord?.reference ?? 'plan.md');
   if (read.kind !== 'typed') throw new Error('Invalid fixture plan');
   const capsule = bundle.capsule;
-  capsule.provenance.compilerVersion = 'exarchos-prepare-8';
+  capsule.provenance.compilerVersion = compilerVersion;
   capsule.graph.tasks = read.snapshot.tasks.map(entry => ({ taskId: entry.id, title: entry.title, stepId: 'delegate',
     stage: { kind: 'task-batch', stepId: 'delegate' }, taskContext: {
       taskId: entry.id, title: entry.title, instructions: entry.instructions, files: [...entry.files], testFiles: [...entry.testFiles],
@@ -77,7 +78,8 @@ async function setup(unsafe = false, enforcement: 'block' | 'advisory' = 'block'
   if (quiet && declarePath) capsule.contracts.taskResults.root = [{ name: 'passed', type: 'boolean', required: true }, { name: 'worktreePath', type: 'string', required: true }];
   capsule.settlementContract = { ...profiledValidCapsule().settlementContract, requiredResults: ['root'], skipPhases: [],
     verificationMode: 'immutable-task-diff-v1', scope: { repository: repository.repository, checkout: repo.checkout, configDigest: pinnedConfig ? await configDigestAt(repo.checkout) : 'c'.repeat(64) },
-    taskVerification: Object.fromEntries(['root'].map(id => [id, { riskTier: 'low', boundaryTouching: false, baseRef: 'main', baseCommit: repo.baseCommit }])) };
+    taskVerification: Object.fromEntries(['root'].map(id => [id, { riskTier: 'low', boundaryTouching: false, baseRef: 'main', baseCommit: repo.baseCommit }])),
+    ...(compilerVersion === 'exarchos-prepare-8-vcs' ? { integration: { ref: 'refs/heads/integration' } } : {}) };
   const preparedDigest = await events.bundleStore.put(encodePreparedBundle(bundle));
   const initial = prepared(bundle);
   await events.append(streamId, { type: 'workflow.prepared', schemaVersion: '1.0', timestamp: TIME, data: {
@@ -164,6 +166,20 @@ describe('immutable segment input', () => {
     expect((await f.rows()).filter(row => row.type === 'emission.violated')).toHaveLength(0);
     expect((await f.rows()).filter(row => row.type === 'task.completed')).toHaveLength(1);
     expect(f.backend().lookupSegmentInput(f.operationId)).toBe(held);
+  });
+
+  /** A compiler 8-vcs segment keeps the immutable input across a restart, as compiler 8 does. The leaf runs once. */
+  it('LeafCommittedBeforeCrash_EightVcsRestartReplaysOriginalInput', async () => {
+    const f = await setup(false, 'block', false, false, true, 'exarchos-prepare-8-vcs'); f.bundles.failTerminal = true;
+    expect((await f.run()).success).toBe(false); expect(f.calls()).toBe(1);
+    expect(f.backend().lookupOperationClaim(f.operationId)).toBeUndefined();
+    const held = f.backend().lookupSegmentInput(f.operationId); expect(held).toBeDefined();
+    await f.reopen(); f.bundles.failTerminal = false;
+    const resumed = await f.run(); expect(resumed.success, JSON.stringify(resumed)).toBe(true); expect(f.calls()).toBe(1);
+    expect((await f.rows()).filter(row => row.type === 'task.completed')).toHaveLength(1);
+    expect(f.backend().lookupSegmentInput(f.operationId)).toBe(held);
+    await rmrfAsync(f.worktree); await f.reopen();
+    expect(await f.run()).toEqual(resumed); expect(f.calls()).toBe(1);
   });
 
   /** The binding does not grant an unsafe leaf permission to repeat effects without its terminal receipt. */

@@ -37,6 +37,7 @@ import { designVersionId } from './design-version.js';
 import type { LoweredDefinition } from './lower-definition.js';
 import type { BatchTaskVerification, DelegationBatch } from './partition-tasks.js';
 import type { PrepareRefusal } from './types.js';
+import { compilerPolicy } from '../../contract/capsule/compiler-policy.js';
 
 /**
  * Names the compiler that produced a capsule, so a reader can tell compilations apart.
@@ -215,6 +216,11 @@ export interface CompileCapsuleInput {
    * kill probe measures the task diff from its start.
    */
   readonly baseRef: string;
+  /**
+   * The full integration ref of the workflow, which the handler resolved from the recorded integration branch.
+   * Only compiler 8-vcs pins it, as the integration term of the settlement contract. Each other compiler ignores it.
+   */
+  readonly integrationRef?: string;
   /**
    * The scope and the base commit that the handler observed. The handler always passes them, so each capsule that it records pins both.
    * A direct caller that passes none gets a capsule with no scope and no base commit, as an earlier compiler wrote it.
@@ -474,7 +480,8 @@ export function compileDelegationCapsule(input: CompileCapsuleInput): CompileOut
     ),
   ];
 
-  const fullGraph = input.compilerVersion === 'exarchos-prepare-8';
+  const policy = compilerPolicy(input.compilerVersion);
+  const fullGraph = policy.immutable;
   const resultFields = delegatedTaskResultFields();
   const dependentTaskIds = new Set(batch.dependencies.map(edge => edge.to));
   const batchTaskIds = batch.tasks.map((task) => task.taskId);
@@ -585,6 +592,7 @@ export function compileDelegationCapsule(input: CompileCapsuleInput): CompileOut
         ? { skipPhases: [...(input.skipPhases ?? [])] }
         : {}),
       ...(input.verificationProfile !== undefined ? { verificationProfile: input.verificationProfile } : {}),
+      ...(policy.integration && input.integrationRef !== undefined ? { integration: { ref: input.integrationRef } } : {}),
     },
   };
 

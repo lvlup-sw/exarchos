@@ -91,6 +91,7 @@ import type {
   ReceiptLeaf,
   ReceiptSteering,
 } from './types.js';
+import { compilerPolicy } from '../../contract/capsule/compiler-policy.js';
 
 /**
  * The event this action commits on both outcomes. Read off the settlement
@@ -660,7 +661,7 @@ async function readHostedStructure(
 async function executeBoundInput(intent: string, streamId: string, operationId: string, args: Record<string, unknown>,
   stateDir: string, ctx: DispatchContext, deps: ExecuteIntentDeps): Promise<ToolResult> {
   const authority = deps.verificationInput;
-  if (authority === undefined || authority.authority.capsule.provenance.compilerVersion !== 'exarchos-prepare-8'
+  if (authority === undefined || !compilerPolicy(authority.authority.capsule.provenance.compilerVersion).immutable
     || authority.authority.capsule.identity.workflowId !== streamId || intent !== 'task-completion'
     || (authority.round !== 0 && authority.round !== 1)
     || settlementClaimKey(streamId, { ...authority.authority.capsule.identity, batchId: authority.batchId }, authority.round) !== authority.outerOperationId

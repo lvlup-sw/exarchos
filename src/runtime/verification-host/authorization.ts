@@ -275,13 +275,23 @@ async function authorizeCheck(
 
 /**
  * A head-free checkout resource authorizes only the lifecycle check under its pinned profile.
+ * A head-free integration resource authorizes only the integration suite of an integration subject under its pinned profile and profile digest.
+ * That subject must name the full ref of the pinned branch. A pinned branch is already a full ref, so the comparison is exact.
+ * An integration subject is admitted only on an integration resource.
  * Every other resource authorizes only an operation of another kind with an exactly equal subject and profile digest.
  */
-function subjectAuthorized(pinned: HostProvisioning['resources'][number]['subject'], profileDigest: string, request: VerificationRequest): boolean {
+function subjectAuthorized(resource: HostProvisioning['resources'][number], profileDigest: string, request: VerificationRequest): boolean {
+  const pinned = resource.subject;
+  const integrationSubject = request.operation === 'integration-suite' && 'scope' in request.subject && request.subject.scope === 'integration';
   if ('scope' in pinned && pinned.scope === 'checkout') {
     return request.operation === 'lifecycle' && request.subject.scope === 'checkout' && pinned.profileId === request.profileId;
   }
-  return request.operation !== 'lifecycle' && verificationJson(pinned) === verificationJson(request.subject) && profileDigest === request.subject.profileDigest;
+  if ('scope' in pinned && pinned.scope === 'integration') {
+    return request.operation === 'integration-suite' && 'scope' in request.subject && request.subject.scope === 'integration'
+      && pinned.profileId === request.profileId && profileDigest === request.subject.profileDigest && request.subject.ref === resource.branch;
+  }
+  return request.operation !== 'lifecycle' && !integrationSubject
+    && verificationJson(pinned) === verificationJson(request.subject) && profileDigest === request.subject.profileDigest;
 }
 
 /**
@@ -298,7 +308,7 @@ export async function authorizeVerification(
   const profile = policy.profiles.find(value => value.id === request.profileId);
   if (!resource || !profile || policy.resources.filter(value => value.id === request.resourceId).length !== 1
     || policy.profiles.filter(value => value.id === request.profileId).length !== 1
-    || !subjectAuthorized(resource.subject, profile.digest, request)) throw new Error('Request does not match operator policy');
+    || !subjectAuthorized(resource, profile.digest, request)) throw new Error('Request does not match operator policy');
   if (request.operation === 'adequacy' &&
       (profile.adequacy === undefined
       || verificationJson(profile.adequacy.selection) !== verificationJson(request.selection)
@@ -324,6 +334,11 @@ export async function authorizeVerification(
     for (const blocker of subject.blockerHeads) {
       const result = await observer.ancestry(resource, blocker, subject.headCommit);
       if (result.kind !== 'observed' || !result.value) throw new Error('Blocker head differs');
+    }
+  } else if (subject.scope === 'integration') {
+    for (const accepted of subject.acceptedHeads) {
+      const result = await observer.ancestry(resource, accepted, subject.headCommit);
+      if (result.kind !== 'observed' || !result.value) throw new Error('Accepted head is not an ancestor of the integration tip');
     }
   }
   const identities = [];

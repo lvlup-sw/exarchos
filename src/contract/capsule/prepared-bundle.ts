@@ -8,6 +8,7 @@ import { validateDesignRecord } from '../../workflow/design-record/validate.js';
 import { resolveCapsuleReferences } from './capsule-references.js';
 import { ExarchosCapsuleV1Schema, type ExarchosCapsuleV1 } from './exarchos-capsule.js';
 import { canonicalJson } from '../request-context.js';
+import { compilerPolicy } from './compiler-policy.js';
 
 /** The `kind` discriminator every prepared bundle carries. */
 export const PREPARED_BUNDLE_KIND = 'prepared-capsule';
@@ -34,7 +35,7 @@ export interface PreparedBundleV1 {
 
 /** New compiler custody requires the complete semantic contract and its approved source bytes. */
 function requireCompilerCustody(bundle: PreparedBundleV1): void {
-  if (bundle.capsule.provenance.compilerVersion !== 'exarchos-prepare-8') return;
+  if (!compilerPolicy(bundle.capsule.provenance.compilerVersion).immutable) return;
   const verdict = resolveCapsuleReferences(bundle.capsule, { definition: bundle.definition });
   if (!verdict.ok) throw new Error(`Incomplete compiler-8 custody: ${JSON.stringify(verdict.violations)}`);
   if (bundle.designRecord === undefined) throw new Error('Compiler-8 custody requires the approved design record');
@@ -86,7 +87,7 @@ export function decodePreparedBundle(bytes: Uint8Array): PreparedBundleV1 {
   const bundle = { capsule: parsed.capsule, definition: WorkflowDefinitionV1Schema.parse(parsed.definition),
     ...(parsed.designRecord !== undefined ? { designRecord: parsed.designRecord } : {}),
   };
-  if (bundle.capsule.provenance.compilerVersion === 'exarchos-prepare-8'
+  if (compilerPolicy(bundle.capsule.provenance.compilerVersion).immutable
       && !Buffer.from(Buffer.from(bytes).toString('utf8'), 'utf8').equals(Buffer.from(bytes))) throw new Error('Invalid UTF-8 custody');
   requireCompilerCustody(bundle);
   return bundle;

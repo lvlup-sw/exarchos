@@ -33,6 +33,7 @@ const checkIdentities = z.object({
   'integration-suite': checkIdentity.optional(),
   'spec-coverage': checkIdentity.optional(),
   lifecycle: z.array(checkoutIdentity).max(64).optional(),
+  integration: checkoutIdentity.optional(),
 }).strict();
 /** The extended client provisioning. It holds the transport fields and the operator identities of the connector. */
 const connectorSchema = provisioningSchema.extend({
@@ -162,6 +163,7 @@ function definedChecks(parsed: z.infer<typeof checkIdentities>): HostedCheckIden
     ...(parsed['integration-suite'] === undefined ? {} : { 'integration-suite': parsed['integration-suite'] }),
     ...(parsed['spec-coverage'] === undefined ? {} : { 'spec-coverage': parsed['spec-coverage'] }),
     ...(parsed.lifecycle === undefined ? {} : { lifecycle: parsed.lifecycle }),
+    ...(parsed.integration === undefined ? {} : { integration: parsed.integration }),
   };
 }
 

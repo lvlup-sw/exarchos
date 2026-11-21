@@ -42,6 +42,19 @@ const checkoutTerms = z.object({
   version: z.literal(1), key: digest, resourceId: name, profileId: name, subject: CheckoutVerificationSubject,
 });
 
+/**
+ * An integration operation names the integration ref, its observed tip and the accepted task heads of one settlement.
+ * The tip is `headCommit`, as in the phase and checkout subjects, so the verifier builds and dirty-checks the tip image unchanged.
+ * The accepted heads are sorted and unique. A strict schema refuses each task field, so no task subject can stand in for it.
+ */
+export const IntegrationVerificationSubject = z.object({
+  scope: z.literal('integration'), streamId: name, phaseAttemptId: name, outerOperationId: name,
+  ref: z.string().min(12).max(256).regex(/^refs\/heads\/[^\x00-\x20\x7f]+$/), headCommit: oid,
+  preparedDigest: digest, configDigest: digest, profileDigest: digest,
+  acceptedHeads: z.array(oid).max(64).refine(heads => heads.every((head, index) => index === 0 || (heads[index - 1] ?? '') < head)),
+}).strict();
+export type IntegrationVerificationSubject = z.infer<typeof IntegrationVerificationSubject>;
+
 /** The closed refusal reason of a checkout that differs from its exact head. The verifier returns it before any claim. */
 export const DIRTY_CHECKOUT_REFUSAL = 'The checkout has uncommitted changes. Commit them first.';
 
@@ -74,7 +87,7 @@ export const VerificationRequest = z.discriminatedUnion('operation', [
   requestTerms.extend({ operation: z.literal('adequacy'), selection: AdequacySelection, commandDigest: digest }).strict(),
   requestTerms.extend({ operation: z.literal('static-analysis'), commandDigest: digest }).strict(),
   requestTerms.extend({ operation: z.literal('contract-drift'), commandDigest: digest }).strict(),
-  requestTerms.extend({ operation: z.literal('integration-suite'), commandDigest: digest }).strict(),
+  requestTerms.extend({ operation: z.literal('integration-suite'), subject: z.union([VerificationSubject, IntegrationVerificationSubject]), commandDigest: digest }).strict(),
   phaseTerms.extend({ operation: z.literal('spec-coverage'), selection: SpecCoverageSelection, commandDigest: digest }).strict(),
   checkoutTerms.extend({ operation: z.literal('lifecycle'), commandDigest: digest }).strict(),
 ]);
@@ -88,10 +101,10 @@ export type VerificationRequestTerms = VerificationRequest extends infer Member
  */
 export interface VerificationKeyTerms {
   readonly operation: VerificationRequest['operation'];
-  readonly subject: VerificationSubject | PhaseVerificationSubject | CheckoutVerificationSubject;
-  /** The operator resource. Only a checkout key reads it. */
+  readonly subject: VerificationSubject | PhaseVerificationSubject | CheckoutVerificationSubject | IntegrationVerificationSubject;
+  /** The operator resource. Only a checkout key and an integration key read it. */
   readonly resourceId?: string;
-  /** The approved command digest. Only a checkout key reads it. */
+  /** The approved command digest. Only a checkout key and an integration key read it. */
   readonly commandDigest?: string;
 }
 /** A complete keyed carrier before its schema parse. Each consumer parses it before use. */
@@ -260,6 +273,10 @@ export function verificationDigest(request: VerificationRequestCarrier): string 
  */
 export function verificationOperation(request: VerificationKeyTerms): string {
   const { subject } = request;
+  if ('scope' in subject && subject.scope === 'integration') {
+    const { resourceId, commandDigest } = checkoutKeyTerms(request);
+    return verificationValueDigest({ operation: request.operation, subject, resourceId, commandDigest });
+  }
   if ('scope' in subject && subject.scope === 'checkout') {
     const { resourceId, commandDigest } = checkoutKeyTerms(request);
     return verificationValueDigest({ operation: request.operation, subject, resourceId, commandDigest });
@@ -275,20 +292,21 @@ export function verificationOperation(request: VerificationKeyTerms): string {
   return verificationValueDigest(execution);
 }
 
-/** The resource and command of a checkout key. A checkout key without them refuses. */
+/** The resource and command of a checkout or integration key. A key of either kind without them refuses. */
 function checkoutKeyTerms(request: VerificationKeyTerms): { readonly resourceId: string; readonly commandDigest: string } {
   const { resourceId, commandDigest } = request;
-  if (resourceId === undefined || commandDigest === undefined) throw new Error('A checkout key binds its resource and command');
+  if (resourceId === undefined || commandDigest === undefined) throw new Error('A checkout or integration key binds its resource and command');
   return { resourceId, commandDigest };
 }
 
 /**
  * Claim keys bind the original operation and segment while durable operation uniqueness prevents alias replay. A phase key binds the prepared identity.
  * A checkout key binds the operation, subject, resource, head and command digest. A new head gives a new key, and the same head reads the original.
+ * An integration key binds the same terms. Its operation binds each subject field, so a new tip in one phase attempt gets its own claim.
  */
 export function verificationKey(request: VerificationKeyTerms): string {
   const { subject } = request;
-  if ('scope' in subject && subject.scope === 'checkout') {
+  if ('scope' in subject && (subject.scope === 'checkout' || subject.scope === 'integration')) {
     const { resourceId, commandDigest } = checkoutKeyTerms(request);
     return createHash('sha256').update(verificationJson({
       operation: verificationOperation(request), resource: resourceId, head: subject.headCommit, command: commandDigest,
@@ -380,9 +398,13 @@ export interface HostedCheckoutIdentity extends HostedCheckIdentity {
   readonly commandDigest: string;
 }
 
-/** Per-check operator identities. Each eligible checkout has its own lifecycle identity, so each task worktree runs under its own resource. */
+/**
+ * Per-check operator identities. Each eligible checkout has its own lifecycle identity, so each task worktree runs under its own resource.
+ * The integration identity names the operator integration checkout, its pinned branch and the approved suite command of settle.
+ */
 export type HostedCheckIdentities = Readonly<Partial<Record<Exclude<HostedCheckOperation, 'lifecycle'>, HostedCheckIdentity>>> & {
   readonly lifecycle?: readonly HostedCheckoutIdentity[];
+  readonly integration?: HostedCheckoutIdentity;
 };
 
 export interface VerificationHostConnector {

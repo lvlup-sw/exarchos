@@ -152,4 +152,39 @@ describe('loadVerifierProvisioning', () => {
     expect(outcome.connector.profileId.normalize('NFC')).not.toBe(outcome.connector.profileId);
     expect(outcome.connector.gitPath).toBe('/usr/bin/git');
   });
+
+  /** The strict checks schema admits one integration identity, and the connector exposes it with its exact bytes. */
+  it('LoadVerifierProvisioning_IntegrationIdentity_IsExposedToSettle', async ({ skip }) => {
+    if (process.platform !== 'linux') return skip();
+    const root = privateRoot();
+    const { directory, tokenPath } = provisioningDirectory(root);
+    const integration = { resourceId: 'integration', profileId: 'suite', checkout: '/srv/integration', repository: '/srv/repo/.git',
+      branch: 'refs/heads/integration', commandDigest: 'a'.repeat(64) };
+    const path = clientFile(directory, clientBody(directory, tokenPath, { checks: { integration } }));
+
+    const outcome = await loadVerifierProvisioning(path);
+
+    expect(outcome.kind).toBe('usable');
+    if (outcome.kind !== 'usable') throw new Error('expected a usable provisioning');
+    expect(outcome.connector.checks).toEqual({ integration });
+  });
+
+  /** An integration identity with a relative checkout, a short digest or an unknown field refuses, so the connector has no checks. */
+  it('LoadVerifierProvisioning_MalformedIntegrationIdentity_IsUnusable', async ({ skip }) => {
+    if (process.platform !== 'linux') return skip();
+    const valid = { resourceId: 'integration', profileId: 'suite', checkout: '/srv/integration', repository: '/srv/repo/.git',
+      branch: 'refs/heads/integration', commandDigest: 'a'.repeat(64) };
+    for (const integration of [{ ...valid, checkout: 'srv/integration' }, { ...valid, commandDigest: 'a' }, { ...valid, tip: 'b'.repeat(40) }]) {
+      const root = privateRoot();
+      const { directory, tokenPath } = provisioningDirectory(root);
+      const path = clientFile(directory, clientBody(directory, tokenPath, { checks: { integration } }));
+
+      const outcome = await loadVerifierProvisioning(path);
+
+      expect(outcome.kind).toBe('unusable');
+      if (outcome.kind !== 'unusable') throw new Error('expected an unusable provisioning');
+      expect(outcome.reason).toContain('checks.integration');
+      expect(outcome.connector.checks).toBeUndefined();
+    }
+  });
 });
