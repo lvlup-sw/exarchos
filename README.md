@@ -116,15 +116,17 @@ For the two-step flow (download, inspect, then run), channel selection, validati
 
 ### Test generation
 
-Use the standalone `testgen` command from the Exarchos npm package with Node.js 20 or later.
+Install the Exarchos npm package to use `testgen` with Node.js 20 or later.
 
 ```sh
-npm install --global @lvlup-sw/exarchos --registry=https://registry.npmjs.org
-testgen describe generate_property_tests --json
-testgen generate_property_tests --input request.json --json
+npm install --global @lvlup-sw/exarchos --@lvlup-sw:registry=https://registry.npmjs.org/
+testgen describe --json
+testgen inspect --root . --json
 ```
 
-The command emits a C# patch and replay cases for reviewed signed-integer properties in TUnit 1.2.11. Set `"framework": "tunit"` and `"frameworkVersion": "1.2.11"`. Commit reviewed C# and its bindings, then run the tests with the target project's .NET runner. The command runs locally without an MCP server.
+The command emits repository-native property, metamorphic, differential, and stateful tests. Use `describe` for the qualified TUnit, Vitest, Node test, and Bun test versions. Start with `testgen init`, supply a reviewed oracle or model, then generate and review the patch. Compile and run it with the repository's existing command.
+
+Use the packaged [test-campaign skill](rendered/skills/standard/test-campaign/SKILL.md) to select checks, run negative controls, and retain replay evidence. The npm package includes the skill and its references. Register that directory with your agent to use the workflow. `testgen-mcp` exposes the same generation operations to MCP clients.
 
 ## Launching a harness
 
