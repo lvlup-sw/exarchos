@@ -32,8 +32,18 @@ import {
   isSameCall,
   PROJECTION_DEGRADED_ERROR_CODE,
 } from '../../../src/projections/degraded-result.js';
+import type { VerificationHostConnector } from '../../../src/contract/verification/harness-verification.js';
 
 const STREAM = 'dr4-consumers-feature';
+
+/**
+ * A provisioned context for `prepare_synthesis`. A call with no connector refuses before the readiness read, so the row needs one.
+ * No case reaches its client.
+ */
+const STUB_CONNECTOR: VerificationHostConnector = {
+  publicKey: 'unused', gitPath: '/nonexistent/git', resourceId: 'unused', profileId: 'unused',
+  client: { submit: async () => ({ kind: 'unavailable', reason: 'unused' }), retrieve: async () => ({ kind: 'unavailable', reason: 'unused' }) },
+};
 /** The fold `workflow get` and the workflow-shaped verbs read. */
 const JUDGED_VIEW = 'workflow-state';
 
@@ -146,7 +156,10 @@ describe('#1855 — every readiness/workflow/reliability consumer answers', () =
     {
       label: 'exarchos_orchestrate prepare_synthesis (readiness)',
       run: () =>
-        handleOrchestrate({ action: 'prepare_synthesis', featureId: STREAM, repoRoot: process.cwd() }, ctx),
+        handleOrchestrate(
+          { action: 'prepare_synthesis', featureId: STREAM, repoRoot: process.cwd() },
+          { ...ctx, verificationHost: STUB_CONNECTOR },
+        ),
     },
   ];
 
@@ -162,6 +175,7 @@ describe('#1855 — every readiness/workflow/reliability consumer answers', () =
         errorCode(result),
         `${label} refused a read it could have folded: ${JSON.stringify(result.error)}`,
       ).not.toBe(PROJECTION_DEGRADED_ERROR_CODE);
+      expect(errorCode(result), `${label} refused before its readiness read`).not.toBe('VERIFIER_NOT_PROVISIONED');
       expect(isProjectionDegradedResult(result)).toBe(false);
     });
   }

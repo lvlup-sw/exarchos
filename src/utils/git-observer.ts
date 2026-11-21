@@ -32,14 +32,33 @@ function pointerLine(value: string): string {
   return line;
 }
 
-/** Create an operator-pinned structural reader that refuses unsupported observations without unsafe recovery. */
+/** One observed checkout: its canonical root, its common dir, its own Git directory, its full branch ref and its head commit. */
+export interface ObservedCheckout {
+  readonly checkout: string;
+  readonly repository: string;
+  readonly gitDir: string;
+  readonly branch: string;
+  readonly head: string;
+}
+
+/** True when the value is a full commit object ID. */
+function isObjectId(value: string): boolean {
+  try { commitId(value); return true; } catch { return false; }
+}
+
+/**
+ * Create an operator-pinned structural reader that refuses unsupported observations without unsafe recovery.
+ *
+ * The storage checks of a checkout start no process and run before any Git read. The current observation reads the symbolic HEAD itself.
+ * A current observation is observation only. It never selects a verifier identity, resource or request subject.
+ * A base name resolves to a full object ID, then `refs/heads/<name>`, then `refs/remotes/<name>`. A rejected name refuses, and no later form is tried.
+ */
 export async function createGitObserver(executable: string) {
   const reads = await createConstrainedGitReads(executable);
 
-  async function identity(input: { readonly checkout: string; readonly repository: string; readonly branch: string }) {
-    const branch = branchRef(input.branch);
+  async function locate(input: { readonly checkout: string; readonly repository?: string }) {
     const checkout = await realpath(input.checkout);
-    const repository = await realpath(input.repository);
+    const claimed = input.repository === undefined ? undefined : await realpath(input.repository);
     const dotGit = join(checkout, '.git');
     const entry = await lstat(dotGit);
     if (entry.isSymbolicLink()) throw new Error('A checkout .git symlink is not supported');
@@ -54,6 +73,7 @@ export async function createGitObserver(executable: string) {
     }
     const commonPointer = await optionalFile(join(gitDir, 'commondir'));
     const actualCommon = commonPointer === undefined ? gitDir : await realpath(resolve(gitDir, pointerLine(commonPointer)));
+    const repository = claimed ?? actualCommon;
     if (actualCommon !== repository) throw new Error('Checkout belongs to a different repository');
     if (gitDir !== repository) {
       const registration = relative(join(repository, 'worktrees'), gitDir);
@@ -69,6 +89,11 @@ export async function createGitObserver(executable: string) {
     if (await realpath(objects) !== objects || await optionalFile(join(objects, 'info', 'alternates')) !== undefined
       || await optionalFile(join(repository, 'info', 'grafts')) !== undefined
       || (await optionalFile(join(repository, 'shallow')))?.trim()) throw new Error('Unsupported object storage or shallow ancestry');
+    return { checkout, repository, gitDir };
+  }
+
+  async function registered(located: { readonly checkout: string; readonly repository: string; readonly gitDir: string }, branch: string): Promise<ObservedCheckout> {
+    const { checkout, repository, gitDir } = located;
     const registration = await reads.worktrees(repository, checkout);
     const records = registration.split('\0\0').filter(Boolean).map(record => record.split('\0'));
     const matching = [];
@@ -90,12 +115,41 @@ export async function createGitObserver(executable: string) {
     return { checkout, repository, gitDir, branch, head };
   }
 
+  async function identity(input: { readonly checkout: string; readonly repository: string; readonly branch: string }): Promise<ObservedCheckout> {
+    const branch = branchRef(input.branch);
+    return registered(await locate(input), branch);
+  }
+
+  async function currentIdentity(checkout: string): Promise<ObservedCheckout> {
+    const located = await locate({ checkout });
+    let symbolic: string;
+    try { symbolic = (await reads.branch(located.gitDir, located.checkout)).trim(); }
+    catch (error) {
+      if (error instanceof Error && 'code' in error && error.code === 1) throw new Error('The checkout HEAD is detached');
+      throw error;
+    }
+    return registered(located, branchRef(symbolic));
+  }
+
+  async function baseCommit(selected: ObservedCheckout, name: string): Promise<string> {
+    if (isObjectId(name)) {
+      await reads.requireCommit(selected.gitDir, selected.checkout, name);
+      return name;
+    }
+    const local = branchRef(`refs/heads/${name}`);
+    try { return commitId((await reads.commit(selected.gitDir, selected.checkout, local)).trim()); }
+    catch { return commitId((await reads.remoteCommit(selected.gitDir, selected.checkout, `refs/remotes/${name}`)).trim()); }
+  }
+
   async function observe<T>(read: () => Promise<T>): Promise<{ readonly kind: 'observed'; readonly value: T } | { readonly kind: 'refused'; readonly reason: string }> {
     try { return { kind: 'observed', value: await read() }; }
     catch (error) { return { kind: 'refused', reason: error instanceof Error ? error.message : String(error) }; }
   }
 
   return {
+    reads,
+    current: (checkout: string) => observe(() => currentIdentity(checkout)),
+    base: (selected: ObservedCheckout, name: string) => observe(() => baseCommit(selected, name)),
     checkout: (input: Parameters<typeof identity>[0]) => observe(() => identity(input)),
     ancestry: (input: Parameters<typeof identity>[0], ancestor: string, descendant: string) => observe(async () => {
       commitId(ancestor); commitId(descendant);

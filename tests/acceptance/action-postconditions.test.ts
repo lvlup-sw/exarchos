@@ -16,7 +16,7 @@ import {
 import { deriveMcpCallerIdentity } from '../../src/dispatch/caller-identity.js';
 import { EventStore as DurableEventStore } from '../../src/events/store.js';
 import type { VerificationHostConnector } from '../../src/contract/verification/harness-verification.js';
-import { HostedAdequacyPending, hostedPendingResult, hostedRefusal } from '../../src/verbs/gates/gate-runner.js';
+import { HostedAdequacyPending, hostedPendingResult, hostedRefusal, verifierNotProvisioned } from '../../src/verbs/gates/gate-runner.js';
 import { handleMutationAdequacy } from '../../src/verbs/gates/mutation-adequacy.js';
 import { createInMemoryResolver } from '../../src/workflow/capabilities/resolver.js';
 import { getDispatchContext } from '../../src/dispatch/dispatch-context.js';
@@ -918,8 +918,8 @@ describe('dispatch keeps the code of a check that did not run', () => {
     clearCustomTools();
   });
 
-  /** The three live literals equal the codes of their producers. The fourth literal is reserved for the later producers. */
-  it('DidNotRunCodes_LiveLiteralsMatchTheirProducersAndOneIsReserved', async () => {
+  /** Each of the four live literals equals the code of its producer. The gate runner produces the code of a machine with no verifier. */
+  it('DidNotRunCodes_LiveLiteralsMatchTheirProducers', async () => {
     const stateDir = await mkdtemp(path.join(os.tmpdir(), 'did-not-run-producers-'));
     const store = new DurableEventStore(stateDir);
     await store.initialize();
@@ -929,8 +929,9 @@ describe('dispatch keeps the code of a check that did not run', () => {
         hostedRefusal('refused').error?.code,
         hostedPendingResult(new HostedAdequacyPending('pending')).error?.code,
         retired.error?.code,
+        verifierNotProvisioned('check').error?.code,
       ];
-      expect(DID_NOT_RUN_CODES.slice(0, 3)).toEqual(produced);
+      expect(DID_NOT_RUN_CODES).toEqual(produced);
       expect(DID_NOT_RUN_CODES).toEqual([
         'HOSTED_VERIFICATION_REFUSED', 'HOSTED_ADEQUACY_PENDING', 'MUTATION_TESTING_RETIRED', 'VERIFIER_NOT_PROVISIONED',
       ]);

@@ -1,16 +1,16 @@
 /**
  * The post-merge regression gate at the boundary between synthesize and cleanup. It runs the pure
  * `checkPostMerge` check and records the gate result for the feature.
- * A provisioned verifier runs the test suite of the selected checkout under a checkout subject. A provisioned route never runs it locally.
+ * A provisioned verifier runs the test suite of the selected checkout under a checkout subject. No route runs it locally.
+ * A machine with no verifier refuses with VERIFIER_NOT_PROVISIONED after argument validation.
  */
 
 import { isAbsolute } from 'node:path';
-import { spawnCommandSync } from '../../utils/process.js';
 import type { ToolResult } from '../../format.js';
 import type { EventStore } from '../../events/store.js';
 import { createEvidenceSubject } from '../../workflow/admission/evidence-subject.js';
 import type { VerificationHostConnector } from '../../contract/verification/harness-verification.js';
-import { HostedAdequacyPending, admitLifecycleLegs, hostedPendingResult, runPhaseGateWithEvidence } from './gate-runner.js';
+import { HostedAdequacyPending, admitLifecycleLegs, hostedPendingResult, runPhaseGateWithEvidence, verifierNotProvisioned } from './gate-runner.js';
 import { requireGateEvent, sameOperationGateKey } from './gate-utils.js';
 import { checkPostMerge } from '../pure/post-merge.js';
 import type { CommandResult } from '../pure/post-merge.js';
@@ -29,29 +29,6 @@ interface PostMergeResult {
   readonly mergeSha: string;
   readonly findings: string[];
   readonly report: string;
-}
-
-/**
- * The command runner for `checkPostMerge`. It uses `spawnCommandSync`, so a resolved package-manager command
- * launches its `.cmd` shim on Windows. A raw `spawnSync` of such a shim throws EINVAL there since CVE-2024-27980.
- */
-function execCommandRunner(
-  cmd: string,
-  args: readonly string[],
-  cwd: string,
-): CommandResult {
-  const result = spawnCommandSync(cmd, [...args], {
-    cwd,
-    encoding: 'utf-8',
-    timeout: 120_000,
-    stdio: ['pipe', 'pipe', 'pipe'],
-  });
-
-  return {
-    exitCode: result.status ?? 1,
-    stdout: result.stdout ?? '',
-    stderr: result.stderr ?? result.error?.message ?? '',
-  };
 }
 
 /** A refusal of the verifier. It stops the gate run, and the handler returns its result. */
@@ -88,7 +65,8 @@ function hostedTestRunner(args: PostMergeArgs, host: PostMergeHost) {
  * `admission.evidence-recorded`, not a bare `gate.executed` append. The runner records that
  * evidence before a success result returns. `repoRoot` must be an absolute path, because the gate runs
  * the resolved test command there.
- * A connector comes only from the dispatch context. A pending hosted result maps to its existing code with no evidence.
+ *
+ * A connector comes only from the dispatch context. With no connector, the gate refuses after argument validation. A pending hosted result maps to its existing code with no evidence.
  */
 export async function handlePostMerge(
   args: PostMergeArgs,
@@ -130,8 +108,10 @@ export async function handlePostMerge(
     };
   }
 
+  if (connector === undefined) return verifierNotProvisioned('check_post_merge');
+
   let attempt: string | undefined;
-  const host = connector === undefined ? undefined : { connector, phaseAttemptId: () => attempt };
+  const host: PostMergeHost = { connector, phaseAttemptId: () => attempt };
   try {
     return await runPhaseGateWithEvidence({
       streamId: args.featureId,
@@ -159,10 +139,11 @@ export async function handlePostMerge(
   }
 }
 
+/** Run the pure check with the hosted test runner. The handler always passes it, so the pure check never reaches a local runner. */
 async function executePostMerge(
   args: PostMergeArgs,
   eventStore: EventStore,
-  host?: PostMergeHost,
+  host: PostMergeHost,
 ): Promise<ToolResult> {
   const { repoRoot } = args;
   let checkResult: Awaited<ReturnType<typeof checkPostMerge>>;
@@ -171,8 +152,7 @@ async function executePostMerge(
       prUrl: args.prUrl,
       mergeSha: args.mergeSha,
       repoRoot,
-      runCommand: (cmd, cmdArgs) => execCommandRunner(cmd, cmdArgs, repoRoot),
-      ...(host === undefined ? {} : { hostedTestRun: hostedTestRunner(args, host) }),
+      hostedTestRun: hostedTestRunner(args, host),
     });
   } catch (error) {
     if (error instanceof HostedRefusal) return error.result;

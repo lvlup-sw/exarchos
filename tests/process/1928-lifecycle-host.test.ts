@@ -442,3 +442,37 @@ it.runIf(process.platform === 'linux')('LifecycleHost_WrongSubjectCrossKindAndHe
     expect((await f.events.query('lifecycle-mutation')).map(event => event.type)).toEqual(['workflow.started']);
   } finally { await f.close(); }
 }, 400000);
+
+/**
+ * With no connector, each retired lifecycle and team handler refuses with VERIFIER_NOT_PROVISIONED after argument validation, also with skip flags.
+ * No test or typecheck marker runs, no exchange starts, and no evidence, gate row or event lands. Real dispatch keeps the code.
+ */
+it.runIf(process.platform === 'linux')('LifecycleHost_NoConnector_RetiredHandlersRefuseWithNoRunOrRecord', async () => {
+  const f = await lifecycleFixture();
+  try {
+    const stream = 'lifecycle-unprovisioned';
+    await seedActivePhaseAttempt(f.events, stream, { phase: 'synthesize' });
+    const before = (await f.events.query(stream)).length;
+    const calls: [string, Record<string, unknown>][] = [
+      ['verify_worktree_baseline', { worktreePath: f.taskA }],
+      ['pre_synthesis_check', { featureId: stream, repoRoot: f.repo.checkout }],
+      ['pre_synthesis_check', { featureId: stream, repoRoot: f.repo.checkout, skipTests: true, skipStack: true }],
+      ['check_post_merge', { featureId: stream, prUrl: 'https://example.invalid/pull/3', mergeSha: 'abc1234', repoRoot: f.repo.checkout }],
+      ['debug_review_gate', { featureId: stream, repoRoot: f.repo.checkout, baseBranch: 'integration' }],
+      ['post_delegation_check', { featureId: stream, repoRoot: f.repo.root }],
+      ['post_delegation_check', { featureId: stream, repoRoot: f.repo.root, skipTests: true }],
+      ['prepare_synthesis', { featureId: stream, repoRoot: f.repo.checkout }],
+    ];
+    for (const [action, args] of calls) {
+      const result = await f.handle(action, args);
+      expect(result, `${action} ${JSON.stringify(args)}`).toMatchObject({ success: false, error: { code: 'VERIFIER_NOT_PROVISIONED' } });
+    }
+    const dispatched = await f.call({ action: 'check_post_merge', featureId: stream, prUrl: 'https://example.invalid/pull/3',
+      mergeSha: 'abc1234', repoRoot: f.repo.checkout });
+    expect(dispatched).toMatchObject({ success: false, error: { code: 'VERIFIER_NOT_PROVISIONED' } });
+
+    for (const name of ['main-test', 'main-typecheck', 'a-test', 'b-test']) expect(await exists(f.marker(name))).toBe(false);
+    expect(f.exchanges()).toBe(0);
+    expect(await f.events.query(stream)).toHaveLength(before);
+  } finally { await f.close(); }
+}, 400000);

@@ -12,7 +12,6 @@ import {
   type HostedExchange, type SignedVerification, type TaskCheckOperation, type VerificationHostConnector, type VerificationRequestTerms,
 } from '../../contract/verification/harness-verification.js';
 import { createGitObserver } from '../../utils/git-observer.js';
-import { runCommandSync } from '../../utils/process.js';
 import type { HostedTestRun, RunTestsHost } from '../../lifecycle/run-tests.js';
 import type { RunBundleStore } from '../../events/bundle/run-bundle-store.js';
 import type { PinnedVerificationProfile } from '../../workflow/verification/profile.js';
@@ -715,6 +714,23 @@ export function hostedRefusal(message: string): ToolResult {
   return { success: false, error: { code: HOSTED_VERIFICATION_REFUSED, message } };
 }
 
+/** The error code of a lifecycle or team check on a machine with no verifier. No local route runs the check. */
+export const VERIFIER_NOT_PROVISIONED = 'VERIFIER_NOT_PROVISIONED';
+
+/**
+ * The result of a lifecycle or team check on a machine with no verifier. It is a failed result with a did-not-run code.
+ * The check returns it before the gate runner, any Git read, provider call or process, so it writes no evidence, gate row or event.
+ * On a platform other than Linux, the message names that platform.
+ */
+export function verifierNotProvisioned(check: string, platform: NodeJS.Platform = process.platform): ToolResult {
+  const message = platform === 'linux'
+    ? `${check} did not run: no verifier is provisioned on this machine. `
+      + 'Provision the verifier client at ~/.exarchos/verifier/client.json, then run the check again.'
+    : `${check} did not run: the hosted verifier does not support the ${platform} platform. `
+      + 'Provision the verifier on a supported Linux machine, then run the check there.';
+  return { success: false, error: { code: VERIFIER_NOT_PROVISIONED, message } };
+}
+
 const RequestBindingSchema = z.object({ version: z.literal(1), digest: ContentDigestV1Schema }).strict();
 
 /** Bind one complete request before its first submission. A retry reads the original canonical bytes and never a new request. */
@@ -875,15 +891,18 @@ export type HostedLifecycleOutcome =
   | { readonly kind: 'refused'; readonly cause: 'refused' | 'dirty' | 'conflict' | 'no-identity' | 'unobserved'; readonly message: string }
   | { readonly kind: 'pending'; readonly cause: 'busy' | 'incomplete' | 'pending'; readonly message: string };
 
+/** The closed reads of one observer. The clean-tree check uses the reads of the observer that observed the head. */
+type ObserverReads = Awaited<ReturnType<typeof createGitObserver>>['reads'];
+
 /** Observe the registered branch head and the Git directory of an operator checkout. An unregistered checkout gives nothing. */
 async function observeCheckoutHead(
   gitPath: string, checkout: string, repository: string, branch: string,
-): Promise<{ readonly head: string; readonly gitDir: string; readonly git: string } | undefined> {
+): Promise<{ readonly head: string; readonly gitDir: string; readonly reads: ObserverReads } | undefined> {
   try {
-    const git = await realpath(gitPath);
-    const observed = await (await createGitObserver(git)).checkout({ checkout, repository, branch });
+    const observer = await createGitObserver(gitPath);
+    const observed = await observer.checkout({ checkout, repository, branch });
     return observed.kind === 'observed' && observed.value.checkout === checkout
-      ? { head: observed.value.head, gitDir: observed.value.gitDir, git } : undefined;
+      ? { head: observed.value.head, gitDir: observed.value.gitDir, reads: observer.reads } : undefined;
   } catch {
     return undefined;
   }
@@ -895,26 +914,6 @@ const CLEAN_TREE_BYTES = 256 * 1024 * 1024;
 
 /** The closed message of an uncommitted standalone tree. */
 const UNCOMMITTED_TREE_MESSAGE = 'The checkout has uncommitted changes. Commit them first, then run the check again.';
-
-/** The spawn primitive of the plain Git listings. Each call names the pinned Git executable. */
-const runGit: typeof runCommandSync = runCommandSync;
-
-/** Read one plain Git listing with explicit directories, no locks, no hooks, no filters and no user or system configuration. */
-function plainGitRead(git: string, gitDir: string, checkout: string, operands: readonly string[]): Buffer {
-  const output = runGit(git, [
-    '--no-lazy-fetch', '--no-replace-objects', '--no-optional-locks', '--no-pager',
-    '-c', 'core.fsmonitor=false', '-c', 'core.hooksPath=/dev/null', '-c', 'gc.auto=0',
-    '-c', 'maintenance.auto=false', '-c', 'core.commitGraph=false', '-c', 'protocol.allow=never',
-    `--git-dir=${gitDir}`, `--work-tree=${checkout}`, ...operands,
-  ], {
-    cwd: checkout, encoding: 'buffer', timeout: 30_000, maxBuffer: 64 * 1024 * 1024, stdio: ['ignore', 'pipe', 'pipe'],
-    env: {
-      GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_SYSTEM: '/dev/null', GIT_CONFIG_GLOBAL: '/dev/null', GIT_TERMINAL_PROMPT: '0',
-      GIT_OPTIONAL_LOCKS: '0', GIT_NO_REPLACE_OBJECTS: '1', LC_ALL: 'C', LANG: 'C',
-    },
-  });
-  return Buffer.isBuffer(output) ? output : Buffer.from(output);
-}
 
 /** The records of one NUL-separated listing. */
 function nulRecords(bytes: Buffer): string[] {
@@ -944,13 +943,13 @@ async function trackedBlobId(full: string, oid: string, budget: number): Promise
 
 /**
  * The refusal of a standalone tree that differs from its exact head, or undefined for a clean tree.
- * Plain listings compare the index with the head tree and find untracked paths. Each tracked file is hashed in this process,
- * so no checkout filter runs. A missing file, a mode change, an unsupported entry or a tree beyond the bounds refuses.
+ * The closed listings compare the index with the head tree and find untracked paths. Each listing is bounded and decodes as strict UTF-8.
+ * Each tracked file is hashed in this process, so no checkout filter runs. A missing file, a mode change, an unsupported entry or a tree beyond the bounds refuses.
  */
-async function uncommittedTreeRefusal(git: string, gitDir: string, checkout: string, head: string): Promise<string | undefined> {
-  const tree = nulRecords(plainGitRead(git, gitDir, checkout, ['ls-tree', '-r', '-z', '--full-tree', head]));
-  const index = nulRecords(plainGitRead(git, gitDir, checkout, ['ls-files', '--stage', '-z']));
-  const untracked = nulRecords(plainGitRead(git, gitDir, checkout, ['ls-files', '--others', '--exclude-standard', '-z']));
+async function uncommittedTreeRefusal(reads: ObserverReads, gitDir: string, checkout: string, head: string): Promise<string | undefined> {
+  const tree = nulRecords(await reads.treeListing(gitDir, checkout, head));
+  const index = nulRecords(await reads.indexListing(gitDir, checkout));
+  const untracked = nulRecords(await reads.untrackedListing(gitDir, checkout));
   if (tree.length > CLEAN_TREE_ENTRIES) return 'The checkout tree exceeds the bounds of the standalone clean-tree check.';
   const entries: { readonly path: string; readonly mode: string; readonly oid: string }[] = [];
   for (const record of tree) {
@@ -974,7 +973,7 @@ async function uncommittedTreeRefusal(git: string, gitDir: string, checkout: str
  * Run one lifecycle check in the verifier under the operator identity of its checkout and approved command.
  * The request binds the operation, the checkout subject, the resource, the observed head and the command digest, so the same head reads the original.
  * Admission reuses the exchange helpers, and the signed resource must name the path, device and inode of the judged checkout.
- * A call that requires a clean tree refuses an uncommitted tree before any exchange, with plain Git listings only.
+ * A call that requires a clean tree refuses an uncommitted tree before any exchange, with the closed Git listings only.
  * This helper starts no checkout-defined process and does not call the gate runner.
  */
 export async function runHostedLifecycleCheck(input: HostedLifecycleInput): Promise<HostedLifecycleOutcome> {
@@ -996,8 +995,8 @@ export async function runHostedLifecycleCheck(input: HostedLifecycleInput): Prom
   const headCommit = observed.head;
   if (input.requireCleanTree === true) {
     let refusal: string | undefined;
-    try { refusal = await uncommittedTreeRefusal(observed.git, observed.gitDir, checkout, headCommit); }
-    catch { refusal = 'The checkout tree cannot be read with the plain Git listings, so no clean-tree evidence exists.'; }
+    try { refusal = await uncommittedTreeRefusal(observed.reads, observed.gitDir, checkout, headCommit); }
+    catch { refusal = 'The checkout tree cannot be read with the closed Git listings, so no clean-tree evidence exists.'; }
     if (refusal !== undefined) return { kind: 'refused', cause: refusal === UNCOMMITTED_TREE_MESSAGE ? 'dirty' : 'refused', message: refusal };
   }
   const terms: Extract<VerificationRequestTerms, { operation: 'lifecycle' }> = {

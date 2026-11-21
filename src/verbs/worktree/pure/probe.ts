@@ -5,7 +5,7 @@
  *
  * Three properties make the probe safe to act on:
  * - The process table comes only through an injected {@link ProcessTableSource}. Linux and win32 have real enumerators.
- * - {@link isPathWithin} decides containment with symlinks resolved on both sides.
+ * - {@link canonicalizeForContainment} resolves symlinks on both sides, and {@link isPathWithinCanonical} decides containment.
  * - Each occupant set excludes the full parent-PID chain of the current process. Otherwise an orchestrator shell with its cwd in an agent worktree marks that worktree in use forever.
  *
  * A worktree is a release candidate only when its owner is provably dead and no live process outside the ancestry occupies it.
@@ -15,7 +15,8 @@
 import * as fs from 'node:fs';
 import { runCommandSync } from '../../../utils/process.js';
 import {
-  isPathWithin,
+  canonicalizeForContainment,
+  isPathWithinCanonical,
   defaultRealpath,
   type RealpathResolver,
 } from './path-containment.js';
@@ -207,6 +208,8 @@ export function protectedAncestry(
 
 /**
  * The PIDs whose cwd resolves inside `worktreePath`, without the protected ancestry.
+ * The worktree path resolves once, and its errors rethrow. A foreign cwd that the resolver refuses with EACCES is outside the worktree.
+ * Any other resolver error of a foreign cwd rethrows.
  */
 function occupantsOf(
   worktreePath: string,
@@ -214,10 +217,18 @@ function occupantsOf(
   protectedPids: ReadonlySet<number>,
   realpath: RealpathResolver,
 ): number[] {
+  const worktree = canonicalizeForContainment(worktreePath, realpath);
   const occupants: number[] = [];
   for (const record of records) {
     if (protectedPids.has(record.pid)) continue;
-    if (isPathWithin(record.cwd, worktreePath, realpath)) {
+    let cwd: string;
+    try {
+      cwd = canonicalizeForContainment(record.cwd, realpath);
+    } catch (error) {
+      if (error instanceof Error && 'code' in error && error.code === 'EACCES') continue;
+      throw error;
+    }
+    if (isPathWithinCanonical(cwd, worktree)) {
       occupants.push(record.pid);
     }
   }

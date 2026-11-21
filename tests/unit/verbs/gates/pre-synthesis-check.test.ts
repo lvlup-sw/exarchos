@@ -3,6 +3,9 @@
 // the evidence over real dispatch. The VCS factory mock keeps `shell.ts` and `detector.ts` unloaded.
 // The cases call the handler below `dispatch()`. `gateWiring` supplies the feature id, the state
 // directory and the event store in place of dispatch.
+//
+// A call with no connector refuses before the runner, so each verdict case passes a stub connector,
+// a stubbed branch observation and stubbed legs.
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { VcsProvider, PrSummary, PrFilter } from '../../../../src/vcs/provider.js';
@@ -19,7 +22,8 @@ vi.mock('node:child_process', () => ({
   execFile: vi.fn(),
 }));
 
-vi.mock('../../../../src/verbs/gates/gate-runner.js', () => ({
+vi.mock('../../../../src/verbs/gates/gate-runner.js', async (importOriginal) => ({
+  verifierNotProvisioned: (await importOriginal<typeof import('../../../../src/verbs/gates/gate-runner.js')>()).verifierNotProvisioned,
   runPhaseGateWithEvidence: vi.fn(async (request) => {
     try {
       return await request.executeProvider(
@@ -49,13 +53,20 @@ vi.mock('../../../../src/vcs/factory.js', () => ({
   createVcsProvider: vi.fn(),
 }));
 
+vi.mock('../../../../src/verbs/gates/gate-utils.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../../../src/verbs/gates/gate-utils.js')>()),
+  observeCurrentCheckout: vi.fn(),
+}));
+
 import { existsSync, readFileSync } from 'node:fs';
 import { execFileSync, execSync } from 'node:child_process';
 import * as fsPromises from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as nodePath from 'node:path';
 import { handlePreSynthesisCheck } from '../../../../src/verbs/gates/pre-synthesis-check.js';
-import { admitLifecycleLegs } from '../../../../src/verbs/gates/gate-runner.js';
+import { admitLifecycleLegs, runPhaseGateWithEvidence } from '../../../../src/verbs/gates/gate-runner.js';
+import { observeCurrentCheckout, type CurrentCheckoutRead } from '../../../../src/verbs/gates/gate-utils.js';
+import { createVcsProvider } from '../../../../src/vcs/factory.js';
 import type { VerificationHostConnector } from '../../../../src/contract/verification/harness-verification.js';
 import { EventStore } from '../../../../src/events/store.js';
 import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
@@ -150,16 +161,25 @@ function createMockProvider(overrides: {
   };
 }
 
-/** Queues the `git branch --show-current` output on `execFileSync`. The branch lookup uses git. */
+/** Queues one constrained observation of the current checkout on the branch. The branch lookup uses the constrained reader. */
 function mockGitBranch(branch: string = 'feature-branch'): void {
-  vi.mocked(execFileSync).mockReturnValueOnce(`${branch}\n` as unknown as Buffer);
+  const read = {
+    kind: 'observed',
+    checkout: { checkout: '/repo', repository: '/repo/.git', gitDir: '/repo/.git', branch: `refs/heads/${branch}`, head: 'c'.repeat(40) },
+    observer: {},
+  } as unknown as CurrentCheckoutRead;
+  vi.mocked(observeCurrentCheckout).mockResolvedValueOnce(read);
 }
 
-/** Queues the test command output and then the typecheck output on `execSync`. */
+/** The signed test leg and typecheck leg of the verifier, both green. */
+function passingLegs() {
+  const run = { end: 'exited' as const, exitCode: 0, stdout: 'Tests: 5 passed', stderr: '', outputDigest: 'a'.repeat(64) };
+  return [{ name: 'test', kind: 'command' as const, run }, { name: 'typecheck', kind: 'typecheck' as const, run }];
+}
+
+/** Queues the green signed test and typecheck legs of the verifier. */
 function mockTestsOnly(): void {
-  vi.mocked(execSync)
-    .mockReturnValueOnce(Buffer.from('Tests: 5 passed'))
-    .mockReturnValueOnce(Buffer.from(''));
+  vi.mocked(admitLifecycleLegs).mockResolvedValueOnce(passingLegs());
 }
 
 /** A connector whose verifier no case reaches directly. The hosted helper is a stub in this file. */
@@ -175,6 +195,8 @@ describe('handlePreSynthesisCheck', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     currentStore = unavailableStore();
+    vi.mocked(observeCurrentCheckout).mockResolvedValue({ kind: 'refused', reason: 'No branch is stubbed' });
+    vi.mocked(admitLifecycleLegs).mockResolvedValue(passingLegs());
   });
 
   it('AllChecksPass_ReturnsPassed', async () => {
@@ -187,7 +209,7 @@ describe('handlePreSynthesisCheck', () => {
     });
 
     const result = await handlePreSynthesisCheck({
-      ...gateWiring(), stateFile: '/tmp/state.json' }, provider);
+      ...gateWiring(), stateFile: '/tmp/state.json' }, provider, connector);
 
     expect(result.success).toBe(true);
     const data = result.data as CheckReport;
@@ -206,7 +228,7 @@ describe('handlePreSynthesisCheck', () => {
     });
 
     const result = await handlePreSynthesisCheck({
-      ...gateWiring(), stateFile: '/tmp/state.json' }, provider);
+      ...gateWiring(), stateFile: '/tmp/state.json' }, provider, connector);
 
     expect(result.success).toBe(true);
     expect(provider.listPrs).toHaveBeenCalledWith({ state: 'open', head: 'feat/my-branch' });
@@ -216,7 +238,7 @@ describe('handlePreSynthesisCheck', () => {
     vi.mocked(existsSync).mockReturnValue(false);
 
     const result = await handlePreSynthesisCheck({
-      ...gateWiring(), stateFile: '/tmp/missing.json' });
+      ...gateWiring(), stateFile: '/tmp/missing.json' }, undefined, connector);
 
     expect(result.success).toBe(true);
     const data = result.data as CheckReport;
@@ -235,7 +257,7 @@ describe('handlePreSynthesisCheck', () => {
     });
 
     const result = await handlePreSynthesisCheck({
-      ...gateWiring(), stateFile: '/tmp/state.json' }, provider);
+      ...gateWiring(), stateFile: '/tmp/state.json' }, provider, connector);
 
     expect(result.success).toBe(true);
     const data = result.data as CheckReport;
@@ -260,7 +282,7 @@ describe('handlePreSynthesisCheck', () => {
     });
 
     const result = await handlePreSynthesisCheck({
-      ...gateWiring(), stateFile: '/tmp/state.json' }, provider);
+      ...gateWiring(), stateFile: '/tmp/state.json' }, provider, connector);
 
     expect(result.success).toBe(true);
     const data = result.data as CheckReport;
@@ -281,7 +303,7 @@ describe('handlePreSynthesisCheck', () => {
     });
 
     const result = await handlePreSynthesisCheck({
-      ...gateWiring(), stateFile: '/tmp/state.json' }, provider);
+      ...gateWiring(), stateFile: '/tmp/state.json' }, provider, connector);
 
     expect(result.success).toBe(true);
     const data = result.data as CheckReport;
@@ -304,7 +326,7 @@ describe('handlePreSynthesisCheck', () => {
     });
 
     const result = await handlePreSynthesisCheck({
-      ...gateWiring(), stateFile: '/tmp/state.json' }, provider);
+      ...gateWiring(), stateFile: '/tmp/state.json' }, provider, connector);
 
     expect(result.success).toBe(true);
     const data = result.data as CheckReport;
@@ -325,13 +347,14 @@ describe('handlePreSynthesisCheck', () => {
       ...gateWiring(),
       stateFile: '/tmp/state.json',
       skipTests: true,
-    }, provider);
+    }, provider, connector);
 
     expect(result.success).toBe(true);
     const data = result.data as CheckReport;
     expect(data.passed).toBe(true);
     expect(data.checks.skip).toBeGreaterThanOrEqual(1);
     expect(data.report).toContain('SKIP');
+    expect(admitLifecycleLegs).not.toHaveBeenCalled();
     expect(vi.mocked(execSync)).not.toHaveBeenCalled();
   });
 
@@ -343,7 +366,7 @@ describe('handlePreSynthesisCheck', () => {
       ...gateWiring(),
       stateFile: '/tmp/state.json',
       skipStack: true,
-    });
+    }, undefined, connector);
 
     expect(result.success).toBe(true);
     const data = result.data as CheckReport;
@@ -371,7 +394,7 @@ describe('handlePreSynthesisCheck', () => {
     });
 
     const result = await handlePreSynthesisCheck({
-      ...gateWiring(), stateFile: '/tmp/state.json' }, provider);
+      ...gateWiring(), stateFile: '/tmp/state.json' }, provider, connector);
 
     expect(result.success).toBe(true);
     const data = result.data as CheckReport;
@@ -396,7 +419,7 @@ describe('handlePreSynthesisCheck', () => {
     });
 
     const result = await handlePreSynthesisCheck({
-      ...gateWiring(), stateFile: '/tmp/state.json' }, provider);
+      ...gateWiring(), stateFile: '/tmp/state.json' }, provider, connector);
 
     expect(result.success).toBe(true);
     const data = result.data as CheckReport;
@@ -416,7 +439,7 @@ describe('handlePreSynthesisCheck', () => {
     });
 
     const result = await handlePreSynthesisCheck({
-      ...gateWiring(), stateFile: '/tmp/state.json' }, provider);
+      ...gateWiring(), stateFile: '/tmp/state.json' }, provider, connector);
 
     expect(result.success).toBe(true);
     const data = result.data as CheckReport;
@@ -429,7 +452,7 @@ describe('handlePreSynthesisCheck', () => {
     vi.mocked(readFileSync).mockReturnValue('{ invalid json }');
 
     const result = await handlePreSynthesisCheck({
-      ...gateWiring(), stateFile: '/tmp/state.json' });
+      ...gateWiring(), stateFile: '/tmp/state.json' }, undefined, connector);
 
     expect(result.success).toBe(true);
     const data = result.data as CheckReport;
@@ -447,7 +470,7 @@ describe('handlePreSynthesisCheck', () => {
     });
 
     const result = await handlePreSynthesisCheck({
-      ...gateWiring(), stateFile: '/tmp/state.json' }, provider);
+      ...gateWiring(), stateFile: '/tmp/state.json' }, provider, connector);
 
     expect(result.success).toBe(true);
     const data = result.data as CheckReport;
@@ -465,7 +488,7 @@ describe('handlePreSynthesisCheck', () => {
     });
 
     const result = await handlePreSynthesisCheck({
-      ...gateWiring(), stateFile: '/tmp/state.json' }, provider);
+      ...gateWiring(), stateFile: '/tmp/state.json' }, provider, connector);
 
     expect(result.success).toBe(true);
     const data = result.data as CheckReport;
@@ -486,7 +509,7 @@ describe('handlePreSynthesisCheck', () => {
     });
 
     const result = await handlePreSynthesisCheck({
-      ...gateWiring(), stateFile: '/tmp/state.json' }, provider);
+      ...gateWiring(), stateFile: '/tmp/state.json' }, provider, connector);
 
     expect(result.success).toBe(true);
     const data = result.data as CheckReport;
@@ -507,7 +530,7 @@ describe('handlePreSynthesisCheck', () => {
     });
 
     const result = await handlePreSynthesisCheck({
-      ...gateWiring(), stateFile: '/tmp/state.json' }, provider);
+      ...gateWiring(), stateFile: '/tmp/state.json' }, provider, connector);
 
     expect(result.success).toBe(true);
     const data = result.data as CheckReport;
@@ -528,7 +551,7 @@ describe('handlePreSynthesisCheck', () => {
     });
 
     const result = await handlePreSynthesisCheck({
-      ...gateWiring(), stateFile: '/tmp/state.json' }, provider);
+      ...gateWiring(), stateFile: '/tmp/state.json' }, provider, connector);
 
     expect(result.success).toBe(true);
     const data = result.data as CheckReport;
@@ -544,7 +567,7 @@ describe('handlePreSynthesisCheck', () => {
     const provider = createMockProvider({ listPrs: [] });
 
     const result = await handlePreSynthesisCheck({
-      ...gateWiring(), stateFile: '/tmp/state.json' }, provider);
+      ...gateWiring(), stateFile: '/tmp/state.json' }, provider, connector);
 
     expect(result.success).toBe(true);
     const data = result.data as CheckReport;
@@ -595,7 +618,7 @@ describe('handlePreSynthesisCheck', () => {
 
     const result = await handlePreSynthesisCheck({
       ...gateWiring(), featureId, eventStore, skipTests: true, skipStack: true },
-      provider,
+      provider, connector,
     );
 
     eventStore.close();
@@ -647,7 +670,7 @@ describe('handlePreSynthesisCheck', () => {
 
     const result = await handlePreSynthesisCheck({
       ...gateWiring(), stateFile: BAD, featureId, eventStore, skipTests: true, skipStack: true },
-      provider,
+      provider, connector,
     );
 
     eventStore.close();
@@ -686,6 +709,40 @@ describe('handlePreSynthesisCheck', () => {
 
     expect(result).toMatchObject({ success: false, error: { code: 'HOSTED_VERIFICATION_REFUSED' } });
     expect(admitLifecycleLegs).not.toHaveBeenCalled();
+    expect(execFileSync).not.toHaveBeenCalled();
+  });
+
+  /** With no connector, the check refuses after argument validation, also for `skipTests` and `skipStack`, before the runner, the provider and any read. */
+  it('NoConnector_RefusesWithVerifierNotProvisioned', async () => {
+    setupValidState(makeState());
+    for (const flags of [{}, { skipTests: true, skipStack: true }]) {
+      const result = await handlePreSynthesisCheck({ ...gateWiring(), stateFile: '/tmp/state.json', ...flags }, createMockProvider());
+
+      expect(result).toMatchObject({ success: false, error: { code: 'VERIFIER_NOT_PROVISIONED' } });
+    }
+    expect(runPhaseGateWithEvidence).not.toHaveBeenCalled();
+    expect(createVcsProvider).not.toHaveBeenCalled();
+    expect(observeCurrentCheckout).not.toHaveBeenCalled();
+    expect(admitLifecycleLegs).not.toHaveBeenCalled();
+    expect(execFileSync).not.toHaveBeenCalled();
+  });
+
+  /**
+   * The PR-stack branch comes from the constrained observation of the absolute checkout root with the connector Git path.
+   * A detached HEAD or another refused observation fails the check, and the provider gets no query.
+   */
+  it('PrStack_ConstrainedBranchRead_UsesConnectorGitPathAndFailsClosed', async () => {
+    setupValidState(makeState());
+    const provider = createMockProvider({
+      listPrs: [{ number: 1, url: '', title: '', headRefName: 'feature-branch', baseRefName: 'main', state: 'OPEN' }],
+    });
+    vi.mocked(observeCurrentCheckout).mockResolvedValueOnce({ kind: 'refused', reason: 'The checkout HEAD is detached' });
+
+    const result = await handlePreSynthesisCheck({ ...gateWiring(), stateFile: '/tmp/state.json' }, provider, connector);
+
+    expect(observeCurrentCheckout).toHaveBeenCalledWith(connector.gitPath, nodePath.resolve('.'));
+    expect((result.data as CheckReport).report).toContain('Could not determine current branch');
+    expect(provider.listPrs).not.toHaveBeenCalled();
     expect(execFileSync).not.toHaveBeenCalled();
   });
 });

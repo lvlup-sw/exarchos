@@ -9,10 +9,14 @@
 //
 // The two mocks replace external work only. The post-merge check runs the repository tests, and the
 // VCS factory calls `gh`. Both sit inside the provider closure.
+//
+// The four lifecycle and team checks refuse with no connector, so their cases dispatch with a stub
+// connector whose Git path is the real executable. Each such case skips its verifier legs.
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { accessSync, constants, realpathSync } from 'node:fs';
 import { mkdtemp, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { devNull, tmpdir } from 'node:os';
 import * as path from 'node:path';
 
 vi.mock('../../../../src/verbs/pure/post-merge.js', () => ({
@@ -51,6 +55,8 @@ import { dispatch, type DispatchContext } from '../../../../src/dispatch/core/di
 import { EventStore } from '../../../../src/events/store.js';
 import type { ToolResult } from '../../../../src/format.js';
 import { createInMemoryResolver } from '../../../../src/workflow/capabilities/resolver.js';
+import type { VerificationHostConnector } from '../../../../src/contract/verification/harness-verification.js';
+import { execFileAsync } from '../../../../tools/test-helpers/spawn.js';
 import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
 import {
   seedActivePhaseAttempt,
@@ -69,18 +75,48 @@ const CAPABILITIES = [
 let stateDir: string;
 let store: EventStore;
 
-function ctx(): DispatchContext {
+/** The absolute real path of the Git executable on the test process PATH. */
+function gitExecutable(): string {
+  for (const directory of (process.env.PATH ?? '').split(path.delimiter)) {
+    const candidate = path.resolve(directory, process.platform === 'win32' ? 'git.exe' : 'git');
+    try { accessSync(candidate, constants.X_OK); return realpathSync(candidate); } catch {}
+  }
+  throw new Error('The fixture needs Git on PATH');
+}
+
+/** A provisioned context whose Git path is the real executable. Each provisioned case skips its verifier legs, so the client never runs. */
+const connector: VerificationHostConnector = {
+  publicKey: 'unused', gitPath: gitExecutable(), resourceId: 'unused', profileId: 'unused',
+  client: { submit: async () => ({ kind: 'unavailable', reason: 'unused' }), retrieve: async () => ({ kind: 'unavailable', reason: 'unused' }) },
+};
+
+function ctx(provisioned = false): DispatchContext {
   return {
     stateDir,
     eventStore: store,
     enableTelemetry: false,
     callerIdentity: deriveMcpCallerIdentity({ sessionId: 'unrunbooked-gate-evidence' }),
     capabilityResolver: createInMemoryResolver(CAPABILITIES),
+    ...(provisioned ? { verificationHost: connector } : {}),
   };
 }
 
-async function call(args: Record<string, unknown>): Promise<ToolResult> {
-  return dispatch('exarchos_orchestrate', args, ctx());
+async function call(args: Record<string, unknown>, provisioned = false): Promise<ToolResult> {
+  return dispatch('exarchos_orchestrate', args, ctx(provisioned));
+}
+
+/** A one-commit Git checkout on `main` under the state directory. Its base and head are one commit, so its diff is empty. */
+async function fixtureCheckout(): Promise<string> {
+  const root = path.join(stateDir, 'checkout');
+  const env = {
+    ...process.env, GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: devNull,
+    GIT_AUTHOR_NAME: 'Fixture', GIT_AUTHOR_EMAIL: 'fixture@example.invalid',
+    GIT_COMMITTER_NAME: 'Fixture', GIT_COMMITTER_EMAIL: 'fixture@example.invalid',
+  };
+  for (const args of [['init', '-q', '-b', 'main', root], ['-C', root, 'commit', '-q', '--allow-empty', '-m', 'base']]) {
+    await execFileAsync(connector.gitPath, args, { env, timeout: 30_000 });
+  }
+  return realpathSync(root);
 }
 
 /** The evidence rows on a stream. */
@@ -97,9 +133,10 @@ async function evidenceCount(streamId: string): Promise<number> {
 async function expectsEvidence(
   streamId: string,
   args: Record<string, unknown>,
+  provisioned = false,
 ): Promise<ToolResult> {
   const before = await evidenceCount(streamId);
-  const result = await call(args);
+  const result = await call(args, provisioned);
   expect(result.error?.code, JSON.stringify(result.error)).not.toBe('ENSURE_CONTRACT_VIOLATED');
   expect(await evidenceCount(streamId)).toBe(before + 1);
   return result;
@@ -157,17 +194,17 @@ describe('gates that declare durable evidence pay it on dispatch', () => {
     expect(result.success).toBe(true);
   });
 
-  /** `HEAD...HEAD` is an empty diff, so the gate reaches its verdict without a test run. */
+  /** `main...HEAD` of a one-commit checkout is an empty diff, so the gate reaches its verdict without a test run. */
   it('DebugReviewGate_Dispatched_RecordsEvidence', async () => {
     const stream = await streamInPhase('wf-debug-review', 'debug-review');
 
     await expectsEvidence(stream, {
       action: 'debug_review_gate',
       featureId: stream,
-      repoRoot: process.cwd(),
-      baseBranch: 'HEAD',
+      repoRoot: await fixtureCheckout(),
+      baseBranch: 'main',
       skipRun: true,
-    });
+    }, true);
   });
 
   /**
@@ -186,7 +223,7 @@ describe('gates that declare durable evidence pay it on dispatch', () => {
       featureId: stream,
       repoRoot: stateDir,
       skipTests: true,
-    });
+    }, true);
     expect(result.success).toBe(true);
     const signal = await store.query(stream, { type: 'gate.executed' });
     expect(signal.map((row) => (row.data as { gateName?: string }).gateName)).toContain(
@@ -211,7 +248,7 @@ describe('gates that declare durable evidence pay it on dispatch', () => {
       repoRoot: stateDir,
       skipTests: true,
       skipStack: true,
-    });
+    }, true);
     expect(result.success).toBe(true);
     const signal = await store.query(stream, { type: 'gate.executed' });
     expect(signal.map((row) => (row.data as { gateName?: string }).gateName)).toContain(
@@ -261,7 +298,7 @@ describe('gates that declare durable evidence pay it on dispatch', () => {
       prUrl: 'https://example.invalid/pull/1',
       mergeSha: 'abc1234',
       repoRoot: process.cwd(),
-    });
+    }, true);
     expect(result.success).toBe(true);
   });
 

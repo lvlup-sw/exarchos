@@ -180,3 +180,143 @@ describe('constrained Git structural reader', () => {
     expect(await snapshot(input.repository)).toEqual(before);
   });
 });
+
+/** A marker program that appends one line to `marker` each time a hook runs it, and prints nothing. */
+async function markerProgram(root: string): Promise<{ readonly program: string; readonly marker: string }> {
+  const marker = join(root, 'marker.log');
+  const program = join(root, 'marker.sh');
+  await writeFile(program, `#!/bin/sh\necho "called $0 $*" >> '${marker}'\nexit 0\n`);
+  await chmod(program, 0o755);
+  return { program, marker };
+}
+
+/** Assert that the marker ran once or more, then clear it for the next control. */
+async function expectMarkerRan(marker: string): Promise<void> {
+  expect(await readFile(marker, 'utf8')).toContain('called');
+  await rm(marker);
+}
+
+/** Replace the head of `checkout` with a copy of its commit that carries a garbage `gpgsig` header. It returns the new commit. */
+async function garbageSignedHead(root: string, checkout: string): Promise<string> {
+  const raw = await git(checkout, 'cat-file', 'commit', 'HEAD');
+  const signed = raw.replace(/^(committer [^\n]*\n)/m, '$1gpgsig -----BEGIN PGP SIGNATURE-----\n garbage\n -----END PGP SIGNATURE-----\n');
+  const file = join(root, 'signed-commit');
+  await writeFile(file, `${signed}\n`);
+  const commit = await git(checkout, 'hash-object', '-t', 'commit', '-w', file);
+  await git(checkout, 'reset', '-q', '--hard', commit);
+  return commit;
+}
+
+describe('closed reads of the current checkout', () => {
+  /** The current observation reads the symbolic HEAD itself. A base name resolves to an object ID, then a local branch, then a remote-tracking ref. */
+  it('CurrentCheckoutAndBaseNames_ClosedOrderAndDetachedRefusal', async () => {
+    const f = await fixture();
+    const main = await f.observer.current(f.main);
+    const linked = await f.observer.current(f.linked);
+    expect(main).toMatchObject({ kind: 'observed', value: { checkout: await realpath(f.main), branch: 'refs/heads/main', head: f.base } });
+    expect(linked).toMatchObject({ kind: 'observed', value: { checkout: await realpath(f.linked), repository: f.repository, branch: 'refs/heads/task', head: f.head } });
+    if (linked.kind !== 'observed') throw new Error(linked.reason);
+    await git(f.main, 'update-ref', 'refs/remotes/origin/feature', f.head);
+    await git(f.main, 'tag', 'only-a-tag', f.base);
+
+    expect(await f.observer.base(linked.value, 'main')).toEqual({ kind: 'observed', value: f.base });
+    expect(await f.observer.base(linked.value, f.head)).toEqual({ kind: 'observed', value: f.head });
+    expect(await f.observer.base(linked.value, 'origin/feature')).toEqual({ kind: 'observed', value: f.head });
+    for (const refused of ['only-a-tag', 'origin', 'main..task', 'main~1', '--help', '0'.repeat(40)]) {
+      expect((await f.observer.base(linked.value, refused)).kind, refused).toBe('refused');
+    }
+
+    await git(f.linked, 'checkout', '-q', '--detach');
+    expect(await f.observer.current(f.linked)).toMatchObject({ kind: 'refused', reason: expect.stringContaining('detached') });
+  });
+
+  /**
+   * Plain Git runs each armed repository hook: the fsmonitor through status, the external diff and textconv through diff, and gpg.program through log.
+   * One governed control is a commit with a garbage gpgsig header under `log.showSignature=true`. The closed commit range lists it and runs no gpg.program.
+   * No new closed read runs any marker, and no read writes repository storage.
+   */
+  it('ArmedRepositoryHooks_ReachableButEveryNewClosedReadRunsNone', async ({ skip }) => {
+    if (process.platform !== 'linux') return skip();
+    const f = await fixture();
+    const { program, marker } = await markerProgram(f.root);
+    const signedHead = await garbageSignedHead(f.root, f.linked);
+    await git(f.main, 'update-ref', 'refs/remotes/origin/main', f.base);
+    await git(f.main, 'symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/main');
+    await writeFile(join(f.linked, '.gitignore'), 'ignored.txt\n');
+    await writeFile(join(f.linked, 'ignored.txt'), 'ignored\n');
+    await writeFile(join(f.linked, 'untracked.txt'), 'untracked\n');
+    await mkdir(join(f.repository, 'info'), { recursive: true });
+    await writeFile(join(f.repository, 'info', 'attributes'), '* diff=fixture\n');
+    for (const [key, value] of [['core.fsmonitor', program], ['diff.external', program], ['diff.fixture.textconv', program], ['log.showSignature', 'true'], ['gpg.program', program]]) {
+      await git(f.main, 'config', key, value);
+    }
+
+    await git(f.linked, 'status', '--porcelain'); await expectMarkerRan(marker);
+    await git(f.linked, 'diff', f.base, signedHead); await expectMarkerRan(marker);
+    await git(f.linked, 'diff', '--no-ext-diff', f.base, signedHead); await expectMarkerRan(marker);
+    await git(f.linked, 'log', '-1', signedHead); await expectMarkerRan(marker);
+    const before = await snapshot(f.repository);
+
+    const selected = await f.observer.current(f.linked);
+    if (selected.kind !== 'observed') throw new Error(selected.reason);
+    const { gitDir, checkout, head } = selected.value;
+    const reads = f.observer.reads;
+    const decode = (bytes: Buffer) => new TextDecoder('utf-8', { fatal: true }).decode(bytes).split('\0');
+    expect(head).toBe(signedHead);
+    expect(decode(await reads.treeListing(gitDir, checkout, head)).some((record) => record.endsWith('\tfile.txt'))).toBe(true);
+    expect(decode(await reads.indexListing(gitDir, checkout)).some((record) => record.endsWith('\tfile.txt'))).toBe(true);
+    const untracked = decode(await reads.untrackedListing(gitDir, checkout));
+    expect(untracked).toContain('untracked.txt');
+    expect(untracked).not.toContain('ignored.txt');
+    expect((await reads.mergeBase(gitDir, checkout, f.base, head)).trim()).toBe(f.base);
+    expect((await reads.remoteCommit(gitDir, checkout, 'refs/remotes/origin/main')).trim()).toBe(f.base);
+    expect((await reads.originHead(gitDir, checkout)).trim()).toBe('refs/remotes/origin/main');
+    expect(await f.observer.base(selected.value, 'origin/main')).toEqual({ kind: 'observed', value: f.base });
+    expect((await reads.nameOnly(gitDir, checkout, f.base, head)).trim()).toBe('file.txt');
+    expect(await reads.commitRange(gitDir, checkout, f.base, head)).toContain('task');
+    expect(await reads.fullDiff(gitDir, checkout, f.base, head)).toContain('+task');
+
+    await expect(readFile(marker)).rejects.toMatchObject({ code: 'ENOENT' });
+    expect(await snapshot(f.repository)).toEqual(before);
+    await expect(async () => reads.commitRange(gitDir, checkout, 'HEAD', head)).rejects.toThrow();
+    await expect(async () => reads.remoteCommit(gitDir, checkout, 'refs/remotes/origin')).rejects.toThrow();
+  });
+
+  /**
+   * With `diff.submodule=diff`, plain Git starts a child diff in a populated submodule for a gitlink change, and that child runs the submodule `diff.external`.
+   * The closed full diff passes `--submodule=short`, so the marker never runs and the gitlink shows as a short subproject line.
+   */
+  it('PopulatedSubmoduleExternalDiff_ReachableButFullDiffRunsNone', async ({ skip }) => {
+    if (process.platform !== 'linux') return skip();
+    const root = await mkdtemp(join(tmpdir(), '1928-observer-sub-')); roots.push(root);
+    const { program, marker } = await markerProgram(root);
+    const child = join(root, 'child'); const superproject = join(root, 'super');
+    await mkdir(child); await git(child, 'init', '-q', '-b', 'main');
+    await writeFile(join(child, 'f.txt'), 'one\n'); await git(child, 'add', '.'); await git(child, 'commit', '-q', '-m', 'one');
+    const first = await git(child, 'rev-parse', 'HEAD');
+    await writeFile(join(child, 'f.txt'), 'two\n'); await git(child, 'commit', '-q', '-am', 'two');
+    const second = await git(child, 'rev-parse', 'HEAD');
+    await mkdir(superproject); await git(superproject, 'init', '-q', '-b', 'main');
+    await writeFile(join(superproject, 'top.txt'), 'top\n'); await git(superproject, 'add', 'top.txt');
+    await git(superproject, '-c', 'protocol.file.allow=always', 'submodule', 'add', '-q', child, 'sub');
+    await git(join(superproject, 'sub'), 'checkout', '-q', first);
+    await git(superproject, 'add', 'sub'); await git(superproject, 'commit', '-q', '-m', 'A');
+    const before = await git(superproject, 'rev-parse', 'HEAD');
+    await git(join(superproject, 'sub'), 'checkout', '-q', second);
+    await git(superproject, 'add', 'sub'); await git(superproject, 'commit', '-q', '-m', 'B');
+    const after = await git(superproject, 'rev-parse', 'HEAD');
+    await git(superproject, 'config', 'diff.submodule', 'diff');
+    await git(join(superproject, 'sub'), 'config', 'diff.external', program);
+
+    await git(superproject, 'diff', before, after); await expectMarkerRan(marker);
+
+    const observer = await createGitObserver(gitExecutable);
+    const selected = await observer.current(superproject);
+    if (selected.kind !== 'observed') throw new Error(selected.reason);
+    const { gitDir, checkout } = selected.value;
+    const diff = await observer.reads.fullDiff(gitDir, checkout, before, after);
+    expect(diff).toContain('Subproject commit');
+    expect((await observer.reads.nameOnly(gitDir, checkout, before, after)).trim()).toBe('sub');
+    await expect(readFile(marker)).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+});

@@ -1,6 +1,7 @@
 // The gate runner mock calls only the provider, because these cases test the
 // provider verdict. `unrunbooked-gate-evidence-dispatch.test.ts` proves the
-// recorded evidence over real dispatch.
+// recorded evidence over real dispatch. A call with no connector refuses before
+// the runner, so each verdict case passes a stub connector and a stubbed admission.
 
 import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { tmpdir } from 'node:os';
@@ -16,7 +17,8 @@ vi.mock('node:child_process', () => ({
   execFileSync: vi.fn(),
 }));
 
-vi.mock('../../../../src/verbs/gates/gate-runner.js', () => ({
+vi.mock('../../../../src/verbs/gates/gate-runner.js', async (importOriginal) => ({
+  verifierNotProvisioned: (await importOriginal<typeof import('../../../../src/verbs/gates/gate-runner.js')>()).verifierNotProvisioned,
   runPhaseGateWithEvidence: vi.fn(async (request) => {
     try {
       return await request.executeProvider(
@@ -44,7 +46,7 @@ vi.mock('../../../../src/verbs/gates/gate-runner.js', () => ({
 import { existsSync, readFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { handlePostDelegationCheck } from '../../../../src/verbs/team/post-delegation-check.js';
-import { admitLifecycleLegs } from '../../../../src/verbs/gates/gate-runner.js';
+import { admitLifecycleLegs, runPhaseGateWithEvidence } from '../../../../src/verbs/gates/gate-runner.js';
 import type { VerificationHostConnector } from '../../../../src/contract/verification/harness-verification.js';
 import type { EventStore } from '../../../../src/events/store.js';
 import { rmrf } from '../../../../tools/test-helpers/temp-dir.js';
@@ -60,6 +62,17 @@ const mockExecFileSync = vi.mocked(execFileSync);
  */
 const STATE_DIR = '/tmp/test-post-delegation-check';
 const FEATURE_ID = 'post-delegation-feature';
+
+/** A provisioned context with a stub client. The verifier admission is stubbed, so the client never runs. */
+const connector: VerificationHostConnector = {
+  publicKey: 'unused', gitPath: '/nonexistent/git', resourceId: 'unused', profileId: 'unused',
+  client: { submit: async () => ({ kind: 'unavailable', reason: 'unused' }), retrieve: async () => ({ kind: 'unavailable', reason: 'unused' }) },
+};
+
+/** One signed test leg of the verifier with an exit code. */
+function signedRun(exitCode: number) {
+  return [{ name: 'test', kind: 'command' as const, run: { end: 'exited' as const, exitCode, stdout: '', stderr: '', outputDigest: 'a'.repeat(64) } }];
+}
 
 let currentStore: EventStore;
 
@@ -118,6 +131,7 @@ describe('handlePostDelegationCheck', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     currentStore = unavailableStore();
+    vi.mocked(admitLifecycleLegs).mockResolvedValue(signedRun(0));
   });
 
   afterEach(() => {
@@ -142,15 +156,16 @@ describe('handlePostDelegationCheck', () => {
     mockReadFileSync.mockImplementation(((p: unknown) =>
       String(p).endsWith('package.json') ? NODE_PACKAGE_JSON : stateJson) as typeof readFileSync);
     currentStore = storeFrom(stateJson);
-    mockExecFileSync.mockReturnValue(Buffer.from(''));
 
     const result = await handlePostDelegationCheck({
       ...gateWiring(),
       stateFile: '/tmp/state.json',
       repoRoot: '/repo',
-    });
+    }, connector);
 
     expect(result.success).toBe(true);
+    expect(admitLifecycleLegs).toHaveBeenCalledTimes(2);
+    expect(mockExecFileSync).not.toHaveBeenCalled();
     const data = result.data as { passed: boolean; report: string; checks: { pass: number; fail: number; skip: number } };
     expect(data.passed).toBe(true);
     expect(data.checks.fail).toBe(0);
@@ -166,15 +181,9 @@ describe('handlePostDelegationCheck', () => {
     }
     useRealFs();
     currentStore = storeFrom(makeState([makeCompleteTask('task-a', 'wt-a'), makeCompleteTask('task-b', 'wt-b')]));
-    const run = (exitCode: number) => ({ end: 'exited' as const, exitCode, stdout: '', stderr: '', outputDigest: 'a'.repeat(64) });
     vi.mocked(admitLifecycleLegs)
-      .mockResolvedValueOnce([{ name: 'test', kind: 'command', run: run(0) }])
-      .mockResolvedValueOnce([{ name: 'test', kind: 'command', run: run(1) }]);
-    const connector: VerificationHostConnector = {
-      publicKey: 'unused', gitPath: '/nonexistent/git', resourceId: 'unused', profileId: 'unused',
-      client: { submit: async () => ({ kind: 'unavailable', reason: 'unused' }), retrieve: async () => ({ kind: 'unavailable', reason: 'unused' }) },
-    };
-
+      .mockResolvedValueOnce(signedRun(0))
+      .mockResolvedValueOnce(signedRun(1));
     const result = await handlePostDelegationCheck({ ...gateWiring(), repoRoot }, connector);
 
     expect(mockExecFileSync).not.toHaveBeenCalled();
@@ -189,23 +198,21 @@ describe('handlePostDelegationCheck', () => {
     expect(data.report).toContain('**FAIL**: Worktree tests: wt-b — go test ./... failed');
   });
 
-  /** A worktree without a package.json still runs its tests. A Go module resolves `go test ./...`. */
+  /** A worktree without a package.json still runs its tests in the verifier. A Go module resolves `go test ./...`. */
   it('worktreeGoModule_runsTheResolvedTestCommand', async () => {
     const repoRoot = fixtureRepo();
     realFs.mkdirSync(join(repoRoot, 'wt-go'));
     realFs.writeFileSync(join(repoRoot, 'wt-go', 'go.mod'), 'module example.com/fixture\n');
     useRealFs();
     currentStore = storeFrom(makeState([makeCompleteTask('task-1', 'wt-go')]));
-    mockExecFileSync.mockReturnValue(Buffer.from(''));
 
-    const result = await handlePostDelegationCheck({ ...gateWiring(), repoRoot });
+    const result = await handlePostDelegationCheck({ ...gateWiring(), repoRoot }, connector);
 
-    expect(mockExecFileSync).toHaveBeenCalledTimes(1);
-    expect(mockExecFileSync).toHaveBeenCalledWith(
-      'go',
-      ['test', './...'],
-      expect.objectContaining({ cwd: expect.stringMatching(/wt-go$/) }),
-    );
+    expect(mockExecFileSync).not.toHaveBeenCalled();
+    expect(admitLifecycleLegs).toHaveBeenCalledTimes(1);
+    expect(admitLifecycleLegs).toHaveBeenCalledWith(expect.objectContaining({
+      checkout: expect.stringMatching(/wt-go$/), legs: [{ kind: 'command', argv: ['go', 'test', './...'] }],
+    }));
     const data = result.data as { passed: boolean; report: string };
     expect(data.passed).toBe(true);
     expect(data.report).toContain('Worktree tests: wt-go (go test ./...)');
@@ -218,13 +225,14 @@ describe('handlePostDelegationCheck', () => {
     useRealFs();
     currentStore = storeFrom(makeState([makeCompleteTask('task-1', 'wt-empty')]));
 
-    const result = await handlePostDelegationCheck({ ...gateWiring(), repoRoot });
+    const result = await handlePostDelegationCheck({ ...gateWiring(), repoRoot }, connector);
 
     const data = result.data as { passed: boolean; report: string; checks: { skip: number } };
     expect(data.passed).toBe(false);
     expect(data.checks.skip).toBe(0);
     expect(data.report).toMatch(/FAIL\*\*: Worktree tests: wt-empty — No test command resolved: No project markers detected/);
     expect(mockExecFileSync).not.toHaveBeenCalled();
+    expect(admitLifecycleLegs).not.toHaveBeenCalled();
   });
 
   /**
@@ -239,7 +247,7 @@ describe('handlePostDelegationCheck', () => {
       ...gateWiring(),
       stateFile: '/tmp/missing.json',
       repoRoot: '/repo',
-    });
+    }, connector);
 
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe('EVENT_STORE_ERROR');
@@ -270,7 +278,7 @@ describe('handlePostDelegationCheck', () => {
       ...gateWiring(),
       stateFile: '/tmp/state.json',
       repoRoot: '/repo',
-    });
+    }, connector);
 
     expect(result.success).toBe(true);
     const data = result.data as { passed: boolean; report: string };
@@ -292,7 +300,7 @@ describe('handlePostDelegationCheck', () => {
       ...gateWiring(),
       stateFile: '/tmp/state.json',
       repoRoot: '/repo',
-    });
+    }, connector);
 
     expect(result.success).toBe(true);
     const data = result.data as { passed: boolean; report: string };
@@ -314,12 +322,28 @@ describe('handlePostDelegationCheck', () => {
       stateFile: '/tmp/state.json',
       repoRoot: '/repo',
       skipTests: true,
-    });
+    }, connector);
 
     expect(result.success).toBe(true);
     const data = result.data as { passed: boolean; checks: { skip: number } };
     expect(data.passed).toBe(true);
     expect(data.checks.skip).toBeGreaterThan(0);
+    expect(mockExecFileSync).not.toHaveBeenCalled();
+    expect(admitLifecycleLegs).not.toHaveBeenCalled();
+  });
+
+  /** With no connector, the check refuses after argument validation, also for `skipTests`, before the runner, the state read and any process. */
+  it('noConnector_refusesWithVerifierNotProvisioned', async () => {
+    currentStore = storeFrom(makeState([makeCompleteTask('task-1', 'wt-1')]));
+    for (const skipTests of [false, true]) {
+      const result = await handlePostDelegationCheck({ ...gateWiring(), repoRoot: '/repo', skipTests });
+
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe('VERIFIER_NOT_PROVISIONED');
+    }
+    expect(runPhaseGateWithEvidence).not.toHaveBeenCalled();
+    expect(vi.mocked(currentStore.query)).not.toHaveBeenCalled();
+    expect(admitLifecycleLegs).not.toHaveBeenCalled();
     expect(mockExecFileSync).not.toHaveBeenCalled();
   });
 
@@ -340,7 +364,7 @@ describe('handlePostDelegationCheck', () => {
       ...gateWiring(),
       stateFile: '/tmp/state.json',
       repoRoot: '/repo',
-    });
+    }, connector);
 
     expect(result.success).toBe(true);
     const data = result.data as { passed: boolean; report: string };
@@ -362,7 +386,7 @@ describe('handlePostDelegationCheck', () => {
       ...gateWiring(),
       stateFile: '/tmp/state.json',
       repoRoot: '/repo',
-    });
+    }, connector);
 
     expect(result.success).toBe(true);
     const data = result.data as { passed: boolean; report: string };
@@ -383,7 +407,7 @@ describe('handlePostDelegationCheck', () => {
       ...gateWiring(),
       stateFile: '/tmp/state.json',
       repoRoot: '/repo',
-    });
+    }, connector);
 
     const data = result.data as { report: string };
     expect(data.report).toContain('| Task | Status | Branch |');

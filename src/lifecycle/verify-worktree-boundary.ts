@@ -11,12 +11,12 @@
  *   - The input does not parse: exit 0, with the reason on stderr, so a format mismatch does not
  *     block every agent write.
  *
- * The root is `git rev-parse --show-toplevel`, or `cwd` when no toplevel resolves. A linked
- * worktree reports its own toplevel, so the parent repository is out of bounds.
+ * The root is the process-free `walkToRepoRoot` of the cwd, or `cwd` when no root resolves. A linked
+ * worktree has its own `.git` file, so the parent repository is out of bounds.
  */
 
-import { execFileSync } from 'node:child_process';
 import * as path from 'node:path';
+import { walkToRepoRoot } from '../config/load-exarchos-config.js';
 import { z } from 'zod';
 import { defaultRealpath } from '../verbs/worktree/pure/path-containment.js';
 
@@ -51,15 +51,16 @@ export interface VerifyWorktreeBoundaryDeps {
   stderr?: (s: string) => void;
 }
 
+/**
+ * The default root: the first directory above the real cwd with a `.git` directory or a `gitdir:` file. It starts no process.
+ *
+ * Where git refuses or stops, this walk gives a wider root than the cwd that the old guard used.
+ * Those cases are a start inside `.git`, GIT_CEILING_DIRECTORIES, a filesystem boundary and a `safe.directory` refusal.
+ * A symlinked or malformed `.git` is not a marker, so the climb can reach an ancestor repository. A task worktree has a `.git` file.
+ * An empty `.git` directory gives a narrower root, which fails closed.
+ */
 function defaultGitToplevel(cwd: string): string | null {
-  try {
-    return execFileSync('git', ['-C', cwd, 'rev-parse', '--show-toplevel'], {
-      encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'ignore'],
-    }).trim();
-  } catch {
-    return null;
-  }
+  return walkToRepoRoot(cwd);
 }
 
 /**

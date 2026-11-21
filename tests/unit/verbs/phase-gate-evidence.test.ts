@@ -13,6 +13,15 @@ vi.mock('node:child_process', () => ({
   execFileSync: vi.fn(() => Buffer.from('')),
 }));
 
+vi.mock('../../../src/verbs/gates/gate-runner.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../../src/verbs/gates/gate-runner.js')>();
+  const run = { end: 'exited' as const, exitCode: 0, stdout: 'Tests: 1 passed, 0 failed', stderr: '', outputDigest: 'a'.repeat(64) };
+  return {
+    ...actual,
+    admitLifecycleLegs: vi.fn(async () => [{ name: 'test', kind: 'command', run }, { name: 'typecheck', kind: 'typecheck', run }]),
+  };
+});
+
 import { createInMemoryResolver } from '../../../src/workflow/capabilities/resolver.js';
 import {
   deriveMcpCallerIdentity,
@@ -29,8 +38,18 @@ import { handlePrepareSynthesis } from '../../../src/verbs/team/prepare-synthesi
 import { handleProvenanceChain } from '../../../src/verbs/gates/provenance-chain.js';
 import { handleReviewVerdict } from '../../../src/verbs/review/review-verdict.js';
 import { rmrfAsync } from '../../../tools/test-helpers/temp-dir.js';
+import type { VerificationHostConnector } from '../../../src/contract/verification/harness-verification.js';
 
 const PHASE_ATTEMPT_ID = 'phase-attempt:task-009';
+
+/**
+ * A provisioned context for `prepare_synthesis`. A call with no connector refuses before the gate runner.
+ * The signed legs are stubbed, and the unusable Git path makes the Git legs fail closed.
+ */
+const connector: VerificationHostConnector = {
+  publicKey: 'unused', gitPath: '/nonexistent/git', resourceId: 'unused', profileId: 'unused',
+  client: { submit: async () => ({ kind: 'unavailable', reason: 'unused' }), retrieve: async () => ({ kind: 'unavailable', reason: 'unused' }) },
+};
 
 function dispatchContext() {
   const identity = deriveMcpCallerIdentity({ sessionId: 'phase-gate-tests' });
@@ -174,7 +193,7 @@ describe('migrated phase gate durable evidence', () => {
   /**
    * `prepare_synthesis` is the blocking gate, so a refusal here stops the
    * synthesize phase. It needs an explicit `repoRoot`. The fixture passes `root`,
-   * because the file mocks `node:child_process`.
+   * because the file mocks `node:child_process`. It gives a stub connector, so the gate reaches the runner.
    */
   it('PrepareSynthesis_WorkflowPredatingThePhaseAttemptStamp_IsNotWedged', async () => {
     const result = await runWithDispatchContext(dispatchContext(), () =>
@@ -182,6 +201,7 @@ describe('migrated phase gate durable evidence', () => {
         { featureId: 'feature-009', repoRoot: root },
         root,
         fakeStore('review', { legacyNoPhaseAttempt: true }),
+        connector,
       ),
     );
 
@@ -232,6 +252,7 @@ describe('migrated phase gate durable evidence', () => {
         { featureId: 'feature-009' },
         root,
         fakeStore('synthesize', { incompleteTask: true }),
+        connector,
       ),
     );
 
@@ -269,6 +290,7 @@ describe('migrated phase gate durable evidence', () => {
           failEvidence: true,
           incompleteTask: true,
         }),
+        connector,
       ),
     ];
 

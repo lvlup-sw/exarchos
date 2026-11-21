@@ -4,11 +4,11 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1505,
-    "parsedFiles": 1460,
+    "testFiles": 1507,
+    "parsedFiles": 1462,
     "shellFiles": 45,
-    "cases": 16655,
-    "dynamicTitles": 321,
+    "cases": 16699,
+    "dynamicTitles": 322,
     "unparseableFiles": 0
   },
   "unparseable": [],
@@ -5064,7 +5064,7 @@
         },
         {
           "suite": "dispatch keeps the code of a check that did not run",
-          "name": "DidNotRunCodes_LiveLiteralsMatchTheirProducersAndOneIsReserved",
+          "name": "DidNotRunCodes_LiveLiteralsMatchTheirProducers",
           "dynamic": false
         },
         {
@@ -10211,6 +10211,21 @@
           "suite": "constrained Git structural reader",
           "name": "PromisorMissingObject_PositiveFetchThenGovernedRefusalWithoutStorageWrites",
           "dynamic": false
+        },
+        {
+          "suite": "closed reads of the current checkout",
+          "name": "CurrentCheckoutAndBaseNames_ClosedOrderAndDetachedRefusal",
+          "dynamic": false
+        },
+        {
+          "suite": "closed reads of the current checkout",
+          "name": "ArmedRepositoryHooks_ReachableButEveryNewClosedReadRunsNone",
+          "dynamic": false
+        },
+        {
+          "suite": "closed reads of the current checkout",
+          "name": "PopulatedSubmoduleExternalDiff_ReachableButFullDiffRunsNone",
+          "dynamic": false
         }
       ]
     },
@@ -10278,6 +10293,107 @@
           "suite": "",
           "name": "<dynamic-case-2>",
           "dynamic": true
+        }
+      ]
+    },
+    "tests/integration/1928-observational-callers.test.ts": {
+      "file": "tests/integration/1928-observational-callers.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "retired lifecycle and team routes",
+          "name": "RetiredRoutes_NoConnector_RefuseWithNoGitProviderOrProcessStart",
+          "dynamic": false
+        },
+        {
+          "suite": "retired lifecycle and team routes",
+          "name": "RetiredRoutes_ConfigDisabledGateWithNoConnector_RefusesWithNoSkipRow",
+          "dynamic": false
+        },
+        {
+          "suite": "retired lifecycle and team routes",
+          "name": "RetiredRoutes_ThroughRealDispatch_KeepVerifierNotProvisioned",
+          "dynamic": false
+        },
+        {
+          "suite": "retired lifecycle and team routes",
+          "name": "RetiredRoutes_UnusableConnector_StaysOnTheProvisionedRoute",
+          "dynamic": false
+        },
+        {
+          "suite": "converted reads on a provisioned route",
+          "name": "PreSynthesisBranchRead_ConnectorGitPath_NoPathGitAndDetachedFailsClosed",
+          "dynamic": false
+        },
+        {
+          "suite": "converted reads on a provisioned route",
+          "name": "DebugReviewReads_ConnectorGitPath_RefusedBaseAndDetachedGiveDiffFailed",
+          "dynamic": false
+        },
+        {
+          "suite": "converted reads on a provisioned route",
+          "name": "GateRunnerListings_ConnectorGitPath_DirtyAndUnreadableRefuseBeforeExchange",
+          "dynamic": false
+        },
+        {
+          "suite": "the mock-boundary diff and the prepare-synthesis changed files",
+          "name": "ThreeDotReads_AdvancedBase_SeeOnlyTheTaskChanges",
+          "dynamic": false
+        },
+        {
+          "suite": "the mock-boundary diff and the prepare-synthesis changed files",
+          "name": "ThreeDotReads_UnrelatedHistory_FailClosed",
+          "dynamic": false
+        },
+        {
+          "suite": "the mock-boundary diff and the prepare-synthesis changed files",
+          "name": "MockBoundary_LargeDiffAndRename_KeepFindingsExact",
+          "dynamic": false
+        },
+        {
+          "suite": "the mock-boundary diff and the prepare-synthesis changed files",
+          "name": "MockBoundary_PopulatedSubmoduleMarker_NeverRuns",
+          "dynamic": false
+        },
+        {
+          "suite": "the mock-boundary diff and the prepare-synthesis changed files",
+          "name": "MockBoundary_RefusedNonCoordinateDiff_GivesDiffError",
+          "dynamic": false
+        },
+        {
+          "suite": "the mock-boundary diff and the prepare-synthesis changed files",
+          "name": "MockBoundary_CoordinateDiff_ExactCommitsAndRefusals",
+          "dynamic": false
+        },
+        {
+          "suite": "the mock-boundary diff and the prepare-synthesis changed files",
+          "name": "MockBoundary_DiffErrorThroughRealDispatch_KeepsItsCode",
+          "dynamic": false
+        },
+        {
+          "suite": "process-free repository walks",
+          "name": "DeriveRepoKey_UnderPathShim_MatchesGitAtEveryLayout",
+          "dynamic": false
+        },
+        {
+          "suite": "process-free repository walks",
+          "name": "WorkflowInitAndPipeline_UnderPathShim_ShareTheMainKey",
+          "dynamic": false
+        },
+        {
+          "suite": "process-free repository walks",
+          "name": "VerifyWorktreeBoundary_UnderPathShim_FindsTheLinkedRoot",
+          "dynamic": false
+        },
+        {
+          "suite": "the home directory of spawned test children",
+          "name": "HomeScrub_RunCliAndSpawnMcpClient_GiveTheChildAScratchHome",
+          "dynamic": false
+        },
+        {
+          "suite": "the home directory of spawned test children",
+          "name": "HomeScrub_ProcessSetupChain_LoadsNoTempDirHelperOrStorageModule",
+          "dynamic": false
         }
       ]
     },
@@ -11458,6 +11574,16 @@
         {
           "suite": "",
           "name": "<dynamic-case-3>",
+          "dynamic": true
+        },
+        {
+          "suite": "",
+          "name": "LifecycleHost_NoConnector_RetiredHandlersRefuseWithNoRunOrRecord",
+          "dynamic": false
+        },
+        {
+          "suite": "",
+          "name": "<dynamic-case-4>",
           "dynamic": true
         }
       ]
@@ -25955,6 +26081,42 @@
         }
       ]
     },
+    "tests/unit/dispatch/core/verifier-client.test.ts": {
+      "file": "tests/unit/dispatch/core/verifier-client.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "loadVerifierProvisioning",
+          "name": "LoadVerifierProvisioning_EnoentOnly_IsAbsent",
+          "dynamic": false
+        },
+        {
+          "suite": "loadVerifierProvisioning",
+          "name": "LoadVerifierProvisioning_Enotdir_IsUnusableNotAbsent",
+          "dynamic": false
+        },
+        {
+          "suite": "loadVerifierProvisioning",
+          "name": "LoadVerifierProvisioning_DanglingFileLink_IsUnusable",
+          "dynamic": false
+        },
+        {
+          "suite": "loadVerifierProvisioning",
+          "name": "LoadVerifierProvisioning_SymlinkedAncestor_IsUnusable",
+          "dynamic": false
+        },
+        {
+          "suite": "loadVerifierProvisioning",
+          "name": "LoadVerifierProvisioning_StrictSchema_RefusesAnUnknownField",
+          "dynamic": false
+        },
+        {
+          "suite": "loadVerifierProvisioning",
+          "name": "LoadVerifierProvisioning_Usable_KeepsTheExactIdentityBytes",
+          "dynamic": false
+        }
+      ]
+    },
     "tests/unit/dispatch/dispatch-context.test.ts": {
       "file": "tests/unit/dispatch/dispatch-context.test.ts",
       "runner": "vitest:root",
@@ -32111,6 +32273,11 @@
       "cases": [
         {
           "suite": "DR-6 slim tools/list registration",
+          "name": "CreateServer_HomeDirectory_IsTheScratchHomeOfThisFile",
+          "dynamic": false
+        },
+        {
+          "suite": "DR-6 slim tools/list registration",
           "name": "toolsList_SlimRegistration_MeasuresUnder3800Tokens",
           "dynamic": false
         },
@@ -32125,6 +32292,11 @@
       "file": "tests/unit/index.test.ts",
       "runner": "vitest:root",
       "cases": [
+        {
+          "suite": "createServer Backend Wiring",
+          "name": "CreateServer_HomeDirectory_IsTheScratchHomeOfThisFile",
+          "dynamic": false
+        },
         {
           "suite": "createServer Backend Wiring",
           "name": "createServer_WithBackend_ConfiguresStateStoreBackend",
@@ -58879,12 +59051,17 @@
         },
         {
           "suite": "handlePostMerge",
-          "name": "handlePostMerge_PassesRunCommandAdapter",
+          "name": "handlePostMerge_PassesOnlyTheHostedTestRunner",
           "dynamic": false
         },
         {
           "suite": "handlePostMerge",
-          "name": "handlePostMerge_RunCommandAdapter_RunsInRepoRoot",
+          "name": "handlePostMerge_HostedTestRunner_RunsInRepoRoot",
+          "dynamic": false
+        },
+        {
+          "suite": "handlePostMerge",
+          "name": "handlePostMerge_NoConnector_RefusesWithVerifierNotProvisioned",
           "dynamic": false
         },
         {
@@ -59026,6 +59203,16 @@
         {
           "suite": "handlePreSynthesisCheck",
           "name": "Provisioned_TestCommandOverride_RefusesBeforeAnyRequest",
+          "dynamic": false
+        },
+        {
+          "suite": "handlePreSynthesisCheck",
+          "name": "NoConnector_RefusesWithVerifierNotProvisioned",
+          "dynamic": false
+        },
+        {
+          "suite": "handlePreSynthesisCheck",
+          "name": "PrStack_ConstrainedBranchRead_UsesConnectorGitPathAndFailsClosed",
           "dynamic": false
         }
       ]
@@ -60584,17 +60771,17 @@
         },
         {
           "suite": "handleVerifyWorktreeBaseline",
-          "name": "VerifyWorktreeBaseline_LeakedEditByteIdenticalToCommittedAgentChange_IsDetected",
+          "name": "VerifyWorktreeBaseline_LeakDetectionWithNoConnector_RefusesBeforeAnyGitRead",
           "dynamic": false
         },
         {
           "suite": "handleVerifyWorktreeBaseline",
-          "name": "VerifyWorktreeBaseline_RenamedLeak_ParsesNewPathNotRawArrow",
+          "name": "VerifyWorktreeBaseline_LeakDetectionWithConnector_RefusesWithNoTreeInspection",
           "dynamic": false
         },
         {
           "suite": "handleVerifyWorktreeBaseline",
-          "name": "VerifyWorktreeBaseline_UnrelatedDirtyTree_IsGenuineBlocker",
+          "name": "VerifyWorktreeBaseline_NotAGitWorktreeWithNoConnector_RefusesBeforeTheClimb",
           "dynamic": false
         },
         {
@@ -65004,6 +65191,16 @@
           "suite": "handleDebugReviewGate",
           "name": "returns error when baseBranch is empty",
           "dynamic": false
+        },
+        {
+          "suite": "handleDebugReviewGate",
+          "name": "DebugReviewGate_NoConnectorAndNoRepoRoot_RefusesWithVerifierNotProvisioned",
+          "dynamic": false
+        },
+        {
+          "suite": "handleDebugReviewGate",
+          "name": "DebugReviewGate_ConstrainedDiff_ThreeDotThenTwoDotThenDiffFailed",
+          "dynamic": false
         }
       ]
     },
@@ -68218,6 +68415,11 @@
         },
         {
           "suite": "handlePostDelegationCheck",
+          "name": "noConnector_refusesWithVerifierNotProvisioned",
+          "dynamic": false
+        },
+        {
+          "suite": "handlePostDelegationCheck",
           "name": "worktreeDirNotFound_failsForThatWorktree",
           "dynamic": false
         },
@@ -69280,6 +69482,21 @@
         {
           "suite": "handlePrepareSynthesis",
           "name": "PrepareSynthesis_RelativeRepoRoot_IsRefusedLikeAMissingOne",
+          "dynamic": false
+        },
+        {
+          "suite": "handlePrepareSynthesis",
+          "name": "PrepareSynthesis_NoConnector_RefusesBeforeTheWorkflowState",
+          "dynamic": false
+        },
+        {
+          "suite": "handlePrepareSynthesis",
+          "name": "PrepareSynthesis_BaseName_OriginHeadTargetThenMainFallback",
+          "dynamic": false
+        },
+        {
+          "suite": "handlePrepareSynthesis",
+          "name": "PrepareSynthesis_RefusedObservationOrNoMergeBase_FailsClosed",
           "dynamic": false
         },
         {
@@ -72117,6 +72334,16 @@
         {
           "suite": "probeWorktreeUsage",
           "name": "Probe_SymlinkedWorktreePath_ContainmentMatches",
+          "dynamic": false
+        },
+        {
+          "suite": "probeWorktreeUsage",
+          "name": "Probe_ForeignCwdRealpathEacces_IsOutsideTheWorktree",
+          "dynamic": false
+        },
+        {
+          "suite": "probeWorktreeUsage",
+          "name": "Probe_WorktreePathErrorAndOtherForeignCodes_Rethrow",
           "dynamic": false
         },
         {
@@ -78849,6 +79076,11 @@
       "file": "tests/unit/workflow/index.test.ts",
       "runner": "vitest:root",
       "cases": [
+        {
+          "suite": "MCP Server Entry Point",
+          "name": "CreateServer_HomeDirectory_IsTheScratchHomeOfThisFile",
+          "dynamic": false
+        },
         {
           "suite": "MCP Server Entry Point > createServer",
           "name": "should register only non-hidden composite tools",

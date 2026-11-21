@@ -12,19 +12,27 @@
  *
  * The gate never guesses a base. A run with no `baseBranch` gives the advisory finding `base-missing`.
  * That run passes, and it is not a skip.
+ *
+ * A provisioned call reads its diff only through the constrained reader with the connector Git path.
+ * A call with no connector keeps the plain `git diff` read.
  */
 
+import { resolve } from 'node:path';
 import type { ToolResult } from '../../format.js';
 import type { EventStore } from '../../events/store.js';
 import {
   defaultGitExec,
   profileOf,
   profilePathOf,
+  readConstrainedDiff,
   resolvePolicySkip,
   SKIPPED_BY_POLICY,
   withProfileRoute,
+  type ConstrainedDiffRange,
+  type ConstrainedDiffRead,
   type ProfiledGateArgs,
 } from './gate-utils.js';
+import type { VerificationHostConnector } from '../../contract/verification/harness-verification.js';
 import { runGatePreflight } from '../pure/gate-preflight.js';
 import { runDurableGateProducer } from './durable-gate-producer.js';
 import type { RiskTier } from '../../workflow/verification-policy.js';
@@ -159,6 +167,33 @@ function unresolvedTermSkip(args: MockBoundaryHandlerArgs, repoRoot: string, ter
   };
 }
 
+/** The refusal of a coordinate call whose immutable diff cannot be read. */
+const COORDINATE_DIFF_REFUSED: ToolResult = {
+  success: false, error: { code: 'TASK_COORDINATE_REFUSED', message: 'The immutable mock-boundary diff could not be read.' },
+};
+
+/** The diff of one call as file entries, or the failed result of a diff that cannot be read. */
+type DiffReading = { readonly kind: 'files'; readonly files: FileDiff[] } | { readonly kind: 'failed'; readonly result: ToolResult };
+
+/**
+ * Read the diff of one provisioned call through the constrained reader with the connector Git path. It never starts a PATH git.
+ * The repo root climbs to its checkout root before the observation. A call with no coordinate diffs from the merge base of the resolved base and the observed head.
+ * A failed non-coordinate read returns DIFF_ERROR, and a failed coordinate read keeps TASK_COORDINATE_REFUSED. A failed read never gives zero findings.
+ */
+async function provisionedDiff(
+  connector: VerificationHostConnector, repoRoot: string, args: MockBoundaryHandlerArgs, baseRef: string | undefined,
+): Promise<DiffReading> {
+  const range: ConstrainedDiffRange | undefined = args.coordinate !== undefined
+    ? { kind: 'commits', baseCommit: args.coordinate.diffBaseCommit, headCommit: args.coordinate.observedHeadCommit }
+    : baseRef === undefined ? undefined : { kind: 'base', base: baseRef };
+  const read: ConstrainedDiffRead = range === undefined
+    ? { kind: 'refused', reason: 'No base names the diff.' }
+    : await readConstrainedDiff(connector.gitPath, resolve(repoRoot), range);
+  if (read.kind === 'diff') return { kind: 'files', files: parseUnifiedDiff(read.diff) };
+  if (args.coordinate !== undefined) return { kind: 'failed', result: COORDINATE_DIFF_REFUSED };
+  return { kind: 'failed', result: { success: false, error: { code: 'DIFF_ERROR', message: `Failed to get diff from git in ${repoRoot}: ${read.reason}` } } };
+}
+
 const DIFF_GIT_RE = /^diff --git a\/(.+?) b\/(.+)$/;
 const HUNK_HEADER_RE = /^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@/;
 
@@ -224,10 +259,10 @@ export function parseUnifiedDiff(diff: string): FileDiff[] {
  * The profile is the pinned profile, or the profile that resolves at the repo root. `profilePath` names which.
  * An unresolved glob term or `firstParty` term gives an advisory skip with `profile-unresolved`.
  *
- * A missing or malformed `.exarchos.yml` falls back to the default globs and severity, and never
- * fails the gate. A malformed file, or a file whose review settings do not resolve, also sets `configLoadError`.
+ * A missing or malformed `.exarchos.yml` falls back to the default globs and severity. A malformed or unresolved file also sets `configLoadError`.
  *
- * The diff uses `--no-ext-diff`, because a `diff.external` wrapper replaces the unified diff and gives zero findings. A git failure gives zero findings.
+ * The diff uses `--no-ext-diff`, because a `diff.external` wrapper replaces the unified diff and gives zero findings.
+ * A failed provisioned diff returns DIFF_ERROR, or TASK_COORDINATE_REFUSED on a coordinate call. With no connector, a git failure gives zero findings.
  *
  * The gate fails only when the severity is blocking, an unowned mock exists, and no `reason` is given.
  * The built-in severity is `warning`, so only a project override makes the gate block.
@@ -239,6 +274,7 @@ export async function handleMockBoundary(
   args: MockBoundaryHandlerArgs,
   stateDir: string,
   eventStore: EventStore,
+  connector?: VerificationHostConnector,
 ): Promise<ToolResult> {
   const pre = await runGatePreflight(
     {
@@ -300,7 +336,6 @@ export async function handleMockBoundary(
         };
       }
 
-      const gitExec = args.gitExec ?? defaultGitExec;
       const { profile, severityConfig, configLoadError } = readTerms(args, repoRoot);
       const globTerm = profile?.tests.globs;
       if (globTerm?.state === 'unresolved') return unresolvedTermSkip(args, repoRoot, globTerm.reason);
@@ -309,13 +344,19 @@ export async function handleMockBoundary(
 
       const severity = resolveGateSeverity('mock-boundary', 'D1', severityConfig);
 
-      const diffResult = args.coordinate === undefined
-        ? gitExec(repoRoot, ['diff', '--no-ext-diff', `${baseRef}...HEAD`])
-        : gitExec(repoRoot, ['diff', '--no-ext-diff', args.coordinate.diffBaseCommit, args.coordinate.observedHeadCommit, '--']);
-      if (args.coordinate !== undefined && diffResult.exitCode !== 0) {
-        return { success: false, error: { code: 'TASK_COORDINATE_REFUSED', message: 'The immutable mock-boundary diff could not be read.' } };
+      let fileDiffs: FileDiff[];
+      if (connector !== undefined) {
+        const reading = await provisionedDiff(connector, repoRoot, args, baseRef);
+        if (reading.kind === 'failed') return reading.result;
+        fileDiffs = reading.files;
+      } else {
+        const gitExec = args.gitExec ?? defaultGitExec;
+        const diffResult = args.coordinate === undefined
+          ? gitExec(repoRoot, ['diff', '--no-ext-diff', `${baseRef}...HEAD`])
+          : gitExec(repoRoot, ['diff', '--no-ext-diff', args.coordinate.diffBaseCommit, args.coordinate.observedHeadCommit, '--']);
+        if (args.coordinate !== undefined && diffResult.exitCode !== 0) return COORDINATE_DIFF_REFUSED;
+        fileDiffs = diffResult.exitCode === 0 ? parseUnifiedDiff(diffResult.stdout) : [];
       }
-      const fileDiffs = diffResult.exitCode === 0 ? parseUnifiedDiff(diffResult.stdout) : [];
       const findings = detectMockFindings(fileDiffs, {
         firstPartyGlobs: firstPartyTerm?.globs ?? DEFAULT_FIRST_PARTY_GLOBS,
         ...(globTerm === undefined ? {} : { testGlobs: globTerm.globs }),

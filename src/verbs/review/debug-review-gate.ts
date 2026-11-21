@@ -2,11 +2,13 @@
  * The debug review gate. It checks that the diff of a debug fix changes at least one test file.
  * A changed file is a test when a test-name glob of the verification profile matches it.
  * The gate runs the test command that the resolver gives when the diff is not empty and `skipRun` is not set.
- * A provisioned verifier runs that command under a checkout subject of the phase attempt. A provisioned route never runs it locally.
+ *
+ * A provisioned verifier runs that command under a checkout subject of the phase attempt. No route runs it locally.
+ * The changed files come from the constrained reader with the connector Git path.
+ * A machine with no verifier refuses with VERIFIER_NOT_PROVISIONED after argument validation.
  */
-import { execFileSync } from 'node:child_process';
-import { runCommandSync } from '../../utils/process.js';
 import { existsSync } from 'node:fs';
+import { resolve } from 'node:path';
 import type { ToolResult } from '../../format.js';
 import { resolveRunnableCommand } from '../../config/test-runtime-resolver.js';
 import { matchesTestName } from '../../config/verification-profile.js';
@@ -14,8 +16,8 @@ import type { EventStore } from '../../events/store.js';
 import { createEvidenceSubject } from '../../workflow/admission/evidence-subject.js';
 import { PROFILE_UNRESOLVED } from '../../workflow/verification/profile.js';
 import type { VerificationHostConnector } from '../../contract/verification/harness-verification.js';
-import { admitLifecycleLegs, hostedPendingResult, runPhaseGateWithEvidence } from '../gates/gate-runner.js';
-import { profileOf, withProfileRoute, type ProfiledGateArgs } from '../gates/gate-utils.js';
+import { admitLifecycleLegs, hostedPendingResult, runPhaseGateWithEvidence, verifierNotProvisioned } from '../gates/gate-runner.js';
+import { observeCurrentCheckout, profileOf, withProfileRoute, type ProfiledGateArgs } from '../gates/gate-utils.js';
 
 export interface DebugReviewGateArgs extends ProfiledGateArgs {
   /** The stream the gate's durable evidence is recorded against. */
@@ -40,7 +42,8 @@ interface DebugReviewHost {
 /**
  * Runs the gate through the shared phase-gate runner, which records durable gate evidence before a
  * success carrier returns. The action declares no catalog emission, so the gate appends no `gate.executed` row.
- * A connector comes only from the dispatch context. A pending hosted result maps to its existing code with no evidence.
+ * A connector comes only from the dispatch context. With no connector, the gate refuses after the `featureId` check, before the provider checks.
+ * A pending hosted result maps to its existing code with no evidence.
  */
 export async function handleDebugReviewGate(
   args: DebugReviewGateArgs,
@@ -55,8 +58,10 @@ export async function handleDebugReviewGate(
     };
   }
 
+  if (connector === undefined) return verifierNotProvisioned('debug_review_gate');
+
   let attempt: string | undefined;
-  const host = connector === undefined ? undefined : { connector, phaseAttemptId: () => attempt };
+  const host: DebugReviewHost = { connector, phaseAttemptId: () => attempt };
   try {
     return await runPhaseGateWithEvidence({
       streamId: args.featureId,
@@ -84,7 +89,7 @@ export async function handleDebugReviewGate(
   }
 }
 
-async function executeDebugReviewGate(args: DebugReviewGateArgs, host?: DebugReviewHost): Promise<ToolResult> {
+async function executeDebugReviewGate(args: DebugReviewGateArgs, host: DebugReviewHost): Promise<ToolResult> {
   if (!args.repoRoot) {
     return {
       success: false,
@@ -112,7 +117,7 @@ async function executeDebugReviewGate(args: DebugReviewGateArgs, host?: DebugRev
   const checks: CheckCounts = { pass: 0, fail: 0, skip: 0 };
   const results: string[] = [];
 
-  const changedFiles = getChangedFiles(args.repoRoot, args.baseBranch);
+  const changedFiles = await getChangedFiles(host.connector.gitPath, args.repoRoot, args.baseBranch);
 
   if (changedFiles === null) {
     return {
@@ -157,7 +162,7 @@ async function executeDebugReviewGate(args: DebugReviewGateArgs, host?: DebugRev
     results.push('- **SKIP**: Tests pass (--skip-run)');
     checks.skip++;
   } else if (changedFiles.length > 0) {
-    const run = host === undefined ? runTests(args.repoRoot) : await runHostedTests(args, host);
+    const run = await runHostedTests(args, host);
     if ('success' in run) return run;
     if (run.passed) {
       results.push(`- **PASS**: Tests pass (${run.detail})`);
@@ -186,54 +191,33 @@ async function executeDebugReviewGate(args: DebugReviewGateArgs, host?: DebugRev
   };
 }
 
-/** Lists the files changed since `baseBranch` with a three-dot diff, then a two-dot diff. It returns `null` when both fail. */
-function getChangedFiles(repoRoot: string, baseBranch: string): string[] | null {
-  try {
-    const output = execFileSync(
-      'git',
-      ['diff', '--name-only', `${baseBranch}...HEAD`],
-      { cwd: repoRoot, encoding: 'utf-8' },
-    );
-    return output
-      .trim()
-      .split('\n')
-      .filter((line) => line.length > 0);
-  } catch {
-    try {
-      const output = execFileSync(
-        'git',
-        ['diff', '--name-only', baseBranch, 'HEAD'],
-        { cwd: repoRoot, encoding: 'utf-8' },
-      );
-      return output
-        .trim()
-        .split('\n')
-        .filter((line) => line.length > 0);
-    } catch {
-      return null;
-    }
-  }
+/** The lines of a name-only diff, with no empty line. */
+function nameLines(output: string): string[] {
+  return output.trim().split('\n').filter((line) => line.length > 0);
 }
 
 /**
- * Run the test command the toolchain resolver resolves for `repoRoot`. No
- * resolvable test command fails the check. `detail` names the command that ran,
- * or the reason no command ran.
+ * Lists the files changed since `baseBranch` through the constrained reader with the connector Git path. It starts no PATH git.
+ * The repo root climbs to its checkout root, and the base resolves by the closed base-name order.
+ * The first read is a name-only diff from the merge base of the base and the head, which is the meaning of `base...HEAD`.
+ * When that read fails, the second read is a name-only diff of the base and the head. It returns `null` when the observation, the base or both reads fail.
  */
-function runTests(repoRoot: string): { readonly passed: boolean; readonly detail: string } {
-  const resolved = resolveRunnableCommand(repoRoot, 'test');
-  if (resolved.kind !== 'runnable') {
-    return { passed: false, detail: `no test command resolved: ${resolved.reason}` };
-  }
+async function getChangedFiles(gitPath: string, repoRoot: string, baseBranch: string): Promise<string[] | null> {
+  const observed = await observeCurrentCheckout(gitPath, resolve(repoRoot));
+  if (observed.kind === 'refused') return null;
+  const { observer, checkout } = observed;
+  const base = await observer.base(checkout, baseBranch);
+  if (base.kind === 'refused') return null;
+  const { gitDir } = checkout;
   try {
-    runCommandSync(resolved.bin, resolved.args, {
-      cwd: repoRoot,
-      stdio: 'pipe',
-      timeout: 120_000,
-    });
-    return { passed: true, detail: resolved.command };
+    const mergeBase = (await observer.reads.mergeBase(gitDir, checkout.checkout, base.value, checkout.head)).trim();
+    return nameLines(await observer.reads.nameOnly(gitDir, checkout.checkout, mergeBase, checkout.head));
   } catch {
-    return { passed: false, detail: `${resolved.command} failed` };
+    try {
+      return nameLines(await observer.reads.nameOnly(gitDir, checkout.checkout, base.value, checkout.head));
+    } catch {
+      return null;
+    }
   }
 }
 

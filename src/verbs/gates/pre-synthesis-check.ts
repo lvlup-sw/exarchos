@@ -8,11 +8,12 @@
  *   6. A PR stack exists (skippable).
  *   7. The tests pass (skippable).
  * Checks 2 to 5 run only when check 1 passes.
- * A provisioned verifier runs check 7 under a checkout subject of the phase attempt. A provisioned route never runs it locally.
+ * A provisioned verifier runs check 7 under a checkout subject of the phase attempt. No route runs it locally.
+ * Check 6 reads the current branch through the constrained reader with the connector Git path.
+ * A machine with no verifier refuses with VERIFIER_NOT_PROVISIONED after argument validation.
  */
 
-import { execFileSync } from 'node:child_process';
-import { runCommandSync } from '../../utils/process.js';
+import { resolve } from 'node:path';
 import type { ToolResult } from '../../format.js';
 import type { EventStore } from '../../events/store.js';
 import { resolveTestRuntime } from '../../config/test-runtime-resolver.js';
@@ -22,8 +23,10 @@ import { createVcsProvider } from '../../vcs/factory.js';
 import { classifyStateFile, resolveWorkflowState } from '../resolve-state.js';
 import { createEvidenceSubject } from '../../workflow/admission/evidence-subject.js';
 import type { VerificationHostConnector } from '../../contract/verification/harness-verification.js';
-import { admitLifecycleLegs, hostedPendingResult, hostedRefusal, runPhaseGateWithEvidence, type LifecycleLeg } from './gate-runner.js';
-import { emitGateEvent, sameOperationGateKey } from './gate-utils.js';
+import {
+  admitLifecycleLegs, hostedPendingResult, hostedRefusal, runPhaseGateWithEvidence, verifierNotProvisioned, type LifecycleLeg,
+} from './gate-runner.js';
+import { emitGateEvent, observeCurrentCheckout, sameOperationGateKey } from './gate-utils.js';
 
 export interface PreSynthesisCheckArgs {
   /**
@@ -333,12 +336,15 @@ function checkNoFixRequests(
 /**
  * Check 6: passes when the current branch has an open PR. It is skipped with
  * `skipStack`, or when the provider is not GitHub.
+ * The branch is the symbolic HEAD of the checkout root above `repoRoot`, read with the connector Git path.
+ * A detached HEAD and a refused observation fail the check.
  */
 async function checkPrStack(
   ctx: CheckContext,
   repoRoot: string,
   skipStack: boolean,
   provider: VcsProvider,
+  gitPath: string,
 ): Promise<void> {
   if (skipStack) {
     checkSkip(ctx, 'PR stack exists (--skip-stack)');
@@ -350,19 +356,8 @@ async function checkPrStack(
     return;
   }
 
-  let currentBranch: string;
-  try {
-    currentBranch = execFileSync('git', ['branch', '--show-current'], {
-      cwd: repoRoot,
-      encoding: 'utf-8',
-      timeout: 5_000,
-      stdio: ['pipe', 'pipe', 'pipe'],
-    }).trim();
-  } catch {
-    checkFail(ctx, 'PR stack exists', 'Could not determine current branch');
-    return;
-  }
-
+  const observed = await observeCurrentCheckout(gitPath, resolve(repoRoot));
+  const currentBranch = observed.kind === 'observed' ? observed.checkout.branch.slice('refs/heads/'.length) : '';
   if (!currentBranch) {
     checkFail(ctx, 'PR stack exists', 'Could not determine current branch');
     return;
@@ -379,86 +374,6 @@ async function checkPrStack(
   } catch {
     checkFail(ctx, 'PR stack exists', 'Failed querying PRs (VcsProvider error)');
   }
-}
-
-/**
- * Check 7: runs the test command, then the typecheck command, from
- * `resolveTestRuntime`. If the runtime is unresolved or has no test command,
- * the check is skipped. So the check never runs a guessed `npm` command in a
- * pnpm or yarn repo. The commands run through `runCommandSync`, because
- * `execFile` refuses to start a `.cmd` package-manager shim on Windows since
- * CVE-2024-27980.
- */
-function checkTestsPass(
-  ctx: CheckContext,
-  repoRoot: string,
-  skipTests: boolean,
-  testCommand?: string,
-): void {
-  if (skipTests) {
-    checkSkip(ctx, 'Tests pass (--skip-tests)');
-    return;
-  }
-
-  let resolved: ReturnType<typeof resolveTestRuntime>;
-  try {
-    resolved = resolveTestRuntime(
-      repoRoot,
-      testCommand ? { override: { test: testCommand } } : undefined,
-    );
-  } catch (err) {
-    checkFail(ctx, 'Tests pass', err instanceof Error ? err.message : String(err));
-    return;
-  }
-
-  if (resolved.source === 'unresolved') {
-    const detail = resolved.remediation ?? 'no test runtime resolved';
-    checkSkip(ctx, `Tests pass — ${detail}`);
-    return;
-  }
-
-  const cmds = { test: resolved.test, typecheck: resolved.typecheck };
-
-  if (cmds.test === null) {
-    checkSkip(ctx, 'Tests pass (no test runner detected)');
-    return;
-  }
-
-  try {
-    const { cmd: testProg, args: testArgs } = splitCommand(cmds.test);
-    if (testProg === '') {
-      checkFail(ctx, 'Tests pass', 'empty test command');
-      return;
-    }
-    runCommandSync(testProg, testArgs as string[], {
-      cwd: repoRoot,
-      timeout: 120_000,
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
-  } catch {
-    checkFail(ctx, 'Tests pass', `${cmds.test} failed`);
-    return;
-  }
-
-  if (cmds.typecheck !== null) {
-    try {
-      const { cmd: tcProg, args: tcArgs } = splitCommand(cmds.typecheck);
-      if (tcProg === '') {
-        checkFail(ctx, 'Tests pass', 'empty typecheck command');
-        return;
-      }
-      runCommandSync(tcProg, tcArgs as string[], {
-        cwd: repoRoot,
-        timeout: 60_000,
-        stdio: ['pipe', 'pipe', 'pipe'],
-      });
-    } catch {
-      checkFail(ctx, 'Tests pass', `${cmds.typecheck} failed`);
-      return;
-    }
-  }
-
-  checkPass(ctx, 'Tests pass');
 }
 
 /** The verifier of one call and the phase attempt that scopes its request. */
@@ -535,8 +450,8 @@ async function checkTestsPassHosted(
 /**
  * Runs the readiness checks through `runPhaseGateWithEvidence`. The runner
  * records durable gate evidence before a success result returns.
- * A connector comes only from the dispatch context. With a connector, a caller test-command override refuses before any request,
- * and a pending hosted result maps to its existing code with no evidence.
+ * A connector comes only from the dispatch context. With no connector, the handler refuses after argument validation, also for `skipTests` and `skipStack`.
+ * With a connector, a caller test-command override refuses before any request, and a pending hosted result maps to its existing code with no evidence.
  */
 export async function handlePreSynthesisCheck(
   args: PreSynthesisCheckArgs,
@@ -560,12 +475,13 @@ export async function handlePreSynthesisCheck(
     };
   }
 
-  if (connector !== undefined && args.testCommand !== undefined) {
+  if (connector === undefined) return verifierNotProvisioned('pre_synthesis_check');
+  if (args.testCommand !== undefined) {
     return hostedRefusal('A provisioned verifier refuses a caller test-command override. Only the approved command runs in the verifier.');
   }
 
   let attempt: string | undefined;
-  const host = connector === undefined ? undefined : { connector, phaseAttemptId: () => attempt };
+  const host: PreSynthesisHost = { connector, phaseAttemptId: () => attempt };
   try {
     return await runPhaseGateWithEvidence({
       streamId: args.featureId,
@@ -598,10 +514,10 @@ export async function handlePreSynthesisCheck(
 async function executePreSynthesisCheck(
   args: PreSynthesisCheckArgs,
   store: EventStore,
-  provider?: VcsProvider,
-  host?: PreSynthesisHost,
+  provider: VcsProvider | undefined,
+  host: PreSynthesisHost,
 ): Promise<ToolResult> {
-  const { stateFile, featureId, eventStore, repoRoot = '.', skipTests = false, skipStack = false, testCommand } = args;
+  const { stateFile, featureId, eventStore, repoRoot = '.', skipStack = false } = args;
   const vcs = provider ?? await createVcsProvider();
 
   const ctx: CheckContext = {
@@ -635,13 +551,10 @@ async function executePreSynthesisCheck(
     checkNoFixRequests(ctx, state);
   }
 
-  await checkPrStack(ctx, repoRoot, skipStack, vcs);
+  await checkPrStack(ctx, repoRoot, skipStack, vcs, host.connector.gitPath);
 
-  if (host === undefined) checkTestsPass(ctx, repoRoot, skipTests, testCommand);
-  else {
-    const refused = await checkTestsPassHosted(ctx, args, repoRoot, host);
-    if (refused !== undefined) return refused;
-  }
+  const refused = await checkTestsPassHosted(ctx, args, repoRoot, host);
+  if (refused !== undefined) return refused;
 
   const total = ctx.counters.pass + ctx.counters.fail;
   const passed = ctx.counters.fail === 0;

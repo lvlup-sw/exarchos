@@ -12,13 +12,43 @@ vi.mock('node:child_process', () => ({
   execFileSync: vi.fn(),
 }));
 
+vi.mock('../../../../src/utils/paths.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../../../src/utils/paths.js')>()),
+  gitCommonDirOf: vi.fn(() => '/worktree/.git'),
+}));
+
+vi.mock('../../../../src/verbs/gates/gate-runner.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../../../src/verbs/gates/gate-runner.js')>();
+  return { ...actual, admitLifecycleLegs: vi.fn(actual.admitLifecycleLegs) };
+});
+
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { handleVerifyWorktreeBaseline } from '../../../../src/verbs/gates/verify-worktree-baseline.js';
+import { admitLifecycleLegs } from '../../../../src/verbs/gates/gate-runner.js';
+import { gitCommonDirOf } from '../../../../src/utils/paths.js';
 import type { VerificationHostConnector } from '../../../../src/contract/verification/harness-verification.js';
 
 /** A package.json with the `test:run` script that the npm path of the resolver requires. */
 const NPM_PACKAGE_JSON = JSON.stringify({ scripts: { 'test:run': 'vitest run' } });
+
+/** A connector for the cases whose signed test leg is stubbed. */
+const connector: VerificationHostConnector = {
+  publicKey: 'unused', gitPath: '/nonexistent/git', resourceId: 'unused', profileId: 'unused',
+  client: { submit: async () => ({ kind: 'unavailable', reason: 'unused' }), retrieve: async () => ({ kind: 'unavailable', reason: 'unused' }) },
+};
+
+/** Stub the next signed baseline leg of the verifier. */
+function signedLeg(exitCode: number, stdout = '', stderr = ''): void {
+  vi.mocked(admitLifecycleLegs).mockResolvedValueOnce([
+    { name: 'test', kind: 'command', run: { end: 'exited', exitCode, stdout, stderr, outputDigest: 'a'.repeat(64) } },
+  ]);
+}
+
+/** The argument vector of the one admitted baseline leg. */
+function admittedArgv(): readonly string[] | undefined {
+  return vi.mocked(admitLifecycleLegs).mock.calls[0]?.[0].legs[0]?.argv;
+}
 
 /** A connector whose verifier no case reaches. Each exchange records its call. */
 function unreachableConnector(exchanges: string[]): VerificationHostConnector {
@@ -36,6 +66,8 @@ describe('handleVerifyWorktreeBaseline', () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
+    vi.mocked(admitLifecycleLegs).mockClear();
+    vi.mocked(gitCommonDirOf).mockClear();
   });
 
   it('NodeProject_TestsPass_ReturnsPassedTrue', async () => {
@@ -50,9 +82,9 @@ describe('handleVerifyWorktreeBaseline', () => {
       if (String(p).endsWith('package.json')) return NPM_PACKAGE_JSON;
       throw new Error(`unexpected readFileSync: ${String(p)}`);
     });
-    vi.mocked(execFileSync).mockReturnValue('Tests passed\n');
+    signedLeg(0, 'Tests passed\n');
 
-    const result = await handleVerifyWorktreeBaseline({ worktreePath: '/worktree' }, stateDir);
+    const result = await handleVerifyWorktreeBaseline({ worktreePath: '/worktree' }, stateDir, connector);
 
     expect(result.success).toBe(true);
     const data = result.data as { passed: boolean; projectType: string; testCommand: string; report: string };
@@ -60,6 +92,7 @@ describe('handleVerifyWorktreeBaseline', () => {
     expect(data.projectType).toBe('Node.js');
     expect(data.testCommand).toBe('npm run test:run');
     expect(data.report).toContain('PASS');
+    expect(execFileSync).not.toHaveBeenCalled();
   });
 
   it('DotNetProject_TestsPass_ReturnsPassedTrue', async () => {
@@ -69,9 +102,9 @@ describe('handleVerifyWorktreeBaseline', () => {
       return false;
     });
     vi.mocked(readdirSync).mockReturnValue(['MyApp.csproj' as unknown as ReturnType<typeof readdirSync>[number]]);
-    vi.mocked(execFileSync).mockReturnValue('All tests passed\n');
+    signedLeg(0, 'All tests passed\n');
 
-    const result = await handleVerifyWorktreeBaseline({ worktreePath: '/worktree' }, stateDir);
+    const result = await handleVerifyWorktreeBaseline({ worktreePath: '/worktree' }, stateDir, connector);
 
     expect(result.success).toBe(true);
     const data = result.data as { passed: boolean; projectType: string; testCommand: string };
@@ -88,9 +121,9 @@ describe('handleVerifyWorktreeBaseline', () => {
       return false;
     });
     vi.mocked(readdirSync).mockReturnValue([]);
-    vi.mocked(execFileSync).mockReturnValue('test result: ok\n');
+    signedLeg(0, 'test result: ok\n');
 
-    const result = await handleVerifyWorktreeBaseline({ worktreePath: '/worktree' }, stateDir);
+    const result = await handleVerifyWorktreeBaseline({ worktreePath: '/worktree' }, stateDir, connector);
 
     expect(result.success).toBe(true);
     const data = result.data as { passed: boolean; projectType: string; testCommand: string };
@@ -106,12 +139,12 @@ describe('handleVerifyWorktreeBaseline', () => {
       return false;
     });
     vi.mocked(readdirSync).mockReturnValue([]);
-    vi.mocked(execFileSync).mockReturnValue('');
 
-    const result = await handleVerifyWorktreeBaseline({ worktreePath: '/worktree' }, stateDir);
+    const result = await handleVerifyWorktreeBaseline({ worktreePath: '/worktree' }, stateDir, connector);
 
     expect(result.success).toBe(false);
     expect(result.error).toMatchObject({ code: 'UNKNOWN_PROJECT_TYPE' });
+    expect(admitLifecycleLegs).not.toHaveBeenCalled();
   });
 
   it('TestsFail_ReturnsPassedFalse', async () => {
@@ -126,27 +159,16 @@ describe('handleVerifyWorktreeBaseline', () => {
       if (String(p).endsWith('package.json')) return NPM_PACKAGE_JSON;
       throw new Error(`unexpected readFileSync: ${String(p)}`);
     });
+    signedLeg(1, '3 tests failed', 'FAIL src/foo.test.ts');
 
-    const error = new Error('Process exited with code 1') as Error & {
-      status: number;
-      stdout: string;
-      stderr: string;
-    };
-    error.status = 1;
-    error.stdout = '3 tests failed';
-    error.stderr = 'FAIL src/foo.test.ts';
-    vi.mocked(execFileSync).mockImplementation((cmd, args) => {
-      if (String(cmd) === 'git') return '.git\n';
-      throw error;
-    });
-
-    const result = await handleVerifyWorktreeBaseline({ worktreePath: '/worktree' }, stateDir);
+    const result = await handleVerifyWorktreeBaseline({ worktreePath: '/worktree' }, stateDir, connector);
 
     expect(result.success).toBe(true);
     const data = result.data as { passed: boolean; projectType: string; report: string };
     expect(data.passed).toBe(false);
     expect(data.projectType).toBe('Node.js');
     expect(data.report).toContain('FAIL');
+    expect(data.report).toContain('exit code 1');
   });
 
   it('PathDoesNotExist_ReturnsError', async () => {
@@ -159,22 +181,20 @@ describe('handleVerifyWorktreeBaseline', () => {
     expect(result.error?.message).toContain('/nonexistent');
   });
 
+  /** A provisioned call keeps NOT_GIT_WORKTREE through the process-free climb, and starts no process. */
   it('NotAGitWorktree_ReturnsError', async () => {
     vi.mocked(existsSync).mockImplementation((p) => {
       if (String(p) === '/not-git') return true;
       return false;
     });
-    vi.mocked(execFileSync).mockImplementation((cmd, args) => {
-      if (String(cmd) === 'git' && Array.isArray(args) && args.includes('--git-dir')) {
-        throw new Error('fatal: not a git repository');
-      }
-      return '';
-    });
+    vi.mocked(gitCommonDirOf).mockImplementationOnce(() => { throw new Error('No .git entry above the directory'); });
 
-    const result = await handleVerifyWorktreeBaseline({ worktreePath: '/not-git' }, stateDir);
+    const result = await handleVerifyWorktreeBaseline({ worktreePath: '/not-git' }, stateDir, connector);
 
     expect(result.success).toBe(false);
     expect(result.error).toMatchObject({ code: 'NOT_GIT_WORKTREE' });
+    expect(gitCommonDirOf).toHaveBeenCalledWith('/not-git');
+    expect(execFileSync).not.toHaveBeenCalled();
   });
 
   /** A Python project with only `pyproject.toml` resolves to pytest, which runs with no arguments. */
@@ -186,19 +206,16 @@ describe('handleVerifyWorktreeBaseline', () => {
       return false;
     });
     vi.mocked(readdirSync).mockReturnValue([]);
-    vi.mocked(execFileSync).mockReturnValue('=== 5 passed in 0.42s ===\n');
+    signedLeg(0, '=== 5 passed in 0.42s ===\n');
 
-    const result = await handleVerifyWorktreeBaseline({ worktreePath: '/worktree' }, stateDir);
+    const result = await handleVerifyWorktreeBaseline({ worktreePath: '/worktree' }, stateDir, connector);
 
     expect(result.success).toBe(true);
     const data = result.data as { passed: boolean; projectType: string; testCommand: string };
     expect(data.passed).toBe(true);
     expect(data.projectType).toBe('Python');
     expect(data.testCommand).toBe('pytest');
-    const calls = vi.mocked(execFileSync).mock.calls;
-    const pytestCall = calls.find((c) => String(c[0]).replace(/\.cmd$/, '') === 'pytest');
-    expect(pytestCall).toBeDefined();
-    expect(pytestCall?.[1]).toEqual([]);
+    expect(admittedArgv()).toEqual(['pytest']);
   });
 
   /** Bun does not require `scripts.test`, but the resolver still reads package.json. */
@@ -215,17 +232,15 @@ describe('handleVerifyWorktreeBaseline', () => {
       if (String(p).endsWith('package.json')) return JSON.stringify({});
       throw new Error(`unexpected readFileSync: ${String(p)}`);
     });
-    vi.mocked(execFileSync).mockReturnValue('bun test passed\n');
+    signedLeg(0, 'bun test passed\n');
 
-    const result = await handleVerifyWorktreeBaseline({ worktreePath: '/worktree' }, stateDir);
+    const result = await handleVerifyWorktreeBaseline({ worktreePath: '/worktree' }, stateDir, connector);
 
     expect(result.success).toBe(true);
     const data = result.data as { passed: boolean; projectType: string; testCommand: string };
     expect(data.projectType).toBe('Node.js (bun)');
     expect(data.testCommand).toBe('bun test');
-    const calls = vi.mocked(execFileSync).mock.calls;
-    const bunCall = calls.find((c) => String(c[0]).replace(/\.cmd$/, '') === 'bun');
-    expect(bunCall?.[1]).toEqual(['test']);
+    expect(admittedArgv()).toEqual(['bun', 'test']);
   });
 
   /**
@@ -247,12 +262,9 @@ describe('handleVerifyWorktreeBaseline', () => {
       }
       throw new Error(`unexpected readFileSync: ${String(p)}`);
     });
-    vi.mocked(execFileSync).mockImplementation((cmd) => {
-      if (String(cmd) === 'git') return '.git\n';
-      return '=== 1 passed ===\n' as unknown as Buffer;
-    });
+    signedLeg(0, '=== 1 passed ===\n');
 
-    const result = await handleVerifyWorktreeBaseline({ worktreePath: '/worktree' }, stateDir);
+    const result = await handleVerifyWorktreeBaseline({ worktreePath: '/worktree' }, stateDir, connector);
 
     expect(result.success).toBe(true);
     const data = result.data as { passed: boolean; projectType: string; testCommand: string };
@@ -276,93 +288,42 @@ describe('handleVerifyWorktreeBaseline', () => {
       }
       throw new Error(`unexpected readFileSync: ${String(p)}`);
     });
-    vi.mocked(execFileSync).mockImplementation((cmd) => {
-      if (String(cmd) === 'git') return '.git\n';
-      return 'Tests OK\n' as unknown as Buffer;
-    });
+    signedLeg(0, 'Tests OK\n');
 
-    const result = await handleVerifyWorktreeBaseline({ worktreePath: '/worktree' }, stateDir);
+    const result = await handleVerifyWorktreeBaseline({ worktreePath: '/worktree' }, stateDir, connector);
 
     expect(result.success).toBe(true);
     const data = result.data as { passed: boolean; projectType: string; testCommand: string };
     expect(data.passed).toBe(true);
     expect(data.projectType).toBe('Configured (.exarchos.yml)');
     expect(data.testCommand).toBe('make test');
+    expect(admittedArgv()).toEqual(['make', 'test']);
   });
 
   /**
-   * A dirty path whose working-tree blob matches the committed blob on the agent branch tip is a recoverable `leaked-committed` leak.
-   * It is not unrelated dirt. The remediation is `git checkout --` with the path in single quotes, which neutralizes shell metacharacters.
+   * A leak-detection request on a machine with no verifier refuses after the path check and before the Git climb.
+   * No route inspects the tree, so no Git process starts.
    */
-  it('VerifyWorktreeBaseline_LeakedEditByteIdenticalToCommittedAgentChange_IsDetected', async () => {
-    const AGENT_BRANCH = 'feature/agent-task-123';
-    const LEAKED_PATH = 'src/leaked.ts';
-    const SHARED_BLOB = 'export const leaked = true;\n';
-
-    vi.mocked(existsSync).mockImplementation((p) => {
-      const s = String(p).replace(/\\/g, '/').replace(/^[A-Za-z]:/, '');
-      if (s === '/worktree') return true;
-      if (s === '/worktree/package.json') return true;
-      return false;
-    });
-    vi.mocked(readdirSync).mockReturnValue([]);
-    vi.mocked(readFileSync).mockImplementation((p) => {
-      if (String(p).endsWith('package.json')) return NPM_PACKAGE_JSON;
-      throw new Error(`unexpected readFileSync: ${String(p)}`);
-    });
-
-    vi.mocked(execFileSync).mockImplementation((cmd, args) => {
-      const a = (args as string[]) ?? [];
-      if (String(cmd) === 'git') {
-        if (a.includes('--git-dir')) return '.git\n' as unknown as Buffer;
-        if (a.includes('status') && a.includes('--porcelain')) {
-          return ` M ${LEAKED_PATH}\n` as unknown as Buffer;
-        }
-        if (a.includes('hash-object')) {
-          return 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n' as unknown as Buffer;
-        }
-        if (a.includes('rev-parse') && a.some((x) => x.startsWith(AGENT_BRANCH))) {
-          return 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n' as unknown as Buffer;
-        }
-        return '' as unknown as Buffer;
-      }
-      return 'Tests passed\n' as unknown as Buffer;
-    });
+  it('VerifyWorktreeBaseline_LeakDetectionWithNoConnector_RefusesBeforeAnyGitRead', async () => {
+    vi.mocked(existsSync).mockImplementation((p) => String(p).replace(/^[A-Za-z]:/, '') === '/worktree');
 
     const result = await handleVerifyWorktreeBaseline(
-      { worktreePath: '/worktree', agentBranch: AGENT_BRANCH },
+      { worktreePath: '/worktree', agentBranch: 'feature/agent-task-123' },
       stateDir,
     );
 
-    expect(result.success).toBe(true);
-    const data = result.data as {
-      leakDetection?: {
-        dirty: boolean;
-        paths: { path: string; classification: string; remediation?: string }[];
-      };
-    };
-    expect(data.leakDetection).toBeDefined();
-    expect(data.leakDetection?.dirty).toBe(true);
-    const entry = data.leakDetection?.paths.find((p) => p.path === LEAKED_PATH);
-    expect(entry).toBeDefined();
-    expect(entry?.classification).toBe('leaked-committed');
-    expect(entry?.remediation).toContain(`git checkout -- '${LEAKED_PATH}'`);
+    expect(result).toMatchObject({ success: false, error: { code: 'VERIFIER_NOT_PROVISIONED' } });
+    expect(result.error?.message).toContain('Provision the verifier');
+    expect(gitCommonDirOf).not.toHaveBeenCalled();
+    expect(admitLifecycleLegs).not.toHaveBeenCalled();
+    expect(execFileSync).not.toHaveBeenCalled();
   });
 
-  /**
-   * Porcelain shows a rename as `R  old -> new`, and the file on disk is at `new`.
-   * The parser must pass `new` to `git hash-object`, not the raw arrow string. In the mock, only the new path matches the agent blob.
-   */
-  it('VerifyWorktreeBaseline_RenamedLeak_ParsesNewPathNotRawArrow', async () => {
-    const AGENT_BRANCH = 'feature/agent-task-123';
-    const OLD_PATH = 'src/old-name.ts';
-    const NEW_PATH = 'src/renamed-leak.ts';
-
+  /** A provisioned leak-detection request refuses, because leak detection needs clean-tree evidence of the harness. No tree inspection and no test run start. */
+  it('VerifyWorktreeBaseline_LeakDetectionWithConnector_RefusesWithNoTreeInspection', async () => {
     vi.mocked(existsSync).mockImplementation((p) => {
       const s = String(p).replace(/\\/g, '/').replace(/^[A-Za-z]:/, '');
-      if (s === '/worktree') return true;
-      if (s === '/worktree/package.json') return true;
-      return false;
+      return s === '/worktree' || s === '/worktree/package.json';
     });
     vi.mocked(readdirSync).mockReturnValue([]);
     vi.mocked(readFileSync).mockImplementation((p) => {
@@ -370,90 +331,28 @@ describe('handleVerifyWorktreeBaseline', () => {
       throw new Error(`unexpected readFileSync: ${String(p)}`);
     });
 
-    vi.mocked(execFileSync).mockImplementation((cmd, args) => {
-      const a = (args as string[]) ?? [];
-      if (String(cmd) === 'git') {
-        if (a.includes('--git-dir')) return '.git\n' as unknown as Buffer;
-        if (a.includes('status') && a.includes('--porcelain')) {
-          return `R  ${OLD_PATH} -> ${NEW_PATH}\n` as unknown as Buffer;
-        }
-        if (a.includes('hash-object') && a.includes(NEW_PATH)) {
-          return 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\n' as unknown as Buffer;
-        }
-        if (a.includes('rev-parse') && a.some((x) => x === `${AGENT_BRANCH}:${NEW_PATH}`)) {
-          return 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\n' as unknown as Buffer;
-        }
-        return '' as unknown as Buffer;
-      }
-      return 'Tests passed\n' as unknown as Buffer;
-    });
-
     const result = await handleVerifyWorktreeBaseline(
-      { worktreePath: '/worktree', agentBranch: AGENT_BRANCH },
+      { worktreePath: '/worktree', agentBranch: 'feature/agent-task-123' },
       stateDir,
+      connector,
     );
 
-    expect(result.success).toBe(true);
-    const data = result.data as {
-      leakDetection?: { paths: { path: string; classification: string }[] };
-    };
-    const paths = data.leakDetection?.paths ?? [];
-    expect(paths.some((p) => p.path.includes(' -> '))).toBe(false);
-    const entry = paths.find((p) => p.path === NEW_PATH);
-    expect(entry).toBeDefined();
-    expect(entry?.classification).toBe('leaked-committed');
+    expect(result).toMatchObject({ success: false, error: { code: 'HOSTED_VERIFICATION_REFUSED' } });
+    expect(result.error?.message).toContain('leak detection');
+    expect(admitLifecycleLegs).not.toHaveBeenCalled();
+    expect(execFileSync).not.toHaveBeenCalled();
   });
 
-  /** The agent tip has a different blob, so the path is a divergent local change and classifies as `dirty`. */
-  it('VerifyWorktreeBaseline_UnrelatedDirtyTree_IsGenuineBlocker', async () => {
-    const AGENT_BRANCH = 'feature/agent-task-123';
-    const DIRTY_PATH = 'src/local-wip.ts';
+  /** With no connector, a path outside any checkout refuses with VERIFIER_NOT_PROVISIONED. The refusal comes before the NOT_GIT_WORKTREE check. */
+  it('VerifyWorktreeBaseline_NotAGitWorktreeWithNoConnector_RefusesBeforeTheClimb', async () => {
+    vi.mocked(existsSync).mockImplementation((p) => String(p) === '/not-git');
+    vi.mocked(gitCommonDirOf).mockImplementationOnce(() => { throw new Error('No .git entry above the directory'); });
 
-    vi.mocked(existsSync).mockImplementation((p) => {
-      const s = String(p).replace(/\\/g, '/').replace(/^[A-Za-z]:/, '');
-      if (s === '/worktree') return true;
-      if (s === '/worktree/package.json') return true;
-      return false;
-    });
-    vi.mocked(readdirSync).mockReturnValue([]);
-    vi.mocked(readFileSync).mockImplementation((p) => {
-      if (String(p).endsWith('package.json')) return NPM_PACKAGE_JSON;
-      throw new Error(`unexpected readFileSync: ${String(p)}`);
-    });
+    const result = await handleVerifyWorktreeBaseline({ worktreePath: '/not-git' }, stateDir);
 
-    vi.mocked(execFileSync).mockImplementation((cmd, args) => {
-      const a = (args as string[]) ?? [];
-      if (String(cmd) === 'git') {
-        if (a.includes('--git-dir')) return '.git\n' as unknown as Buffer;
-        if (a.includes('status') && a.includes('--porcelain')) {
-          return ` M ${DIRTY_PATH}\n` as unknown as Buffer;
-        }
-        if (a.includes('hash-object')) {
-          return 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\n' as unknown as Buffer;
-        }
-        if (a.includes('rev-parse') && a.some((x) => x.startsWith(AGENT_BRANCH))) {
-          return 'cccccccccccccccccccccccccccccccccccccccc\n' as unknown as Buffer;
-        }
-        return '' as unknown as Buffer;
-      }
-      return 'Tests passed\n' as unknown as Buffer;
-    });
-
-    const result = await handleVerifyWorktreeBaseline(
-      { worktreePath: '/worktree', agentBranch: AGENT_BRANCH },
-      stateDir,
-    );
-
-    expect(result.success).toBe(true);
-    const data = result.data as {
-      leakDetection?: {
-        dirty: boolean;
-        paths: { path: string; classification: string }[];
-      };
-    };
-    expect(data.leakDetection?.dirty).toBe(true);
-    const entry = data.leakDetection?.paths.find((p) => p.path === DIRTY_PATH);
-    expect(entry?.classification).toBe('dirty');
+    expect(result).toMatchObject({ success: false, error: { code: 'VERIFIER_NOT_PROVISIONED' } });
+    expect(gitCommonDirOf).not.toHaveBeenCalled();
+    expect(execFileSync).not.toHaveBeenCalled();
   });
 
   /** The pnpm path requires a `test` script in package.json. */
@@ -471,17 +370,15 @@ describe('handleVerifyWorktreeBaseline', () => {
         return JSON.stringify({ scripts: { test: 'vitest run' } });
       throw new Error(`unexpected readFileSync: ${String(p)}`);
     });
-    vi.mocked(execFileSync).mockReturnValue('pnpm tests passed\n');
+    signedLeg(0, 'pnpm tests passed\n');
 
-    const result = await handleVerifyWorktreeBaseline({ worktreePath: '/worktree' }, stateDir);
+    const result = await handleVerifyWorktreeBaseline({ worktreePath: '/worktree' }, stateDir, connector);
 
     expect(result.success).toBe(true);
     const data = result.data as { passed: boolean; projectType: string; testCommand: string };
     expect(data.projectType).toBe('Node.js (pnpm)');
     expect(data.testCommand).toBe('pnpm test');
-    const calls = vi.mocked(execFileSync).mock.calls;
-    const pnpmCall = calls.find((c) => String(c[0]).replace(/\.cmd$/, '') === 'pnpm');
-    expect(pnpmCall?.[1]).toEqual(['test']);
+    expect(admittedArgv()).toEqual(['pnpm', 'test']);
   });
 
   /**
@@ -496,7 +393,6 @@ describe('handleVerifyWorktreeBaseline', () => {
       if (String(p).endsWith('package.json')) return NPM_PACKAGE_JSON;
       throw new Error(`unexpected readFileSync: ${String(p)}`);
     });
-    vi.mocked(execFileSync).mockReturnValue('.git\n');
     const exchanges: string[] = [];
 
     const leaks = await handleVerifyWorktreeBaseline({ worktreePath: checkout, agentBranch: 'task/a' }, stateDir, unreachableConnector(exchanges));
@@ -506,7 +402,9 @@ describe('handleVerifyWorktreeBaseline', () => {
     expect(leaks.error?.message).toContain('leak detection');
     expect(unidentified).toMatchObject({ success: false, error: { code: 'HOSTED_VERIFICATION_REFUSED' } });
     expect(unidentified.error?.message).toContain('no approved identity for this checkout');
-    expect(vi.mocked(execFileSync).mock.calls.every((call) => call[0] === 'git')).toBe(true);
+    expect(vi.mocked(admitLifecycleLegs).mock.calls).toHaveLength(1);
+    expect(vi.mocked(admitLifecycleLegs).mock.calls.every(([input]) => input.checkout === checkout)).toBe(true);
+    expect(execFileSync).not.toHaveBeenCalled();
     expect(exchanges).toEqual([]);
   });
 });

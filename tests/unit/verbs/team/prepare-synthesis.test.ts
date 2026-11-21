@@ -1,3 +1,8 @@
+/**
+ * Tests for `handlePrepareSynthesis`. The phase-gate runner is a stub that calls only the provider.
+ * A call with no connector refuses before the runner, so each verdict case passes a stub connector.
+ * The test and typecheck legs come from a stubbed verifier admission, and the Git reads from a stubbed constrained observation.
+ */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
@@ -23,7 +28,13 @@ vi.mock('../../../../src/projections/views/tools.js', () => ({
   getOrCreateMaterializer: vi.fn(),
 }));
 
-vi.mock('../../../../src/verbs/gates/gate-runner.js', () => ({
+vi.mock('../../../../src/verbs/gates/gate-utils.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../../../src/verbs/gates/gate-utils.js')>()),
+  observeCurrentCheckout: vi.fn(),
+}));
+
+vi.mock('../../../../src/verbs/gates/gate-runner.js', async (importOriginal) => ({
+  verifierNotProvisioned: (await importOriginal<typeof import('../../../../src/verbs/gates/gate-runner.js')>()).verifierNotProvisioned,
   runPhaseGateWithEvidence: vi.fn(async (request) => {
     try {
       return await request.executeProvider(
@@ -58,7 +69,8 @@ import {
   type DocumentLegConfig,
 } from '../../../../src/verbs/team/prepare-synthesis.js';
 import type { ResolvedProjectConfig } from '../../../../src/config/resolve.js';
-import { admitLifecycleLegs } from '../../../../src/verbs/gates/gate-runner.js';
+import { admitLifecycleLegs, runPhaseGateWithEvidence } from '../../../../src/verbs/gates/gate-runner.js';
+import { observeCurrentCheckout, type CurrentCheckoutRead } from '../../../../src/verbs/gates/gate-utils.js';
 import type { VerificationHostConnector } from '../../../../src/contract/verification/harness-verification.js';
 import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
 
@@ -131,34 +143,81 @@ function createMockEventStore(events: unknown[] = []) {
 /** The fixture `.exarchos.yml` resolves these programs for the test and typecheck legs. */
 const FIXTURE_CONFIG = "test: 'vitest run'\ntypecheck: 'tsc --noEmit'\n";
 
-type LegStub = string | Error;
+type LegStub = string | (Error & { stdout?: Buffer; status?: number });
 
-function legOutput(stub: LegStub | undefined): Buffer {
-  if (stub instanceof Error) throw stub;
-  return Buffer.from(stub ?? '');
+/** A provisioned context with a stub client. The verifier admission and the Git observation are stubbed, so the client never runs. */
+const connector: VerificationHostConnector = {
+  publicKey: 'unused', gitPath: '/nonexistent/git', resourceId: 'unused', profileId: 'unused',
+  client: { submit: async () => ({ kind: 'unavailable', reason: 'unused' }), retrieve: async () => ({ kind: 'unavailable', reason: 'unused' }) },
+};
+
+const BASE = 'b'.repeat(40);
+const HEAD = 'c'.repeat(40);
+const MERGE_BASE = 'd'.repeat(40);
+
+/** The answers of the stubbed constrained reads. An Error rejects that read. */
+interface GitStub {
+  defaultBranch: string | Error;
+  log: string;
+  diff: string;
+  mergeBase: string | Error;
 }
 
-/** Answers the argument-form legs: the resolved test and typecheck programs, and `git diff`. */
+let git: GitStub;
+
+/** The stubbed constrained reads of the current checkout. The spies record the arguments of each read. */
+const reads = {
+  originHead: vi.fn(async () => {
+    if (git.defaultBranch instanceof Error) throw git.defaultBranch;
+    return `refs/remotes/origin/${git.defaultBranch}\n`;
+  }),
+  commitRange: vi.fn(async (_gitDir: string, _checkout: string, _base: string, _head: string) => git.log),
+  mergeBase: vi.fn(async () => {
+    if (git.mergeBase instanceof Error) throw git.mergeBase;
+    return `${git.mergeBase}\n`;
+  }),
+  nameOnly: vi.fn(async (_gitDir: string, _checkout: string, _base: string, _head: string) => git.diff),
+};
+
+/** The stubbed base resolution. It records each base name. */
+const resolveBase = vi.fn(async (_checkout: unknown, _name: string) => ({ kind: 'observed', value: BASE }));
+
+/** The stubbed observation of the checkout at `checkout`. */
+function observedAt(checkout: string): CurrentCheckoutRead {
+  return {
+    kind: 'observed',
+    checkout: { checkout, repository: `${checkout}/.git`, gitDir: `${checkout}/.git`, branch: 'refs/heads/task', head: HEAD },
+    observer: { reads, base: resolveBase },
+  } as unknown as CurrentCheckoutRead;
+}
+
+/** One signed leg run of a stub: a string exits 0 with that output, and an Error exits non-zero with its output. */
+function signedRun(stub: LegStub | undefined) {
+  const failed = stub instanceof Error;
+  const stdout = failed ? stub.stdout?.toString('utf-8') ?? '' : stub ?? '';
+  const stderr = failed && stdout.length === 0 ? stub.message : '';
+  return { end: 'exited' as const, exitCode: failed ? stub.status ?? 1 : 0, stdout, stderr, outputDigest: 'a'.repeat(64) };
+}
+
+/** Answers the legs through the verifier admission, and the changed files through the constrained name-only diff. */
 function stubLegs(legs: { test?: LegStub; typecheck?: LegStub; diff?: string } = {}): void {
-  vi.mocked(execFileSync).mockImplementation(((file: string) => {
-    if (file === 'vitest') return legOutput(legs.test);
-    if (file === 'tsc') return legOutput(legs.typecheck);
-    return Buffer.from(legs.diff ?? '');
-  }) as unknown as typeof execFileSync);
+  vi.mocked(admitLifecycleLegs).mockResolvedValue([
+    { name: 'test', kind: 'command', run: signedRun(legs.test) },
+    { name: 'typecheck', kind: 'typecheck', run: signedRun(legs.typecheck) },
+  ]);
+  git.diff = legs.diff ?? '';
 }
 
-/** Answers the shell-form git legs. Any other command fails, as outside a repository. */
-function stubGit(git: { defaultBranch?: string; log?: string } = {}): void {
-  vi.mocked(execSync).mockImplementation(((command: string) => {
-    if (command.includes('symbolic-ref')) return `refs/remotes/origin/${git.defaultBranch ?? 'main'}\n`;
-    if (command.startsWith('git log')) return Buffer.from(git.log ?? '');
-    throw new Error(`not a git repository: ${command}`);
-  }) as unknown as typeof execSync);
+/** Answers the origin HEAD read and the commit range read. */
+function stubGit(stub: { defaultBranch?: string; log?: string } = {}): void {
+  git.defaultBranch = stub.defaultBranch ?? 'main';
+  git.log = stub.log ?? '';
 }
 
-/** Calls of the argument-form runner for one program. */
-function runsOf(bin: string): unknown[][] {
-  return vi.mocked(execFileSync).mock.calls.filter((call) => call[0] === bin);
+/** The legs of one program that the verifier admission received, with the checkout of each request. */
+function runsOf(bin: string): { readonly args: readonly string[]; readonly checkout: string }[] {
+  return vi.mocked(admitLifecycleLegs).mock.calls.flatMap(([input]) =>
+    input.legs.filter((leg) => leg.argv[0] === bin).map((leg) => ({ args: leg.argv.slice(1), checkout: input.checkout })));
 }
 
 describe('handlePrepareSynthesis', () => {
@@ -168,6 +227,8 @@ describe('handlePrepareSynthesis', () => {
     vi.clearAllMocks();
     vi.mocked(execSync).mockReset();
     vi.mocked(execFileSync).mockReset();
+    git = { defaultBranch: 'main', log: '', diff: '', mergeBase: MERGE_BASE };
+    vi.mocked(observeCurrentCheckout).mockImplementation(async (_gitPath, repoRoot) => observedAt(repoRoot));
     stubGit();
     stubLegs();
     tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'prepare-synthesis-'));
@@ -198,7 +259,7 @@ describe('handlePrepareSynthesis', () => {
       }),
     );
 
-    const result = await handlePrepareSynthesis({ featureId: 'test-feature', repoRoot: tmpDir }, tmpDir, mockStore as unknown as EventStore);
+    const result = await handlePrepareSynthesis({ featureId: 'test-feature', repoRoot: tmpDir }, tmpDir, mockStore as unknown as EventStore, connector);
 
     expect(result.success).toBe(true);
     const data = result.data as { ready: boolean; blockers: string[] };
@@ -226,6 +287,7 @@ describe('handlePrepareSynthesis', () => {
       { featureId: 'f', repoRoot: tmpDir },
       tmpDir,
       mockStore as unknown as EventStore,
+      connector,
     );
 
     const data = result.data as { blockers?: string[] };
@@ -241,7 +303,7 @@ describe('handlePrepareSynthesis', () => {
     vi.mocked(getOrCreateMaterializer).mockReturnValue(mockMaterializer as unknown as ReturnType<typeof getOrCreateMaterializer>);
     stubLegs({ test: 'Tests: 10 passed, 0 failed' });
 
-    await handlePrepareSynthesis({ featureId: 'test-feature', repoRoot: tmpDir }, tmpDir, mockStore as unknown as EventStore);
+    await handlePrepareSynthesis({ featureId: 'test-feature', repoRoot: tmpDir }, tmpDir, mockStore as unknown as EventStore, connector);
 
     const appendCalls = mockStore.append.mock.calls;
     const testGateCall = appendCalls.find(
@@ -265,7 +327,7 @@ describe('handlePrepareSynthesis', () => {
     vi.mocked(getOrCreateMaterializer).mockReturnValue(mockMaterializer as unknown as ReturnType<typeof getOrCreateMaterializer>);
     stubLegs();
 
-    await handlePrepareSynthesis({ featureId: 'test-feature', repoRoot: tmpDir }, tmpDir, mockStore as unknown as EventStore);
+    await handlePrepareSynthesis({ featureId: 'test-feature', repoRoot: tmpDir }, tmpDir, mockStore as unknown as EventStore, connector);
 
     const appendCalls = mockStore.append.mock.calls;
     const typecheckGateCall = appendCalls.find(
@@ -289,7 +351,7 @@ describe('handlePrepareSynthesis', () => {
     vi.mocked(getOrCreateMaterializer).mockReturnValue(mockMaterializer as unknown as ReturnType<typeof getOrCreateMaterializer>);
     stubLegs({ test: 'Tests: 10 passed, 0 failed' });
 
-    await handlePrepareSynthesis({ featureId: 'test-feature', repoRoot: tmpDir }, tmpDir, mockStore as unknown as EventStore);
+    await handlePrepareSynthesis({ featureId: 'test-feature', repoRoot: tmpDir }, tmpDir, mockStore as unknown as EventStore, connector);
 
     const appendCalls = mockStore.append.mock.calls;
     const testGateCall = appendCalls.find(
@@ -312,7 +374,7 @@ describe('handlePrepareSynthesis', () => {
     vi.mocked(getOrCreateMaterializer).mockReturnValue(mockMaterializer as unknown as ReturnType<typeof getOrCreateMaterializer>);
     stubLegs();
 
-    await handlePrepareSynthesis({ featureId: 'test-feature', repoRoot: tmpDir }, tmpDir, mockStore as unknown as EventStore);
+    await handlePrepareSynthesis({ featureId: 'test-feature', repoRoot: tmpDir }, tmpDir, mockStore as unknown as EventStore, connector);
 
     const appendCalls = mockStore.append.mock.calls;
     const typecheckGateCall = appendCalls.find(
@@ -336,15 +398,10 @@ describe('handlePrepareSynthesis', () => {
     stubLegs({ test: 'Tests: 5 passed' });
     stubGit({ log: '* abc1234 feat: add feature\n* def5678 fix: bug fix' });
 
-    const result = await handlePrepareSynthesis({ featureId: 'test-feature', repoRoot: tmpDir }, tmpDir, mockStore as unknown as EventStore);
+    const result = await handlePrepareSynthesis({ featureId: 'test-feature', repoRoot: tmpDir }, tmpDir, mockStore as unknown as EventStore, connector);
 
-    const execCalls = vi.mocked(execSync).mock.calls;
-    const stackCall = execCalls.find(
-      (call) => typeof call[0] === 'string' && call[0].includes('log'),
-    );
-    expect(stackCall).toBeDefined();
-    expect(stackCall![0]).toContain('git log');
-    expect(stackCall![0]).not.toContain('gt log');
+    expect(reads.commitRange).toHaveBeenCalledWith(`${tmpDir}/.git`, tmpDir, BASE, HEAD);
+    expect(execSync).not.toHaveBeenCalled();
 
     const data = result.data as { stack: { healthy: boolean; branches: string[] } };
     expect(data.stack).toBeDefined();
@@ -362,15 +419,10 @@ describe('handlePrepareSynthesis', () => {
     stubLegs({ test: 'Tests: 5 passed' });
     stubGit({ defaultBranch: 'trunk', log: '* abc1234 feat: add feature' });
 
-    await handlePrepareSynthesis({ featureId: 'test-feature', repoRoot: tmpDir }, tmpDir, mockStore as unknown as EventStore);
+    await handlePrepareSynthesis({ featureId: 'test-feature', repoRoot: tmpDir }, tmpDir, mockStore as unknown as EventStore, connector);
 
-    const execCalls = vi.mocked(execSync).mock.calls;
-    const gitLogCall = execCalls.find(
-      (call) => typeof call[0] === 'string' && call[0].includes('git log'),
-    );
-    expect(gitLogCall).toBeDefined();
-    expect(gitLogCall![0]).toContain('trunk..HEAD');
-    expect(gitLogCall![0]).not.toContain('main..HEAD');
+    expect(resolveBase.mock.calls.map((call) => call[1])).toEqual(['trunk']);
+    expect(reads.commitRange).toHaveBeenCalledWith(`${tmpDir}/.git`, tmpDir, BASE, HEAD);
   });
 
   it('PrepareSynthesis_AllGreen_ReturnsReady', async () => {
@@ -384,7 +436,7 @@ describe('handlePrepareSynthesis', () => {
     stubLegs({ test: 'Tests: 10 passed, 0 failed' });
     stubGit({ log: 'main\n  feature-branch' });
 
-    const result = await handlePrepareSynthesis({ featureId: 'test-feature', repoRoot: tmpDir }, tmpDir, mockStore as unknown as EventStore);
+    const result = await handlePrepareSynthesis({ featureId: 'test-feature', repoRoot: tmpDir }, tmpDir, mockStore as unknown as EventStore, connector);
 
     expect(result.success).toBe(true);
     const data = result.data as {
@@ -408,7 +460,7 @@ describe('handlePrepareSynthesis', () => {
     vi.mocked(getOrCreateMaterializer).mockReturnValue(mockMaterializer as unknown as ReturnType<typeof getOrCreateMaterializer>);
     stubLegs();
 
-    const result = await handlePrepareSynthesis({ featureId: 'test-feature', repoRoot: tmpDir }, tmpDir, mockStore as unknown as EventStore);
+    const result = await handlePrepareSynthesis({ featureId: 'test-feature', repoRoot: tmpDir }, tmpDir, mockStore as unknown as EventStore, connector);
 
     expect(result.success).toBe(true);
     const data = result.data as {
@@ -434,7 +486,7 @@ describe('handlePrepareSynthesis', () => {
     vi.mocked(getOrCreateMaterializer).mockReturnValue(mockMaterializer as unknown as ReturnType<typeof getOrCreateMaterializer>);
     stubLegs({ test: 'Tests: 5 passed, 2 failed' });
 
-    await handlePrepareSynthesis({ featureId: 'test-feature', repoRoot: tmpDir }, tmpDir, mockStore as unknown as EventStore);
+    await handlePrepareSynthesis({ featureId: 'test-feature', repoRoot: tmpDir }, tmpDir, mockStore as unknown as EventStore, connector);
 
     const appendCalls = mockStore.append.mock.calls;
     const gateCall = appendCalls.find(
@@ -456,7 +508,7 @@ describe('handlePrepareSynthesis', () => {
     vi.mocked(getOrCreateMaterializer).mockReturnValue(mockMaterializer as unknown as ReturnType<typeof getOrCreateMaterializer>);
     stubLegs();
 
-    await handlePrepareSynthesis({ featureId: 'test-feature', repoRoot: tmpDir }, tmpDir, mockStore as unknown as EventStore);
+    await handlePrepareSynthesis({ featureId: 'test-feature', repoRoot: tmpDir }, tmpDir, mockStore as unknown as EventStore, connector);
 
     const appendCalls = mockStore.append.mock.calls;
     const gateCall = appendCalls.find(
@@ -481,7 +533,7 @@ describe('handlePrepareSynthesis', () => {
     stubLegs({ test: testError });
     stubGit({ log: 'main' });
 
-    const result = await handlePrepareSynthesis({ featureId: 'test-feature', repoRoot: tmpDir }, tmpDir, mockStore as unknown as EventStore);
+    const result = await handlePrepareSynthesis({ featureId: 'test-feature', repoRoot: tmpDir }, tmpDir, mockStore as unknown as EventStore, connector);
 
     expect(result.success).toBe(true);
     const data = result.data as { ready: boolean; tests: { passed: boolean } };
@@ -502,7 +554,7 @@ describe('handlePrepareSynthesis', () => {
     stubLegs({ test: 'Tests: 5 passed', typecheck: typecheckError });
     stubGit({ log: 'main' });
 
-    const result = await handlePrepareSynthesis({ featureId: 'test-feature', repoRoot: tmpDir }, tmpDir, mockStore as unknown as EventStore);
+    const result = await handlePrepareSynthesis({ featureId: 'test-feature', repoRoot: tmpDir }, tmpDir, mockStore as unknown as EventStore, connector);
 
     expect(result.success).toBe(true);
     const data = result.data as { ready: boolean; typecheck: { passed: boolean; errorCount: number } };
@@ -518,12 +570,12 @@ describe('handlePrepareSynthesis', () => {
     stubGit({ log: '* abc1234 feat: add feature' });
     const mockStore = createMockEventStore();
 
-    const result = await handlePrepareSynthesis({ featureId: 'test-feature', repoRoot: tmpDir }, tmpDir, mockStore as unknown as EventStore);
+    const result = await handlePrepareSynthesis({ featureId: 'test-feature', repoRoot: tmpDir }, tmpDir, mockStore as unknown as EventStore, connector);
 
     const goRuns = runsOf('go');
     expect(goRuns).toHaveLength(1);
-    expect(goRuns[0]?.[1]).toEqual(['test', './...']);
-    expect((goRuns[0]?.[2] as { cwd?: string }).cwd).toBe(tmpDir);
+    expect(goRuns[0]?.args).toEqual(['test', './...']);
+    expect(goRuns[0]?.checkout).toBe(tmpDir);
     expect(runsOf('vitest')).toEqual([]);
     const data = result.data as {
       ready: boolean;
@@ -545,16 +597,17 @@ describe('handlePrepareSynthesis', () => {
     await fs.writeFile(path.join(tmpDir, '.exarchos.yml'), "test: 'pytest -q'\ntypecheck: 'mypy src'\n");
     const mockStore = createMockEventStore();
 
-    const result = await handlePrepareSynthesis({ featureId: 'test-feature', repoRoot: tmpDir }, tmpDir, mockStore as unknown as EventStore);
+    const result = await handlePrepareSynthesis({ featureId: 'test-feature', repoRoot: tmpDir }, tmpDir, mockStore as unknown as EventStore, connector);
 
-    expect(runsOf('pytest').map((call) => call[1])).toEqual([['-q']]);
-    expect(runsOf('mypy').map((call) => call[1])).toEqual([['src']]);
+    expect(runsOf('pytest').map((run) => run.args)).toEqual([['-q']]);
+    expect(runsOf('mypy').map((run) => run.args)).toEqual([['src']]);
+    expect(execFileSync).not.toHaveBeenCalled();
     const data = result.data as { tests: { command: string | null }; typecheck: { command: string | null } };
     expect(data.tests.command).toBe('pytest -q');
     expect(data.typecheck.command).toBe('mypy src');
   });
 
-  /** A provisioned route runs both legs in one verifier request, as the local route runs both, and starts no local command. */
+  /** A provisioned route runs both legs in one verifier request and starts no local command. */
   it('PrepareSynthesis_Provisioned_RunsBothLegsOnlyInTheVerifier', async () => {
     await fs.writeFile(path.join(tmpDir, '.exarchos.yml'), "test: 'pytest -q'\ntypecheck: 'mypy src'\n");
     const mockStore = createMockEventStore();
@@ -563,15 +616,9 @@ describe('handlePrepareSynthesis', () => {
       { name: 'test', kind: 'command', run: run(0, '3 passed') },
       { name: 'typecheck', kind: 'typecheck', run: run(2, 'src/a.py: error TS1 found') },
     ]);
-    const connector: VerificationHostConnector = {
-      publicKey: 'unused', gitPath: '/nonexistent/git', resourceId: 'unused', profileId: 'unused',
-      client: { submit: async () => ({ kind: 'unavailable', reason: 'unused' }), retrieve: async () => ({ kind: 'unavailable', reason: 'unused' }) },
-    };
-
     const result = await handlePrepareSynthesis({ featureId: 'test-feature', repoRoot: tmpDir }, tmpDir, mockStore as unknown as EventStore, connector);
 
-    expect(runsOf('pytest')).toEqual([]);
-    expect(runsOf('mypy')).toEqual([]);
+    expect(execFileSync).not.toHaveBeenCalled();
     expect(admitLifecycleLegs).toHaveBeenCalledTimes(1);
     expect(admitLifecycleLegs).toHaveBeenCalledWith(expect.objectContaining({
       connector, checkout: tmpDir, streamId: 'test-feature',
@@ -593,14 +640,9 @@ describe('handlePrepareSynthesis', () => {
     vi.mocked(resolveRunnableCommand)
       .mockReturnValueOnce({ kind: 'unresolved', reason: 'not yet configured' })
       .mockReturnValueOnce({ kind: 'unresolved', reason: 'not yet configured' });
-    const connector: VerificationHostConnector = {
-      publicKey: 'unused', gitPath: '/nonexistent/git', resourceId: 'unused', profileId: 'unused',
-      client: { submit: async () => ({ kind: 'unavailable', reason: 'unused' }), retrieve: async () => ({ kind: 'unavailable', reason: 'unused' }) },
-    };
-
     const result = await handlePrepareSynthesis({ featureId: 'test-feature', repoRoot: tmpDir }, tmpDir, mockStore as unknown as EventStore, connector);
 
-    expect(runsOf('pytest')).toEqual([]);
+    expect(execFileSync).not.toHaveBeenCalled();
     expect(admitLifecycleLegs).not.toHaveBeenCalled();
     expect(vi.mocked(resolveRunnableCommand).mock.calls.map((call) => call[1])).toEqual(['test', 'typecheck']);
     expect(result.success).toBe(true);
@@ -613,7 +655,7 @@ describe('handlePrepareSynthesis', () => {
     stubGit({ log: '* abc1234 feat: add feature' });
     const mockStore = createMockEventStore();
 
-    const result = await handlePrepareSynthesis({ featureId: 'test-feature', repoRoot: tmpDir }, tmpDir, mockStore as unknown as EventStore);
+    const result = await handlePrepareSynthesis({ featureId: 'test-feature', repoRoot: tmpDir }, tmpDir, mockStore as unknown as EventStore, connector);
 
     const data = result.data as {
       ready: boolean;
@@ -624,7 +666,8 @@ describe('handlePrepareSynthesis', () => {
     expect(data.tests).toMatchObject({ passed: false, command: null });
     expect(data.tests.reason).toMatch(/No project markers detected/);
     expect(data.blockers.some((b) => b.startsWith('Test suite not run'))).toBe(true);
-    expect(vi.mocked(execFileSync).mock.calls.map((call) => call[0])).toEqual(['git']);
+    expect(execFileSync).not.toHaveBeenCalled();
+    expect(admitLifecycleLegs).not.toHaveBeenCalled();
     const testGate = mockStore.append.mock.calls
       .map((call: unknown[]) => call[1] as { type: string; data: { gateName: string; passed: boolean } })
       .find((event) => event.type === 'gate.executed' && event.data.gateName === 'test-suite');
@@ -637,7 +680,7 @@ describe('handlePrepareSynthesis', () => {
     stubGit({ log: '* abc1234 feat: add feature' });
     const mockStore = createMockEventStore();
 
-    const result = await handlePrepareSynthesis({ featureId: 'test-feature', repoRoot: tmpDir }, tmpDir, mockStore as unknown as EventStore);
+    const result = await handlePrepareSynthesis({ featureId: 'test-feature', repoRoot: tmpDir }, tmpDir, mockStore as unknown as EventStore, connector);
 
     const data = result.data as {
       ready: boolean;
@@ -674,6 +717,7 @@ describe('handlePrepareSynthesis', () => {
       },
       tmpDir,
       mockStore as unknown as EventStore,
+      connector,
     );
 
     const docGate = mockStore.append.mock.calls.find((call: unknown[]) => {
@@ -709,6 +753,7 @@ describe('handlePrepareSynthesis', () => {
       },
       tmpDir,
       mockStore as unknown as EventStore,
+      connector,
     );
 
     const docGate = mockStore.append.mock.calls.find((call: unknown[]) => {
@@ -720,7 +765,7 @@ describe('handlePrepareSynthesis', () => {
     expect(data.readiness.documentReady).toBe(true);
   });
 
-  /** Every leg runs with `cwd` set to `repoRoot`, which differs from `process.cwd()`. */
+  /** Every leg and every Git read uses `repoRoot`, which differs from `process.cwd()`. */
   it('PrepareSynthesis_RepoRootDiffersFromCwd_LegsRunAgainstRepoRoot', async () => {
     expect(tmpDir).not.toBe(process.cwd());
     const taskView = mockTaskDetailView({ t1: { status: 'completed' } });
@@ -729,31 +774,21 @@ describe('handlePrepareSynthesis', () => {
     vi.mocked(getOrCreateMaterializer).mockReturnValue(
       mockMaterializer as unknown as ReturnType<typeof getOrCreateMaterializer>,
     );
-    vi.mocked(execSync).mockImplementation(((command: string) =>
-      typeof command === 'string' && command.includes('symbolic-ref')
-        ? Buffer.from('refs/remotes/origin/main')
-        : Buffer.from('Tests: 1 passed, 0 failed')) as unknown as typeof execSync);
-    vi.mocked(execFileSync).mockReturnValue(Buffer.from('src/foo.ts\n'));
+    stubLegs({ test: 'Tests: 1 passed, 0 failed', diff: 'src/foo.ts\n' });
 
     await handlePrepareSynthesis(
       { featureId: 'test-feature', repoRoot: tmpDir },
       tmpDir,
       mockStore as unknown as EventStore,
+      connector,
     );
 
-    const execCalls = vi.mocked(execSync).mock.calls;
-    expect(execCalls.length).toBeGreaterThan(0);
-    for (const call of execCalls) {
-      const options = call[1] as { cwd?: string } | undefined;
-      expect(options?.cwd).toBe(tmpDir);
-    }
-
-    const execFileCalls = vi.mocked(execFileSync).mock.calls;
-    expect(execFileCalls.length).toBeGreaterThan(0);
-    for (const call of execFileCalls) {
-      const options = call[2] as { cwd?: string } | undefined;
-      expect(options?.cwd).toBe(tmpDir);
-    }
+    expect(vi.mocked(observeCurrentCheckout).mock.calls).toEqual([[connector.gitPath, tmpDir]]);
+    const checkouts = vi.mocked(admitLifecycleLegs).mock.calls.map(([input]) => input.checkout);
+    expect(checkouts).toEqual([tmpDir]);
+    expect(reads.nameOnly).toHaveBeenCalledWith(`${tmpDir}/.git`, tmpDir, MERGE_BASE, HEAD);
+    expect(execSync).not.toHaveBeenCalled();
+    expect(execFileSync).not.toHaveBeenCalled();
   });
 
   /** A caller can reach the handler without `repoRoot` through an unchecked cast. The handler refuses it and runs no leg. */
@@ -769,18 +804,20 @@ describe('handlePrepareSynthesis', () => {
       { featureId: 'test-feature' } as unknown as Parameters<typeof handlePrepareSynthesis>[0],
       tmpDir,
       mockStore as unknown as EventStore,
+      connector,
     );
 
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe('INVALID_INPUT');
     expect(result.error?.message).toContain('repoRoot');
-    expect(vi.mocked(execSync)).not.toHaveBeenCalled();
+    expect(observeCurrentCheckout).not.toHaveBeenCalled();
+    expect(admitLifecycleLegs).not.toHaveBeenCalled();
   });
 
   /**
    * A relative `repoRoot` resolves against the server cwd, so the handler refuses it.
    * A non-string `repoRoot` also gets `INVALID_INPUT`, even when its string form looks absolute.
-   * No refusal starts a process through `execSync` or `execFileSync`. An absolute path
+   * No refusal reads Git or asks the verifier for a leg. An absolute path
    * still passes the check.
    */
   it('PrepareSynthesis_RelativeRepoRoot_IsRefusedLikeAMissingOne', async () => {
@@ -792,36 +829,38 @@ describe('handlePrepareSynthesis', () => {
     );
 
     for (const relative of ['.', '..', 'some/repo', './repo']) {
-      vi.mocked(execSync).mockClear();
-      vi.mocked(execFileSync).mockClear();
+      vi.mocked(observeCurrentCheckout).mockClear();
+      vi.mocked(admitLifecycleLegs).mockClear();
       const result = await handlePrepareSynthesis(
         { featureId: 'test-feature', repoRoot: relative },
         tmpDir,
         mockStore as unknown as EventStore,
-      );
+      connector,
+    );
 
       expect(result.success).toBe(false);
       expect(result.error?.code).toBe('INVALID_INPUT');
       expect(result.error?.message).toContain('absolute');
-      expect(vi.mocked(execSync)).not.toHaveBeenCalled();
-      expect(vi.mocked(execFileSync)).not.toHaveBeenCalled();
+      expect(observeCurrentCheckout).not.toHaveBeenCalled();
+      expect(admitLifecycleLegs).not.toHaveBeenCalled();
     }
 
     for (const nonString of [['/repo'], 42, { path: '/repo' }, true]) {
-      vi.mocked(execSync).mockClear();
-      vi.mocked(execFileSync).mockClear();
+      vi.mocked(observeCurrentCheckout).mockClear();
+      vi.mocked(admitLifecycleLegs).mockClear();
       const result = await handlePrepareSynthesis(
         { featureId: 'test-feature', repoRoot: nonString } as unknown as Parameters<
           typeof handlePrepareSynthesis
         >[0],
         tmpDir,
         mockStore as unknown as EventStore,
-      );
+      connector,
+    );
 
       expect(result.success).toBe(false);
       expect(result.error?.code).toBe('INVALID_INPUT');
-      expect(vi.mocked(execSync)).not.toHaveBeenCalled();
-      expect(vi.mocked(execFileSync)).not.toHaveBeenCalled();
+      expect(observeCurrentCheckout).not.toHaveBeenCalled();
+      expect(admitLifecycleLegs).not.toHaveBeenCalled();
     }
 
     vi.mocked(execSync).mockClear();
@@ -829,9 +868,70 @@ describe('handlePrepareSynthesis', () => {
       { featureId: 'test-feature', repoRoot: tmpDir },
       tmpDir,
       mockStore as unknown as EventStore,
+      connector,
     );
     expect(accepted.error?.message ?? '').not.toContain('absolute');
     expect(accepted.error?.code).not.toBe('INVALID_INPUT');
+  });
+
+  /** With no connector, the handler refuses after the `featureId` check. It never waits for the workflow state, reads Git or asks the verifier. */
+  it('PrepareSynthesis_NoConnector_RefusesBeforeTheWorkflowState', async () => {
+    const mockStore = createMockEventStore(tasksToEvents({ t1: { status: 'completed' } }));
+
+    const result = await handlePrepareSynthesis({ featureId: 'test-feature', repoRoot: tmpDir }, tmpDir, mockStore as unknown as EventStore);
+
+    expect(result).toMatchObject({ success: false, error: { code: 'VERIFIER_NOT_PROVISIONED' } });
+    expect(runPhaseGateWithEvidence).not.toHaveBeenCalled();
+    expect(mockStore.query).not.toHaveBeenCalled();
+    expect(mockStore.append).not.toHaveBeenCalled();
+    expect(observeCurrentCheckout).not.toHaveBeenCalled();
+    expect(admitLifecycleLegs).not.toHaveBeenCalled();
+  });
+
+  /**
+   * The base name is the origin HEAD target with no `refs/remotes/origin/` prefix. When that read fails, the name is `main`.
+   * The changed files diff from the merge base of the resolved base and HEAD, and the stack reads the base-to-head range.
+   */
+  it('PrepareSynthesis_BaseName_OriginHeadTargetThenMainFallback', async () => {
+    const mockStore = createMockEventStore();
+    stubGit({ defaultBranch: 'develop', log: '* abc1234 feat' });
+
+    await handlePrepareSynthesis({ featureId: 'test-feature', repoRoot: tmpDir }, tmpDir, mockStore as unknown as EventStore, connector);
+    git.defaultBranch = new Error('no origin HEAD');
+    await handlePrepareSynthesis({ featureId: 'test-feature', repoRoot: tmpDir }, tmpDir, mockStore as unknown as EventStore, connector);
+
+    expect(resolveBase.mock.calls.map((call) => call[1])).toEqual(['develop', 'main']);
+    expect(reads.mergeBase).toHaveBeenCalledWith(`${tmpDir}/.git`, tmpDir, BASE, HEAD);
+    expect(reads.nameOnly).toHaveBeenCalledWith(`${tmpDir}/.git`, tmpDir, MERGE_BASE, HEAD);
+    expect(observeCurrentCheckout).toHaveBeenCalledTimes(2);
+  });
+
+  /**
+   * An unusable connector Git path refuses the observation. The call still succeeds with an unhealthy stack and an uncovered document leg.
+   * No merge base gives the same uncovered document leg, never a two-dot diff.
+   */
+  it('PrepareSynthesis_RefusedObservationOrNoMergeBase_FailsClosed', async () => {
+    const mockStore = createMockEventStore();
+    const blocking = {
+      synthesis: { documentLeg: { severity: 'blocking', surfaceGlobs: ['**/*.ts'], docGlobs: ['docs/**'] } },
+    } as unknown as ResolvedProjectConfig;
+    vi.mocked(observeCurrentCheckout).mockResolvedValueOnce({ kind: 'refused', reason: 'Git executable must be an operator-selected absolute path' });
+
+    const refused = await handlePrepareSynthesis({ featureId: 'test-feature', repoRoot: tmpDir, projectConfig: blocking }, tmpDir, mockStore as unknown as EventStore, connector);
+    git.mergeBase = new Error('no merge base');
+    stubLegs({ diff: 'src/registry.ts\n' });
+    const unrelated = await handlePrepareSynthesis({ featureId: 'test-feature', repoRoot: tmpDir, projectConfig: blocking }, tmpDir, mockStore as unknown as EventStore, connector);
+
+    expect(refused.success).toBe(true);
+    const refusedData = refused.data as { stack: { healthy: boolean; error?: string }; readiness: { documentReady: boolean }; document: { message?: string } };
+    expect(refusedData.stack.healthy).toBe(false);
+    expect(refusedData.stack.error).toContain('absolute path');
+    expect(refusedData.readiness.documentReady).toBe(false);
+    expect(refusedData.document.message).toContain('Changed-file detection failed');
+    const unrelatedData = unrelated.data as { readiness: { documentReady: boolean }; document: { surfaceFiles: readonly string[] } };
+    expect(unrelatedData.readiness.documentReady).toBe(false);
+    expect(unrelatedData.document.surfaceFiles).toEqual([]);
+    expect(reads.nameOnly).not.toHaveBeenCalled();
   });
 });
 

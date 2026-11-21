@@ -2,12 +2,12 @@
  * debug_review_gate under the verification profile. A changed file counts as a new test only when a test-name glob of `tests.globs` matches it.
  *
  * Each case builds a real git repository, and the resolver reads its real marker files. Each case sets `skipRun`, so the gate starts no test command.
- * The evidence runner is a stub that calls only the provider.
+ * The evidence runner is a stub that calls only the provider. A stub connector names the real Git executable, so the constrained reader reads the diff.
  */
 
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { accessSync, constants, mkdirSync, mkdtempSync, realpathSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { delimiter, dirname, join, resolve } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 
@@ -20,6 +20,22 @@ import type { ToolResult } from '../../../../src/format.js';
 import { handleDebugReviewGate } from '../../../../src/verbs/review/debug-review-gate.js';
 import { execFileAsync } from '../../../../tools/test-helpers/spawn.js';
 import { rmrf } from '../../../../tools/test-helpers/temp-dir.js';
+import type { VerificationHostConnector } from '../../../../src/contract/verification/harness-verification.js';
+
+/** The absolute real path of the Git executable on the test process PATH. */
+function gitExecutable(): string {
+  for (const directory of (process.env.PATH ?? '').split(delimiter)) {
+    const candidate = resolve(directory, process.platform === 'win32' ? 'git.exe' : 'git');
+    try { accessSync(candidate, constants.X_OK); return realpathSync(candidate); } catch {}
+  }
+  throw new Error('The fixture needs Git on PATH');
+}
+
+/** A provisioned context whose Git path is the real executable. Each case sets `skipRun`, so the client never runs. */
+const connector: VerificationHostConnector = {
+  publicKey: 'unused', gitPath: gitExecutable(), resourceId: 'unused', profileId: 'unused',
+  client: { submit: async () => ({ kind: 'unavailable', reason: 'unused' }), retrieve: async () => ({ kind: 'unavailable', reason: 'unused' }) },
+};
 
 /** The files of one commit: the path of each file and its text. */
 type Files = Readonly<Record<string, string>>;
@@ -79,6 +95,7 @@ async function runGate(repoRoot: string): Promise<GateData> {
     { featureId: 'feat-debug-review-profile', repoRoot, baseBranch: 'main', skipRun: true },
     repoRoot,
     new EventStore(repoRoot),
+    connector,
   );
   expect(result.success, JSON.stringify(result)).toBe(true);
   return GateDataSchema.parse(result.data);

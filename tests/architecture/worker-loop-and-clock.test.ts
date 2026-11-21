@@ -68,7 +68,6 @@ const KNOWN_WRAPPERS: ReadonlyArray<{ readonly module: string; readonly name: st
   { module: 'src/verbs/gates/static-analysis', name: 'execCommandRunner', condition: 'always' },
   { module: 'src/verbs/gates/check-integration-suite', name: 'execCommandRunner', condition: 'always' },
   { module: 'src/verbs/vcs/git-exec-default', name: 'defaultGitExec', condition: 'always' },
-  { module: 'src/utils/paths', name: 'deriveRepoKey', condition: [{ argument: 1, property: 'gitCommonDir' }] },
   { module: 'src/verbs/vcs/push-with-lease', name: 'readRemoteSha', condition: [{ argument: 2 }] },
 ];
 

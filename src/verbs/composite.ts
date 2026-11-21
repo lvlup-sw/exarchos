@@ -273,7 +273,7 @@ function coordinateRefusal(args: Record<string, unknown>, ctx: DispatchContext |
  * The severity wrapper of the action table applies the severity and the IMPLEMENT-phase audit mode, so this adapter does not.
  *
  * `verificationProfile` comes only from the context. The adapter removes a value that the args carry, so a wire caller cannot pin a profile.
- * The private verifier terms come only from the context too. The adapter removes `hostAdequacy` and `hostCheck` from the args.
+ * The private verifier terms come only from the context too. The adapter removes `hostAdequacy`, `hostCheck` and `verificationHost` from the args.
  * A `'check'` gate gets the connector whenever the context provisions one, with the binding of a bound leaf, so it never runs locally.
  *
  * The hosted adequacy gate refuses an unbound call on a provisioned context before its handler, as the check gates do.
@@ -304,7 +304,7 @@ export function adaptLadderGate<T, X = never>(
       (args as { projectConfig?: unknown }).projectConfig === undefined
         ? { ...(args as Record<string, unknown>), projectConfig: ctx.projectConfig }
         : args;
-    const { verificationProfile: _carried, hostAdequacy: _host, hostCheck: _check, ...unprofiledArgs } = enrichedArgs;
+    const { verificationProfile: _carried, hostAdequacy: _host, hostCheck: _check, verificationHost: _verifier, ...unprofiledArgs } = enrichedArgs;
     const gateArgs =
       ctx.verificationProfile === undefined
         ? unprofiledArgs
@@ -502,7 +502,7 @@ export const ACTION_HANDLERS: Readonly<Record<string, ActionHandler>> = {
   /** Verification-ladder gate. {@link adaptLadderGate} copies the dispatch config into the args, and the severity wrapper applies the severity. */
   check_test_adequacy: adaptLadderGate(handleTestAdequacy, true, true),
   check_contract_drift: adaptLadderGate(handleContractDrift, true, 'check'),
-  check_mock_boundary: adaptLadderGate(handleMockBoundary, true),
+  check_mock_boundary: adaptLadderGate(handleMockBoundary, true, connectorOf),
   /**
    * Action of the mutation-adequacy review dimension. It is advisory by default, because its seeded gate default is warning-only.
    * A score under the threshold shows survivor `next_actions` and does not block.

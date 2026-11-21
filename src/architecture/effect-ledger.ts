@@ -666,7 +666,11 @@ function registerLedger(): readonly EffectOwnershipRule[] {
         '--git-common-dir, rev-parse --verify --quiet <ref>^{commit}, symbolic-ref --quiet ' +
         'HEAD, rev-parse --verify --quiet HEAD, merge-base --is-ancestor (also ' +
         '<baseCommit> HEAD) and --no-optional-locks status --porcelain, which writes no index ' +
-        'refresh; a re-run on the same tree gives the same answer',
+        'refresh; the constrained reads add worktree list, cat-file -e, ls-tree, ls-files ' +
+        '--stage, ls-files --others --exclude-standard, merge-base, rev-parse of a ' +
+        'refs/remotes ref, symbolic-ref refs/remotes/origin/HEAD, diff --name-only, ' +
+        'diff --name-status, diff --submodule=short and log --oneline --graph ' +
+        '--no-show-signature over exact commits; a re-run on the same tree gives the same answer',
       'none: every call is a read, so a failed, refused or timed-out read leaves no state ' +
         'to unwind',
     ),
@@ -697,13 +701,6 @@ function registerLedger(): readonly EffectOwnershipRule[] {
       'launcher-process-owner',
       'idempotent: teardown/liveness probes tolerate re-run',
       'launcher lifecycle owns child kill/teardown',
-    ),
-    rule(
-      'process',
-      'lifecycle/',
-      'cli-process-owner',
-      'per-command: CLI verification runners own re-run semantics',
-      'none: verification is read-only over the worktree',
     ),
     rule(
       'process',
