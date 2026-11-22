@@ -4,9 +4,9 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1509,
+    "testFiles": 1508,
     "parsedFiles": 1464,
-    "shellFiles": 45,
+    "shellFiles": 44,
     "cases": 16735,
     "dynamicTitles": 325,
     "unparseableFiles": 0
@@ -89462,11 +89462,6 @@
     },
     "tests/scripts/check-module-intent.test.sh": {
       "file": "tests/scripts/check-module-intent.test.sh",
-      "runner": "shell",
-      "cases": []
-    },
-    "tests/scripts/check-mutation-gate.test.sh": {
-      "file": "tests/scripts/check-mutation-gate.test.sh",
       "runner": "shell",
       "cases": []
     },

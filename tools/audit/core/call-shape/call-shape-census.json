@@ -1216,7 +1216,7 @@
     {
       "boundary": {
         "label": "transition review -> synthesize",
-        "line": 174,
+        "line": 172,
         "source": "content/review/skills/review/SKILL.md"
       },
       "conditional": [
@@ -1230,7 +1230,7 @@
         },
         {
           "call": "exarchos_workflow.describe",
-          "line": 191,
+          "line": 189,
           "per": "once",
           "role": "describe",
           "source": "content/review/skills/review/SKILL.md",
@@ -1238,7 +1238,7 @@
         },
         {
           "call": "exarchos_orchestrate.describe",
-          "line": 192,
+          "line": 190,
           "per": "once",
           "role": "describe",
           "source": "content/review/skills/review/SKILL.md",
@@ -1248,7 +1248,7 @@
       "exceptions": [
         {
           "bound": {
-            "line": 122,
+            "line": 120,
             "max": 5,
             "source": "content/review/skills/review/SKILL.md"
           },
@@ -1292,7 +1292,7 @@
           "extraCalls": [
             {
               "call": "exarchos_workflow.update",
-              "line": 168,
+              "line": 166,
               "per": "once",
               "role": "work",
               "source": "content/review/skills/review/SKILL.md",
@@ -1304,7 +1304,7 @@
           "reentersNormalPath": false,
           "through": "exarchos_orchestrate.check_review_verdict",
           "trigger": {
-            "line": 166,
+            "line": 164,
             "source": "content/review/skills/review/SKILL.md"
           }
         }
@@ -1387,7 +1387,7 @@
           },
           {
             "call": "exarchos_orchestrate.check_invariant_conformance",
-            "line": 84,
+            "line": 82,
             "per": "once",
             "role": "work",
             "source": "content/review/skills/review/SKILL.md",
@@ -1395,7 +1395,7 @@
           },
           {
             "call": "exarchos_orchestrate.runbook",
-            "line": 107,
+            "line": 105,
             "per": "once",
             "role": "runbook-fetch",
             "source": "content/review/skills/review/SKILL.md",
@@ -1403,7 +1403,7 @@
           },
           {
             "call": "exarchos_orchestrate.check_review_verdict",
-            "line": 112,
+            "line": 110,
             "per": "once",
             "role": "work",
             "source": "content/review/skills/review/SKILL.md",
@@ -1411,7 +1411,7 @@
           },
           {
             "call": "exarchos_workflow.update",
-            "line": 159,
+            "line": 157,
             "per": "once",
             "role": "work",
             "source": "content/review/skills/review/SKILL.md",
@@ -1419,7 +1419,7 @@
           },
           {
             "call": "exarchos_workflow.transition",
-            "line": 162,
+            "line": 160,
             "per": "once",
             "role": "work",
             "source": "content/review/skills/review/SKILL.md",
@@ -2341,7 +2341,7 @@
       "flag": null,
       "intent": "review",
       "kind": "boundary",
-      "line": 174,
+      "line": 172,
       "path": "boundary",
       "source": "content/review/skills/review/SKILL.md",
       "subject": "boundary"
@@ -2401,7 +2401,7 @@
       "flag": null,
       "intent": "review",
       "kind": "site",
-      "line": 88,
+      "line": 86,
       "path": "normal",
       "source": "content/review/skills/review/SKILL.md",
       "subject": "exarchos_orchestrate.check_invariant_conformance"
@@ -2411,7 +2411,7 @@
       "flag": null,
       "intent": "review",
       "kind": "exception",
-      "line": 166,
+      "line": 164,
       "path": "exception:needs-fixes",
       "source": "content/review/skills/review/SKILL.md",
       "subject": "the verdict is NEEDS_FIXES, so the failure is recorded and fixes are delegated"
@@ -2431,7 +2431,7 @@
       "flag": null,
       "intent": "review",
       "kind": "site",
-      "line": 191,
+      "line": 189,
       "path": "conditional",
       "source": "content/review/skills/review/SKILL.md",
       "subject": "exarchos_workflow.describe"
@@ -2441,7 +2441,7 @@
       "flag": null,
       "intent": "review",
       "kind": "site",
-      "line": 192,
+      "line": 190,
       "path": "conditional",
       "source": "content/review/skills/review/SKILL.md",
       "subject": "exarchos_orchestrate.describe"
@@ -2687,7 +2687,7 @@
       },
       {
         "file": "content/review/skills/review/SKILL.md",
-        "sha256": "a852d4c7bb7c36028d70382057470504550295bbfb561974d9990094b696369d"
+        "sha256": "ee200bb8fc1e5251a76d21f9de0526d8d0187a0ab109353e069b7091545a7078"
       },
       {
         "file": "content/synthesis/skills/synthesize/SKILL.md",
@@ -3864,8 +3864,8 @@
         "dispositions": [
           "review:normal"
         ],
-        "endLine": 89,
-        "line": 84,
+        "endLine": 87,
+        "line": 82,
         "pattern": "call-expression",
         "runbookId": null,
         "status": "registered"
@@ -3875,8 +3875,8 @@
         "dispositions": [
           "review:normal"
         ],
-        "endLine": 107,
-        "line": 107,
+        "endLine": 105,
+        "line": 105,
         "pattern": "call-expression",
         "runbookId": "review-escalation",
         "status": "registered"
@@ -3886,8 +3886,8 @@
         "dispositions": [
           "review:normal"
         ],
-        "endLine": 119,
-        "line": 112,
+        "endLine": 117,
+        "line": 110,
         "pattern": "call-expression",
         "runbookId": null,
         "status": "registered"
@@ -3897,8 +3897,8 @@
         "dispositions": [
           "review:normal"
         ],
-        "endLine": 161,
-        "line": 159,
+        "endLine": 159,
+        "line": 157,
         "pattern": "call-expression",
         "runbookId": null,
         "status": "registered"
@@ -3908,8 +3908,8 @@
         "dispositions": [
           "review:normal"
         ],
-        "endLine": 162,
-        "line": 162,
+        "endLine": 160,
+        "line": 160,
         "pattern": "call-expression",
         "runbookId": null,
         "status": "registered"
@@ -3919,8 +3919,8 @@
         "dispositions": [
           "review:exception:needs-fixes"
         ],
-        "endLine": 170,
-        "line": 168,
+        "endLine": 168,
+        "line": 166,
         "pattern": "call-expression",
         "runbookId": null,
         "status": "registered"
@@ -3930,8 +3930,8 @@
         "dispositions": [
           "review:conditional"
         ],
-        "endLine": 191,
-        "line": 191,
+        "endLine": 189,
+        "line": 189,
         "pattern": "call-expression",
         "runbookId": null,
         "status": "registered"
@@ -3941,8 +3941,8 @@
         "dispositions": [
           "review:conditional"
         ],
-        "endLine": 192,
-        "line": 192,
+        "endLine": 190,
+        "line": 190,
         "pattern": "call-expression",
         "runbookId": null,
         "status": "registered"

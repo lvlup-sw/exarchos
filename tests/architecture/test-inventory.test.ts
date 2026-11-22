@@ -145,6 +145,7 @@ const RETIRED_TEST_FILES: ReadonlyArray<{ path: string; subject: string }> = [
   { path: 'tests/unit/hooks/config-hooks.test.ts', subject: 'src/hooks/config-hooks.ts' },
   { path: 'tests/unit/hooks/config-hooks-integration.test.ts', subject: 'src/hooks/config-hooks.ts' },
   { path: 'tests/unit/events/composite-hooks.test.ts', subject: 'src/hooks/config-hooks.ts' },
+  { path: 'tests/scripts/check-mutation-gate.test.sh', subject: 'tools/audit/gates/check-mutation-gate.mjs' },
 ];
 
 describe('test inventory', () => {

@@ -103,7 +103,7 @@ Exception `gate-failure-fix`: a blocking gate fails, so a fixer is dispatched an
 
 ## review
 
-Ends at: transition review -> synthesize (`content/review/skills/review/SKILL.md:174`)
+Ends at: transition review -> synthesize (`content/review/skills/review/SKILL.md:172`)
 
 1. `exarchos_orchestrate.review_diff` (work) `content/review/skills/review/SKILL.md:27`
 2. `native:SPAWN_AGENT_CALL` (native, via mention) `content/review/skills/review/SKILL.md:24`
@@ -114,15 +114,15 @@ Ends at: transition review -> synthesize (`content/review/skills/review/SKILL.md
 7. `exarchos_orchestrate.check_security_scan` (work, via runbook:quality-evaluation#2) `src/runbooks/definitions.ts`
 8. `exarchos_orchestrate.check_convergence` (work, via runbook:quality-evaluation#3) `src/runbooks/definitions.ts`
 9. `exarchos_orchestrate.prepare_review` (work, via mention) `content/review/skills/review/SKILL.md:74`
-10. `exarchos_orchestrate.check_invariant_conformance` (work) `content/review/skills/review/SKILL.md:84`
-11. `exarchos_orchestrate.runbook` (runbook-fetch) `content/review/skills/review/SKILL.md:107`
-12. `exarchos_orchestrate.check_review_verdict` (work) `content/review/skills/review/SKILL.md:112`
-13. `exarchos_workflow.update` (work) `content/review/skills/review/SKILL.md:159`
-14. `exarchos_workflow.transition` (work) `content/review/skills/review/SKILL.md:162`
+10. `exarchos_orchestrate.check_invariant_conformance` (work) `content/review/skills/review/SKILL.md:82`
+11. `exarchos_orchestrate.runbook` (runbook-fetch) `content/review/skills/review/SKILL.md:105`
+12. `exarchos_orchestrate.check_review_verdict` (work) `content/review/skills/review/SKILL.md:110`
+13. `exarchos_workflow.update` (work) `content/review/skills/review/SKILL.md:157`
+14. `exarchos_workflow.transition` (work) `content/review/skills/review/SKILL.md:160`
 
-Exception `needs-fixes`: the verdict is NEEDS_FIXES, so the failure is recorded and fixes are delegated (`content/review/skills/review/SKILL.md:166`)
+Exception `needs-fixes`: the verdict is NEEDS_FIXES, so the failure is recorded and fixes are delegated (`content/review/skills/review/SKILL.md:164`)
 
-- Runs the normal path through `exarchos_orchestrate.check_review_verdict`, adds `exarchos_workflow.update`, at most 5 times (`content/review/skills/review/SKILL.md:122`).
+- Runs the normal path through `exarchos_orchestrate.check_review_verdict`, adds `exarchos_workflow.update`, at most 5 times (`content/review/skills/review/SKILL.md:120`).
 - Exarchos 9; describe 0; runbook fetch 3; harness 1.
 
 ## synthesis
@@ -170,6 +170,6 @@ Exception `readiness-fails`: the readiness check fails, so synthesis returns to 
 - Contract authority `action-id-registry` digest `sha256:1ec1f3b317c3531331f92309d5f92a8ff1ff453a5b9987690b38eb07023f249e` from `src/contract/contract-authority.lock.json`.
 - `content/delivery/skills/delegate/SKILL.md` sha256 `0568c168dd346c5f8828ca876307109e0954e272e2ff90f2981fa6abf502536f`
 - `content/design/skills/plan/SKILL.md` sha256 `6d7b658968132f43ebe1e174c8187d9223177c1312c5bf435323968a5e02674a`
-- `content/review/skills/review/SKILL.md` sha256 `a852d4c7bb7c36028d70382057470504550295bbfb561974d9990094b696369d`
+- `content/review/skills/review/SKILL.md` sha256 `ee200bb8fc1e5251a76d21f9de0526d8d0187a0ab109353e069b7091545a7078`
 - `content/synthesis/skills/synthesize/SKILL.md` sha256 `34f0bc3afa8823275b374ccb6d6c1b89ed08af0210256f1e951beedbc7eaf21b`
 - `src/runbooks/definitions.ts` sha256 `e873e609e5094e84b506804936bfb45c8cb1e7ecffc69310d587a77e69006d02`
