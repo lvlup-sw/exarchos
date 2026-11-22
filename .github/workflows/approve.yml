@@ -1,0 +1,17 @@
+# Runs the org /approve comment command in this repository.
+# A repository admin comments /approve on a pull request and github-actions[bot]
+# approves its head commit. See approve-command.yml in lvlup-sw/.github.
+
+name: Approve
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions: {}
+
+jobs:
+  approve:
+    uses: lvlup-sw/.github/.github/workflows/approve-command.yml@3ee9798448fd1cbdd296391ba975a0a27b34f2e8 # main after lvlup-sw/.github#109
+    permissions:
+      pull-requests: write
