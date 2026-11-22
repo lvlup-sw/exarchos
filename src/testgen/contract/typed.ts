@@ -55,6 +55,6 @@ export const typedSuccess = z.strictObject({
   propertyRefs: z.array(z.string()).min(1),
   assumptions: z.array(z.string()),
   unresolvedObligations: z.array(z.string()),
-  validation: z.strictObject({ executable: z.enum(['dotnet', 'npm', 'node', 'bun']), args: z.array(z.string()).min(1) }),
+  validation: z.strictObject({ executable: z.enum(['dotnet', 'npm', 'node', 'bun']), args: z.array(z.string()).min(1) }).optional(),
 });
 export type TypedSuccess = z.infer<typeof typedSuccess>;

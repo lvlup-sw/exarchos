@@ -46,6 +46,7 @@ export function emitTyped(input: TypedInput, method: TypedMethod): TypedSuccess 
     propertyRefs: [input.propertyRef],
     assumptions: input.assumptions,
     unresolvedObligations: [
+      ...(input.framework === 'node-test' ? ['Compile with the repository test configuration and run node --test --test-isolation=none with the compiled test path.'] : []),
       'Review the binding oracle and preconditions, compile the patch, and verify native discovery and assertion sensitivity.',
       'The declared domain is structural. Application preconditions are checked during native execution.',
       ...(generated.exhausted ? ['The generation attempt budget ended before the requested number of distinct cases was reached.'] : []),

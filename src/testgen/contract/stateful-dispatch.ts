@@ -19,6 +19,7 @@ export function emitStateful(input: StatefulInput): StatefulSuccess {
     fixture: { version: 2, operations: input.operations, scenarios },
     propertyRefs: [input.propertyRef], assumptions: input.assumptions,
     unresolvedObligations: [
+      ...(input.framework === 'node-test' ? ['Compile with the repository test configuration and run node --test --test-isolation=none with the compiled test path.'] : []),
       'Review model independence, reset and disposal, observation boundaries, and operation preconditions.',
       'Compile and execute the native suite, confirm discovery, and challenge assertions with a controlled lifecycle defect.',
       'Generated candidate pools are filtered by model preconditions during native execution. Exhaustion reports an invalid history.',

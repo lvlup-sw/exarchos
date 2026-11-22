@@ -3,8 +3,8 @@ import { expect, it } from 'vitest';
 import { dispatchInspection } from '../../../src/testgen/contract/operations.js';
 
 it('resolves scoped TUnit pins and does not qualify conditional references', () => {
-  const central = (version: string) => `<Project><ItemGroup><PackageVersion Include="TUnit" Version="${version}" /></ItemGroup></Project>`;
-  const project = '<Project><ItemGroup><PackageReference Include="TUnit" /></ItemGroup></Project>';
+  const central = (version: string) => `<Project><ItemGroup><PackageVersion Include = "TUnit" Version = "${version}" /></ItemGroup></Project>`;
+  const project = '<Project><ItemGroup><PackageReference Include = "TUnit" /></ItemGroup></Project>';
   const result = dispatchInspection({ files: [
     { path: 'Directory.Packages.props', text: central('1.83.8') },
     { path: 'Sample/Directory.Packages.props', text: central('1.2.11') },
@@ -20,16 +20,16 @@ it('resolves scoped TUnit pins and does not qualify conditional references', () 
 });
 
 it('distinguishes a workspace lock resolution from a manifest range', () => {
-  const manifest = JSON.stringify({ devDependencies: { vitest: '^5.0.0' }, scripts: { test: 'vitest run' } });
+  const manifest = JSON.stringify({ devDependencies: { vitest: '^5.0.0' }, scripts: { test: 'bun test:unit', 'test:unit': 'vitest run' } });
   const files = [
-    { path: 'packages/app/package.json', text: manifest },
+    { path: 'packages/@demo app/package.json', text: manifest },
     { path: 'package-lock.json', text: JSON.stringify({ packages: {
       'node_modules/vitest': { version: '4.1.12' },
-      'packages/app/node_modules/vitest': { version: '5.1.0' },
+      'packages/@demo app/node_modules/vitest': { version: '5.1.0' },
     } }) },
   ];
   expect(dispatchInspection({ files })).toMatchObject({ ok: true, projects: [
-    { version: '5.1.0', status: 'supported', commands: ['vitest run'] },
+    { version: '5.1.0', status: 'supported', commands: ['bun test:unit', 'vitest run'] },
   ] });
   expect(dispatchInspection({ files: files.slice(0, 1) })).toMatchObject({ ok: true, projects: [
     { version: null, status: 'ambiguous' },

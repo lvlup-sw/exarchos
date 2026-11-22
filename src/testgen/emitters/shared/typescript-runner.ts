@@ -18,7 +18,7 @@ export function assertion(runner: Runner, actual: string, expected: string, mess
 export function typescriptValidation(runner: Runner, path: string) {
   switch (runner) {
     case 'vitest': return { executable: 'npm' as const, args: ['exec', '--no', '--', 'vitest', 'run', path] };
-    case 'node-test': return { executable: 'node' as const, args: ['--test', '--test-isolation=none', path.replace(/\.ts$/, '.js')] };
+    case 'node-test': return undefined;
     case 'bun-test': return { executable: 'bun' as const, args: ['test', path] };
   }
 }

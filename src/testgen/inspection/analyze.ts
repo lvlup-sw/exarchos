@@ -2,7 +2,7 @@ import { posix } from 'node:path';
 import { z } from 'zod';
 import { supportsFramework } from '../contract/targets.js';
 
-export const metadataPath = z.string().max(300).regex(/^(?:[\w.-]+\/)*[\w.-]+$/)
+export const metadataPath = z.string().max(300).regex(/^(?:[^/\\:\u0000-\u001f\u007f]+\/)*[^/\\:\u0000-\u001f\u007f]+$/u)
   .refine((path) => path.split('/').every((part) => part !== '.' && part !== '..'));
 
 export const inspectInput = z.strictObject({
@@ -65,7 +65,7 @@ function packageProject(path: string, source: string, files: Map<string, string>
     Object.hasOwn(declared, 'vitest') && 'vitest',
     Object.hasOwn(declared, 'jest') && 'jest',
     /\bnode\b[^\n;&]*\s--test(?:\s|$)/.test(commands) && 'node-test',
-    /\bbun\s+test\b/.test(commands) && 'bun-test',
+    /\bbun\s+test(?=\s|[;&|]|$)/.test(commands) && 'bun-test',
     /\bplaywright\s+test\b/.test(commands) && 'playwright',
   ].filter((runner): runner is string => Boolean(runner));
   if (runners.length > 1) return { ...result, status: 'ambiguous', unresolved: [`Multiple native runners: ${runners.join(', ')}`] };
@@ -134,23 +134,23 @@ function packageProject(path: string, source: string, files: Map<string, string>
 
 function dotnetProject(path: string, source: string, files: Map<string, string>): Project | undefined {
   const cwd = posix.dirname(path);
-  const references = source.replace(/<!--[\s\S]*?-->/g, '').match(/<PackageReference\b[^>]*\bInclude=["'](?:TUnit|xunit(?:\.v3)?|NUnit|MSTest(?:\.TestFramework)?)["'][^>]*>/gi) ?? [];
+  const references = source.replace(/<!--[\s\S]*?-->/g, '').match(/<PackageReference\b[^>]*\bInclude\s*=\s*["'](?:TUnit|xunit(?:\.v3)?|NUnit|MSTest(?:\.TestFramework)?)["'][^>]*>/gi) ?? [];
   if (references.length === 0) return undefined;
   const result: Project = { path, cwd, runner: null, version: null, status: 'ambiguous', sources: [path], commands: [], tools: [], environments: [], testIncludes: [], unresolved: [] };
   if (references.length !== 1) return { ...result, unresolved: ['Multiple or conditional test-runner references.'] };
   const reference = references[0] ?? '';
-  result.runner = /Include=["']([^"']+)/i.exec(reference)?.[1]?.toLowerCase() ?? null;
+  result.runner = /Include\s*=\s*["']([^"']+)/i.exec(reference)?.[1]?.toLowerCase() ?? null;
   result.tools = ['FsCheck', 'Testcontainers', 'CodeCoverage'].filter((name) => source.includes(name));
   if (result.runner !== 'tunit') return { ...result, status: 'unsupported' };
   if (/\bCondition\s*=|<Import\b/i.test(source)) return { ...result, unresolved: ['MSBuild conditions or imports require native resolution.'] };
-  let version = /\b(?:VersionOverride|Version)=["']([^"']+)/.exec(reference)?.[1];
+  let version = /\b(?:VersionOverride|Version)\s*=\s*["']([^"']+)/.exec(reference)?.[1];
   if (!version) {
     const props = ancestors(cwd).map((directory) => posix.join(directory, 'Directory.Packages.props')).find((file) => files.has(file));
     if (props) {
       result.sources.push(props);
       const central = (files.get(props) ?? '').replace(/<!--[\s\S]*?-->/g, '');
-      const item = central.match(/<PackageVersion\b[^>]*\bInclude=["']TUnit["'][^>]*>/gi) ?? [];
-      if (item.length === 1 && !/\bCondition\s*=|<Import\b/i.test(central)) version = /\bVersion=["']([^"']+)/.exec(item[0] ?? '')?.[1];
+      const item = central.match(/<PackageVersion\b[^>]*\bInclude\s*=\s*["']TUnit["'][^>]*>/gi) ?? [];
+      if (item.length === 1 && !/\bCondition\s*=|<Import\b/i.test(central)) version = /\bVersion\s*=\s*["']([^"']+)/.exec(item[0] ?? '')?.[1];
     }
   }
   if (!version || !exactVersion.test(version)) return { ...result, unresolved: ['TUnit version requires native MSBuild resolution.'] };

@@ -33,8 +33,16 @@ export async function collectMetadata(root: string) {
       if (!stat.isFile() || stat.size > 1_000_000 || size + stat.size > 1_800_000 || files.length === 512) {
         throw new Error('Repository metadata exceeds the inspection budget.');
       }
-      const text = path.endsWith('bun.lockb') ? '' : await handle.readFile('utf8');
-      size += text.length;
+      const buffer = Buffer.alloc(path.endsWith('bun.lockb') ? 0 : stat.size + 1);
+      let bytes = 0;
+      while (bytes < buffer.length) {
+        const { bytesRead } = await handle.read(buffer, bytes, buffer.length - bytes, bytes);
+        if (bytesRead === 0) break;
+        bytes += bytesRead;
+      }
+      if (bytes > stat.size) throw new Error('Repository metadata grew during inspection.');
+      size += path.endsWith('bun.lockb') ? stat.size : bytes;
+      const text = buffer.toString('utf8', 0, bytes);
       files.push({ path, text });
     } finally {
       await handle.close();
