@@ -4,6 +4,7 @@
  * `bun build --compile`. The binary is the only distribution artifact.
  *
  * The entry is `src/index.ts`, which dispatches the MCP server, the hook commands and the CLI.
+ * `--component verifier` builds the Linux verifier, and `--component harness` builds the harness launcher for every target.
  * Usage: `bun run tools/release/build-binary.ts [--all | --target <os-arch>] [--outdir <dir>]`.
  * With no flag it builds the host target. CI passes `--target`, and a test passes `--outdir`.
  * The build runs only when this file is the entry point, so an import does not start a build.
@@ -31,6 +32,21 @@ import {
 
 /** Default output directory for compiled artifacts. */
 export const DEFAULT_OUTDIR = 'dist/bin';
+
+/** The binary components that this script builds. */
+type BuildComponent = 'governor' | 'verifier' | 'harness';
+
+/** The entry, the output name prefix and the identity global of each component. */
+const COMPONENTS: Readonly<Record<BuildComponent, { readonly entry: string; readonly prefix: string; readonly identityGlobal: string | null }>> = {
+  governor: { entry: 'src/index.ts', prefix: 'exarchos-', identityGlobal: null },
+  verifier: { entry: 'src/runtime/verification-host/main.ts', prefix: 'exarchos-verifier-', identityGlobal: '__verifierBuildIdentity__' },
+  harness: { entry: 'src/runtime/launcher/harness-entry.ts', prefix: 'exarchos-harness-', identityGlobal: '__harnessBuildIdentity__' },
+};
+
+/** Narrows a `--component` value to a known component. */
+function isBuildComponent(value: string): value is BuildComponent {
+  return value === 'governor' || value === 'verifier' || value === 'harness';
+}
 
 /**
  * Reads the version from the root `package.json`. `--define` inlines it into the binary, which
@@ -141,26 +157,29 @@ function buildReleaseTag(version: string): string {
 }
 
 /**
- * Builds one target. It generates the embedded runtimes module first, so the binary cannot ship a
- * stale copy. `--target` selects the Bun runtime to embed. `--define` inlines the version and the
+ * Builds one target. The governor and the harness entry graphs reach the embedded runtimes module.
+ * So the build generates that module first for them, and the binary cannot ship a stale copy.
+ * `--target` selects the Bun runtime to embed. `--define` inlines the version and the
  * release tag, and `--banner` stamps the build identity into the artifact.
+ * The verifier and the harness keep the identity in their own global.
  */
-async function buildOne(target: Target, outdir: string = DEFAULT_OUTDIR, component: 'governor' | 'verifier' = 'governor'): Promise<void> {
-  if (component === 'governor') codegenEmbeddedRuntimes();
+async function buildOne(target: Target, outdir: string = DEFAULT_OUTDIR, component: BuildComponent = 'governor'): Promise<void> {
+  if (component !== 'verifier') codegenEmbeddedRuntimes();
   if (component === 'verifier' && target.os !== 'linux') throw new Error('Verifier requires a Linux target');
 
+  const spec = COMPONENTS[component];
   const ext = target.os === 'windows' ? '.exe' : '';
-  const outfile = join(outdir, `exarchos-${component === 'verifier' ? 'verifier-' : ''}${target.os}-${target.arch}${ext}`);
+  const outfile = join(outdir, `${spec.prefix}${target.os}-${target.arch}${ext}`);
   mkdirSync(outdir, { recursive: true });
 
   const version = readBuildVersion();
   const versionDefine = `EXARCHOS_BUILD_VERSION=${JSON.stringify(version)}`;
   const releaseTagDefine = `EXARCHOS_BUILD_RELEASE_TAG=${JSON.stringify(buildReleaseTag(version))}`;
   const identity = identityBanner();
-  const banner = component === 'verifier'
-    ? identity.replace(/^globalThis\.\w+=/, 'globalThis.__verifierBuildIdentity__=')
-    : identity;
-  const entry = component === 'verifier' ? 'src/runtime/verification-host/main.ts' : 'src/index.ts';
+  const banner = spec.identityGlobal === null
+    ? identity
+    : identity.replace(/^globalThis\.\w+=/, `globalThis.${spec.identityGlobal}=`);
+  const entry = spec.entry;
   await $`bun build ${entry} --compile --target=${target.bunTarget} --define ${versionDefine} --define ${releaseTagDefine} --banner ${banner} --outfile ${outfile}`;
 
   console.log(`Built ${outfile}`);
@@ -196,7 +215,7 @@ function findTargetByName(name: string): Target {
 
 if ((import.meta as ImportMeta & { readonly main?: boolean }).main === true) {
   const selectedComponent = parseFlagValue(process.argv, '--component') ?? 'governor';
-  if (selectedComponent !== 'governor' && selectedComponent !== 'verifier') throw new Error('Unsupported build component');
+  if (!isBuildComponent(selectedComponent)) throw new Error('Unsupported build component');
   const targets = selectedComponent === 'verifier' ? VERIFIER_TARGETS : TARGETS;
   const wantAll = process.argv.includes('--all');
   const wantTarget = parseTargetFlag(process.argv);

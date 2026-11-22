@@ -4,11 +4,11 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1509,
-    "parsedFiles": 1465,
+    "testFiles": 1510,
+    "parsedFiles": 1466,
     "shellFiles": 44,
-    "cases": 16784,
-    "dynamicTitles": 330,
+    "cases": 16803,
+    "dynamicTitles": 336,
     "unparseableFiles": 0
   },
   "unparseable": [],
@@ -11794,6 +11794,77 @@
         }
       ]
     },
+    "tests/process/1928-launch-ownership.test.ts": {
+      "file": "tests/process/1928-launch-ownership.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "",
+          "name": "LaunchOwnership_GovernorImportWalk_ReachesNoLauncherWriter",
+          "dynamic": false
+        },
+        {
+          "suite": "",
+          "name": "LaunchOwnership_GovernorStub_RefusesEachHarnessVerbWithNoEffect",
+          "dynamic": false
+        },
+        {
+          "suite": "",
+          "name": "<dynamic-case-1>",
+          "dynamic": true
+        },
+        {
+          "suite": "",
+          "name": "LaunchOwnership_McpToolList_OffersNoLaunch",
+          "dynamic": false
+        },
+        {
+          "suite": "",
+          "name": "<dynamic-case-2>",
+          "dynamic": true
+        },
+        {
+          "suite": "",
+          "name": "LaunchOwnership_HarnessDryRun_PrintsThePlanAndStartsNoGit",
+          "dynamic": false
+        },
+        {
+          "suite": "",
+          "name": "<dynamic-case-3>",
+          "dynamic": true
+        },
+        {
+          "suite": "",
+          "name": "LaunchOwnership_HarnessLegacyJsonlState_RefusesAndCreatesNoDatabase",
+          "dynamic": false
+        },
+        {
+          "suite": "",
+          "name": "<dynamic-case-4>",
+          "dynamic": true
+        },
+        {
+          "suite": "",
+          "name": "LaunchOwnership_HarnessRealLaunch_CreatesLaunchesAndReleasesInTheSharedStore",
+          "dynamic": false
+        },
+        {
+          "suite": "",
+          "name": "<dynamic-case-5>",
+          "dynamic": true
+        },
+        {
+          "suite": "",
+          "name": "LaunchOwnership_Recovery_FinishesAPendingIntentAndNeverRecreatesAfterItsTerminal",
+          "dynamic": false
+        },
+        {
+          "suite": "",
+          "name": "<dynamic-case-6>",
+          "dynamic": true
+        }
+      ]
+    },
     "tests/process/1928-lifecycle-host.test.ts": {
       "file": "tests/process/1928-lifecycle-host.test.ts",
       "runner": "vitest:root",
@@ -17022,28 +17093,43 @@
       "runner": "vitest:root",
       "cases": [
         {
-          "suite": "exarchos <harness> launcher CLI wiring (DR-1 / DR-6, R-1)",
+          "suite": "exarchos-harness launcher entry wiring (DR-1 / DR-6, R-1)",
           "name": "LauncherCli_NonDryRun_ActuallySpawns",
           "dynamic": false
         },
         {
-          "suite": "exarchos <harness> launcher CLI wiring (DR-1 / DR-6, R-1)",
+          "suite": "exarchos-harness launcher entry wiring (DR-1 / DR-6, R-1)",
           "name": "LauncherCli_DryRun_SpawnsNothing",
           "dynamic": false
         },
         {
-          "suite": "exarchos <harness> launcher CLI wiring (DR-1 / DR-6, R-1)",
+          "suite": "exarchos-harness launcher entry wiring (DR-1 / DR-6, R-1)",
           "name": "LauncherCli_NonDryRun_RunsStartupRecovery",
           "dynamic": false
         },
         {
-          "suite": "exarchos <harness> launcher CLI wiring (DR-1 / DR-6, R-1)",
+          "suite": "exarchos-harness launcher entry wiring (DR-1 / DR-6, R-1)",
           "name": "LauncherCli_LaunchRejection_MapsToUncaughtException",
           "dynamic": false
         },
         {
-          "suite": "exarchos <harness> launcher CLI wiring (DR-1 / DR-6, R-1)",
+          "suite": "exarchos-harness launcher entry wiring (DR-1 / DR-6, R-1)",
           "name": "LauncherCli_UnknownHarness_NeverRegistered",
+          "dynamic": false
+        },
+        {
+          "suite": "exarchos-harness launcher entry wiring (DR-1 / DR-6, R-1)",
+          "name": "LauncherCli_EmptyFeature_RefusesBeforeTheContext",
+          "dynamic": false
+        },
+        {
+          "suite": "exarchos-harness launcher entry wiring (DR-1 / DR-6, R-1)",
+          "name": "LauncherCli_NonDryRunWithoutJson_WritesOneToolResultLine",
+          "dynamic": false
+        },
+        {
+          "suite": "exarchos-harness launcher entry wiring (DR-1 / DR-6, R-1)",
+          "name": "LauncherCli_GovernorHarnessVerb_RefusesWithTheHarnessEntryName",
           "dynamic": false
         }
       ]
@@ -25327,6 +25413,16 @@
         },
         {
           "suite": "initializeContext — projectConfig (YAML)",
+          "name": "InitializeContext_DetectVcsFalse_AppliesDurabilityWithoutVcsProvider",
+          "dynamic": false
+        },
+        {
+          "suite": "initializeContext — projectConfig (YAML)",
+          "name": "InitializeContext_DetectVcsAbsent_CallsTheVcsFactory",
+          "dynamic": false
+        },
+        {
+          "suite": "initializeContext — projectConfig (YAML)",
           "name": "initializeContext_WithProjectRoot_HasNoHookRunner",
           "dynamic": false
         },
@@ -25343,6 +25439,11 @@
         {
           "suite": "initializeContext — topology loader wired at startup (T58, DR-7)",
           "name": "Context_InitializeWithProjectRootButNoTopologyYaml_DoesNotThrow",
+          "dynamic": false
+        },
+        {
+          "suite": "initializeContext — topology loader wired at startup (T58, DR-7)",
+          "name": "Context_InitializeWithDetectVcsFalse_LoadsTopology",
           "dynamic": false
         },
         {

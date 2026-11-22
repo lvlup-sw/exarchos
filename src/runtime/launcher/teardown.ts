@@ -15,7 +15,6 @@ import { spawn } from 'node:child_process';
 import type { EventStore } from '../../events/store.js';
 import {
   WorktreeManager,
-  defaultGitRunner,
   type GitRunner,
   type ReservationOwner,
   type ReleaseResult,
@@ -31,6 +30,7 @@ import {
 } from '../../verbs/worktree/pure/path-containment.js';
 import { emitLaunchExecuted } from './liveness.js';
 import {
+  launcherGitRunner,
   recoverPendingCreations,
   type RecoveredCreation,
 } from './create-worktree.js';
@@ -109,7 +109,7 @@ export interface TeardownDeps {
   readonly processTableSource?: ProcessTableSource;
   /** Symlink-resolver for occupancy containment. Defaults to {@link defaultRealpath}. */
   readonly realpath?: RealpathResolver;
-  /** Git runner for the non-git / origin safety gate. Defaults to {@link defaultGitRunner}. */
+  /** Git runner for the non-git / origin safety gate. Defaults to {@link launcherGitRunner}. */
   readonly gitRunner?: GitRunner;
   /**
    * The async, non-blocking `git ls-remote origin` probe. Defaults to {@link defaultOriginReachable}.
@@ -151,7 +151,7 @@ export async function teardownLaunch(
 ): Promise<TeardownOutcome> {
   const { eventStore, worktreeId, worktreePath, exitCode } = ctx;
   const emitExecuted = ctx.emitExecuted ?? emitLaunchExecuted;
-  const gitRunner = deps.gitRunner ?? defaultGitRunner;
+  const gitRunner = deps.gitRunner ?? launcherGitRunner;
   const realpath = deps.realpath ?? defaultRealpath;
   const processTableSource = deps.processTableSource ?? defaultProcessTableSource;
   const selfPid = deps.selfPid ?? process.pid;
@@ -220,7 +220,7 @@ export function makeLifecycleTeardown(deps: TeardownDeps = {}): LifecycleTeardow
 export interface RecoverCrashedLaunchDeps {
   /** WLM manager whose probe reclaims the dead-owner reservation. Defaults to a fresh one. */
   readonly manager?: WorktreeManager;
-  /** Git runner for the create precheck. Defaults to {@link defaultGitRunner}. */
+  /** Git runner for the create precheck. Defaults to {@link launcherGitRunner}. */
   readonly gitRunner?: GitRunner;
   /** Symlink-resolver for canonical keying. Defaults to {@link defaultRealpath}. */
   readonly realpath?: RealpathResolver;
@@ -250,7 +250,7 @@ export async function recoverCrashedLaunch(
   repoRoot: string,
   deps: RecoverCrashedLaunchDeps = {},
 ): Promise<RecoverCrashedLaunchResult> {
-  const gitRunner = deps.gitRunner ?? defaultGitRunner;
+  const gitRunner = deps.gitRunner ?? launcherGitRunner;
   const realpath = deps.realpath ?? defaultRealpath;
   const manager =
     deps.manager ?? new WorktreeManager({ eventStore, gitRunner, realpath });

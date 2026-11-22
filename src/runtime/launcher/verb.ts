@@ -1,5 +1,5 @@
 /**
- * The `exarchos <harness>` launcher verb: its schema, its dry-run, and its non-dry-run seam. It is a
+ * The launcher verb of the `exarchos-harness <harness>` entry: its schema, its dry-run, and its non-dry-run seam. It is a
  * CLI-only process-supervisor verb, because the stdio MCP surface cannot own the lifecycle of a child.
  *
  * `runLauncherVerb` validates the input and resolves the harness. An unknown harness gives a structured
@@ -47,7 +47,7 @@ export const LAUNCH_EVENT_PLAN = [
 export type LaunchEventType = (typeof LAUNCH_EVENT_PLAN)[number];
 
 /**
- * Zod schema for the `exarchos <harness>` verb.
+ * Zod schema for the launcher verb of the `exarchos-harness <harness>` entry.
  *
  * - `harness` is constrained to the five Tier-1 harness enum members
  *   ({@link TIER1_HARNESSES}) — the schema itself rejects any non-enum value.
@@ -190,7 +190,7 @@ function invalidInput(message: string): ToolResult {
 }
 
 /**
- * Runs the `exarchos <harness>` verb.
+ * Runs the launcher verb of the `exarchos-harness <harness>` entry.
  *
  * 1. It resolves the harness with {@link resolveHarness} before the schema runs, so an unknown value gives a
  *    structured `INVALID_INPUT` error with `validTargets`, never a throw.
@@ -317,8 +317,8 @@ export function renderDryRunPlan(plan: DryRunPlan): string {
 }
 
 /**
- * Narrows the `data` of a successful {@link ToolResult} to a {@link DryRunPlan}. The CLI adapter uses it to
- * choose human output or the JSON envelope.
+ * Narrows the `data` of a successful {@link ToolResult} to a {@link DryRunPlan}. The harness entry uses it to
+ * choose the text plan or the JSON line.
  */
 export function isDryRunPlan(data: unknown): data is DryRunPlan {
   if (data === null || typeof data !== 'object') return false;

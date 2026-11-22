@@ -16,7 +16,6 @@ import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
 import {
   WORKTREES_STREAM,
   WORKTREES_REDUCER,
-  defaultGitRunner,
   type GitRunner,
 } from '../../../../src/verbs/worktree/manager.js';
 import type { WorktreesProjection } from '../../../../src/verbs/worktree/projections/worktrees.js';
@@ -24,6 +23,7 @@ import { canonicalWorktreeId } from '../../../../src/verbs/worktree/pure/path-co
 import { deriveWorktreePath, guardWorktreeContainment } from '../../../../src/runtime/launcher/topology.js';
 import {
   createLauncherWorktree,
+  launcherGitRunner,
   recoverPendingCreations,
   CREATE_REQUESTED,
   CREATE_EXECUTED,
@@ -88,7 +88,7 @@ function recordingRunner(): { runner: GitRunner; calls: string[][] } {
   const runner: GitRunner = {
     run(args, cwd) {
       calls.push([...args]);
-      return defaultGitRunner.run(args, cwd);
+      return launcherGitRunner.run(args, cwd);
     },
   };
   return { runner, calls };
@@ -134,7 +134,7 @@ describe('createLauncherWorktree (real git + real event store)', () => {
         if (args[0] === 'worktree' && args[1] === 'add') {
           reservedAtAddTime = eventsOfType(store, 'worktree.reserved').length;
         }
-        return defaultGitRunner.run(args, cwd);
+        return launcherGitRunner.run(args, cwd);
       },
     };
 
@@ -219,7 +219,7 @@ describe('createLauncherWorktree (real git + real event store)', () => {
     const noAddRunner: GitRunner = {
       run(args, cwd) {
         if (args[0] === 'worktree' && args[1] === 'add') return { status: 1, stdout: 'add must not run' };
-        return defaultGitRunner.run(args, cwd);
+        return launcherGitRunner.run(args, cwd);
       },
     };
     const recoveredPresent = await recoverPendingCreations(store, repo, { gitRunner: noAddRunner });
@@ -269,7 +269,7 @@ describe('createLauncherWorktree (real git + real event store)', () => {
     const orderedRunner: GitRunner = {
       run(args, cwd) {
         if (args[0] === 'worktree' && args[1] === 'add') order.push('git-add');
-        return defaultGitRunner.run(args, cwd);
+        return launcherGitRunner.run(args, cwd);
       },
     };
 
