@@ -1,4 +1,8 @@
-import { describe, it, expect } from 'vitest';
+import { afterEach, describe, it, expect } from 'vitest';
+import { accessSync, constants, realpathSync } from 'node:fs';
+import { mkdtemp } from 'node:fs/promises';
+import { devNull, tmpdir } from 'node:os';
+import { delimiter, join } from 'node:path';
 import { createVcsProvider } from '../../../src/vcs/factory.js';
 import { DEFAULTS } from '../../../src/config/resolve.js';
 import { GitHubProvider } from '../../../src/vcs/github.js';
@@ -6,18 +10,40 @@ import { GitLabProvider } from '../../../src/vcs/gitlab.js';
 import { AzureDevOpsProvider } from '../../../src/vcs/azure-devops.js';
 import type { ResolvedProjectConfig } from '../../../src/config/resolve.js';
 import type { VcsDetectorDeps } from '../../../src/vcs/detector.js';
+import { execFileAsync } from '../../../tools/test-helpers/spawn.js';
+import { rmrfAsync } from '../../../tools/test-helpers/temp-dir.js';
+
+/** The absolute real path of the fixture Git on the test process PATH. */
+function fixtureGit(): string {
+  for (const directory of (process.env.PATH ?? '').split(delimiter)) {
+    const candidate = join(directory, process.platform === 'win32' ? 'git.exe' : 'git');
+    try { accessSync(candidate, constants.X_OK); return realpathSync(candidate); } catch { continue; }
+  }
+  throw new Error('The fixture needs Git on PATH');
+}
+
+const GIT = fixtureGit();
+
+const roots: string[] = [];
+
+afterEach(async () => {
+  for (const root of roots.splice(0)) await rmrfAsync(root);
+});
 
 /**
- * Detector deps whose `git remote get-url` call returns `remoteUrl`, or throws when it is null.
- * Each CLI version check throws, so no CLI is available. The env is empty.
+ * Detector deps over a fresh repository whose `origin` URL is `remoteUrl`, or that has no origin when it is null.
+ * The remote read goes through the constrained reader with the real Git path. Each CLI version check throws, so no CLI is available. The env is empty.
  */
-function fakeDetectorDeps(remoteUrl: string | null): VcsDetectorDeps {
+async function fakeDetectorDeps(remoteUrl: string | null): Promise<VcsDetectorDeps> {
+  const root = realpathSync(await mkdtemp(join(tmpdir(), 'vcs-factory-')));
+  roots.push(root);
+  const env = { ...process.env, GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: devNull };
+  await execFileAsync(GIT, ['-C', root, 'init', '-q', '-b', 'main'], { env });
+  if (remoteUrl !== null) await execFileAsync(GIT, ['-C', root, 'config', 'remote.origin.url', remoteUrl], { env });
   return {
-    exec: async (cmd: string, args: string[]) => {
-      if (cmd === 'git' && args.includes('get-url')) {
-        if (remoteUrl === null) throw new Error('no remote');
-        return remoteUrl;
-      }
+    cwd: root,
+    gitPath: GIT,
+    exec: async () => {
       throw new Error('not found');
     },
     env: {},
@@ -64,14 +90,14 @@ describe('createVcsProvider', () => {
   /** The injected deps have no remote, so detection returns null on every host. */
   it('createVcsProvider_NoOpts_DefaultsToGitHub', async () => {
     const provider = await createVcsProvider({
-      detectorDeps: fakeDetectorDeps(null),
+      detectorDeps: await fakeDetectorDeps(null),
     });
     expect(provider).toBeInstanceOf(GitHubProvider);
   });
 
   it('CreateVcsProvider_AutoDetect_UsesDetectedProvider', async () => {
     const provider = await createVcsProvider({
-      detectorDeps: fakeDetectorDeps('git@gitlab.com:org/repo.git'),
+      detectorDeps: await fakeDetectorDeps('git@gitlab.com:org/repo.git'),
     });
     expect(provider).toBeInstanceOf(GitLabProvider);
     expect(provider.name).toBe('gitlab');
@@ -85,7 +111,7 @@ describe('createVcsProvider', () => {
     };
     const provider = await createVcsProvider({
       config,
-      detectorDeps: fakeDetectorDeps('git@gitlab.com:org/repo.git'),
+      detectorDeps: await fakeDetectorDeps('git@gitlab.com:org/repo.git'),
     });
     expect(provider).toBeInstanceOf(GitHubProvider);
     expect(provider.name).toBe('github');
@@ -93,7 +119,7 @@ describe('createVcsProvider', () => {
 
   it('CreateVcsProvider_NoRemote_DefaultsToGitHub', async () => {
     const provider = await createVcsProvider({
-      detectorDeps: fakeDetectorDeps(null),
+      detectorDeps: await fakeDetectorDeps(null),
     });
     expect(provider).toBeInstanceOf(GitHubProvider);
     expect(provider.name).toBe('github');
@@ -101,7 +127,7 @@ describe('createVcsProvider', () => {
 
   it('CreateVcsProvider_AutoDetect_AzureDevOps', async () => {
     const provider = await createVcsProvider({
-      detectorDeps: fakeDetectorDeps('https://dev.azure.com/org/project/_git/repo'),
+      detectorDeps: await fakeDetectorDeps('https://dev.azure.com/org/project/_git/repo'),
     });
     expect(provider).toBeInstanceOf(AzureDevOpsProvider);
     expect(provider.name).toBe('azure-devops');
@@ -109,7 +135,7 @@ describe('createVcsProvider', () => {
 
   it('CreateVcsProvider_AutoDetect_GitHub', async () => {
     const provider = await createVcsProvider({
-      detectorDeps: fakeDetectorDeps('git@github.com:org/repo.git'),
+      detectorDeps: await fakeDetectorDeps('git@github.com:org/repo.git'),
     });
     expect(provider).toBeInstanceOf(GitHubProvider);
     expect(provider.name).toBe('github');
@@ -117,7 +143,7 @@ describe('createVcsProvider', () => {
 
   it('CreateVcsProvider_AutoDetect_UnknownHost_DefaultsToGitHub', async () => {
     const provider = await createVcsProvider({
-      detectorDeps: fakeDetectorDeps('git@bitbucket.org:org/repo.git'),
+      detectorDeps: await fakeDetectorDeps('git@bitbucket.org:org/repo.git'),
     });
     expect(provider).toBeInstanceOf(GitHubProvider);
     expect(provider.name).toBe('github');

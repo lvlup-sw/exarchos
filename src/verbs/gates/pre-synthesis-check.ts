@@ -518,7 +518,7 @@ async function executePreSynthesisCheck(
   host: PreSynthesisHost,
 ): Promise<ToolResult> {
   const { stateFile, featureId, eventStore, repoRoot = '.', skipStack = false } = args;
-  const vcs = provider ?? await createVcsProvider();
+  const vcs = provider ?? await createVcsProvider({ detectorDeps: { gitPath: host.connector.gitPath, cwd: repoRoot } });
 
   const ctx: CheckContext = {
     results: [],

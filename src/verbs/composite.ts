@@ -69,7 +69,7 @@ import { handlePostDelegationCheck } from './team/post-delegation-check.js';
 import { handleReconcileState } from './reconcile-state.js';
 import { handlePreSynthesisCheck, type PreSynthesisCheckArgs } from './gates/pre-synthesis-check.js';
 import { handleCheckCoderabbit } from './vcs/check-coderabbit.js';
-import { handleCheckPolishScope } from './gates/check-polish-scope.js';
+import { handleCheckPolishScope, type CheckPolishScopeArgs } from './gates/check-polish-scope.js';
 import { handleNeedsSchemaSync } from './gates/needs-schema-sync.js';
 import { handleVerifyDocLinks } from './gates/verify-doc-links.js';
 import { handleVerifyReviewTriage } from './review/verify-review-triage.js';
@@ -131,6 +131,15 @@ function withoutPrivateTerms(args: Record<string, unknown>): Record<string, unkn
 /** The connector of a provisioned context. A caller argument never supplies it. */
 function connectorOf(ctx: DispatchContext): VerificationHostConnector | undefined {
   return ctx.verificationHost;
+}
+
+/**
+ * The connector Git path of a provisioned context for an observational read. An empty path counts as no path, so the read uses the process-wide Git path.
+ * A caller argument never supplies it.
+ */
+function observationalGitPathOf(ctx: DispatchContext): string | undefined {
+  const gitPath = ctx.verificationHost?.gitPath;
+  return gitPath === undefined || gitPath === '' ? undefined : gitPath;
 }
 
 /**
@@ -523,7 +532,7 @@ export const ACTION_HANDLERS: Readonly<Record<string, ActionHandler>> = {
   check_event_emissions: adaptWithEventStore(handleCheckEventEmissions),
   agent_spec: adapt(handleAgentSpec),
   extract_task: adapt(handleExtractTask),
-  review_diff: adapt(handleReviewDiff),
+  review_diff: adapt(handleReviewDiff, observationalGitPathOf),
   verify_worktree: adapt(handleVerifyWorktree),
   select_debug_track: adaptWithOptionalEventStore(handleSelectDebugTrack),
   investigation_timer: adaptWithOptionalEventStore(handleInvestigationTimer),
@@ -546,8 +555,10 @@ export const ACTION_HANDLERS: Readonly<Record<string, ActionHandler>> = {
   pre_synthesis_check: adaptArgsWithStateDirAndEventStore((args: PreSynthesisCheckArgs, connector?: VerificationHostConnector) =>
     connector === undefined ? handlePreSynthesisCheck(args) : handlePreSynthesisCheck(args, undefined, connector), connectorOf),
   check_coderabbit: adaptArgs(handleCheckCoderabbit),
-  check_polish_scope: adaptArgs(handleCheckPolishScope),
-  needs_schema_sync: adaptArgs(handleNeedsSchemaSync),
+  check_polish_scope: adapt((args: CheckPolishScopeArgs, _stateDir: string, gitPath?: string) =>
+    handleCheckPolishScope(args, gitPath), observationalGitPathOf),
+  needs_schema_sync: adapt((args: Parameters<typeof handleNeedsSchemaSync>[0], _stateDir: string, gitPath?: string) =>
+    handleNeedsSchemaSync(args, gitPath), observationalGitPathOf),
   verify_doc_links: adaptArgs(handleVerifyDocLinks),
   verify_review_triage: adaptArgsWithStateDirAndEventStore(handleVerifyReviewTriage),
   prepare_review: adaptWithEventStore(handlePrepareReview),

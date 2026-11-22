@@ -27,13 +27,14 @@ import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
 import { execFileAsync } from '../../../../tools/test-helpers/spawn.js';
 
 vi.mock('../../../../src/verbs/team/dispatch-guard.js', () => ({
-  validateBranchAncestry: vi.fn().mockResolvedValue({ passed: true, checks: ['ancestry'] }),
+  observeDispatchCheckout: vi.fn().mockResolvedValue({ kind: 'absent' }),
+  validateObservedAncestry: vi.fn().mockResolvedValue({ passed: true, checks: ['ancestry'] }),
   assertMainWorktree: vi.fn().mockReturnValue({
     isMain: true,
     actual: '/fake/repo',
     expected: 'main worktree (no .claude/worktrees/ in path)',
   }),
-  getCurrentBranch: vi.fn().mockReturnValue('main'),
+  readObservedBranch: vi.fn().mockResolvedValue({ kind: 'branch', branch: 'main' }),
   assertCurrentBranchNotProtected: vi.fn().mockReturnValue({
     blocked: true,
     reason: 'current-branch-protected',
@@ -335,7 +336,7 @@ describe('HandleOrchestrate_PrepareDelegation_StampsRiskTierBoundaryAndVerificat
     };
 
     const guard = await import('../../../../src/verbs/team/dispatch-guard.js');
-    vi.mocked(guard.getCurrentBranch).mockReturnValue('feature/verification-ladder');
+    vi.mocked(guard.readObservedBranch).mockResolvedValue({ kind: 'branch', branch: 'feature/verification-ladder' });
     vi.mocked(guard.assertCurrentBranchNotProtected).mockReturnValue({ blocked: false });
 
     const result = await handleOrchestrate(
@@ -424,7 +425,7 @@ describe('HandleOrchestrate_PrepareDelegation_StampsRiskTierBoundaryAndVerificat
     };
 
     const guard = await import('../../../../src/verbs/team/dispatch-guard.js');
-    vi.mocked(guard.getCurrentBranch).mockReturnValue('feature/verification-ladder');
+    vi.mocked(guard.readObservedBranch).mockResolvedValue({ kind: 'branch', branch: 'feature/verification-ladder' });
     vi.mocked(guard.assertCurrentBranchNotProtected).mockReturnValue({ blocked: false });
 
     const { resolveVerificationSequence } = await import('../../../../src/workflow/verification-policy.js');
@@ -509,7 +510,7 @@ describe('HandleOrchestrate_PrepareDelegation_PersistsWorkflowRiskTier (DR-2)', 
     };
 
     const guard = await import('../../../../src/verbs/team/dispatch-guard.js');
-    vi.mocked(guard.getCurrentBranch).mockReturnValue('feature/risk-closeout');
+    vi.mocked(guard.readObservedBranch).mockResolvedValue({ kind: 'branch', branch: 'feature/risk-closeout' });
     vi.mocked(guard.assertCurrentBranchNotProtected).mockReturnValue({ blocked: false });
 
     const result = await handleOrchestrate(
@@ -586,7 +587,7 @@ describe('HandleOrchestrate_PrepareDelegation_PersistsWorkflowRiskTier (DR-2)', 
     };
 
     const guard = await import('../../../../src/verbs/team/dispatch-guard.js');
-    vi.mocked(guard.getCurrentBranch).mockReturnValue('feature/risk-closeout');
+    vi.mocked(guard.readObservedBranch).mockResolvedValue({ kind: 'branch', branch: 'feature/risk-closeout' });
     vi.mocked(guard.assertCurrentBranchNotProtected).mockReturnValue({ blocked: false });
 
     const result = await handleOrchestrate(

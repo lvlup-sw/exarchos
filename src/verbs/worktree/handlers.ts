@@ -45,9 +45,17 @@ import type { QualityHintsConfig } from '../../workflow/capabilities/resolver.js
  */
 type InjectableDeps = Omit<WorktreeManagerDeps, 'eventStore'>;
 
-/** Builds a {@link WorktreeManager} over the dispatch event store and the optional deps. */
+/**
+ * Builds a {@link WorktreeManager} over the dispatch event store and the optional deps.
+ * The adoption probe gets a non-empty connector Git path. Without one, it uses the process-wide Git path.
+ */
 function buildManager(ctx: DispatchContext, deps?: InjectableDeps): WorktreeManager {
-  return new WorktreeManager({ eventStore: ctx.eventStore, ...deps });
+  const gitPath = ctx.verificationHost?.gitPath;
+  return new WorktreeManager({
+    eventStore: ctx.eventStore,
+    ...(gitPath === undefined || gitPath === '' ? {} : { observationalGitPath: gitPath }),
+    ...deps,
+  });
 }
 
 function invalidInput(message: string, expectedShape?: Record<string, unknown>): ToolResult {
@@ -125,7 +133,8 @@ function resolveOwner(
 /**
  * Runs the adopt pass over `repoRoot`, then reserves `worktreeId` for the live owner. When the
  * adopt pass saw the target and reports it not mutable, it returns `WORKTREE_NOT_MUTABLE`, because
- * a stale worktree can drop newly pushed files. The gate lookup uses the canonical id, because
+ * a stale worktree can drop newly pushed files. A checkout whose listing cannot be read also returns
+ * `WORKTREE_NOT_MUTABLE`, with the head-unresolved reason and no reservation. The gate lookup uses the canonical id, because
  * adopt stamps canonical ids and a Windows path can differ. The reservation keys on `worktreeId`
  * as passed, so release and view stay consistent.
  */
@@ -150,6 +159,15 @@ export async function handleAcquireWorktree(
   const processSource = deps?.processSource ?? defaultProcessSource;
 
   const adoptResult = await manager.adopt(repoRoot);
+  if (adoptResult.listingUnreadable === true) {
+    return {
+      success: false,
+      error: {
+        code: 'WORKTREE_NOT_MUTABLE',
+        message: `worktree ${worktreeId} is not mutable (head-unresolved) — refusing to reserve a stale worktree for mutation`,
+      },
+    };
+  }
 
   const canonicalIdForGate =
     adoptResult.worktrees.length > 0

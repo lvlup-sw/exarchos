@@ -7,10 +7,13 @@
  * in POSIX form, as `git rev-parse --show-toplevel` prints it. The lexical form reads no file, so it
  * serves a path that does not exist. The module spawns git with the async `execFile`, with a
  * timeout and an output cap. It imports nothing from `src/verbs`.
+ *
+ * It also keeps the process-wide Git path of the observational reads. A PATH search finds it with no process.
  */
 import { execFile } from 'node:child_process';
+import { accessSync, constants as fsConstants, statSync } from 'node:fs';
 import { lstat, realpath } from 'node:fs/promises';
-import { isAbsolute } from 'node:path';
+import { delimiter, isAbsolute, join } from 'node:path';
 import { promisify } from 'node:util';
 
 import { lexicalRepoPath, normalizeRepoPath } from './paths.js';
@@ -411,5 +414,72 @@ export async function createConstrainedGitReads(executable: string) {
       'diff', '--name-status', '-z', '--no-ext-diff', '--no-textconv', '--no-renames',
       constrainedCommitId(base), constrainedCommitId(head), '--',
     ]),
+    commitTime: (gitDir: string, checkout: string, id: string) => run(gitDir, checkout, [
+      'log', '-1', '--format=%ct', '--no-show-signature', constrainedCommitId(id), '--',
+    ]),
+    originUrl: (gitDir: string, checkout: string) => run(gitDir, checkout, ['remote', 'get-url', 'origin']),
+    stashList: (gitDir: string, checkout: string) => run(gitDir, checkout, ['stash', 'list', '--no-color', '--no-show-signature']),
+    upstream: (gitDir: string, checkout: string, branch: string) => run(gitDir, checkout, [
+      'for-each-ref', '--format=%(refname)%00%(upstream)', constrainedBranchRef(branch),
+    ]),
+    diffStat: (gitDir: string, checkout: string, base: string, head: string) => run(gitDir, checkout, [
+      'diff', '--stat', '--no-ext-diff', '--no-textconv', constrainedCommitId(base), constrainedCommitId(head), '--',
+    ]),
+  };
+}
+
+/** The closed read capability of one Git executable, after its capability probe. */
+export type ConstrainedGitReads = Awaited<ReturnType<typeof createConstrainedGitReads>>;
+
+/**
+ * The process-wide Git path of the observational reads. It holds no value until the first prime or the first read.
+ * A resolution that found no Git keeps an empty path, so the process searches PATH once.
+ */
+let observationalGitPath: { readonly path: string | undefined } | undefined;
+
+/**
+ * Search PATH for Git with no process. The search skips each empty and each relative entry, because POSIX reads an empty entry as the working directory.
+ * It accepts only a regular file named `git` (`git.exe` on win32) that the process can run.
+ * It keeps the path of the PATH entry, not the real path.
+ */
+function searchPathForGit(): string | undefined {
+  const name = process.platform === 'win32' ? 'git.exe' : 'git';
+  for (const entry of (process.env.PATH ?? '').split(delimiter)) {
+    if (entry === '' || !isAbsolute(entry)) continue;
+    const candidate = join(entry, name);
+    try {
+      if (!statSync(candidate).isFile()) continue;
+      if (process.platform !== 'win32') accessSync(candidate, fsConstants.X_OK);
+      return candidate;
+    } catch {
+      continue;
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Set the process-wide Git path of the observational reads. A non-empty `gitPath` is the Git path of a usable provisioning.
+ * Without it, one PATH search sets the path. The prime starts no process.
+ */
+export function primeObservationalGitPath(gitPath?: string): void {
+  observationalGitPath = { path: gitPath !== undefined && gitPath !== '' ? gitPath : searchPathForGit() };
+}
+
+/**
+ * The reader source of one action. A non-empty `gitPath` wins, else the process-wide path, which an unprimed process finds with one PATH search.
+ * The source creates its reader at the first call and gives the same reader, or the same failure, to every later call.
+ * So one action probes one executable once. No path gives a failure, and no read falls back to a bare `git` name.
+ */
+export function observationalReader(gitPath?: string): () => Promise<ConstrainedGitReads> {
+  let reader: Promise<ConstrainedGitReads> | undefined;
+  return () => {
+    reader ??= (async () => {
+      observationalGitPath ??= { path: searchPathForGit() };
+      const selected = gitPath !== undefined && gitPath !== '' ? gitPath : observationalGitPath.path;
+      if (selected === undefined) throw new Error('No usable Git executable for the observational read');
+      return createConstrainedGitReads(selected);
+    })();
+    return reader;
   };
 }

@@ -1,12 +1,15 @@
 /**
- * `review_diff` orchestrate handler. It runs `git diff` and returns a capped diff plus a markdown
+ * `review_diff` orchestrate handler. It reads the diff through the constrained Git reader and returns a capped diff plus a markdown
  * report. The capped diff text appears only once, in `data.diff`. The report carries the stat
  * summary, the full file list, and a steering hint when the diff is truncated.
  */
 
-import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import type { ToolResult } from '../../format.js';
+import {
+  decideRelation, exitedWithOne, locateObservational, observeHead, resolveObservedBase, type ObservationalCheckout,
+} from '../../utils/git-observer.js';
+import { observationalReader } from '../../utils/git-tree.js';
 
 /** Caps on the embedded diff. The first cap that the diff reaches stops it. */
 export const REVIEW_DIFF_CAPS = {
@@ -70,39 +73,59 @@ export function capDiff(diff: string): CappedDiff {
   };
 }
 
-/** Run a git command, returning stdout with leading/trailing newlines stripped. */
-function git(args: readonly string[], cwd: string): string {
-  return execFileSync('git', [...args], {
-    cwd,
-    encoding: 'utf-8',
-    timeout: 30_000,
-    stdio: ['pipe', 'pipe', 'pipe'],
-  }).replace(/^\n+|\n+$/g, '');
+/** The output of a read with its leading and trailing newlines removed. */
+function trimNewlines(output: string): string {
+  return output.replace(/^\n+|\n+$/g, '');
 }
 
-/**
- * Runs `git diff` with three-dot notation. If that fails, for example in a shallow clone with no
- * merge base, it runs the two-dot form.
- */
-function gitDiffWithFallback(
-  base: string,
-  extraArgs: readonly string[],
-  cwd: string,
-): string {
+/** The short branch name of the symbolic HEAD. A detached HEAD gives the empty name. Any other failure rejects. */
+async function currentBranchOf(located: ObservationalCheckout): Promise<string> {
   try {
-    return git(['diff', `${base}...HEAD`, ...extraArgs], cwd);
-  } catch {
-    return git(['diff', `${base}..HEAD`, ...extraArgs], cwd);
+    const ref = (await located.reads.branch(located.gitDir, located.checkout)).trim();
+    return ref.startsWith('refs/heads/') ? ref.slice('refs/heads/'.length) : ref;
+  } catch (error) {
+    if (exitedWithOne(error)) return '';
+    throw error;
   }
 }
 
+/** The stat, the name list and the full diff of one review, and the branch of the checkout. */
+interface ReviewReads {
+  readonly branch: string;
+  readonly stat: string;
+  readonly nameOnly: string;
+  readonly diff: string;
+}
+
 /**
- * Validates `worktreePath`, then diffs it against `baseBranch`, which defaults to `main`. An
- * unknown base branch returns `DIFF_FAILED`, not a thrown error.
+ * Read the review diff from the merge base of the base name and the head over exact commits, with the default rename detection.
+ * A decided "no merge base" reads from the base itself. An undecided answer in a shallow checkout rejects.
+ */
+async function readReview(located: ObservationalCheckout, baseBranch: string): Promise<ReviewReads> {
+  const branch = await currentBranchOf(located);
+  const { head } = await observeHead(located);
+  const base = await resolveObservedBase(located, baseBranch);
+  const relation = await decideRelation(located, 'merge-base', base, head);
+  if (relation.kind === 'unreadable') throw new Error(relation.reason);
+  const from = relation.kind === 'related' ? relation.commit : base;
+  const { reads, gitDir, checkout } = located;
+  return {
+    branch,
+    stat: trimNewlines(await reads.diffStat(gitDir, checkout, from, head)),
+    nameOnly: trimNewlines(await reads.nameOnly(gitDir, checkout, from, head)),
+    diff: trimNewlines(await reads.fullDiff(gitDir, checkout, from, head)),
+  };
+}
+
+/**
+ * Validates `worktreePath`, then diffs it against `baseBranch`, which defaults to `main`, through the constrained reader.
+ * A non-empty `gitPath` is the connector Git path, else the read uses the process-wide Git path.
+ * A path outside any checkout returns `NOT_GIT_REPO`. An unknown base branch and an unreadable read return `DIFF_FAILED`, not a thrown error.
  */
 export async function handleReviewDiff(
   args: ReviewDiffArgs,
   _stateDir: string,
+  gitPath?: string,
 ): Promise<ToolResult> {
   const worktreePath = args.worktreePath ?? process.cwd();
   const baseBranch = args.baseBranch ?? 'main';
@@ -127,9 +150,8 @@ export async function handleReviewDiff(
     };
   }
 
-  try {
-    git(['rev-parse', '--git-dir'], worktreePath);
-  } catch {
+  const observation = await locateObservational(worktreePath, observationalReader(gitPath));
+  if (observation.kind === 'absent') {
     return {
       success: false,
       error: {
@@ -139,15 +161,13 @@ export async function handleReviewDiff(
     };
   }
 
-  const currentBranch = git(['branch', '--show-current'], worktreePath);
-
+  let currentBranch: string;
   let stat: string;
   let nameOnly: string;
   let diff: string;
   try {
-    stat = gitDiffWithFallback(baseBranch, ['--stat'], worktreePath);
-    nameOnly = gitDiffWithFallback(baseBranch, ['--name-only'], worktreePath);
-    diff = gitDiffWithFallback(baseBranch, ['--unified=3'], worktreePath);
+    if (observation.kind === 'unreadable') throw new Error(observation.reason);
+    ({ branch: currentBranch, stat, nameOnly, diff } = await readReview(observation.located, baseBranch));
   } catch (err) {
     return {
       success: false,

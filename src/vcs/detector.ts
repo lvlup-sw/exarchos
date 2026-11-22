@@ -1,17 +1,26 @@
 /**
  * Detects the VCS provider (GitHub, GitLab, or Azure DevOps) from the git remote URL
  * or an env var override, and checks whether the provider CLI is available.
- * `VcsDetectorDeps` injects the side effects (`exec` and env).
+ * `VcsDetectorDeps` injects the side effects (`exec` and env) and the Git path, start directory and reader of the remote read.
  */
 
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
+import { locateObservational } from '../utils/git-observer.js';
+import { observationalReader, type ConstrainedGitReads } from '../utils/git-tree.js';
 
 export type VcsProviderName = 'github' | 'gitlab' | 'azure-devops';
 
 export interface VcsDetectorDeps {
+  /** The runner of the provider CLI availability probe. It never reads Git. */
   readonly exec?: (cmd: string, args: string[]) => Promise<string>;
   readonly env?: Record<string, string | undefined>;
+  /** The connector Git path of the remote read. An empty or absent path selects the process-wide Git path. */
+  readonly gitPath?: string;
+  /** The directory where the climb to the checkout starts. It defaults to the working directory. */
+  readonly cwd?: string;
+  /** The reader source that the caller already created for the same executable, so detection runs no second probe. */
+  readonly reader?: () => Promise<ConstrainedGitReads>;
 }
 
 export interface VcsEnvironment {
@@ -108,9 +117,22 @@ async function checkCliAvailability(
 }
 
 /**
+ * Read the `origin` URL through the constrained reader, in the checkout that the climb finds from `cwd` or the working directory.
+ * A missing checkout, a refused check, an unusable Git path and a missing remote reject.
+ */
+async function readOriginUrl(deps: VcsDetectorDeps | undefined): Promise<string> {
+  const observation = await locateObservational(deps?.cwd ?? process.cwd(), deps?.reader ?? observationalReader(deps?.gitPath));
+  if (observation.kind === 'absent') throw new Error('No Git checkout holds the working directory');
+  if (observation.kind === 'unreadable') throw new Error(observation.reason);
+  const { located } = observation;
+  return (await located.reads.originUrl(located.gitDir, located.checkout)).trim();
+}
+
+/**
  * Detects the VCS environment of the current repo. A valid `EXARCHOS_VCS_PROVIDER`
  * wins over the remote URL. If the `origin` URL cannot be read, the result has an
  * empty URL when the override is set, and is null when it is not.
+ * The remote read goes through the constrained Git reader. The injected `exec` serves only the CLI availability probe.
  */
 export async function detectVcsProvider(
   deps?: VcsDetectorDeps,
@@ -122,7 +144,7 @@ export async function detectVcsProvider(
 
   let remoteUrl: string;
   try {
-    remoteUrl = (await exec('git', ['remote', 'get-url', 'origin'])).trim();
+    remoteUrl = await readOriginUrl(deps);
   } catch {
     if (envOverride) {
       remoteUrl = '';

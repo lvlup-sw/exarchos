@@ -4,7 +4,6 @@
  * It returns one readiness result, with quality hints and task classifications for the subagent prompts.
  */
 
-import { execFileSync } from 'node:child_process';
 import path from 'node:path';
 import type { ToolResult } from '../../format.js';
 import type { ResolvedProjectConfig } from '../../config/resolve.js';
@@ -15,11 +14,12 @@ import type { DispatchContext } from '../../dispatch/core/dispatch.js';
 import { foldToTail } from '../../projections/fold-at-tail.js';
 import { getOrCreateMaterializer } from '../../projections/views/tools.js';
 import {
-  validateBranchAncestry,
   assertMainWorktree,
-  getCurrentBranch,
   assertCurrentBranchNotProtected,
+  observeDispatchCheckout,
   probeStashAndEmit,
+  readObservedBranch,
+  validateObservedAncestry,
 } from './dispatch-guard.js';
 import type { AncestryResult } from './dispatch-guard.js';
 import { assertWorktreeBaseRefPinned } from './worktree-baseref.js';
@@ -735,15 +735,10 @@ export async function persistWorkflowRiskTier(
   });
 }
 
-/** Runs git in `cwd`. With no `cwd`, git runs in the server directory. */
-function createGitExec(cwd: string | undefined): (args: readonly string[]) => string {
-  return (args: readonly string[]): string => {
-    return execFileSync('git', [...args], {
-      encoding: 'utf-8',
-      stdio: ['pipe', 'pipe', 'pipe'],
-      ...(cwd === undefined ? {} : { cwd }),
-    });
-  };
+/** The connector Git path of the call. An empty path counts as no path, so the guards use the process-wide Git path. */
+function observationalGitPathOf(ctx: DispatchContext | undefined): string | undefined {
+  const gitPath = ctx?.verificationHost?.gitPath;
+  return gitPath === undefined || gitPath === '' ? undefined : gitPath;
 }
 
 /**
@@ -933,8 +928,7 @@ export async function handlePrepareDelegation(
     const warnings: string[] = repoRoot === undefined ? [serverDirectoryWarning(process.cwd())] : [];
     const withWarnings = (): { warnings?: string[] } => (warnings.length > 0 ? { warnings } : {});
 
-    const gitExec = createGitExec(repoRoot);
-    const currentBranch = getCurrentBranch(gitExec);
+    const observation = await observeDispatchCheckout(repoRoot, observationalGitPathOf(ctx));
 
     const preflightStart = Date.now();
     const guardOutcomes: {
@@ -976,6 +970,23 @@ export async function handlePrepareDelegation(
       });
     };
 
+    const branchRead = await readObservedBranch(observation);
+    if (branchRead.kind === 'unreadable') {
+      guardOutcomes.ancestry.passed = false;
+      await emitAuditEvent(store, streamId, {
+        type: 'preflight.blocked',
+        data: { reason: 'git-error', details: { error: branchRead.error } },
+      });
+      await emitDispatchPreflight();
+
+      return {
+        success: true,
+        data: { blocked: true, reason: 'git-error', error: branchRead.error },
+        ...withWarnings(),
+      };
+    }
+    const currentBranch = branchRead.branch;
+
     if (!args.nativeIsolation) {
       const protectionResult = assertCurrentBranchNotProtected(currentBranch);
       if (protectionResult.blocked) {
@@ -1006,10 +1017,10 @@ export async function handlePrepareDelegation(
 
     const integrationBranch =
       workflowState.synthesis?.integrationBranch ?? currentBranch ?? args.featureId;
-    const ancestryResult = await validateBranchAncestry(
+    const ancestryResult = await validateObservedAncestry(
+      observation,
       integrationBranch,
       ['main'],
-      gitExec,
     );
     guardOutcomes.ancestry.passed = ancestryResult.passed;
 
@@ -1116,7 +1127,7 @@ export async function handlePrepareDelegation(
       store,
       streamId,
       worktreePath: repoRoot ?? process.cwd(),
-      gitExec,
+      observation,
     });
 
     const checkpointConfig: CheckpointEnforcementConfig = ctx?.projectConfig?.checkpoint ?? {

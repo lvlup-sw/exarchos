@@ -670,7 +670,10 @@ function registerLedger(): readonly EffectOwnershipRule[] {
         '--stage, ls-files --others --exclude-standard, merge-base, rev-parse of a ' +
         'refs/remotes ref, symbolic-ref refs/remotes/origin/HEAD, diff --name-only, ' +
         'diff --name-status, diff --submodule=short and log --oneline --graph ' +
-        '--no-show-signature over exact commits; a re-run on the same tree gives the same answer',
+        '--no-show-signature over exact commits; the observational reads add log -1 --format=%ct ' +
+        '--no-show-signature of an exact commit, remote get-url origin, stash list --no-color ' +
+        '--no-show-signature, for-each-ref --format=%(refname)%00%(upstream) of a refs/heads ref and ' +
+        'diff --stat over exact commits; a re-run on the same tree gives the same answer',
       'none: every call is a read, so a failed, refused or timed-out read leaves no state ' +
         'to unwind',
     ),

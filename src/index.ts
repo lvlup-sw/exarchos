@@ -258,6 +258,7 @@ function hookReadStdin(): Promise<string> {
  * `verify-worktree-boundary` is the PreToolUse guard. It denies a write outside the worktree with exit code 2, and allows when stdin is a TTY.
  *
  * Every other command opens the backend and goes through Commander. Only the MCP tool registration reads `slimRegistration` from the context.
+ * Before the context starts, it primes the observational Git path from a usable provisioning, else from PATH, with no process.
  * A `preAction` hook starts the hook-event merge and the lifecycle compaction for `mcp` only. The command-name check still works with flags before `mcp`.
  */
 async function main() {
@@ -313,9 +314,13 @@ async function main() {
   const backend = await initializeBackend(stateDir);
   registerBackendCleanup(backend);
 
+  const provisioning = await readVerifierProvisioning();
+  const { primeObservationalGitPath } = await import('./utils/git-tree.js');
+  primeObservationalGitPath(provisioning.kind === 'usable' ? provisioning.connector.gitPath : undefined);
+
   const { initializeContext } = await import('./dispatch/core/context.js');
   const { buildCli, runCli } = await import('./adapters/cli/cli.js');
-  const verificationHost = connectorOfProvisioning(await readVerifierProvisioning());
+  const verificationHost = connectorOfProvisioning(provisioning);
 
   const ctx: DispatchContext = {
     ...(await initializeContext(stateDir, {

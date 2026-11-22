@@ -4,11 +4,11 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1508,
-    "parsedFiles": 1464,
+    "testFiles": 1509,
+    "parsedFiles": 1465,
     "shellFiles": 44,
-    "cases": 16735,
-    "dynamicTitles": 325,
+    "cases": 16784,
+    "dynamicTitles": 330,
     "unparseableFiles": 0
   },
   "unparseable": [],
@@ -10307,6 +10307,56 @@
           "suite": "closed reads of the current checkout",
           "name": "PopulatedSubmoduleExternalDiff_ReachableButFullDiffRunsNone",
           "dynamic": false
+        },
+        {
+          "suite": "the observational located form and its storage policy",
+          "name": "LocatedAndHeadForms_SubdirectoryLinkedDetachedAndUnborn",
+          "dynamic": false
+        },
+        {
+          "suite": "the observational located form and its storage policy",
+          "name": "WorktreeConfigWrittenByGit_ExactBytesAcceptedByTheObservationalPolicyOnly",
+          "dynamic": false
+        },
+        {
+          "suite": "the observational located form and its storage policy",
+          "name": "ShallowFile_ReadableByTheObservationalPolicyAndRefusedByTheVerifier",
+          "dynamic": false
+        },
+        {
+          "suite": "the observational located form and its storage policy",
+          "name": "DecisionHelper_ReachableBoundaryLeavesANegativeAnswerUndecided",
+          "dynamic": false
+        },
+        {
+          "suite": "the observational located form and its storage policy",
+          "name": "ObservationalPolicy_IncludesAndOtherExtensionsRefuse",
+          "dynamic": false
+        },
+        {
+          "suite": "the observational located form and its storage policy",
+          "name": "HeaderAtAnyPosition_RefusesInEachLoadedConfigFile",
+          "dynamic": false
+        },
+        {
+          "suite": "the observational located form and its storage policy",
+          "name": "StrictPolicy_MidLineIncludeHeaderRefuses",
+          "dynamic": false
+        },
+        {
+          "suite": "the observational located form and its storage policy",
+          "name": "RefusedCheckout_CreatesNoReader",
+          "dynamic": false
+        },
+        {
+          "suite": "the closed observational operations",
+          "name": "ObservationalOperations_PositiveAnswersAndNoArmedCallbackRuns",
+          "dynamic": false
+        },
+        {
+          "suite": "the closed observational operations",
+          "name": "ObservationalOperations_RefuseRevisionExpressionsAndOptions",
+          "dynamic": false
         }
       ]
     },
@@ -10525,6 +10575,76 @@
         {
           "suite": "the home directory of spawned test children",
           "name": "HomeScrub_ProcessSetupChain_LoadsNoTempDirHelperOrStorageModule",
+          "dynamic": false
+        },
+        {
+          "suite": "constrained observational reads: Git path selection",
+          "name": "ConnectorGitPath_PreferredOverPath_NoShimGitStarts",
+          "dynamic": false
+        },
+        {
+          "suite": "constrained observational reads: Git path selection",
+          "name": "PrimedConnectorGitPath_DetectionWithoutGitPath_OnlyConnectorShimRuns",
+          "dynamic": false
+        },
+        {
+          "suite": "constrained observational reads: Git path selection",
+          "name": "UnprimedProcess_SinglePathResolution_NoRelativeOrEmptyEntryRuns",
+          "dynamic": false
+        },
+        {
+          "suite": "constrained observational reads: Git path selection",
+          "name": "Detection_UnusableGitPath_GivesNullAndNoShimGit",
+          "dynamic": false
+        },
+        {
+          "suite": "constrained observational reads: the outcome of each site",
+          "name": "PruneRecentCommits_TipTimeAndUnreadableOutcomes_BranchNameIsOneArgument",
+          "dynamic": false
+        },
+        {
+          "suite": "constrained observational reads: the outcome of each site",
+          "name": "ShallowUndecidedMergeBase_GivesDiffFailed",
+          "dynamic": false
+        },
+        {
+          "suite": "constrained observational reads: the outcome of each site",
+          "name": "ShallowUndecidedAncestry_BlocksPrepareDelegationWithGitError",
+          "dynamic": false
+        },
+        {
+          "suite": "constrained observational reads: the outcome of each site",
+          "name": "ReviewAndPolishScope_RefusedLoadedConfig_GiveDiffFailed",
+          "dynamic": false
+        },
+        {
+          "suite": "constrained observational reads: acquire_worktree adoption",
+          "name": "AcquireWorktree_ReadableStaleAndOutsideCheckout_KeepTheirOutcomes",
+          "dynamic": false
+        },
+        {
+          "suite": "constrained observational reads: acquire_worktree adoption",
+          "name": "AcquireWorktree_UnreadableListingCauses_RefuseWithNoEvent",
+          "dynamic": false
+        },
+        {
+          "suite": "constrained observational reads: acquire_worktree adoption",
+          "name": "AcquireWorktree_MidLineHeaders_RefuseWithNoEvent",
+          "dynamic": false
+        },
+        {
+          "suite": "constrained observational reads: acquire_worktree adoption",
+          "name": "AcquireWorktree_ShallowRepository_DecidedAndUndecidedOutcomes",
+          "dynamic": false
+        },
+        {
+          "suite": "constrained observational reads: acquire_worktree adoption",
+          "name": "AcquireWorktree_OwnConfigWorktreeBranchSection_GivesHeadUnresolved",
+          "dynamic": false
+        },
+        {
+          "suite": "constrained observational reads: acquire_worktree adoption",
+          "name": "AcquireWorktree_MainWorktreeConfigWorktree_DoesNotMoveALinkedUpstream",
           "dynamic": false
         }
       ]
@@ -11716,6 +11836,62 @@
         {
           "suite": "",
           "name": "<dynamic-case-4>",
+          "dynamic": true
+        }
+      ]
+    },
+    "tests/process/1928-observational-reads.test.ts": {
+      "file": "tests/process/1928-observational-reads.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "",
+          "name": "ObservationalReads_Startup_StartsNoGitWithProvisioningAbsentOrPresent",
+          "dynamic": false
+        },
+        {
+          "suite": "",
+          "name": "<dynamic-case-1>",
+          "dynamic": true
+        },
+        {
+          "suite": "",
+          "name": "ObservationalReads_Unprovisioned_ResolvesOnceFromPathAndRunsTheConstrainedFlags",
+          "dynamic": false
+        },
+        {
+          "suite": "",
+          "name": "<dynamic-case-2>",
+          "dynamic": true
+        },
+        {
+          "suite": "",
+          "name": "ObservationalReads_EmptyAndRelativePathEntries_NeverRun",
+          "dynamic": false
+        },
+        {
+          "suite": "",
+          "name": "<dynamic-case-3>",
+          "dynamic": true
+        },
+        {
+          "suite": "",
+          "name": "ObservationalReads_UsableProvisioning_PrefersTheConnectorGitPath",
+          "dynamic": false
+        },
+        {
+          "suite": "",
+          "name": "<dynamic-case-4>",
+          "dynamic": true
+        },
+        {
+          "suite": "",
+          "name": "ObservationalReads_UsableProvisioning_PrimesTheDetectionOfAnUnownedCaller",
+          "dynamic": false
+        },
+        {
+          "suite": "",
+          "name": "<dynamic-case-5>",
           "dynamic": true
         }
       ]
@@ -53610,6 +53786,26 @@
           "suite": "detectVcsProvider — edge cases",
           "name": "detectVcsProvider_WhitespaceInUrl_TrimsAndParses",
           "dynamic": false
+        },
+        {
+          "suite": "detectVcsProvider — constrained remote read",
+          "name": "DetectVcsProvider_ConstrainedRead_NeverRunsGitThroughExec",
+          "dynamic": false
+        },
+        {
+          "suite": "detectVcsProvider — constrained remote read",
+          "name": "DetectVcsProvider_SubdirectoryCwd_ClimbsToTheCheckout",
+          "dynamic": false
+        },
+        {
+          "suite": "detectVcsProvider — constrained remote read",
+          "name": "DetectVcsProvider_UnreadableRead_GivesNullOrTheOverrideWithAnEmptyUrl",
+          "dynamic": false
+        },
+        {
+          "suite": "detectVcsProvider — constrained remote read",
+          "name": "DetectVcsProvider_InjectedReader_IsTheOnlyReader",
+          "dynamic": false
         }
       ]
     },
@@ -57159,6 +57355,16 @@
           "suite": "Check Polish Scope",
           "name": "default baseBranch is \"main\"",
           "dynamic": false
+        },
+        {
+          "suite": "Check Polish Scope",
+          "name": "CheckPolishScope_UnreadableChecksAndGitPath_GiveDiffFailed",
+          "dynamic": false
+        },
+        {
+          "suite": "Check Polish Scope",
+          "name": "CheckPolishScope_UnrelatedBase_ReadsFromTheBaseDirectly",
+          "dynamic": false
         }
       ]
     },
@@ -58795,6 +59001,11 @@
         {
           "suite": "handleNeedsSchemaSync > git error handling",
           "name": "returns GIT_ERROR when all git diff attempts fail",
+          "dynamic": false
+        },
+        {
+          "suite": "handleNeedsSchemaSync > uncommitted changes",
+          "name": "NeedsSchemaSync_UncommittedApiChange_IsNotReported",
           "dynamic": false
         }
       ]
@@ -65591,6 +65802,16 @@
           "suite": "handleReviewDiff",
           "name": "reviewDiff_LargeDiffFixture_StaysUnderBudget",
           "dynamic": false
+        },
+        {
+          "suite": "handleReviewDiff",
+          "name": "handleReviewDiff_DetachedUnknownBaseAndUnusableGit_KeepTheirOutcomes",
+          "dynamic": false
+        },
+        {
+          "suite": "handleReviewDiff",
+          "name": "handleReviewDiff_Rename_KeepsRenameDetection",
+          "dynamic": false
         }
       ]
     },
@@ -68535,6 +68756,16 @@
           "dynamic": false
         },
         {
+          "suite": "constrained dispatch reads",
+          "name": "ReadObservedBranch_BranchDetachedAbsentAndRefused_GiveClosedOutcomes",
+          "dynamic": false
+        },
+        {
+          "suite": "constrained dispatch reads",
+          "name": "ValidateObservedAncestry_AncestorMissingAndUnreadable_GiveClosedOutcomes",
+          "dynamic": false
+        },
+        {
           "suite": "probeStashAndEmit",
           "name": "DispatchGuard_StashObservedInWorktree_EmitsStashDetected",
           "dynamic": false
@@ -68542,6 +68773,11 @@
         {
           "suite": "probeStashAndEmit",
           "name": "DispatchGuard_NoStashInWorktree_DoesNotEmit",
+          "dynamic": false
+        },
+        {
+          "suite": "probeStashAndEmit",
+          "name": "DispatchGuard_UnreadableStashRead_DoesNotEmit",
           "dynamic": false
         }
       ]
@@ -68986,6 +69222,11 @@
         },
         {
           "suite": "handlePrepareDelegation",
+          "name": "handlePrepareDelegation_UnreadableBranchRead_BlocksWithGitErrorBeforeTheProtectedGuard",
+          "dynamic": false
+        },
+        {
+          "suite": "handlePrepareDelegation",
           "name": "handlePrepareDelegation_NativeIsolationOnProtectedBranch_SkipsGuardAndProceeds",
           "dynamic": false
         },
@@ -69187,6 +69428,16 @@
         {
           "suite": "handlePrepareDelegation > handler config threading",
           "name": "PrepareDelegation_WithCtx_UsesProjectConfigForModelResolution",
+          "dynamic": false
+        },
+        {
+          "suite": "handlePrepareDelegation > handler config threading",
+          "name": "PrepareDelegation_AnnouncesEachTaskTheStreamHasNotHeardOf_BeforeReadiness",
+          "dynamic": false
+        },
+        {
+          "suite": "handlePrepareDelegation > handler config threading",
+          "name": "PrepareDelegation_AnnouncementRacesAnotherWriter_DecidesAgainFromAFreshRead",
           "dynamic": false
         },
         {

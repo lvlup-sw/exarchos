@@ -9,7 +9,10 @@ import { delimiter, join, resolve } from 'node:path';
 import { promisify } from 'node:util';
 import { rmrfAsync } from '../../tools/test-helpers/temp-dir.js';
 import { afterEach, describe, expect, it } from 'vitest';
-import { createGitObserver } from '../../src/utils/git-observer.js';
+import {
+  createGitObserver, decideRelation, locateObservational, observeHead, type Observation, type ObservationalCheckout,
+} from '../../src/utils/git-observer.js';
+import { createConstrainedGitReads, observationalReader } from '../../src/utils/git-tree.js';
 
 const exec = promisify(execFile);
 const roots: string[] = [];
@@ -318,5 +321,252 @@ describe('closed reads of the current checkout', () => {
     expect(diff).toContain('Subproject commit');
     expect((await observer.reads.nameOnly(gitDir, checkout, before, after)).trim()).toBe('sub');
     await expect(readFile(marker)).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+});
+
+/** The located checkout of an observation, or a thrown failure with its reason. */
+function locatedOf(observation: Observation): ObservationalCheckout {
+  if (observation.kind !== 'located') throw new Error(`Expected a located checkout, got ${JSON.stringify(observation)}`);
+  return observation.located;
+}
+
+/** The observational located form of `dir` with the fixture Git. */
+function locate(dir: string): Promise<Observation> {
+  return locateObservational(dir, observationalReader(gitExecutable));
+}
+
+/** A fixture whose common config has `extensions.worktreeConfig` written by Git, and the exact bytes that Git wrote. */
+async function worktreeConfigFixture() {
+  const f = await fixture();
+  await git(f.main, 'config', 'extensions.worktreeConfig', 'true');
+  return { ...f, config: await readFile(join(f.repository, 'config'), 'utf8') };
+}
+
+/**
+ * A shallow clone of depth 2 of a three-commit source. Its boundary is the middle commit. It returns the commits and the clone.
+ * With `worktreeConfig`, Git also writes the worktreeConfig extension into the clone config.
+ */
+async function shallowFixture(worktreeConfig = true) {
+  const root = await mkdtemp(join(tmpdir(), '1928-observer-shallow-')); roots.push(root);
+  const source = join(root, 'source'); const clone = join(root, 'clone');
+  await mkdir(source); await git(source, 'init', '-q', '-b', 'main');
+  const commits: string[] = [];
+  for (const text of ['one', 'two', 'three']) {
+    await writeFile(join(source, 'file.txt'), `${text}\n`); await git(source, 'add', '.'); await git(source, 'commit', '-q', '-m', text);
+    commits.push(await git(source, 'rev-parse', 'HEAD'));
+  }
+  await git(root, 'clone', '-q', '--depth', '2', `file://${source}`, clone);
+  if (worktreeConfig) await git(clone, 'config', 'extensions.worktreeConfig', 'true');
+  return { root, clone, commits, repository: await realpath(join(clone, '.git')) };
+}
+
+describe('the observational located form and its storage policy', () => {
+  /** The climb finds the root above a subdirectory and a linked worktree. The head form reads a detached HEAD, and an unborn HEAD gives no head. */
+  it('LocatedAndHeadForms_SubdirectoryLinkedDetachedAndUnborn', async () => {
+    const f = await fixture();
+    await mkdir(join(f.linked, 'deep', 'er'), { recursive: true });
+    const linked = locatedOf(await locate(join(f.linked, 'deep', 'er')));
+    expect(linked).toMatchObject({ checkout: await realpath(f.linked), repository: f.repository, shallow: [], worktreeConfig: false });
+    expect(linked.gitDir).not.toBe(f.repository);
+    expect(await observeHead(linked)).toEqual({ head: f.head, branch: 'refs/heads/task' });
+    await git(f.linked, 'checkout', '-q', '--detach');
+    expect(await observeHead(locatedOf(await locate(f.linked)))).toEqual({ head: f.head });
+    expect((await locate(join(f.root, 'missing'))).kind).toBe('absent');
+    const outside = join(f.root, 'outside'); await mkdir(outside);
+    expect((await locate(outside)).kind).toBe('absent');
+    const unborn = join(f.root, 'unborn'); await mkdir(unborn); await git(unborn, 'init', '-q', '-b', 'main');
+    await expect(observeHead(locatedOf(await locate(unborn)))).rejects.toThrow('no readable head');
+  });
+
+  /** Git writes the worktreeConfig section with a leading tab. The located form accepts those exact bytes, and the strict forms refuse them. */
+  it('WorktreeConfigWrittenByGit_ExactBytesAcceptedByTheObservationalPolicyOnly', async () => {
+    const f = await worktreeConfigFixture();
+    expect(f.config).toContain('[extensions]\n\tworktreeConfig = true\n');
+    expect(locatedOf(await locate(f.linked))).toMatchObject({ worktreeConfig: true });
+    expect((await f.observer.checkout(f.input)).kind).toBe('refused');
+    expect((await f.observer.ancestry(f.input, f.base, f.head)).kind).toBe('refused');
+    const sparse = await fixture();
+    await git(sparse.main, 'sparse-checkout', 'set', '--no-cone', '/file.txt');
+    expect(locatedOf(await locate(sparse.main))).toMatchObject({ worktreeConfig: true });
+  });
+
+  /** A real shallow file is readable. A shallow line that is not a full object ID refuses. The strict forms refuse the shallow checkout. */
+  it('ShallowFile_ReadableByTheObservationalPolicyAndRefusedByTheVerifier', async () => {
+    const s = await shallowFixture(false);
+    const located = locatedOf(await locate(s.clone));
+    expect(located).toMatchObject({ shallow: [s.commits[1]], worktreeConfig: false });
+    const observer = await createGitObserver(gitExecutable);
+    const input = { checkout: s.clone, repository: s.repository, branch: 'refs/heads/main' };
+    expect((await observer.checkout(input)).kind).toBe('refused');
+    expect((await observer.ancestry(input, s.commits[1] ?? '', s.commits[2] ?? '')).kind).toBe('refused');
+    await writeFile(join(s.repository, 'shallow'), 'abc123\n');
+    expect(await locate(s.clone)).toMatchObject({ kind: 'unreadable', reason: expect.stringContaining('shallow') });
+  });
+
+  /** A negative answer is decided when no boundary commit is reachable from the walked commit, and undecided when one is. */
+  it('DecisionHelper_ReachableBoundaryLeavesANegativeAnswerUndecided', async () => {
+    const s = await shallowFixture();
+    const [, middle, tip] = s.commits;
+    if (middle === undefined || tip === undefined) throw new Error('fixture commits');
+    await git(s.clone, 'checkout', '-q', '--orphan', 'orphan');
+    await git(s.clone, 'commit', '-q', '-m', 'orphan');
+    const orphan = await git(s.clone, 'rev-parse', 'HEAD');
+    const located = locatedOf(await locate(s.clone));
+
+    expect(await decideRelation(located, 'ancestry', middle, tip)).toEqual({ kind: 'related', commit: middle });
+    expect(await decideRelation(located, 'ancestry', tip, orphan)).toEqual({ kind: 'unrelated' });
+    expect(await decideRelation(located, 'ancestry', orphan, tip)).toMatchObject({ kind: 'unreadable', reason: expect.stringContaining('shallow') });
+    expect(await decideRelation(located, 'merge-base', tip, middle)).toEqual({ kind: 'related', commit: middle });
+    expect(await decideRelation(located, 'merge-base', orphan, tip)).toMatchObject({ kind: 'unreadable' });
+    const full = locatedOf(await locate((await fixture()).main));
+    const plain = await fixture();
+    await git(plain.main, 'checkout', '-q', '--orphan', 'orphan');
+    await git(plain.main, 'commit', '-q', '-m', 'orphan');
+    const plainOrphan = await git(plain.main, 'rev-parse', 'HEAD');
+    expect(full.shallow).toEqual([]);
+    expect(await decideRelation(locatedOf(await locate(plain.main)), 'merge-base', plain.base, plainOrphan)).toEqual({ kind: 'unrelated' });
+  });
+
+  /**
+   * The observational policy refuses include and includeIf config, an extra extension key and a worktreeConfig value other than true.
+   * It also refuses an includeIf only in the main `.git/config.worktree` when the located checkout is a linked worktree.
+   */
+  it('ObservationalPolicy_IncludesAndOtherExtensionsRefuse', async () => {
+    const f = await worktreeConfigFixture();
+    const commonPath = join(f.repository, 'config');
+    const linkedGitDir = locatedOf(await locate(f.linked)).gitDir;
+    const cases: { readonly path: string; readonly text: string; readonly at: string }[] = [
+      { path: commonPath, text: `${f.config}[includeIf "gitdir:/"]\n\tpath = /untrusted\n`, at: f.linked },
+      { path: commonPath, text: `${f.config}[extensions]\n\tpartialClone = origin\n`, at: f.linked },
+      { path: commonPath, text: f.config.replace('worktreeConfig = true', 'worktreeConfig = yes'), at: f.linked },
+      { path: commonPath, text: f.config.replace('\tworktreeConfig = true\n', '\tworktreeConfig = true\n\tobjectFormat = sha1\n'), at: f.linked },
+      { path: join(linkedGitDir, 'config.worktree'), text: '[include]\n\tpath = /untrusted\n', at: f.linked },
+      { path: join(linkedGitDir, 'config.worktree'), text: '[includeIf "gitdir:/"]\n\tpath = /untrusted\n', at: f.linked },
+      { path: join(f.repository, 'config.worktree'), text: '[includeIf "gitdir:/"]\n\tpath = /untrusted\n', at: f.linked },
+    ];
+    for (const { path, text, at } of cases) {
+      let original: string | undefined;
+      try { original = await readFile(path, 'utf8'); } catch { original = undefined; }
+      await writeFile(path, text);
+      expect(await locate(at), text).toMatchObject({ kind: 'unreadable', reason: expect.stringContaining('config include or extension') });
+      if (original === undefined) await rm(path); else await writeFile(path, original);
+    }
+    expect((await locate(f.linked)).kind).toBe('located');
+  });
+
+  /**
+   * Git starts a section at any `[`, also after another header on one line. Each loading header after `[core]` refuses in each config file that a read loads.
+   * An extensions header with text after `]`, an extensions header in a config.worktree and a body line with a bracket refuse too.
+   */
+  it('HeaderAtAnyPosition_RefusesInEachLoadedConfigFile', async () => {
+    const f = await worktreeConfigFixture();
+    const commonPath = join(f.repository, 'config');
+    const linkedGitDir = locatedOf(await locate(f.linked)).gitDir;
+    const headers = ['[core] [include] path = /untrusted\n', '[core] [includeIf "gitdir:/"] path = /untrusted\n', '[core] [extensions] partialClone = origin\n'];
+    const files = [commonPath, join(linkedGitDir, 'config.worktree'), join(f.repository, 'config.worktree')];
+    let refused = 0;
+    for (const path of files) {
+      for (const header of headers) {
+        let original: string | undefined;
+        try { original = await readFile(path, 'utf8'); } catch { original = undefined; }
+        await writeFile(path, `${original ?? ''}${header}`);
+        expect(await locate(f.linked), `${path}: ${header}`).toMatchObject({ kind: 'unreadable' });
+        refused += 1;
+        if (original === undefined) await rm(path); else await writeFile(path, original);
+      }
+    }
+    expect(refused).toBe(9);
+    for (const text of [
+      f.config.replace('[extensions]', '[extensions] worktreeConfig = true'),
+      f.config.replace('\tworktreeConfig = true\n', '\tworktreeConfig = true\n\tpartialClone = a[b\n'),
+    ]) {
+      await writeFile(commonPath, text);
+      expect((await locate(f.linked)).kind, text).toBe('unreadable');
+    }
+    await writeFile(commonPath, f.config);
+    await writeFile(join(linkedGitDir, 'config.worktree'), '[extensions]\n\tworktreeConfig = true\n');
+    expect((await locate(f.linked)).kind).toBe('unreadable');
+    await rm(join(linkedGitDir, 'config.worktree'));
+    expect((await locate(f.linked)).kind).toBe('located');
+  });
+
+  /** The strict checkout form refuses a mid-line include header in a repository with no shallow file and no extensions section. */
+  it('StrictPolicy_MidLineIncludeHeaderRefuses', async () => {
+    const f = await fixture();
+    expect((await f.observer.checkout(f.input)).kind).toBe('observed');
+    const configPath = join(f.repository, 'config');
+    await writeFile(configPath, `${await readFile(configPath, 'utf8')}[core] [include] path = /untrusted\n`);
+    expect(await f.observer.checkout(f.input)).toMatchObject({ kind: 'refused', reason: expect.stringContaining('config include or extension') });
+  });
+
+  /** A refused checkout asks the reader source for no reader, so it starts no Git process. */
+  it('RefusedCheckout_CreatesNoReader', async () => {
+    const f = await fixture();
+    await git(f.main, 'config', 'includeIf.gitdir:/.path', '/untrusted');
+    let readers = 0;
+    const observation = await locateObservational(f.linked, async () => { readers += 1; return createConstrainedGitReads(gitExecutable); });
+    expect(observation.kind).toBe('unreadable');
+    expect(readers).toBe(0);
+  });
+});
+
+describe('the closed observational operations', () => {
+  /**
+   * Each new closed read gives its answer: the commit time, the origin URL, the stash listing, the upstream record and the diff stat.
+   * Plain Git runs each armed program: the fsmonitor through status, the external diff through diff, and gpg.program through log.
+   * Every callback that a new read can reach is planted, and no new read runs any marker or writes repository storage.
+   */
+  it('ObservationalOperations_PositiveAnswersAndNoArmedCallbackRuns', async ({ skip }) => {
+    if (process.platform !== 'linux') return skip();
+    const f = await fixture();
+    const { program, marker } = await markerProgram(f.root);
+    const signedHead = await garbageSignedHead(f.root, f.linked);
+    await git(f.main, 'remote', 'add', 'origin', 'https://example.invalid/org/repo.git');
+    await git(f.main, 'update-ref', 'refs/remotes/origin/task', f.base);
+    await git(f.main, 'config', 'branch.task.remote', 'origin');
+    await git(f.main, 'config', 'branch.task.merge', 'refs/heads/task');
+    await writeFile(join(f.main, 'file.txt'), 'stashed\n');
+    await git(f.main, 'stash', 'push', '-q', '-m', 'saved');
+    const stashed = (await git(f.main, 'cat-file', 'commit', 'stash@{0}')).replace(/^(committer [^\n]*\n)/m, '$1gpgsig -----BEGIN PGP SIGNATURE-----\n garbage\n -----END PGP SIGNATURE-----\n');
+    await writeFile(join(f.root, 'signed-stash'), `${stashed}\n`);
+    await git(f.main, 'stash', 'store', '-q', '-m', 'signed', await git(f.main, 'hash-object', '-t', 'commit', '-w', join(f.root, 'signed-stash')));
+    const hooks = join(f.root, 'hooks'); await mkdir(hooks);
+    for (const hook of ['reference-transaction', 'post-checkout', 'post-index-change', 'pre-auto-gc']) {
+      await writeFile(join(hooks, hook), `#!/bin/sh\n'${program}' "$@"\n`); await chmod(join(hooks, hook), 0o755);
+    }
+    await mkdir(join(f.repository, 'info'), { recursive: true });
+    await writeFile(join(f.repository, 'info', 'attributes'), '* diff=fixture\n');
+    for (const [key, value] of [['core.fsmonitor', program], ['core.hooksPath', hooks], ['diff.external', program], ['diff.fixture.textconv', program], ['diff.fixture.command', program], ['log.showSignature', 'true'], ['gpg.program', program]]) {
+      await git(f.main, 'config', key, value);
+    }
+    await git(f.linked, 'status', '--porcelain'); await expectMarkerRan(marker);
+    await git(f.linked, 'diff', f.base, signedHead); await expectMarkerRan(marker);
+    await git(f.linked, 'log', '-1', signedHead); await expectMarkerRan(marker);
+    await git(f.main, 'stash', 'list', '--no-color'); await expectMarkerRan(marker);
+    await git(f.linked, 'log', '-1', '--format=%ct', signedHead); await expectMarkerRan(marker);
+    const before = await snapshot(f.repository);
+
+    const located = locatedOf(await locate(f.linked));
+    const { reads, gitDir, checkout } = located;
+    expect(Number((await reads.commitTime(gitDir, checkout, signedHead)).trim())).toBeGreaterThan(0);
+    expect((await reads.originUrl(gitDir, checkout)).trim()).toBe('https://example.invalid/org/repo.git');
+    expect(await reads.stashList(gitDir, checkout)).toMatch(/^stash@\{0\}: signed\nstash@\{1\}: On main: saved/);
+    expect(await reads.upstream(gitDir, checkout, 'refs/heads/task')).toBe('refs/heads/task\0refs/remotes/origin/task\n');
+    expect(await reads.diffStat(gitDir, checkout, f.base, signedHead)).toContain('file.txt | 2 +-');
+
+    await expect(readFile(marker)).rejects.toMatchObject({ code: 'ENOENT' });
+    expect(await snapshot(f.repository)).toEqual(before);
+  });
+
+  /** Each new operation refuses a caller revision expression or an option before it starts Git. */
+  it('ObservationalOperations_RefuseRevisionExpressionsAndOptions', async () => {
+    const f = await fixture();
+    const { reads, gitDir, checkout } = locatedOf(await locate(f.linked));
+    await expect(async () => reads.commitTime(gitDir, checkout, 'HEAD')).rejects.toThrow();
+    await expect(async () => reads.commitTime(gitDir, checkout, '--all')).rejects.toThrow();
+    await expect(async () => reads.upstream(gitDir, checkout, 'task@{upstream}')).rejects.toThrow();
+    await expect(async () => reads.upstream(gitDir, checkout, 'refs/heads/*')).rejects.toThrow();
+    await expect(async () => reads.diffStat(gitDir, checkout, `${f.base}..${f.head}`, f.head)).rejects.toThrow();
+    await expect(async () => reads.diffStat(gitDir, checkout, f.base, '--output=/tmp/x')).rejects.toThrow();
   });
 });

@@ -1,11 +1,12 @@
 /**
  * Detects changed API files that need a schema sync. The changed files come from a diff file, or
- * from `git diff --name-only` against the base branch.
+ * from the committed diff against the base branch through the constrained Git reader.
  */
 
-import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import type { ToolResult } from '../../format.js';
+import { decideRelation, locateObservational, observeHead, resolveObservedBase } from '../../utils/git-observer.js';
+import { observationalReader } from '../../utils/git-tree.js';
 
 interface NeedsSchemaSyncArgs {
   readonly repoRoot: string;
@@ -43,33 +44,34 @@ function getChangedFilesFromDiff(diffContent: string): readonly string[] {
   return [...files].sort();
 }
 
-function getChangedFilesFromGit(
+/**
+ * The changed file names from the merge base of the base name and the head, through the constrained reader.
+ * A decided "no merge base" reads from the base itself. The read covers exact commits only, so an uncommitted change does not count.
+ * A missing checkout, a refused check, an unresolvable name, an undecided answer or a failed read throws.
+ */
+async function getChangedFilesFromGit(
   repoRoot: string,
   baseBranch: string,
-): readonly string[] {
-  const diffSpecs = [
-    `${baseBranch}...HEAD`,
-    `${baseBranch} HEAD`,
-    baseBranch,
-  ];
-
-  for (const spec of diffSpecs) {
-    try {
-      const args = ['diff', '--name-only', ...spec.split(' ')];
-      const output = execFileSync('git', args, {
-        encoding: 'utf-8',
-        cwd: repoRoot,
-        stdio: ['pipe', 'pipe', 'pipe'],
-      }) as string;
-      return output
-        .split('\n')
-        .map((l) => l.trim())
-        .filter(Boolean);
-    } catch {
-    }
+  gitPath: string | undefined,
+): Promise<readonly string[]> {
+  const failure = new Error(`git diff failed for base '${baseBranch}'`);
+  const observation = await locateObservational(repoRoot, observationalReader(gitPath));
+  if (observation.kind !== 'located') throw failure;
+  const { located } = observation;
+  let output: string;
+  try {
+    const { head } = await observeHead(located);
+    const base = await resolveObservedBase(located, baseBranch);
+    const relation = await decideRelation(located, 'merge-base', base, head);
+    if (relation.kind === 'unreadable') throw failure;
+    output = await located.reads.nameOnly(located.gitDir, located.checkout, relation.kind === 'related' ? relation.commit : base, head);
+  } catch {
+    throw failure;
   }
-
-  throw new Error(`git diff failed for base '${baseBranch}'`);
+  return output
+    .split('\n')
+    .map((l) => l.trim())
+    .filter(Boolean);
 }
 
 function findApiFiles(changedFiles: readonly string[]): readonly string[] {
@@ -100,7 +102,11 @@ function buildReport(apiFiles: readonly string[]): string {
   return lines.join('\n');
 }
 
-export function handleNeedsSchemaSync(args: NeedsSchemaSyncArgs): ToolResult {
+/**
+ * Report the changed API files of a diff file, or of the committed diff against `baseBranch`.
+ * A non-empty `gitPath` is the connector Git path. Without it, the read uses the process-wide Git path. An unreadable diff gives GIT_ERROR.
+ */
+export async function handleNeedsSchemaSync(args: NeedsSchemaSyncArgs, gitPath?: string): Promise<ToolResult> {
   if (!args.repoRoot) {
     return {
       success: false,
@@ -126,7 +132,7 @@ export function handleNeedsSchemaSync(args: NeedsSchemaSyncArgs): ToolResult {
     changedFiles = getChangedFilesFromDiff(diffContent);
   } else {
     try {
-      changedFiles = getChangedFilesFromGit(args.repoRoot, baseBranch);
+      changedFiles = await getChangedFilesFromGit(args.repoRoot, baseBranch, gitPath);
     } catch (err: unknown) {
       const message =
         err instanceof Error ? err.message : 'git diff failed';
