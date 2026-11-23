@@ -234,14 +234,11 @@ describe('BuildGraph_CoreTestTier_RetainsItsDeclaredTimeoutPolicy', () => {
   });
 
   /**
-   * The `--exclude` flag of vitest only adds exclusions, so this toggle must
-   * live in the config. Without it, the Stryker smoke test runs in the
-   * coverage lane or cannot run at all.
+   * The projects extend the vitest default exclusions. Without them, the run
+   * collects test files under `node_modules` and the build output.
    */
-  it('keeps the EXARCHOS_SMOKE_ONLY exclusion toggle and its defaults', () => {
-    expect(coreConfig).toContain('EXARCHOS_SMOKE_ONLY');
+  it('keeps the vitest default exclusions', () => {
     expect(coreConfig).toContain('configDefaults.exclude');
-    expect(coreConfig).toContain('stryker-adapter.smoke.test.ts');
   });
 
   it('keeps benchmark.outputJson', () => {

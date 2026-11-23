@@ -397,13 +397,6 @@
       "similarity": 0.91
     },
     {
-      "from": "stryker-adapter pure helpers::isMutatableServerSource restricts to changed servers/exarchos-mcp/src/** production files",
-      "fromFile": "servers/exarchos-mcp/src/orchestrate/stryker-adapter.smoke.test.ts",
-      "to": "stryker-adapter pure helpers::isMutatableServerSource restricts to changed src/** production files",
-      "toFile": "tests/unit/verbs/stryker-adapter.smoke.test.ts",
-      "similarity": 0.77
-    },
-    {
       "from": "views/tools.ts composite error paths > HandleViewAction_UnknownAction_ReturnsUnknownAction::should return UNKNOWN_ACTION for an unrecognized action string",
       "fromFile": "servers/exarchos-mcp/src/__tests__/views/tools-error-paths.test.ts",
       "to": "projections/views/tools.ts composite error paths > HandleViewAction_UnknownAction_ReturnsUnknownAction::should return UNKNOWN_ACTION for an unrecognized action string",

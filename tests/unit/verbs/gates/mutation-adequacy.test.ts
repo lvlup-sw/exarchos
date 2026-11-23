@@ -128,6 +128,14 @@ function makeRepoFixture(files: Readonly<Record<string, string>>): string {
 /** Minimal StrykerJS config body — only its NAME and location are load-bearing. */
 const STRYKER_CONFIG = 'export default { testRunner: "vitest" };\n';
 
+/**
+ * Creates a repo root that holds only a Stryker config at its top level.
+ * Run-root resolution finds the config there, so a case does not read the live checkout.
+ */
+function makeConfiguredRepoRoot(): string {
+  return makeRepoFixture({ 'stryker.conf.mjs': STRYKER_CONFIG });
+}
+
 async function newStore(): Promise<{ stateDir: string; eventStore: EventStore }> {
   const stateDir = mkdtempSync(path.join(os.tmpdir(), 'mutadq-state-'));
   cleanups.push(() => rmrf(stateDir));
@@ -173,6 +181,7 @@ async function dispatchMutation(
       action: 'mutation-adequacy',
       featureId: 'feat-mutadq',
       base: opts.base ?? 'main',
+      repoRoot: makeConfiguredRepoRoot(),
       ...(opts.scope !== undefined ? { scope: opts.scope } : {}),
       ...(opts.offline !== undefined ? { offline: opts.offline } : {}),
       ...(opts.threshold !== undefined ? { threshold: opts.threshold } : {}),
@@ -417,6 +426,7 @@ describe('mutation-adequacy action (dispatch-through handleOrchestrate)', () => 
         action: 'mutation-adequacy',
         featureId: 'feat-mutadq',
         base: 'main',
+        repoRoot: makeConfiguredRepoRoot(),
         resolve: () => runtimeWith('npx stryker run'),
         runMutation: () => ({
           ok: true as const,
@@ -456,6 +466,7 @@ describe('mutation-adequacy real runner — DR-10 stderr attribution (#1719)', (
         action: 'mutation-adequacy',
         featureId: 'feat-mutadq',
         base: 'main',
+        repoRoot: makeConfiguredRepoRoot(),
         resolve: () => runtimeWith(`${process.execPath} ${script}`),
         detectToolchainId: () => 'no-such-toolchain-xyz',
       },
@@ -482,6 +493,7 @@ async function dispatchForToolchain(
       featureId: 'feat-mutadq',
       base: 'main',
       ...(opts.scope !== undefined ? { scope: opts.scope } : {}),
+      repoRoot: makeConfiguredRepoRoot(),
       resolve: () => runtimeWith('mutate run'),
       detectToolchainId: () => toolchainId,
       ...(opts.runDiff ? { runDiff: opts.runDiff } : {}),
@@ -797,6 +809,7 @@ describe('mutation-adequacy liveness + gate emission', () => {
         action: 'mutation-adequacy',
         featureId: 'feat-mutadq',
         base: 'main',
+        repoRoot: makeConfiguredRepoRoot(),
         resolve: () => runtimeWith('npx stryker run'),
         detectToolchainId: () => 'node',
         runMutation: () => Promise.reject(new Error('runner exploded')),

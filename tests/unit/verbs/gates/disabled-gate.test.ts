@@ -413,6 +413,9 @@ describe('a disabled mutation gate', () => {
   /** The mutation gate appends its own rows, so `disabled` acts as `warning`: the handler runs and its low score does not block. */
   it('DisabledGate_MutationAdequacy_RunsAndDoesNotBlock', async () => {
     const runMutation = vi.fn(() => ({ ok: true, report: LOW_SCORE_REPORT }));
+    const repoRoot = path.join(stateDir, 'repo');
+    await mkdir(repoRoot, { recursive: true });
+    await writeFile(path.join(repoRoot, 'stryker.conf.mjs'), 'export default {};\n');
     const ctx: HandlerContext = {
       stateDir,
       eventStore: store,
@@ -425,6 +428,7 @@ describe('a disabled mutation gate', () => {
         action: 'mutation-adequacy',
         featureId: 'disabled-mutation',
         base: 'main',
+        repoRoot,
         resolve: () => RUNTIME,
         detectToolchainId: () => 'node',
         runDiff: (): readonly string[] => [],

@@ -4,10 +4,10 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1515,
-    "parsedFiles": 1471,
+    "testFiles": 1514,
+    "parsedFiles": 1470,
     "shellFiles": 44,
-    "cases": 16865,
+    "cases": 16855,
     "dynamicTitles": 342,
     "unparseableFiles": 0
   },
@@ -5897,7 +5897,7 @@
         },
         {
           "suite": "BuildGraph_CoreTestTier_RetainsItsDeclaredTimeoutPolicy",
-          "name": "keeps the EXARCHOS_SMOKE_ONLY exclusion toggle and its defaults",
+          "name": "keeps the vitest default exclusions",
           "dynamic": false
         },
         {
@@ -68034,62 +68034,6 @@
         {
           "suite": "stack handlers shared EventStore",
           "name": "both handlers share the same EventStore via the injected store",
-          "dynamic": false
-        }
-      ]
-    },
-    "tests/unit/verbs/stryker-adapter.smoke.test.ts": {
-      "file": "tests/unit/verbs/stryker-adapter.smoke.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "stryker-adapter pure helpers",
-          "name": "parseSinceArg extracts the value of a handler-appended --since=<base> flag",
-          "dynamic": false
-        },
-        {
-          "suite": "stryker-adapter pure helpers",
-          "name": "isMutatableServerSource restricts to changed src/** production files",
-          "dynamic": false
-        },
-        {
-          "suite": "stryker-adapter pure helpers",
-          "name": "computeMutateGlobs filters to still-existing, mutatable files and strips the server prefix",
-          "dynamic": false
-        },
-        {
-          "suite": "stryker-adapter pure helpers",
-          "name": "computeMutateGlobs caps at MAX_MUTATE_FILES (mutant-count bound) and reports truncation",
-          "dynamic": false
-        },
-        {
-          "suite": "stryker-adapter pure helpers",
-          "name": "EMPTY_REPORT is a valid, parseable Stryker report with zero mutants",
-          "dynamic": false
-        },
-        {
-          "suite": "resolveVerificationRuntime mutation-field provenance (DR-7)",
-          "name": "resolves this repo's .exarchos.yml adapter entry, not the built-in npx fallback",
-          "dynamic": false
-        },
-        {
-          "suite": "resolveVerificationRuntime mutation-field provenance (DR-7)",
-          "name": "config-tier mutation: beats the built-in node registry default generically",
-          "dynamic": false
-        },
-        {
-          "suite": "stryker-adapter composed path — empty mutatable surface",
-          "name": "a genuinely empty diff (--since=HEAD) prints the empty-valid report and exits 0, never invoking Stryker",
-          "dynamic": false
-        },
-        {
-          "suite": "stryker-adapter composed path — devDep absent",
-          "name": "fails CLOSED (non-zero exit, no parseable report) when the local pinned binary is missing",
-          "dynamic": false
-        },
-        {
-          "suite": "stryker-adapter composed path — runner present",
-          "name": "produces a parseable carrier with real mutant counts over a tiny 2-commit diff",
           "dynamic": false
         }
       ]

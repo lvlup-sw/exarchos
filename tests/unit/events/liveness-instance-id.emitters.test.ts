@@ -99,6 +99,17 @@ const RESOLVED_MUTATION: ResolvedVerificationRuntime = {
   source: 'detection',
 };
 
+/**
+ * Creates a repo root that holds only a Stryker config at its top level.
+ * Run-root resolution finds the config there, so the mutation case does not read the live checkout.
+ */
+async function makeConfiguredRepoRoot(): Promise<string> {
+  const dir = await mkdtemp(path.join(tmpdir(), 'dr2-mutation-repo-'));
+  scratchDirs.push(dir);
+  await writeFile(path.join(dir, 'stryker.conf.mjs'), 'export default {};\n');
+  return dir;
+}
+
 afterEach(async () => {
   while (scratchDirs.length > 0) {
     const dir = scratchDirs.pop();
@@ -201,6 +212,7 @@ describe('DR-2 liveness emitters', () => {
         {
           featureId: 'feat-mutation',
           base: 'main',
+          repoRoot: await makeConfiguredRepoRoot(),
           operationId: 'op-mutation-run',
           resolve: () => RESOLVED_MUTATION,
           detectToolchainId: () => 'node',
