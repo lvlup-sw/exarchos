@@ -53,7 +53,7 @@ try {
     private: true,
     scripts: { testgen: 'testgen' },
   }));
-  npm(['install', '--ignore-scripts', '--no-audit', '--no-fund', '--prefer-offline', join(scratch, pack.filename)]);
+  npm(['install', '--ignore-scripts', '--no-audit', '--no-fund', '--prefer-online', join(scratch, pack.filename)]);
 
   const bundle = readFileSync(join(scratch, 'node_modules/@lvlup-sw/exarchos/dist/testgen-cli.js'), 'utf8');
   assert.doesNotMatch(bundle, /@modelcontextprotocol\/|better-sqlite3|exarchos\.db/);
