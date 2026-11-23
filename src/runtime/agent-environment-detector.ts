@@ -91,6 +91,7 @@ function throwIfAborted(signal?: AbortSignal): void {
 /**
  * Probe one runtime. Codex has no known JSON config file, so its probe checks only
  * that `.codex/` exists. Copilot is present when either of its two instruction files exists.
+ * Copilot is also present when `.vscode/mcp.json` holds a registry package entry ({@link isRegistryPackageEntry}).
  */
 async function probeRuntime(
   name: AgentRuntimeName,
@@ -114,7 +115,17 @@ async function probeRuntime(
       skillsDir: toPosix(path.join(home, '.claude', 'skills')),
     };
   }
-  if (name === 'cursor' || name === 'opencode') {
+  if (name === 'cursor') {
+    const probed = await probeJsonMcpConfig(fs, configPath);
+    return {
+      name,
+      configPath,
+      configPresent: probed.configPresent,
+      configValid: probed.configValid,
+      mcpRegistered: probed.hasEntry && !isRegistryPackageEntry(probed.entry),
+    };
+  }
+  if (name === 'opencode') {
     const probed = await probeJsonMcpConfig(fs, configPath);
     return {
       name,
@@ -134,6 +145,13 @@ async function probeRuntime(
     const hit = (await fileExists(fs, vscode)) ? vscode
       : (await fileExists(fs, github)) ? github
       : null;
+    if (hit === null) {
+      const vscodeMcp = toPosix(path.join(cwd, '.vscode', 'mcp.json'));
+      const probed = await probeJsonMcpConfig(fs, vscodeMcp);
+      if (probed.hasEntry && isRegistryPackageEntry(probed.entry)) {
+        return { name, configPath: vscodeMcp, configPresent: true, configValid: true, mcpRegistered: false };
+      }
+    }
     return {
       name,
       configPath: hit ?? configPath,
@@ -163,6 +181,28 @@ export function isStaleBundleEntry(entry: unknown, home: string): boolean {
   return toPosix(first) === toPosix(path.join(home, '.claude', 'mcp-servers', 'exarchos-mcp.js'));
 }
 
+/**
+ * The package that an older Exarchos onboard wrote as the `exarchos` launch in `.cursor/mcp.json` and `.vscode/mcp.json`.
+ * The entry ran `npx` with this package, so the editor installed and ran the registry release of the package.
+ */
+const LEGACY_REGISTRY_PACKAGE = '@anthropic-ai/claude-code';
+
+/**
+ * True for an `exarchos` entry that runs `npx` with {@link LEGACY_REGISTRY_PACKAGE}, with or without a version.
+ * That package is not the exarchos server, and the editor fetches it from the registry when it loads the project.
+ * The detector reports the entry as not registered, so the doctor check warns and onboard writes the `exarchos mcp` entry.
+ */
+function isRegistryPackageEntry(entry: unknown): boolean {
+  if (typeof entry !== 'object' || entry === null) return false;
+  if (!('command' in entry) || entry.command !== 'npx') return false;
+  if (!('args' in entry) || !Array.isArray(entry.args)) return false;
+  return entry.args.some(
+    (arg: unknown) =>
+      typeof arg === 'string' &&
+      (arg === LEGACY_REGISTRY_PACKAGE || arg.startsWith(`${LEGACY_REGISTRY_PACKAGE}@`)),
+  );
+}
+
 /** The result of {@link probeJsonMcpConfig}. `hasEntry` is true when `mcpServers` has an `exarchos` key, and `entry` is then its value. */
 interface JsonMcpConfigProbe {
   readonly configPresent: boolean;
@@ -173,7 +213,7 @@ interface JsonMcpConfigProbe {
 
 /**
  * Read a JSON config file and report presence, JSON validity, and the `mcpServers.exarchos` entry.
- * The claude-code, cursor and opencode probes use it.
+ * The claude-code, cursor, copilot and opencode probes use it.
  */
 async function probeJsonMcpConfig(fs: DetectorFs, configPath: string): Promise<JsonMcpConfigProbe> {
   const raw = await readOrNull(fs, configPath);
