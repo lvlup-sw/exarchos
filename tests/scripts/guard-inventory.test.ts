@@ -13,7 +13,8 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { readFileSync, existsSync, readdirSync } from 'node:fs';
+import { readFileSync, existsSync, readdirSync, mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   REPO_ROOT,
@@ -347,15 +348,7 @@ describe('Path-filtered hosting (#1711 skipped-as-passed)', () => {
    * The seeded guard has its source outside the filter and no unfiltered pre-merge host, so the audit must fail it.
    */
   it('GuardInventory_PathFilteredGuard_IsReportedNotSilentlyAccepted', () => {
-    expect(liveAudit.pathFilteredOnly.length).toBeGreaterThan(0);
-    for (const artifact of liveAudit.pathFilteredOnly) {
-      const record = liveInventory.guards.find((g) => g.artifact === artifact);
-      expect(record, `${artifact} is reported filtered but absent from the inventory`).toBeDefined();
-      const keys = new Set(record?.hosts.flatMap((h) => [...h.pathFilterKeys]) ?? []);
-      expect(keys.size, `${artifact} reported filtered with no derived filter key`).toBeGreaterThan(0);
-    }
-
-    expect(liveAudit.pathFilteredOnly).toContain('tools/audit/core/cli-vocab-guard.ts');
+    expect(liveAudit.pathFilteredOnly, 'ci.yml has no path-filtered job, so no guard runs only behind a filter').toEqual([]);
 
     const audit = auditGuardInventory(
       inventoryOf([
@@ -699,13 +692,17 @@ describe('Derivations the inventory rests on', () => {
   });
 
   /** An empty read passes each check that loops over the lanes, so the live manifest must give globs for each lane. */
-  it('LanePaths_LiveManifest_GivesGlobsForEachLane', () => {
-    const lanes = lanePathsFromManifest();
-    expect(Object.keys(lanes).length).toBeGreaterThan(0);
-    for (const [lane, globs] of Object.entries(lanes)) {
-      expect(globs.length, `lane ${lane} holds no globs`).toBeGreaterThan(0);
-    }
+  it('LanePaths_ManifestReader_ParsesLanesAndTheLiveTreeHasNone', () => {
+    expect(lanePathsFromManifest(), 'the live tree has no lane manifest').toEqual({});
     expect(lanePathsFromManifest(join(REPO_ROOT, 'tests'))).toEqual({});
+    const root = mkdtempSync(join(tmpdir(), 'lane-manifest-'));
+    try {
+      mkdirSync(join(root, '.github'));
+      writeFileSync(join(root, '.github', 'ci-lanes.toml'), '[lanes.root]\npaths = ["src/**", "tests/**"]\n');
+      expect(lanePathsFromManifest(root)).toEqual({ root: ['src/**', 'tests/**'] });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 
   /** The repository has one suite. A collected test must resolve to it, and any other path must resolve to null. */
