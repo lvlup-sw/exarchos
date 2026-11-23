@@ -24,6 +24,23 @@ const MUTATION_REFUSAL = {
   },
 };
 
+/** The refusal of a retired provider write. One closed code and one message name the harness for all four writers. */
+const PROVIDER_WRITE_REFUSAL = {
+  success: false,
+  error: {
+    code: 'PROVIDER_WRITE_RETIRED',
+    message: 'Exarchos retires pull request and issue writes. The harness opens, merges and comments on pull requests and opens issues with its own tools.',
+  },
+};
+
+/** Each retired provider writer with arguments that its old schema accepted. */
+const PROVIDER_WRITERS: readonly { readonly action: string; readonly cli: readonly string[]; readonly mcp: Record<string, unknown> }[] = [
+  { action: 'create_pr', cli: ['--title', 't', '--body', 'b', '--base', 'main', '--head', 'feat/x'], mcp: { title: 't', body: 'b', base: 'main', head: 'feat/x' } },
+  { action: 'merge_pr', cli: ['--pr-id', '42', '--strategy', 'squash'], mcp: { prId: '42', strategy: 'squash' } },
+  { action: 'add_pr_comment', cli: ['--pr-id', '42', '--body', 'b'], mcp: { prId: '42', body: 'b' } },
+  { action: 'create_issue', cli: ['--title', 't', '--body', 'b'], mcp: { title: 't', body: 'b' } },
+];
+
 /** Resolve one executable from the PATH of the test process, before any shim directory goes first. */
 async function onPath(name: string): Promise<string> {
   for (const directory of (process.env.PATH ?? '').split(delimiter)) {
@@ -80,6 +97,18 @@ it.runIf(process.platform === 'linux')('RetiredAction_PackagedCli_RefusesBeforeS
     expect(plain.exitCode).toBe(2);
     expect(plain.stdout).toBe('');
     expect(plain.stderr).toContain(`Error [MUTATION_TESTING_RETIRED]: ${MUTATION_REFUSAL.error.message}`);
+    for (const writer of PROVIDER_WRITERS) {
+      for (const group of ['orch', 'orchestrate']) {
+        const refused = await f.cli([group, writer.action, ...writer.cli, '--json']);
+        expect(refused.exitCode, `${writer.action} ${refused.stderr}`).toBe(2);
+        expect(JSON.parse(refused.stdout)).toMatchObject(PROVIDER_WRITE_REFUSAL);
+        expect(refused.stderr).not.toContain('executable-configuration-retired');
+      }
+      const bare = await f.cli(['orch', writer.action, '--unknown-flag']);
+      expect(bare.exitCode, writer.action).toBe(2);
+      expect(bare.stdout).toBe('');
+      expect(bare.stderr).toContain(`Error [PROVIDER_WRITE_RETIRED]: ${PROVIDER_WRITE_REFUSAL.error.message}`);
+    }
     expect(await readdir(f.stateDir)).toEqual([]);
     expect(await f.gitCalls()).toEqual([]);
     expect(await exists(f.marker('config'))).toBe(false);
@@ -87,6 +116,7 @@ it.runIf(process.platform === 'linux')('RetiredAction_PackagedCli_RefusesBeforeS
 
     const live = await f.cli(['orch', 'task_claim', '--json']);
     expect(JSON.parse(live.stdout)).not.toMatchObject({ error: { code: 'MUTATION_TESTING_RETIRED' } });
+    expect(JSON.parse(live.stdout)).not.toMatchObject({ error: { code: 'PROVIDER_WRITE_RETIRED' } });
   } finally {
     await f.close();
   }
@@ -100,6 +130,14 @@ it.runIf(process.platform === 'linux')('RetiredAction_PackagedMcp_RefusesBeforeS
       const listed = await client.client.listTools();
       expect(JSON.stringify(listed)).toContain('check_mock_boundary');
       expect(JSON.stringify(listed)).not.toContain('mutation-adequacy');
+      for (const writer of PROVIDER_WRITERS) {
+        expect(JSON.stringify(listed)).not.toContain(writer.action);
+        const writeRefused = record(extractEnvelope(await client.client.callTool({
+          name: 'exarchos_orchestrate',
+          arguments: { action: writer.action, ...writer.mcp, featureId: 'retired-mutation', notARegisteredField: true },
+        }, { timeout: 35_000 })));
+        expect(writeRefused).toMatchObject(PROVIDER_WRITE_REFUSAL);
+      }
       const refused = record(extractEnvelope(await client.client.callTool({
         name: 'exarchos_orchestrate',
         arguments: { action: 'mutation-adequacy', featureId: 'retired-mutation', base: 'main', notARegisteredField: true },
@@ -110,11 +148,14 @@ it.runIf(process.platform === 'linux')('RetiredAction_PackagedMcp_RefusesBeforeS
         arguments: { action: 'not-an-action', featureId: 'retired-mutation' },
       }, { timeout: 35_000 });
       expect(JSON.stringify(unknown)).not.toContain('MUTATION_TESTING_RETIRED');
+      expect(JSON.stringify(unknown)).not.toContain('PROVIDER_WRITE_RETIRED');
     } finally {
       await client.terminate();
     }
     const queried = await f.cli(['event', 'query', '--stream', 'retired-mutation', '--json']);
     expect(record(JSON.parse(queried.stdout))).toMatchObject({ success: true, data: { events: [], page: { total: 0 } } });
+    const journal = await f.cli(['event', 'query', '--stream', 'vcs', '--json']);
+    expect(record(JSON.parse(journal.stdout))).toMatchObject({ success: true, data: { events: [], page: { total: 0 } } });
     expect(await f.gitCalls()).toEqual([]);
     expect(await exists(f.marker('mutation'))).toBe(false);
   } finally {

@@ -809,6 +809,17 @@ decisions:
       The layer allowances runtime -> dispatch and adapters/cli -> runtime had no live edge after the launcher left, so they are removed.
     status: "Committed on codex/1928-s3-launcher."
 
+  - date: "2026-11-23"
+    source: "#1928 revision 26, slice S4 step T-29, the conception of 2026-11-23 (Exarchos integrates with no remote provider)."
+    decision: >-
+      create_pr, merge_pr, add_pr_comment and create_issue leave the registry, and their four handlers are deleted. The closed retired-action table refuses each with the one code PROVIDER_WRITE_RETIRED, whose message names the harness, before any claim, configuration read, event append or process start.
+      The synthesis-closeout runbook and its argument schema are removed. execute_intent answers synthesis-closeout from original custody only: an authenticated terminal receipt replays its original result, interrupted evidence stays INTENT_HISTORY_INCOMPLETE, and a call with no original custody gets SYNTHESIS_CLOSEOUT_RETIRED. execute_intent no longer lists synthesize in its phases.
+      pr.create.*, pr.merged, pr.comment.* and issue.create.* are annotated retired. Their schemas and readers stay, so stored rows parse the same.
+    known: >-
+      The live case of tests/integration/1928-historical-intents.test.ts now reads the frozen S7 custody. The failed-terminal case reads a failed terminal frozen from 64a9cf732c1eaf30873d08e177c3c1a093343b7b, the last revision that compiled synthesis closeout.
+      The provider write methods stay in src/vcs until the provider layer is deleted. The seven writer suites are retired rows of the test inventory oracle.
+    status: "Committed on codex/1928-s4-remote-integrations. The contract authority lock waits for Reed to re-approve it."
+
 build_order:
   original: "kernel -> capsule contract -> prepare/settle -> one runtime adapter -> divergence loop -> #1249 laws -> second adapter"
   legs:
@@ -872,7 +883,7 @@ drift:
     resolution: "decided 2026-09-30: per-workflow target; per-wave recorded as interim (#1927)"
   - id: "vcs-effects"
     design: "runtime mutates Git/PR; WLM/lifecycle/serializer demoted explicitly"
-    built: "serialize_merge per worktree on the normal path; setup_worktree; create_pr in synthesis-closeout"
+    built: "serialize_merge per worktree on the normal path; setup_worktree. #1928 S4 T-29 retires create_pr, merge_pr, add_pr_comment, create_issue and the synthesis-closeout compilation"
     resolution: "decided 2026-09-30: demote all three; settle observes (#1928). T-01 recorded the expanded retirement matrix and original S7 custody on 2026-11-14; no writer route has been removed yet. On 2026-11-23 the separately provisioned verifier host was removed, and the governor runs the approved checks in its local executor."
   - id: "second-adapter"
     design: "second runtime"

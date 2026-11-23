@@ -379,7 +379,7 @@ describe('buildRegistrationSchema', () => {
 });
 
 describe('merge_orchestrate description', () => {
-  /** The description must state the wrong uses and name the correct action for each one. */
+  /** The description must state the wrong uses and name the correct owner for each one. */
   it('MergeOrchestrateDescription_StatesDoNotUseFor_WithPointers', () => {
     const action = findActionInRegistry('exarchos_orchestrate', 'merge_orchestrate');
     expect(action).toBeDefined();
@@ -387,7 +387,7 @@ describe('merge_orchestrate description', () => {
 
     expect(description).toContain('Do NOT use for');
 
-    expect(description).toContain('merge_pr');
+    expect(description).toContain('the harness owns it');
     expect(description).toContain('verify_worktree');
     expect(description).toContain('request_synthesize');
   });
@@ -675,7 +675,7 @@ describe('TOOL_REGISTRY', () => {
     it('should have 71 actions for task management, review triage, gate checks, validation handlers, runbooks, agent spec, oneshot/pruning, onboard (DR-2 task 011), doctor, VCS, classify_review_items (#1159), merge_orchestrate (DR-MO-1), check_integration_suite (#1329), check_invariant_conformance (DR-3), invariants_scaffold/invariants_add (invariants-catalog-wizard P2), check_contract_drift + check_mock_boundary (verification-ladder slice 1), and composite actions', () => {
       const composite = findComposite('exarchos_orchestrate');
       expect(composite).toBeDefined();
-      expect(composite!.actions).toHaveLength(84);
+      expect(composite!.actions).toHaveLength(80);
 
       const actionNames = composite!.actions.map((a) => a.name);
       expect(actionNames).toEqual(
@@ -731,13 +731,9 @@ describe('TOOL_REGISTRY', () => {
           'prune_stale_workflows',
           'request_synthesize',
           'finalize_oneshot',
-          'create_pr',
-          'merge_pr',
           'check_ci',
           'list_prs',
           'get_pr_comments',
-          'add_pr_comment',
-          'create_issue',
           'onboard',
           'merge_orchestrate',
           'check_integration_suite',
@@ -2750,13 +2746,9 @@ const EXPECTED_EFFECTIVE_BUDGETS: Readonly<Record<string, number>> = {
   'exarchos_orchestrate.runbook': 4000,
   'exarchos_orchestrate.agent_spec': 2000,
   'exarchos_orchestrate.doctor': 2000,
-  'exarchos_orchestrate.create_pr': 2000,
-  'exarchos_orchestrate.merge_pr': 2000,
   'exarchos_orchestrate.check_ci': 2000,
   'exarchos_orchestrate.list_prs': 2000,
   'exarchos_orchestrate.get_pr_comments': 2000,
-  'exarchos_orchestrate.add_pr_comment': 2000,
-  'exarchos_orchestrate.create_issue': 2000,
   'exarchos_orchestrate.onboard': 2000,
   'exarchos_orchestrate.invariants_scaffold': 2000,
   'exarchos_orchestrate.invariants_add': 2000,
@@ -3866,7 +3858,12 @@ describe('the closed retired-action table', () => {
     expect(RETIRED_ACTIONS.map((entry) => `${entry.tool}.${entry.action}`)).toEqual([
       'exarchos_orchestrate.mutation-adequacy',
       'exarchos_orchestrate.check_test_adequacy',
+      'exarchos_orchestrate.create_pr',
+      'exarchos_orchestrate.merge_pr',
+      'exarchos_orchestrate.add_pr_comment',
+      'exarchos_orchestrate.create_issue',
     ]);
+    expect(new Set(RETIRED_ACTIONS.filter((entry) => entry.action !== 'mutation-adequacy' && entry.action !== 'check_test_adequacy').map((entry) => entry.code))).toEqual(new Set(['PROVIDER_WRITE_RETIRED']));
     for (const entry of RETIRED_ACTIONS) {
       const tool = TOOL_REGISTRY.find((candidate) => candidate.name === entry.tool);
       expect(tool, entry.tool).toBeDefined();

@@ -176,14 +176,11 @@ export async function readIntent(
 
 /**
  * The idempotency marker of the `## Intent` section in a PR body. It is an HTML comment, so GitHub
- * does not show it. `create_pr` and `validate_pr_body` use it as a presence check.
+ * does not show it. `validate_pr_body` uses it as a presence check.
  */
 export const INTENT_GROUNDING_MARKER = '<!-- intent-grounded -->';
 
-/**
- * Whether a body already carries the intent-grounding marker. Used by both the
- * create_pr enrichment (idempotency guard) and the validate_pr_body advisory.
- */
+/** Whether a body already carries the intent-grounding marker. The `validate_pr_body` advisory reads it. */
 export function bodyHasIntentMarker(body: string): boolean {
   return body.includes(INTENT_GROUNDING_MARKER);
 }

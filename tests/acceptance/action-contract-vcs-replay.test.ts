@@ -72,13 +72,9 @@ describe('merge VCS worktree action contracts', () => {
   it('Registry_MergeVcsWorktreeActions_HaveCompleteContracts', () => {
     expect(FAMILY_ACTIONS.map((action) => action.name)).toEqual([
       'merge_orchestrate',
-      'create_pr',
-      'merge_pr',
       'check_ci',
       'list_prs',
       'get_pr_comments',
-      'add_pr_comment',
-      'create_issue',
       'acquire_worktree',
       'release_worktree',
       'prune_worktrees',
@@ -87,7 +83,7 @@ describe('merge VCS worktree action contracts', () => {
     ]);
     const retainedObservers = ['check_ci', 'list_prs', 'get_pr_comments'];
     const ledgerCoordination = ['acquire_worktree', 'release_worktree', 'reconcile_worktrees'];
-    const retiringEffects = ['serialize_merge', 'merge_orchestrate', 'create_pr', 'merge_pr', 'add_pr_comment', 'create_issue', 'prune_worktrees'];
+    const retiringEffects = ['serialize_merge', 'merge_orchestrate', 'prune_worktrees'];
     expect([...retainedObservers, ...ledgerCoordination, ...retiringEffects].sort()).toEqual([...FAMILY_NAMES].sort());
     for (const name of retainedObservers) {
       expect(FAMILY_ACTIONS.find(action => action.name === name)?.annotations.readOnly).toBe(true);
@@ -103,11 +99,7 @@ describe('merge VCS worktree action contracts', () => {
   it('Registry_NonIdempotentMutations_RequireClaimsOrRejectReplay', () => {
     const mutations = nonIdempotentMutations(liveFamilyActions());
     expect(mutations.map((action) => action.name).sort()).toEqual([
-      'add_pr_comment',
-      'create_issue',
-      'create_pr',
       'merge_orchestrate',
-      'merge_pr',
       'serialize_merge',
     ]);
     for (const action of mutations) {

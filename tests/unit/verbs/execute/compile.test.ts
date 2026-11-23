@@ -434,21 +434,25 @@ describe('compileIntent over the live registry', () => {
     expect(refusal.message).toContain('boundaryTouching');
   });
 
-  /** A runbook is executable when it gets past `INTENT_NOT_COMPILABLE`. The test checks every declared runbook, in table order. */
-  it('EveryOtherRunbook_IsNotCompilable_FourIntentsShip', () => {
+  /**
+   * A runbook is executable when it gets past `INTENT_NOT_COMPILABLE`. The test checks every declared runbook, in table order.
+   * Synthesis closeout is retired, so no runbook declares it and it does not compile.
+   */
+  it('EveryOtherRunbook_IsNotCompilable_ThreeIntentsShip', () => {
     const executable = PRODUCTION_COMPILE_DEPS.runbookTable
       .map((runbook) => {
         const outcome = compileIntent(runbook.id, { streamId: 'wf-live' }, {}, PRODUCTION_COMPILE_DEPS);
         return { id: runbook.id, notCompilable: !outcome.ok && outcome.refusal.code === 'INTENT_NOT_COMPILABLE' };
       })
       .filter((entry) => !entry.notCompilable);
-    expect(PRODUCTION_COMPILE_DEPS.runbookTable.length).toBeGreaterThan(4);
+    expect(PRODUCTION_COMPILE_DEPS.runbookTable.length).toBeGreaterThan(3);
     expect(executable.map((entry) => entry.id)).toEqual([
       'task-completion',
       'quality-evaluation',
-      'synthesis-closeout',
       'plan-closeout',
     ]);
+    const retired = compileIntent('synthesis-closeout', { streamId: 'wf-live' }, {}, PRODUCTION_COMPILE_DEPS);
+    expect(refusalOf(retired).code).toBe('INTENT_UNKNOWN');
   });
 });
 

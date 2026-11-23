@@ -129,7 +129,7 @@ describe('DR-6 slim tools/list registration', () => {
 
   /**
    * A slim description leaves out the detail of each action, so it must name the `describe` action.
-   * `describe` must still return the "Do NOT use for" clause of `merge_orchestrate`, together with the `merge_pr` alternative.
+   * `describe` must still return the "Do NOT use for" clause of `merge_orchestrate`, together with the harness as the owner of a provider PR merge.
    */
   it('toolsList_SlimDescriptions_RetainWhenNotToUseClause', async () => {
     const client = await bootProductionClient();
@@ -158,6 +158,6 @@ describe('DR-6 slim tools/list registration', () => {
       describeText,
       'describe(merge_orchestrate) did not return the "Do NOT use for" clause — slim registration dropped the negative-space guidance (INV-5a)',
     ).toContain('Do NOT use for');
-    expect(describeText).toContain('merge_pr');
+    expect(describeText).toContain('a raw provider PR/MR merge (the harness owns it)');
   });
 });

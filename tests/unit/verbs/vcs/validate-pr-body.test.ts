@@ -227,7 +227,7 @@ describe('ValidatePrBody_WithIntent_GroundsBody (DR-1 task 006)', () => {
     } as unknown as EventStore;
   }
 
-  /** The body carries the grounding marker that `create_pr` adds. */
+  /** The body carries the grounding marker of the intent section. */
   it('GroundedBody_IntentReferenced_AdvisoryGroundedTrue', async () => {
     const intent = deriveIntent(['servers/a.ts', 'docs/b.md']);
     const body = `${VALID_BODY}\n\n## Intent\n\n${INTENT_GROUNDING_MARKER}\n\n${intent.summary}`;

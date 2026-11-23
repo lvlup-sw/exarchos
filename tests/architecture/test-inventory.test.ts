@@ -183,6 +183,13 @@ const RETIRED_TEST_FILES: ReadonlyArray<{ path: string; subject: string }> = [
   { path: 'tests/unit/runtime/launcher/topology.test.ts', subject: 'src/runtime/launcher/topology.ts' },
   { path: 'tests/unit/runtime/launcher/verb.test.ts', subject: 'src/runtime/launcher/verb.ts' },
   { path: 'tests/unit/runtime/launcher/wlm-compose.test.ts', subject: 'src/runtime/launcher/wlm-compose.ts' },
+  { path: 'tests/unit/verbs/vcs/add-pr-comment.parity.test.ts', subject: 'src/verbs/vcs/add-pr-comment.ts' },
+  { path: 'tests/unit/verbs/vcs/add-pr-comment.test.ts', subject: 'src/verbs/vcs/add-pr-comment.ts' },
+  { path: 'tests/unit/verbs/vcs/create-issue.parity.test.ts', subject: 'src/verbs/vcs/create-issue.ts' },
+  { path: 'tests/unit/verbs/vcs/create-issue.test.ts', subject: 'src/verbs/vcs/create-issue.ts' },
+  { path: 'tests/unit/verbs/vcs/create-pr.parity.test.ts', subject: 'src/verbs/vcs/create-pr.ts' },
+  { path: 'tests/unit/verbs/vcs/create-pr.test.ts', subject: 'src/verbs/vcs/create-pr.ts' },
+  { path: 'tests/unit/verbs/vcs/merge-pr.test.ts', subject: 'src/verbs/vcs/merge-pr.ts' },
 ];
 
 describe('test inventory', () => {

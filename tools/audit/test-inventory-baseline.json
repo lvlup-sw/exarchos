@@ -4,11 +4,11 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1482,
-    "parsedFiles": 1438,
+    "testFiles": 1469,
+    "parsedFiles": 1425,
     "shellFiles": 44,
-    "cases": 16580,
-    "dynamicTitles": 331,
+    "cases": 16486,
+    "dynamicTitles": 327,
     "unparseableFiles": 0
   },
   "unparseable": [],
@@ -4947,52 +4947,6 @@
         }
       ]
     },
-    "tests/acceptance/action-contract-vcs-observation.test.ts": {
-      "file": "tests/acceptance/action-contract-vcs-observation.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "vcs journal action observation declarations",
-          "name": "VcsJournalActions_DeclareTheSharedStream_ObservationResolvesIt (%s)",
-          "dynamic": false
-        },
-        {
-          "suite": "vcs journal action observation declarations",
-          "name": "<dynamic-case-1>",
-          "dynamic": true
-        },
-        {
-          "suite": "vcs journal action observation declarations",
-          "name": "VcsJournalActions_ForeignFeatureIdArgument_DoesNotOverrideTheDeclaration (%s)",
-          "dynamic": false
-        },
-        {
-          "suite": "vcs journal action observation declarations",
-          "name": "<dynamic-case-2>",
-          "dynamic": true
-        },
-        {
-          "suite": "vcs journal action observation declarations",
-          "name": "VcsJournalActions_CompiledAsLeaves_NeverFallBackToTheSegmentStream (%s)",
-          "dynamic": false
-        },
-        {
-          "suite": "vcs journal action observation declarations",
-          "name": "<dynamic-case-3>",
-          "dynamic": true
-        },
-        {
-          "suite": "vcs journal action observation declarations",
-          "name": "VcsJournalActions_AbstainFromPostconditions_ForAStatedReason (%s)",
-          "dynamic": false
-        },
-        {
-          "suite": "vcs journal action observation declarations",
-          "name": "<dynamic-case-4>",
-          "dynamic": true
-        }
-      ]
-    },
     "tests/acceptance/action-contract-vcs-replay.test.ts": {
       "file": "tests/acceptance/action-contract-vcs-replay.test.ts",
       "runner": "vitest:root",
@@ -8464,13 +8418,8 @@
       "runner": "vitest:root",
       "cases": [
         {
-          "suite": "DR-12 — duplicate merge and duplicate PR prevention (shipped path)",
+          "suite": "DR-12 — duplicate merge prevention (shipped path)",
           "name": "ExecuteMerge_DuplicateRequest_CreatesExactlyOneMergeCommit",
-          "dynamic": false
-        },
-        {
-          "suite": "DR-12 — duplicate merge and duplicate PR prevention (shipped path)",
-          "name": "CreatePr_DuplicateIdempotencyKey_CreatesExactlyOnePr",
           "dynamic": false
         }
       ]
@@ -10412,7 +10361,7 @@
         },
         {
           "suite": "historical terminal admission without live compilation",
-          "name": "UnfinishedOriginal_RefusesWithLiveAndRetiredCompiler_EmptyFreshRemainsLive",
+          "name": "UnfinishedOriginal_RefusesIncomplete_FreshOperationGetsTheRetiredRefusal",
           "dynamic": false
         },
         {
@@ -30848,7 +30797,7 @@
         },
         {
           "suite": "EventSchemaRegistry_RegistersAllNewTwoEventSplitTypes",
-          "name": "B6_AllTenTypes_HaveAutoEmissionSource",
+          "name": "B6_AllTenTypes_HaveAutoOrRetiredEmissionSource",
           "dynamic": false
         },
         {
@@ -47438,7 +47387,7 @@
         },
         {
           "suite": "Runbook definitions",
-          "name": "SynthesisCloseout_HasTwoSteps_BodyCheckThenCreate",
+          "name": "SynthesisCloseout_IsNoLongerARunbook",
           "dynamic": false
         },
         {
@@ -54328,16 +54277,6 @@
         },
         {
           "suite": "handleOrchestrate > VCS actions",
-          "name": "OrchestrateComposite_CreatePr_RoutesToHandler",
-          "dynamic": false
-        },
-        {
-          "suite": "handleOrchestrate > VCS actions",
-          "name": "OrchestrateComposite_MergePr_RoutesToHandler",
-          "dynamic": false
-        },
-        {
-          "suite": "handleOrchestrate > VCS actions",
           "name": "OrchestrateComposite_CheckCi_RoutesToHandler",
           "dynamic": false
         },
@@ -54349,16 +54288,6 @@
         {
           "suite": "handleOrchestrate > VCS actions",
           "name": "OrchestrateComposite_GetPrComments_RoutesToHandler",
-          "dynamic": false
-        },
-        {
-          "suite": "handleOrchestrate > VCS actions",
-          "name": "OrchestrateComposite_AddPrComment_RoutesToHandler",
-          "dynamic": false
-        },
-        {
-          "suite": "handleOrchestrate > VCS actions",
-          "name": "OrchestrateComposite_CreateIssue_RoutesToHandler",
           "dynamic": false
         },
         {
@@ -55362,7 +55291,7 @@
         },
         {
           "suite": "compileIntent over the live registry",
-          "name": "EveryOtherRunbook_IsNotCompilable_FourIntentsShip",
+          "name": "EveryOtherRunbook_IsNotCompilable_ThreeIntentsShip",
           "dynamic": false
         },
         {
@@ -56074,125 +56003,6 @@
         {
           "suite": "run-bundle document",
           "name": "ArtifactId_IsDerivedFromTheOperationIdAndFitsTheGrammarAtTheBound",
-          "dynamic": false
-        }
-      ]
-    },
-    "tests/unit/verbs/execute/synthesis-closeout-compile.test.ts": {
-      "file": "tests/unit/verbs/execute/synthesis-closeout-compile.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "synthesis-closeout compiles against the live registry",
-          "name": "SynthesisCloseout_CompilesToTheTwoShippedLeaves_InRunbookOrder",
-          "dynamic": false
-        },
-        {
-          "suite": "synthesis-closeout compiles against the live registry",
-          "name": "SynthesisCloseout_OnePrBody_BindsOntoBothLeafSpellings",
-          "dynamic": false
-        },
-        {
-          "suite": "synthesis-closeout compiles against the live registry",
-          "name": "SynthesisCloseout_CreatePrLeaf_IsObservedOnTheSharedVcsStream",
-          "dynamic": false
-        },
-        {
-          "suite": "synthesis-closeout compiles against the live registry",
-          "name": "SynthesisCloseout_WithoutHeadBranch_RefusedByTheIntentSchema",
-          "dynamic": false
-        },
-        {
-          "suite": "synthesis-closeout compiles against the live registry",
-          "name": "SynthesisCloseout_DraftKnob_Refused",
-          "dynamic": false
-        },
-        {
-          "suite": "synthesis-closeout compiles against the live registry",
-          "name": "SynthesisCloseout_ValidatedArgsWithoutTheVariable_HitTheUnboundFence",
-          "dynamic": false
-        }
-      ]
-    },
-    "tests/unit/verbs/execute/synthesis-closeout-emission-scope.test.ts": {
-      "file": "tests/unit/verbs/execute/synthesis-closeout-emission-scope.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "the declared observation stream is load-bearing",
-          "name": "SynthesisCloseout_WithoutTheDeclaredStream_LeafIsRefusedForItsOwnEmissions",
-          "dynamic": false
-        },
-        {
-          "suite": "the declared observation stream is load-bearing",
-          "name": "SynthesisCloseout_WithTheShippedDeclaration_TheSameSegmentPasses",
-          "dynamic": false
-        }
-      ]
-    },
-    "tests/unit/verbs/execute/synthesis-closeout-executor.test.ts": {
-      "file": "tests/unit/verbs/execute/synthesis-closeout-executor.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "synthesis-closeout over the live handler table",
-          "name": "SynthesisCloseout_CoherentInput_CommitsOneOperationRecord",
-          "dynamic": false
-        },
-        {
-          "suite": "synthesis-closeout over the live handler table",
-          "name": "SynthesisCloseout_CreatePrLeaf_HoldsBothJournalRowsOnTheVcsStream",
-          "dynamic": false
-        },
-        {
-          "suite": "synthesis-closeout over the live handler table",
-          "name": "SynthesisCloseout_VcsLeaf_DoesNotMoveTheSegmentTail",
-          "dynamic": false
-        },
-        {
-          "suite": "synthesis-closeout over the live handler table",
-          "name": "SynthesisCloseout_ReceiptEvents_CarryTheStreamTheirSequencesNumber",
-          "dynamic": false
-        },
-        {
-          "suite": "synthesis-closeout over the live handler table",
-          "name": "SynthesisCloseout_SameOperationIdSameRequest_ReplaysWithoutReExecuting",
-          "dynamic": false
-        },
-        {
-          "suite": "synthesis-closeout over the live handler table",
-          "name": "SynthesisCloseout_SameOperationIdDifferentRequest_IsRefused",
-          "dynamic": false
-        },
-        {
-          "suite": "synthesis-closeout over the live handler table",
-          "name": "SynthesisCloseout_CrashedMidSegmentThenRetried_LeavesOneRowPerJournalPhase",
-          "dynamic": false
-        },
-        {
-          "suite": "synthesis-closeout over the live handler table",
-          "name": "SynthesisCloseout_BodyMissingRequiredSections_HaltsBeforeTheRemoteCall",
-          "dynamic": false
-        },
-        {
-          "suite": "synthesis-closeout over the live handler table",
-          "name": "SynthesisCloseout_FailedSegment_ReplaysToTheSameFailedReceipt",
-          "dynamic": false
-        }
-      ]
-    },
-    "tests/unit/verbs/execute/synthesis-closeout-parity.test.ts": {
-      "file": "tests/unit/verbs/execute/synthesis-closeout-parity.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "synthesis-closeout driven by hand and by the executor",
-          "name": "ExecutorAndPrimitiveBaseline_ProduceTheSameJournalFacts",
-          "dynamic": false
-        },
-        {
-          "suite": "synthesis-closeout driven by hand and by the executor",
-          "name": "BothPathsHaltAtTheBodyCheck_WhenTheBodyIsDeficient",
           "dynamic": false
         }
       ]
@@ -69637,93 +69447,6 @@
         }
       ]
     },
-    "tests/unit/verbs/vcs/add-pr-comment.parity.test.ts": {
-      "file": "tests/unit/verbs/vcs/add-pr-comment.parity.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "exarchos add_pr_comment CLI↔MCP parity (Wave B / B2.5)",
-          "name": "AddPrComment_Parity_BothCarriersObserveTwoEventSequence",
-          "dynamic": false
-        },
-        {
-          "suite": "exarchos add_pr_comment CLI↔MCP parity (Wave B / B2.5)",
-          "name": "AddPrReply_Parity_BothCarriersRouteThreadReplyThroughAddReply",
-          "dynamic": false
-        }
-      ]
-    },
-    "tests/unit/verbs/vcs/add-pr-comment.test.ts": {
-      "file": "tests/unit/verbs/vcs/add-pr-comment.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "handleAddPrComment",
-          "name": "handleAddPrComment_ValidArgs_CallsProviderAddComment",
-          "dynamic": false
-        },
-        {
-          "suite": "handleAddPrComment",
-          "name": "handleAddPrComment_Success_ReturnsSuccessResult",
-          "dynamic": false
-        },
-        {
-          "suite": "handleAddPrComment",
-          "name": "handleAddPrComment_ThreadId_RoutesThroughAddReplyNotAddComment",
-          "dynamic": false
-        },
-        {
-          "suite": "handleAddPrComment",
-          "name": "handleAddPrComment_ThreadId_EmitsExecutedWithReplyId",
-          "dynamic": false
-        },
-        {
-          "suite": "handleAddPrComment",
-          "name": "handleAddPrComment_ThreadId_RecordsThreadIdInRequestedIntent",
-          "dynamic": false
-        },
-        {
-          "suite": "handleAddPrComment",
-          "name": "handleAddPrComment_InvalidThreadId_ReturnsInvalidInput",
-          "dynamic": false
-        },
-        {
-          "suite": "handleAddPrComment",
-          "name": "handleAddPrComment_Success_EmitsTwoEventSequence",
-          "dynamic": false
-        },
-        {
-          "suite": "handleAddPrComment",
-          "name": "AddPrComment_PostSucceededButVerificationLookupMissed_ReturnsFailureAndDoesNotEmitExecuted",
-          "dynamic": false
-        },
-        {
-          "suite": "handleAddPrComment",
-          "name": "handleAddPrComment_ProviderError_ReturnsFailure",
-          "dynamic": false
-        },
-        {
-          "suite": "handleAddPrComment — B2.2 Phase-A retry non-refire",
-          "name": "AddPrComment_PhaseARetry_DoesNotRefireGhPrComment",
-          "dynamic": false
-        },
-        {
-          "suite": "handleAddPrComment — B2.2 Phase-A retry non-refire",
-          "name": "AddPrComment_PhaseABusyBudgetExhausted_ReturnsStorageBusyNotGenericVcsError",
-          "dynamic": false
-        },
-        {
-          "suite": "handleAddPrComment — B2.3 Idempotent operationId marker check",
-          "name": "AddPrComment_RequestedEventCommittedButExecutionInterrupted_RecoversWithoutDuplicate",
-          "dynamic": false
-        },
-        {
-          "suite": "handleAddPrComment — B2.3 Idempotent operationId marker check",
-          "name": "AddPrComment_ReplyRecovery_UsesDiscussionAnchorNotIssueComment",
-          "dynamic": false
-        }
-      ]
-    },
     "tests/unit/verbs/vcs/assess-stack.test.ts": {
       "file": "tests/unit/verbs/vcs/assess-stack.test.ts",
       "runner": "vitest:root",
@@ -70138,190 +69861,6 @@
         }
       ]
     },
-    "tests/unit/verbs/vcs/create-issue.parity.test.ts": {
-      "file": "tests/unit/verbs/vcs/create-issue.parity.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "create_issue CLI↔MCP parity (B3.5)",
-          "name": "CreateIssue_Parity_BothCarriersObserveTwoEventSequence",
-          "dynamic": false
-        }
-      ]
-    },
-    "tests/unit/verbs/vcs/create-issue.test.ts": {
-      "file": "tests/unit/verbs/vcs/create-issue.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "handleCreateIssue",
-          "name": "handleCreateIssue_ValidArgs_CallsProviderCreateIssue",
-          "dynamic": false
-        },
-        {
-          "suite": "handleCreateIssue",
-          "name": "handleCreateIssue_Success_ReturnsSuccessWithData",
-          "dynamic": false
-        },
-        {
-          "suite": "handleCreateIssue",
-          "name": "handleCreateIssue_WithLabels_PassedToProvider",
-          "dynamic": false
-        },
-        {
-          "suite": "handleCreateIssue",
-          "name": "handleCreateIssue_WithAssignees_PassedToProvider",
-          "dynamic": false
-        },
-        {
-          "suite": "handleCreateIssue",
-          "name": "handleCreateIssue_Success_EmitsTwoEventSequence",
-          "dynamic": false
-        },
-        {
-          "suite": "handleCreateIssue",
-          "name": "handleCreateIssue_ProviderError_ReturnsFailure",
-          "dynamic": false
-        },
-        {
-          "suite": "handleCreateIssue",
-          "name": "CreateIssue_PhaseARetry_DoesNotRefireGhIssueCreate",
-          "dynamic": false
-        },
-        {
-          "suite": "handleCreateIssue",
-          "name": "CreateIssue_RequestedEventCommittedButExecutionInterrupted_RecoversWithoutDuplicate",
-          "dynamic": false
-        },
-        {
-          "suite": "handleCreateIssue",
-          "name": "CreateIssue_MissingListIssuesByMarker_RefusesAndDoesNotCallProvider",
-          "dynamic": false
-        },
-        {
-          "suite": "handleCreateIssue",
-          "name": "CreateIssue_PrecheckFailure_DoesNotCallProvider",
-          "dynamic": false
-        },
-        {
-          "suite": "handleCreateIssue",
-          "name": "CreateIssue_RecoverOperationIdQueryFailure_ReturnsPrecheckFailedWithoutCallingProvider",
-          "dynamic": false
-        }
-      ]
-    },
-    "tests/unit/verbs/vcs/create-pr.parity.test.ts": {
-      "file": "tests/unit/verbs/vcs/create-pr.parity.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "CreatePr_Parity_BothCarriersObserveTwoEventSequence (B1.5)",
-          "name": "CreatePr_Parity_BothCarriersObserveTwoEventSequence",
-          "dynamic": false
-        }
-      ]
-    },
-    "tests/unit/verbs/vcs/create-pr.test.ts": {
-      "file": "tests/unit/verbs/vcs/create-pr.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "handleCreatePr",
-          "name": "handleCreatePr_ValidArgs_CallsProviderCreatePr",
-          "dynamic": false
-        },
-        {
-          "suite": "handleCreatePr",
-          "name": "handleCreatePr_ValidArgs_ReturnsSuccessWithData",
-          "dynamic": false
-        },
-        {
-          "suite": "handleCreatePr",
-          "name": "handleCreatePr_DraftAndLabels_PassedToProvider",
-          "dynamic": false
-        },
-        {
-          "suite": "handleCreatePr",
-          "name": "handleCreatePr_Success_EmitsPrCreateExecutedEvent",
-          "dynamic": false
-        },
-        {
-          "suite": "handleCreatePr",
-          "name": "handleCreatePr_ProviderError_ReturnsFailure",
-          "dynamic": false
-        },
-        {
-          "suite": "handleCreatePr",
-          "name": "handleCreatePr_ListPrsFailure_ReturnsPrecheckFailedWithoutCallingCreatePr",
-          "dynamic": false
-        },
-        {
-          "suite": "CreatePr_PhaseARetry_DoesNotRefireGhPrCreate (B1.2 RED)",
-          "name": "CreatePr_PhaseARetry_DoesNotRefireGhPrCreate",
-          "dynamic": false
-        },
-        {
-          "suite": "CreatePr_PhaseAAppendUnknownError_ReturnsCodedEnvelopeNotThrow",
-          "name": "CreatePr_PhaseAAppendUnknownError_ReturnsCodedEnvelopeNotThrow",
-          "dynamic": false
-        },
-        {
-          "suite": "CreatePr_RequestedEventCommittedButExecutionInterrupted_RecoversWithoutDuplicate (B1.3 RED)",
-          "name": "CreatePr_RequestedEventCommittedButExecutionInterrupted_RecoversWithoutDuplicate",
-          "dynamic": false
-        },
-        {
-          "suite": "CreatePr_RecoveryAppendFailure_DoesNotFallThroughToCreatePr",
-          "name": "CreatePr_RecoveryAppendFailure_DoesNotFallThroughToCreatePr",
-          "dynamic": false
-        },
-        {
-          "suite": "CreatePr_Body_ReferencesIntent (DR-1 task 006)",
-          "name": "CreatePr_MeaningfulIntent_EnrichesRequestedEventAndCreatedPrBody",
-          "dynamic": false
-        },
-        {
-          "suite": "CreatePr_Body_ReferencesIntent (DR-1 task 006)",
-          "name": "CreatePr_NoFeatureId_LeavesBodyUntouched",
-          "dynamic": false
-        },
-        {
-          "suite": "CreatePr_Body_ReferencesIntent (DR-1 task 006)",
-          "name": "CreatePr_EmptyIntent_LeavesBodyUntouched",
-          "dynamic": false
-        },
-        {
-          "suite": "CreatePr_Body_ReferencesIntent (DR-1 task 006)",
-          "name": "CreatePr_BodyAlreadyGrounded_DoesNotDoubleInject",
-          "dynamic": false
-        },
-        {
-          "suite": "CreatePr_SinglePrOwnerGuard (DR-4 task 007)",
-          "name": "CreatePr_ShepherdContext_Refused",
-          "dynamic": false
-        },
-        {
-          "suite": "CreatePr_SinglePrOwnerGuard (DR-4 task 007)",
-          "name": "CreatePr_OwnedViaPrUrlOnly_Refused",
-          "dynamic": false
-        },
-        {
-          "suite": "CreatePr_SinglePrOwnerGuard (DR-4 task 007)",
-          "name": "CreatePr_DoubleCreateGuard_RetainedAndPinned",
-          "dynamic": false
-        },
-        {
-          "suite": "CreatePr_SinglePrOwnerGuard (DR-4 task 007)",
-          "name": "CreatePr_FeatureIdButNoPrRecorded_ProceedsToNormalCreate",
-          "dynamic": false
-        },
-        {
-          "suite": "PrIdempotency_SingleAuthority_HandlerGuardOnly (DR-4 task 009)",
-          "name": "PrIdempotency_SingleAuthority_HandlerGuardOnly",
-          "dynamic": false
-        }
-      ]
-    },
     "tests/unit/verbs/vcs/get-pr-comments.test.ts": {
       "file": "tests/unit/verbs/vcs/get-pr-comments.test.ts",
       "runner": "vitest:root",
@@ -70416,52 +69955,6 @@
         {
           "suite": "handleListPrs",
           "name": "handleListPrs_ProviderError_ReturnsFailure",
-          "dynamic": false
-        }
-      ]
-    },
-    "tests/unit/verbs/vcs/merge-pr.test.ts": {
-      "file": "tests/unit/verbs/vcs/merge-pr.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "handleMergePr",
-          "name": "handleMergePr_SquashStrategy_CallsProviderMergePr",
-          "dynamic": false
-        },
-        {
-          "suite": "handleMergePr",
-          "name": "handleMergePr_Success_ReturnsSuccessWithData",
-          "dynamic": false
-        },
-        {
-          "suite": "handleMergePr",
-          "name": "handleMergePr_RebaseStrategy_PassedToProvider",
-          "dynamic": false
-        },
-        {
-          "suite": "handleMergePr",
-          "name": "handleMergePr_Success_EmitsPrMergedEvent",
-          "dynamic": false
-        },
-        {
-          "suite": "handleMergePr",
-          "name": "handleMergePr_MergeFailed_ReturnsSuccessWithUnmergedData",
-          "dynamic": false
-        },
-        {
-          "suite": "handleMergePr",
-          "name": "handleMergePr_MergeFailed_DoesNotEmitEvent",
-          "dynamic": false
-        },
-        {
-          "suite": "handleMergePr",
-          "name": "handleMergePr_ProviderError_ReturnsFailure",
-          "dynamic": false
-        },
-        {
-          "suite": "handleMergePr",
-          "name": "handleMergePr_MergedButAppendFails_ReturnsFailureNotSilentSuccess",
           "dynamic": false
         }
       ]
@@ -70573,22 +70066,12 @@
         },
         {
           "suite": "VCS action routing registration",
-          "name": "VcsActions_MutatingActionsHaveAutoEmits",
+          "name": "VcsActions_RetiredWriters_AreAbsentAndRefused",
           "dynamic": false
         },
         {
           "suite": "VCS action routing registration",
           "name": "VcsActions_ReadOnlyActionsNoAutoEmits",
-          "dynamic": false
-        },
-        {
-          "suite": "VCS action routing registration",
-          "name": "VcsActions_CreatePrSchema_ValidatesInput",
-          "dynamic": false
-        },
-        {
-          "suite": "VCS action routing registration",
-          "name": "VcsActions_MergePrSchema_ValidatesStrategy",
           "dynamic": false
         },
         {
@@ -70746,37 +70229,6 @@
         {
           "suite": "handleValidatePrStack",
           "name": "UsesProviderListPrs_WithStateOpenFilter",
-          "dynamic": false
-        }
-      ]
-    },
-    "tests/unit/verbs/vcs/vcs-observation.dispatch.test.ts": {
-      "file": "tests/unit/verbs/vcs/vcs-observation.dispatch.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "vcs journal actions — dispatch-level observation",
-          "name": "MergePr_MergedSuccessfully_DispatchReturnsSuccess",
-          "dynamic": false
-        },
-        {
-          "suite": "vcs journal actions — dispatch-level observation",
-          "name": "MergePr_ProviderDeclinedTheMerge_DispatchStillReturnsSuccess",
-          "dynamic": false
-        },
-        {
-          "suite": "vcs journal actions — dispatch-level observation",
-          "name": "AddPrComment_Dispatched_BothJournalRowsAreFindableByTheDispatchOperation",
-          "dynamic": false
-        },
-        {
-          "suite": "vcs journal actions — dispatch-level observation",
-          "name": "CreateIssue_Dispatched_BothJournalRowsLandOnTheSharedStream",
-          "dynamic": false
-        },
-        {
-          "suite": "create_issue — crash recovery keys the retry under its own operation",
-          "name": "CreateIssue_RetryAfterPriorCrash_DispatchReturnsSuccessNotEmissionViolation",
           "dynamic": false
         }
       ]

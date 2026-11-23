@@ -296,32 +296,55 @@ export const EVENT_ANNOTATIONS: Readonly<Record<string, EventRegistration>> = Ob
     rationale: 'operation-record',
   },
   'pr.created': { lifecycle: 'active', tier: 'substrate', rationale: 'operation-record' },
-  'pr.merged': { lifecycle: 'active', tier: 'substrate', rationale: 'operation-record' },
+  /** Retired with the provider writers. The schema stays so that old logs replay the same, but no code writes this event. */
+  'pr.merged': { lifecycle: 'retired', tier: 'substrate', rationale: 'operation-record' },
   'pr.commented': { lifecycle: 'active', tier: 'substrate', rationale: 'operation-record' },
   'issue.created': { lifecycle: 'active', tier: 'substrate', rationale: 'operation-record' },
   'onboard.requested': { lifecycle: 'active', tier: 'substrate', rationale: 'operation-record' },
   'onboard.executed': { lifecycle: 'active', tier: 'substrate', rationale: 'operation-record' },
   'export.requested': { lifecycle: 'active', tier: 'substrate', rationale: 'operation-record' },
   'export.executed': { lifecycle: 'active', tier: 'substrate', rationale: 'operation-record' },
+  /** Retired with the provider writers. The schema stays so that old logs replay the same, but no code writes this event. */
+  'pr.create.requested': {
+    lifecycle: 'retired',
+    tier: 'substrate',
+    rationale: 'operation-record',
+  },
+  /** Retired with the provider writers. The schema stays so that old logs replay the same, but no code writes this event. */
+  'pr.create.executed': {
+    lifecycle: 'retired',
+    tier: 'substrate',
+    rationale: 'operation-record',
+  },
+  /** Retired with the provider writers. The schema stays so that old logs replay the same, but no code writes this event. */
+  'pr.comment.requested': {
+    lifecycle: 'retired',
+    tier: 'substrate',
+    rationale: 'operation-record',
+  },
+  /** Retired with the provider writers. The schema stays so that old logs replay the same, but no code writes this event. */
+  'pr.comment.executed': {
+    lifecycle: 'retired',
+    tier: 'substrate',
+    rationale: 'operation-record',
+  },
+  /** Retired with the provider writers. The schema stays so that old logs replay the same, but no code writes this event. */
+  'issue.create.requested': {
+    lifecycle: 'retired',
+    tier: 'substrate',
+    rationale: 'operation-record',
+  },
+  /** Retired with the provider writers. The schema stays so that old logs replay the same, but no code writes this event. */
+  'issue.create.executed': {
+    lifecycle: 'retired',
+    tier: 'substrate',
+    rationale: 'operation-record',
+  },
   /**
    * The two-event VCS operations. `*.requested` records the intent before the effect, which is
    * not idempotent. `*.executed` records the result. `worktree.remove.executed` has a consumer
    * fold, so it is a `capability` entry.
    */
-  'pr.create.requested': { lifecycle: 'active', tier: 'substrate', rationale: 'operation-record' },
-  'pr.create.executed': { lifecycle: 'active', tier: 'substrate', rationale: 'operation-record' },
-  'pr.comment.requested': { lifecycle: 'active', tier: 'substrate', rationale: 'operation-record' },
-  'pr.comment.executed': { lifecycle: 'active', tier: 'substrate', rationale: 'operation-record' },
-  'issue.create.requested': {
-    lifecycle: 'active',
-    tier: 'substrate',
-    rationale: 'operation-record',
-  },
-  'issue.create.executed': {
-    lifecycle: 'active',
-    tier: 'substrate',
-    rationale: 'operation-record',
-  },
   'branch.delete.requested': {
     lifecycle: 'active',
     tier: 'substrate',

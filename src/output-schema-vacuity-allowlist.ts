@@ -37,7 +37,6 @@ export interface VacuityRetiredEntry {
 }
 
 export const VACUITY_ALLOWLIST = Object.freeze({
-  'exarchos_orchestrate.add_pr_comment': { owner: 'orchestration', expires: '2027-02-28' },
   'exarchos_orchestrate.agent_spec': { owner: 'orchestration', expires: '2027-02-28' },
   'exarchos_orchestrate.assess_refactor_scope': { owner: 'orchestration', expires: '2027-02-28' },
   'exarchos_orchestrate.assess_stack': { owner: 'orchestration', expires: '2027-02-28' },
@@ -64,8 +63,6 @@ export const VACUITY_ALLOWLIST = Object.freeze({
   'exarchos_orchestrate.check_task_decomposition': { owner: 'orchestration', expires: '2027-02-28' },
   'exarchos_orchestrate.check_workflow_determinism': { owner: 'orchestration', expires: '2027-02-28' },
   'exarchos_orchestrate.classify_review_items': { owner: 'orchestration', expires: '2027-02-28' },
-  'exarchos_orchestrate.create_issue': { owner: 'orchestration', expires: '2027-02-28' },
-  'exarchos_orchestrate.create_pr': { owner: 'orchestration', expires: '2027-02-28' },
   'exarchos_orchestrate.debug_review_gate': { owner: 'orchestration', expires: '2027-02-28' },
   'exarchos_orchestrate.describe': { owner: 'orchestration', expires: '2027-02-28' },
   'exarchos_orchestrate.discover_bridge': { owner: 'orchestration', expires: '2027-02-28' },
@@ -80,7 +77,6 @@ export const VACUITY_ALLOWLIST = Object.freeze({
   'exarchos_orchestrate.investigation_timer': { owner: 'orchestration', expires: '2027-02-28' },
   'exarchos_orchestrate.list_prs': { owner: 'orchestration', expires: '2027-02-28' },
   'exarchos_orchestrate.merge_orchestrate': { owner: 'orchestration', expires: '2027-02-28' },
-  'exarchos_orchestrate.merge_pr': { owner: 'orchestration', expires: '2027-02-28' },
   'exarchos_orchestrate.needs_schema_sync': { owner: 'orchestration', expires: '2027-02-28' },
   'exarchos_orchestrate.onboard': { owner: 'orchestration', expires: '2027-02-28' },
   'exarchos_orchestrate.post_delegation_check': { owner: 'orchestration', expires: '2027-02-28' },
@@ -154,10 +150,25 @@ export const VACUITY_RETIRED: Readonly<Record<string, VacuityRetiredEntry>> = Ob
     owner: 'event-store',
     retiredAt: '2026-10-23',
   },
+  /** The provider writer is deleted. The retired-action table refuses a call of it before dispatch, so it declares no schema. */
+  'exarchos_orchestrate.add_pr_comment': {
+    owner: 'orchestration',
+    retiredAt: '2026-11-23',
+  },
   /** The action now declares `withCappedShape(CheckInvariantConformanceOutputSchema)`. */
   'exarchos_orchestrate.check_invariant_conformance': {
     owner: 'orchestration',
     retiredAt: '2026-08-07',
+  },
+  /** The provider writer is deleted. The retired-action table refuses a call of it before dispatch, so it declares no schema. */
+  'exarchos_orchestrate.create_issue': {
+    owner: 'orchestration',
+    retiredAt: '2026-11-23',
+  },
+  /** The provider writer is deleted. The retired-action table refuses a call of it before dispatch, so it declares no schema. */
+  'exarchos_orchestrate.create_pr': {
+    owner: 'orchestration',
+    retiredAt: '2026-11-23',
   },
   /**
    * `cutover_decide` and `cutover_readiness` were new actions with a waiver, which the allowlist forbids. It records only inherited debt.
@@ -170,6 +181,11 @@ export const VACUITY_RETIRED: Readonly<Record<string, VacuityRetiredEntry>> = Ob
   'exarchos_orchestrate.cutover_readiness': {
     owner: 'orchestration',
     retiredAt: '2026-08-10',
+  },
+  /** The provider writer is deleted. The retired-action table refuses a call of it before dispatch, so it declares no schema. */
+  'exarchos_orchestrate.merge_pr': {
+    owner: 'orchestration',
+    retiredAt: '2026-11-23',
   },
   /** The action is deleted. The retired-action table refuses a call of it before dispatch, so it declares no schema. */
   'exarchos_orchestrate.check_test_adequacy': {

@@ -4,7 +4,7 @@
   "counts": {
     "tools": 5,
     "visibleTools": 4,
-    "actions": 126,
+    "actions": 122,
     "eventTypes": 186
   },
   "tools": [
@@ -23,7 +23,6 @@
       "hidden": false,
       "actions": [
         "acquire_worktree",
-        "add_pr_comment",
         "agent_spec",
         "assess_refactor_scope",
         "assess_stack",
@@ -51,8 +50,6 @@
         "check_task_decomposition",
         "check_workflow_determinism",
         "classify_review_items",
-        "create_issue",
-        "create_pr",
         "cutover_decide",
         "cutover_readiness",
         "debug_review_gate",
@@ -71,7 +68,6 @@
         "investigation_timer",
         "list_prs",
         "merge_orchestrate",
-        "merge_pr",
         "needs_schema_sync",
         "onboard",
         "post_delegation_check",
@@ -471,13 +467,13 @@
     },
     {
       "type": "issue.create.executed",
-      "lifecycle": "active",
+      "lifecycle": "retired",
       "tier": "substrate",
       "rationale": "operation-record"
     },
     {
       "type": "issue.create.requested",
-      "lifecycle": "active",
+      "lifecycle": "retired",
       "tier": "substrate",
       "rationale": "operation-record"
     },
@@ -625,13 +621,13 @@
     },
     {
       "type": "pr.comment.executed",
-      "lifecycle": "active",
+      "lifecycle": "retired",
       "tier": "substrate",
       "rationale": "operation-record"
     },
     {
       "type": "pr.comment.requested",
-      "lifecycle": "active",
+      "lifecycle": "retired",
       "tier": "substrate",
       "rationale": "operation-record"
     },
@@ -643,13 +639,13 @@
     },
     {
       "type": "pr.create.executed",
-      "lifecycle": "active",
+      "lifecycle": "retired",
       "tier": "substrate",
       "rationale": "operation-record"
     },
     {
       "type": "pr.create.requested",
-      "lifecycle": "active",
+      "lifecycle": "retired",
       "tier": "substrate",
       "rationale": "operation-record"
     },
@@ -661,7 +657,7 @@
     },
     {
       "type": "pr.merged",
-      "lifecycle": "active",
+      "lifecycle": "retired",
       "tier": "substrate",
       "rationale": "operation-record"
     },

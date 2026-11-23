@@ -230,6 +230,18 @@ async function boundReceipt(operationId: string, input: z.infer<typeof ExecuteIn
   return claim.result;
 }
 
+/**
+ * The refusal of a synthesis-closeout call that has no original custody. Exarchos no longer compiles this intent.
+ * The harness opens the pull request. Only an original terminal receipt of the same operation replays.
+ */
+const SYNTHESIS_CLOSEOUT_RETIRED_RESULT: ToolResult = {
+  success: false,
+  error: {
+    code: 'SYNTHESIS_CLOSEOUT_RETIRED',
+    message: 'Exarchos no longer compiles synthesis-closeout, and this operation has no original receipt to replay. The harness opens the pull request. Nothing was executed.',
+  },
+};
+
 /** Authenticate original synthesis custody without consulting live compilation, providers or configuration. */
 async function historicalSynthesisResult(streamId: string, operationId: string, args: Record<string, unknown>, ctx: DispatchContext, bundles: RunBundleStore): Promise<ToolResult | undefined> {
   try {
@@ -475,8 +487,8 @@ export async function handleExecuteIntent(
 
   return runExclusivePerOperation(operationId, async () => {
     if (intent === 'synthesis-closeout') {
-      const historical = await historicalSynthesisResult(streamId, operationId, intentArgs, ctx, deps.bundleStore ?? ctx.eventStore.bundleStore);
-      if (historical !== undefined) return historical;
+      return await historicalSynthesisResult(streamId, operationId, intentArgs, ctx, deps.bundleStore ?? ctx.eventStore.bundleStore)
+        ?? SYNTHESIS_CLOSEOUT_RETIRED_RESULT;
     }
     const compiled = compileIntent(intent, { streamId }, intentArgs, deps);
     if (!compiled.ok) {
@@ -497,10 +509,6 @@ export async function handleExecuteIntent(
       .ensureSqliteBackendSync()
       .lookupOperationClaim<IntentReceipt>(operationId);
     if (claim !== undefined) {
-      if (intent === 'synthesis-closeout') {
-        return await historicalSynthesisResult(streamId, operationId, intentArgs, ctx, deps.bundleStore ?? ctx.eventStore.bundleStore)
-          ?? { success: false, error: { code: 'INTENT_HISTORY_REFUSED', message: 'Historical claim disappeared. Nothing was executed.' } };
-      }
       if (claim.requestDigest !== requestDigest) {
         return digestMismatchResult(operationId, 'Nothing was executed.');
       }

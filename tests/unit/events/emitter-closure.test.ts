@@ -135,8 +135,8 @@ describe('emitter closure', () => {
     );
     const closure = auditEmitterClosure(census, declaredEmissionEdges());
 
-    expect(closure.measuredSiteCount, 'no append site was measured').toBeGreaterThan(75);
-    expect(closure.explainedByAction, 'no site was explained by an action edge').toBeGreaterThan(50);
+    expect(closure.measuredSiteCount, 'no append site was measured').toBeGreaterThan(70);
+    expect(closure.explainedByAction, 'no site was explained by an action edge').toBeGreaterThan(48);
     expect(
       closure.explainedByModule,
       'no site was explained by the non-action surface',
@@ -294,7 +294,7 @@ describe('emitter closure', () => {
     const audit = auditActionOwnedAppends(census, declaredEmissionEdges());
 
     expect(ACTION_APPEND_OWNERSHIP.length, 'the ownership table is empty').toBeGreaterThanOrEqual(
-      15,
+      11,
     );
     expect(
       audit.confirmedOwnedAppends,

@@ -401,41 +401,6 @@ export function reasonedAbstentions(
  */
 export const ACTION_APPEND_OWNERSHIP: readonly ActionAppendOwnership[] = Object.freeze([
   {
-    action: 'create_pr',
-    declaringTool: 'exarchos_orchestrate',
-    module: 'verbs/vcs/create-pr.ts',
-    event: 'pr.create.requested',
-    wiring: 'the create-PR handler journals intent before the provider call',
-  },
-  {
-    action: 'create_pr',
-    declaringTool: 'exarchos_orchestrate',
-    module: 'verbs/vcs/create-pr.ts',
-    event: 'pr.create.executed',
-    wiring: 'the create-PR handler journals the result after the provider call',
-  },
-  {
-    action: 'create_issue',
-    declaringTool: 'exarchos_orchestrate',
-    module: 'verbs/vcs/create-issue.ts',
-    event: 'issue.create.requested',
-    wiring: 'the create-issue handler journals intent before the provider call',
-  },
-  {
-    action: 'create_issue',
-    declaringTool: 'exarchos_orchestrate',
-    module: 'verbs/vcs/create-issue.ts',
-    event: 'issue.create.executed',
-    wiring: 'the create-issue handler journals the result after the provider call',
-  },
-  {
-    action: 'add_pr_comment',
-    declaringTool: 'exarchos_orchestrate',
-    module: 'verbs/vcs/add-pr-comment.ts',
-    event: 'pr.comment.executed',
-    wiring: 'the comment handler journals the result on each of its three terminal paths',
-  },
-  {
     action: 'merge_orchestrate',
     declaringTool: 'exarchos_orchestrate',
     module: 'verbs/merge/execute-merge.ts',

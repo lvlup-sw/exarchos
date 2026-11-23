@@ -2553,7 +2553,7 @@
   ],
   "pins": {
     "contractAuthority": {
-      "actionIdRegistryDigest": "sha256:f4dabc9931efc654c31d78ae1aaa9ab46a6c3df2abe60ba2a8cec35c612abeef",
+      "actionIdRegistryDigest": "sha256:e0dcdc4e9f237a474c4f6f8c5f91bf5fd6d67c3f5c9d326610861d25583c2240",
       "file": "src/contract/contract-authority.lock.json"
     },
     "inputs": [
@@ -2575,12 +2575,12 @@
       },
       {
         "file": "src/runbooks/definitions.ts",
-        "sha256": "908634fb3a4b25880dd322a8350e810452481a049ae3427b0b592ab9afae4557"
+        "sha256": "c3e88be16a849ad9d7f12fd8225a6364fc6b73b3e8273f80edfc1d20bbec6358"
       }
     ],
     "registry": {
-      "actionIdsSha256": "f4dabc9931efc654c31d78ae1aaa9ab46a6c3df2abe60ba2a8cec35c612abeef",
-      "actions": 126,
+      "actionIdsSha256": "e0dcdc4e9f237a474c4f6f8c5f91bf5fd6d67c3f5c9d326610861d25583c2240",
+      "actions": 122,
       "file": "tools/audit/registered-actions-snapshot.json",
       "tools": 5,
       "visibleTools": 4
@@ -2766,27 +2766,6 @@
         },
         {
           "call": "exarchos_event.append",
-          "status": "registered",
-          "surface": "exarchos"
-        }
-      ]
-    },
-    {
-      "counts": {
-        "decision": 0,
-        "exarchos": 2,
-        "native": 0
-      },
-      "id": "synthesis-closeout",
-      "phase": "synthesize",
-      "steps": [
-        {
-          "call": "exarchos_orchestrate.validate_pr_body",
-          "status": "registered",
-          "surface": "exarchos"
-        },
-        {
-          "call": "exarchos_orchestrate.create_pr",
           "status": "registered",
           "surface": "exarchos"
         }

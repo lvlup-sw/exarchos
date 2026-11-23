@@ -13,15 +13,15 @@ export const mergeActions: readonly BuiltinToolAction[] = [
   contracted(
     {
       name: 'merge_orchestrate',
-      description: 'Top-level merge orchestrator (DR-MO-1): runs preflight, emits merge.preflight, then delegates to the executor on pass; handles abort/dryRun/resume. Use for: merging a task/feature source branch into the integration target with full preflight + compensating recovery from the main worktree. Do NOT use for: a raw provider PR/MR merge (use merge_pr); verifying a directory is a git worktree (use verify_worktree); or requesting synthesis/PR creation on a oneshot workflow (use request_synthesize).',
+      description: 'Top-level merge orchestrator (DR-MO-1): runs preflight, emits merge.preflight, then delegates to the executor on pass; handles abort/dryRun/resume. Use for: merging a task/feature source branch into the integration target with full preflight + compensating recovery from the main worktree. Do NOT use for: a raw provider PR/MR merge (the harness owns it); verifying a directory is a git worktree (use verify_worktree); or requesting synthesis/PR creation on a oneshot workflow (use request_synthesize).',
       schema: z.object({
         featureId: z.string().min(1),
         sourceBranch: z.string().min(1),
         targetBranch: z.string().min(1),
         taskId: z.string().optional(),
         /**
-         * Required, with no default, like `merge_pr.strategy`. The CLI and MCP then show the same
-         * parameter, and the event log records the choice of the operator.
+         * Required, with no default. The CLI and MCP then show the same parameter, and the event
+         * log records the choice of the operator.
          */
         strategy: z.enum(['squash', 'rebase', 'merge']),
         dryRun: z.boolean().optional(),

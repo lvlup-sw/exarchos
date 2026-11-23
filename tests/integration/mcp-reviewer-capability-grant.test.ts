@@ -399,13 +399,11 @@ describe('reviewer MCP session cannot use the operator grant', () => {
 
 /**
  * Operations that use the same operator grant and are not called above.
- * Remote merges need a forge credential this suite does not supply.
  * The other rows need a prepared workflow, a worktree lease, or a long host command.
  */
 export const UNTESTED_SHARED_OPERATIONS: readonly string[] = [
   'exarchos_orchestrate.setup_worktree',
   'exarchos_orchestrate.serialize_merge',
-  'exarchos_orchestrate.merge_pr',
   'exarchos_orchestrate.execute_intent',
   'exarchos_orchestrate.settle',
   'exarchos_orchestrate.prepare_delegation',

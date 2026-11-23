@@ -188,41 +188,6 @@ export const SYNTHESIS_FLOW: RunbookDefinition = {
   autoEmits: ['gate.executed'],
 };
 
-export const SYNTHESIS_CLOSEOUT: RunbookDefinition = {
-  id: 'synthesis-closeout',
-  phase: 'synthesize',
-  description:
-    'Validate the PR body and open the pull request through the provider abstraction. ' +
-    'Recording the PR URL in state is left to the caller.',
-  steps: [
-    /**
-     * Validates the body as text that the caller holds, because the PR does not
-     * exist yet. `enforce: true` makes a missing section a refusal, so `stop` halts
-     * before `create_pr`. Without it, the handler reports a missing section on a
-     * success carrier, and the step policy reads only the envelope.
-     */
-    { tool: 'exarchos_orchestrate', action: 'validate_pr_body', onFail: 'stop',
-      params: { body: '<prBody>', enforce: true } },
-    { tool: 'exarchos_orchestrate', action: 'create_pr', onFail: 'stop',
-      params: { title: '<title>', body: '<prBody>', base: '<baseBranch>', head: '<headBranch>' } },
-  ],
-  /**
-   * `prBody` binds to the `body` of both leaves, so they cannot get different
-   * texts. `create_pr` can append an `## Intent` section from a captured intent,
-   * so the opened body is the validated body plus that section.
-   */
-  templateVars: ['featureId', 'title', 'prBody', 'baseBranch', 'headBranch'],
-  /**
-   * Only the two `create_pr` records. `autoEmits` mirrors the declared action
-   * `emissions`, so it names no durable evidence. The segment leaves out
-   * `prepare_synthesis`, which runs a full test suite. It also leaves out the
-   * state patch, because the executor runs only orchestrate leaves. Thus the
-   * caller must record the PR URL in state before the workflow can leave the
-   * synthesize phase.
-   */
-  autoEmits: ['pr.create.requested', 'pr.create.executed'],
-};
-
 export const SHEPHERD_ITERATION: RunbookDefinition = {
   id: 'shepherd-iteration',
   phase: 'synthesize',
@@ -796,7 +761,6 @@ export const ALL_RUNBOOKS: readonly RunbookDefinition[] = [
   QUALITY_EVALUATION,
   AGENT_TEAMS_SAGA,
   SYNTHESIS_FLOW,
-  SYNTHESIS_CLOSEOUT,
   SHEPHERD_ITERATION,
   TASK_FIX,
   TRIAGE_DECISION,

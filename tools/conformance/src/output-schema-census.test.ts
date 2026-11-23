@@ -371,9 +371,9 @@ describe('DR-4: outputSchema vacuity census', () => {
 
     expect(sites).toHaveLength(waiverSites + cappedSites);
     expect(literalVacuousSites).toBe(0);
-    expect(waiverSites).toBe(89);
+    expect(waiverSites).toBe(85);
     expect(cappedSites).toBe(36);
-    expect(waiverSites + cappedSites).toBe(125);
+    expect(waiverSites + cappedSites).toBe(121);
     expect(namedBindingSites).toBe(0);
 
     const factoryDuplicates = report.total - sites.length;
@@ -382,11 +382,11 @@ describe('DR-4: outputSchema vacuity census', () => {
     expect(report.vacuousCount).toBe(waiverSites + factoryDuplicates);
     expect(report.substantiveCount).toBe(cappedSites);
 
-    expect(report.total).toBe(126);
-    expect(report.vacuousCount).toBe(90);
+    expect(report.total).toBe(122);
+    expect(report.vacuousCount).toBe(86);
     expect(report.substantiveCount).toBe(36);
     expect(countByReason(report)).toEqual({
-      'unknown-data': 90,
+      'unknown-data': 86,
       'wrapped-unknown-data': 0,
       'typed-data': 36,
       'unreadable-envelope': 0,

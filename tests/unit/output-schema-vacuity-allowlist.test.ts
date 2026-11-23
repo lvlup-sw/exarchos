@@ -289,10 +289,14 @@ describe('DR-4: outputSchema vacuity is unconstructible', () => {
       'exarchos_event.batch_append',
       'exarchos_event.describe',
       'exarchos_event.query',
+      'exarchos_orchestrate.add_pr_comment',
       'exarchos_orchestrate.check_invariant_conformance',
       'exarchos_orchestrate.check_test_adequacy',
+      'exarchos_orchestrate.create_issue',
+      'exarchos_orchestrate.create_pr',
       'exarchos_orchestrate.cutover_decide',
       'exarchos_orchestrate.cutover_readiness',
+      'exarchos_orchestrate.merge_pr',
       'exarchos_orchestrate.mutation-adequacy',
       'exarchos_sync.now',
       'exarchos_view.stack_place',
@@ -323,9 +327,13 @@ describe('DR-4: outputSchema vacuity is unconstructible', () => {
         expect(census.substantive).toContain(currentIdOf(id));
       }
     }
-    expect([...deletedIds].filter((id) => retiredIds.includes(id))).toEqual([
-      'exarchos_orchestrate.mutation-adequacy',
+    expect([...deletedIds].filter((id) => retiredIds.includes(id)).sort()).toEqual([
+      'exarchos_orchestrate.add_pr_comment',
       'exarchos_orchestrate.check_test_adequacy',
+      'exarchos_orchestrate.create_issue',
+      'exarchos_orchestrate.create_pr',
+      'exarchos_orchestrate.merge_pr',
+      'exarchos_orchestrate.mutation-adequacy',
     ]);
 
     const retirementShape = (entry: { owner: string; retiredAt: string }): boolean =>

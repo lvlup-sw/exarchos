@@ -77,15 +77,9 @@ import { handleRequestSynthesize } from './team/request-synthesize.js';
 import { handleFinalizeOneshot } from './tasks/finalize-oneshot.js';
 import { handleDoctor } from './doctor/index.js';
 import { handleOnboard } from './onboard/index.js';
-import { handleCreatePr } from './vcs/create-pr.js';
-import { handleMergePr } from './vcs/merge-pr.js';
 import { handleCheckCi } from './vcs/check-ci.js';
 import { handleListPrs } from './vcs/list-prs.js';
 import { handleGetPrComments } from './vcs/get-pr-comments.js';
-import { handleAddPrComment } from './vcs/add-pr-comment.js';
-import { handleCreateIssue } from './vcs/create-issue.js';
-import type { HandleCreateIssueArgs } from './vcs/create-issue.js';
-import { createVcsProvider } from '../vcs/factory.js';
 import { handleMergeOrchestrate } from './merge/merge-orchestrate.js';
 import { handleStackPlace } from './stack/tools.js';
 import {
@@ -508,31 +502,10 @@ export const ACTION_HANDLERS: Readonly<Record<string, ActionHandler>> = {
   prune_stale_workflows: handlePruneStaleWorkflows as ActionHandler,
   request_synthesize: adaptArgsWithStateDirAndEventStore(handleRequestSynthesize),
   finalize_oneshot: adaptArgsWithStateDirAndEventStore(handleFinalizeOneshot),
-  /** VCS action, routed through the `VcsProvider` abstraction. */
-  create_pr: adaptCtx(handleCreatePr),
-  merge_pr: adaptCtx(handleMergePr),
+  /** VCS read action, routed through the `VcsProvider` abstraction. */
   check_ci: adaptCtx(handleCheckCi),
   list_prs: adaptCtx(handleListPrs),
   get_pr_comments: adaptCtx(handleGetPrComments),
-  add_pr_comment: adaptCtx(handleAddPrComment),
-  /**
-   * `create_issue` needs a provider-backed `listIssuesByMarker` for its recovery precheck.
-   * The entry wires `searchIssuesByMarker` of the VCS provider, so the handler never uses a no-op that hides duplicate issues.
-   * It creates the provider only when the caller injects no `listIssuesByMarker`.
-   * A provider startup error thus cannot come before the input checks of the handler.
-   */
-  create_issue: async (args, _stateDir, ctx) => {
-    if (!ctx) throw new Error('DispatchContext required for this handler');
-    const typedArgs = args as unknown as Omit<HandleCreateIssueArgs, 'listIssuesByMarker'> &
-      Partial<Pick<HandleCreateIssueArgs, 'listIssuesByMarker'>>;
-    const listIssuesByMarker =
-      typedArgs.listIssuesByMarker ??
-      (async (operationId: string) => {
-        const provider = await createVcsProvider({ config: ctx.projectConfig });
-        return provider.searchIssuesByMarker(operationId);
-      });
-    return handleCreateIssue({ ...typedArgs, listIssuesByMarker }, ctx);
-  },
   /** Merge orchestrator. It composes the preflight and the executor under one public action. The internal `handleExecuteMerge` is not in this table. */
   merge_orchestrate: adaptCtx(handleMergeOrchestrate),
   /**
