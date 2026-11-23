@@ -220,15 +220,49 @@ export function selectSelfTests(manifest, mode, changed) {
  */
 export function forcedCoreFiles(manifest, cwd = REPO_ROOT) {
   const tracked = git(['ls-files'], cwd).split('\n').filter((line) => line.length > 0);
+  const trackedSet = new Set(tracked);
   const { forcedCore, coreTestGlobs, repoReaderPattern } = manifest.tests;
   const reader = new RegExp(repoReaderPattern);
+  const texts = new Map();
+  const text = (file) => {
+    if (!texts.has(file)) texts.set(file, readFileSync(path.join(cwd, file), 'utf8'));
+    return texts.get(file);
+  };
+  const imports = (file) => relativeImports(file, text(file)).filter((target) => trackedSet.has(target));
+  const helpers = tracked.filter((file) => /^(tests|tools)\//.test(file) && /\.(m?ts|m?js)$/.test(file) && !/\.test\.(m?ts|m?js)$/.test(file));
+  const readerHelpers = new Set(helpers.filter((file) => reader.test(text(file))));
+  for (let grew = true; grew; ) {
+    grew = false;
+    for (const file of helpers) {
+      if (readerHelpers.has(file) || !imports(file).some((target) => readerHelpers.has(target))) continue;
+      readerHelpers.add(file);
+      grew = true;
+    }
+  }
   const coreTests = tracked.filter((file) => matchesAny(coreTestGlobs, file));
   const forced = new Set(coreTests.filter((file) => matchesAny(forcedCore, file)));
   for (const file of coreTests) {
     if (forced.has(file)) continue;
-    if (reader.test(readFileSync(path.join(cwd, file), 'utf8'))) forced.add(file);
+    if (reader.test(text(file)) || imports(file).some((target) => readerHelpers.has(target))) forced.add(file);
   }
   return [...forced].sort();
+}
+
+/**
+ * Lists the repository paths that the relative imports of `file` can name. A `.js` specifier also names its `.ts` source,
+ * and a bare directory specifier names its `index` module. The caller keeps only the paths that git tracks.
+ *
+ * @param {string} file
+ * @param {string} text
+ * @returns {string[]}
+ */
+export function relativeImports(file, text) {
+  const out = [];
+  for (const match of text.matchAll(/(?:from\s+|import\s*\(\s*)['"](\.{1,2}\/[^'"]+)['"]/g)) {
+    const target = path.posix.normalize(path.posix.join(path.posix.dirname(file), match[1]));
+    out.push(target, target.replace(/\.(m?)js$/, '.$1ts'), `${target}.ts`, `${target}/index.ts`, `${target}/index.js`);
+  }
+  return out;
 }
 
 /**
