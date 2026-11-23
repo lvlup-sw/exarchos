@@ -22,7 +22,7 @@ import { isStaleBundleEntry, probeExarchosPluginInstall } from '../../../runtime
 import {
   OPERATOR_MCP_ARGS,
   READONLY_MCP_ARGS,
-} from '../../../workflow/capabilities/mcp-server-binding.js';
+} from '../../../runtime/agents/mcp-server-binding.js';
 import {
   promoteConfigFile,
   recoverInterruptedConfigPromotions,

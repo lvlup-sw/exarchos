@@ -16,7 +16,7 @@ import {
   READONLY_MCP_ARGS,
   READONLY_MCP_SERVER_NAME,
   exarchosMcpServerFor,
-} from '../../../workflow/capabilities/mcp-server-binding.js';
+} from '../mcp-server-binding.js';
 
 /** The state directory of the plugin server entry. The inline read-only server must open the same store. */
 const CLAUDE_WORKFLOW_STATE_DIR = '~/.claude/workflow-state';

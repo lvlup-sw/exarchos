@@ -20,7 +20,7 @@ import { resolveCapabilities } from '../../../workflow/capabilities/posture-mapp
 import {
   ORCHESTRATOR_MCP_SERVER_NAME,
   READONLY_MCP_SERVER_NAME,
-} from '../../../workflow/capabilities/mcp-server-binding.js';
+} from '../mcp-server-binding.js';
 
 /**
  * Copilot supports fs, shell, subagent spawn and MCP natively. Worktree

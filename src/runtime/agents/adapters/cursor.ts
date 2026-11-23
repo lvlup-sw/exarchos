@@ -16,7 +16,7 @@ import type { Capability } from '../capabilities.js';
 import type { RuntimeAdapter, ValidationResult } from './types.js';
 import { buildSupportMap } from './support-levels.js';
 import { resolveCapabilities } from '../../../workflow/capabilities/posture-mapping.js';
-import { exarchosMcpServerFor } from '../../../workflow/capabilities/mcp-server-binding.js';
+import { exarchosMcpServerFor } from '../mcp-server-binding.js';
 
 /**
  * Cursor supports the file, shell, subagent-spawn, and MCP capabilities natively. `isolation:worktree` is

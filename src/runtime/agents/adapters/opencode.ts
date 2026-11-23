@@ -17,7 +17,7 @@ import type { AgentSpec } from '../types.js';
 import type { RuntimeAdapter, ValidationResult } from './types.js';
 import { buildSupportMap } from './support-levels.js';
 import { resolveCapabilities } from '../../../workflow/capabilities/posture-mapping.js';
-import { exarchosMcpServerFor } from '../../../workflow/capabilities/mcp-server-binding.js';
+import { exarchosMcpServerFor } from '../mcp-server-binding.js';
 
 /**
  * OpenCode support levels. `isolation:worktree` and `session:resume` are advisory,

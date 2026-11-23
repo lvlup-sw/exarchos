@@ -9,7 +9,7 @@ import type { AgentSpec } from './types.js';
 import type { RiskTier } from '../../workflow/verification-policy.js';
 import { INCOMPLETE_CLAIM_STATUSES, type IncompleteClaimStatus } from '../../verbs/settle/adjudicate.js';
 import { MAX_CLAIM_REASON_LENGTH } from '../../verbs/settle/claim-codec.js';
-import { READONLY_MCP_SERVER_NAME } from '../../workflow/capabilities/mcp-server-binding.js';
+import { READONLY_MCP_SERVER_NAME } from './mcp-server-binding.js';
 
 /**
  * The post-test command. The agent files ship static, so this command must not

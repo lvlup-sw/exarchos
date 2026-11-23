@@ -29,7 +29,7 @@ const MCP_ENTRY = path.join(
  * natively. `src/storage/sqlite-backend.ts` imports that module, and the ESM loader of Node
  * rejects the `bun:` URL scheme.
  */
-const REAL_MCP_ARGS = [MCP_ENTRY, 'mcp'];
+const REAL_MCP_ARGS = [MCP_ENTRY, 'mcp', '--operator'];
 
 /**
  * Track clients across a single test so teardown can clean up handles even

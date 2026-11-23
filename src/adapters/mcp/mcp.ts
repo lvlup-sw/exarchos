@@ -26,15 +26,13 @@ import { attachTaskStoreToV2, describeTaskWireGap } from '../../projections/task
 import type { NextAction } from '../../next-action.js';
 import type { ToolResult } from '../../format.js';
 import {
+  DEFAULT_MCP_SESSION_GRANT,
   deriveMcpCallerIdentity,
+  resolveMcpSessionResolver,
   type McpCallerRuntimeContext,
+  type McpSessionGrant,
 } from '../../dispatch/caller-identity.js';
 import { assertBindingsAtStartup } from '../../contract/bindings/verify-bindings.js';
-import {
-  DEFAULT_MCP_SESSION_GRANT,
-  resolveMcpSessionResolver,
-  type McpSessionGrant,
-} from '../../workflow/capabilities/resolver.js';
 
 /** Options that the launch configuration of the server sets. A connected client cannot set them. */
 export interface CreateMcpServerOptions {

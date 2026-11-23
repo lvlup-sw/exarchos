@@ -16,7 +16,7 @@ import {
   ORCHESTRATOR_MCP_SERVER_NAME,
   READONLY_MCP_SERVER_NAME,
   exarchosMcpServerFor,
-} from '../../../workflow/capabilities/mcp-server-binding.js';
+} from '../mcp-server-binding.js';
 
 /**
  * Codex support levels. `isolation:worktree` and `session:resume` are advisory.

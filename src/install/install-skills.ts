@@ -36,7 +36,7 @@ import {
 } from './install-skills-messages.js';
 import { atomicWriteFile } from '../utils/atomic-write.js';
 import { spawnCommand, type SpawnCommandDeps } from '../utils/process.js';
-import { OPERATOR_MCP_ARGS } from '../workflow/capabilities/mcp-server-binding.js';
+import { OPERATOR_MCP_ARGS } from '../runtime/agents/mcp-server-binding.js';
 
 /**
  * Result of the injected spawn function: the exit code, and stderr to show

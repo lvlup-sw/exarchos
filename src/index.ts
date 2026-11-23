@@ -21,7 +21,7 @@ import type { StorageBackend } from './storage/backend.js';
 import { resolvePackageVersion } from './adapters/cli/version.js';
 import { isHookCommand, handleHookCommand } from './adapters/cli/hooks.js';
 import type { DispatchContext } from './dispatch/core/dispatch.js';
-import type { McpSessionGrant } from './workflow/capabilities/resolver.js';
+import type { McpSessionGrant } from './dispatch/caller-identity.js';
 
 export const SERVER_NAME = 'exarchos-mcp';
 /**
