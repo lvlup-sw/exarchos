@@ -6,6 +6,12 @@ All notable changes to Exarchos are documented in this file. Organized by semver
 
 ### Operator notes
 
+- **A project hook in `.exarchos.yml` runs only when the user trusts it.** This is a change of behavior. A repository can write its own config, so the config alone no longer starts a hook.
+  - The trust record is `trusted-hooks.json` in the state directory, outside the repository. Its shape is `{ "projects": { "<real project root>": { "hooksDigest": "<digest>" } } }`.
+  - The digest covers the real project root and each parsed hook. When a project has hooks and no matching record, Exarchos logs a `hook-trust` warning with the trust file path and the digest to add.
+  - A change to a hook command, its timeout or its event gives a new digest, and the hooks stay off until the user trusts the new set.
+  - A hook command must match the same safe-command allowlist as `test:` and the other commands of the file. Exarchos splits it into arguments and starts it with no shell, in the project root. A hook that needs a shell names a script.
+
 - Ledger-backed updates validate the full projected state after the raw patch. Combined moves recheck inside their transaction. Standalone patches guard the validated stream tail and retry on conflict. Held claims replay without applying a patch twice. Empty updates retain document validation and schema refusals retain their existing error text.
 - Ledger-backed transition, settlement, cancellation and cleanup paths synchronize complete current ledger effects into the state document. Retries preserve newer moves and operational fields. Combined updates validate before the phase transaction. File writers serialize version checks with publication and allocate each successor from the committed readable object. A stale unconditional writer cannot reuse a saved reader token. Missing or corrupt targets retain the declared fallback. This file guarantee is within one process.
 - Ledger-backed built-in cancellation refuses unreadable or completed ledgers before compensation. Final cancellation and cleanup validate their source inside the append transaction. Cleanup preserves folded evidence and uses precise backfill paths. A completed cleanup still requires explicit transition recovery for a lagging document.
