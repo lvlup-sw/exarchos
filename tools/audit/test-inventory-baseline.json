@@ -7,7 +7,7 @@
     "testFiles": 1495,
     "parsedFiles": 1450,
     "shellFiles": 45,
-    "cases": 16560,
+    "cases": 16561,
     "dynamicTitles": 288,
     "unparseableFiles": 0
   },
@@ -15147,6 +15147,11 @@
         {
           "suite": "pull request lane parity with ci.yml",
           "name": "runs every core file that a ci.yml step re-asserts in the forced core list",
+          "dynamic": false
+        },
+        {
+          "suite": "pull request lane parity with ci.yml",
+          "name": "names only existing unit test files, each with a reason, in the network-only list",
           "dynamic": false
         },
         {

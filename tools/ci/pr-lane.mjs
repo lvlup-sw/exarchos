@@ -255,11 +255,14 @@ export function staticPlan(manifest, context) {
 /**
  * Lists the test files of the `unit` project outside `tests/architecture/`. The `static` suite runs the architecture files.
  * The `--exclude` flag of vitest does not reach a project that declares its own include, so the list comes from `vitest list`.
+ * The list also leaves out each file in `tests.networkOnly` of the manifest, because the lane runs with no network.
  *
  * @param {NodeJS.ProcessEnv} env
+ * @param {any} manifest
  * @returns {string[]}
  */
-function unitFilesOutsideArchitecture(env) {
+function unitFilesOutsideArchitecture(env, manifest) {
+  const networkOnly = new Set(Object.keys(manifest.tests.networkOnly ?? {}));
   const vitestEntry = path.join(REPO_ROOT, 'node_modules', 'vitest', 'vitest.mjs');
   const result = spawnSync(process.execPath, [vitestEntry, 'list', '--project', 'unit', '--filesOnly'], {
     cwd: REPO_ROOT,
@@ -271,7 +274,7 @@ function unitFilesOutsideArchitecture(env) {
   return result.stdout
     .split('\n')
     .map((line) => line.replace(/^\[unit\]\s+/, '').trim())
-    .filter((file) => file.endsWith('.ts') && !file.startsWith('tests/architecture/'));
+    .filter((file) => file.endsWith('.ts') && !file.startsWith('tests/architecture/') && !networkOnly.has(file));
 }
 
 /**
@@ -439,7 +442,7 @@ export async function main(argv) {
   if (options.dryRun) {
     rmSync(scratch, { recursive: true, force: true });
     const forced = options.suite === 'tests' && mode === 'selected' ? forcedCoreFiles(manifest) : [];
-    const unitFiles = options.suite === 'tests' ? unitFilesOutsideArchitecture(env) : [];
+    const unitFiles = options.suite === 'tests' ? unitFilesOutsideArchitecture(env, manifest) : [];
     const plan =
       options.suite === 'static'
         ? Object.values(staticPlan(manifest, { base: options.base, mode, changed: all, limits })).flat()
@@ -466,7 +469,7 @@ export async function main(argv) {
       const forced = mode === 'full' ? [] : forcedCoreFiles(manifest);
       summary.forcedCoreFiles = forced.length;
       summary.changedPresentFiles = present.length;
-      const unitFiles = unitFilesOutsideArchitecture(env);
+      const unitFiles = unitFilesOutsideArchitecture(env, manifest);
       for (const step of testsPlan(manifest, { base: options.base, mode, changed: all, present, limits, binDir, scratch, forced, unitFiles })) {
         const result = await runStep(step, { env, stream: true });
         results.push(result);

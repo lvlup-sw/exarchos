@@ -155,6 +155,17 @@ describe('pull request lane parity with ci.yml', () => {
     expect(files.length).toBeGreaterThan(5);
     expect(files.filter((file) => !forced.has(file))).toEqual([]);
   });
+
+  it('names only existing unit test files, each with a reason, in the network-only list', () => {
+    const networkOnly = (loadManifest() as { tests: { networkOnly?: Record<string, string> } }).tests.networkOnly ?? {};
+    const entries = Object.entries(networkOnly);
+    expect(entries.length).toBeGreaterThan(0);
+    for (const [file, reason] of entries) {
+      expect(existsSync(join(REPO_ROOT, file)), file).toBe(true);
+      expect(file, file).toMatch(/^tests\/scripts\/.*\.test\.ts$/);
+      expect(reason.length, file).toBeGreaterThan(20);
+    }
+  });
 });
 
 describe('pull request lane never collects coverage', () => {
