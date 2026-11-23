@@ -51,35 +51,12 @@ jobs:
   # not restate it here. `pr-body-check.yml` is a separate workflow, outside the
   # contract of this aggregator.
   # ─────────────────────────────────────────────────────────────────────
-  plan:
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    outputs:
-      lanes: ${{ steps.plan.outputs.lanes }}
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          filter: blob:none
-      - id: plan
-        uses: lvlup-sw/.github/actions/ci-lanes@v1
-
-  # Untargeted contract check: prove the manifest and this workflow still agree.
-  # Not in CI Gate (the gate may only cover jobs that need `plan`).
-  lanes-check:
-    name: CI Lanes Check
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - uses: actions/checkout@v4
-      - uses: lvlup-sw/.github/actions/ci-lanes@v1
-        with:
-          mode: check
-
+  # This workflow runs on a push to main and on dispatch only. Every gated job runs on
+  # every event, so the workflow has no lane planner. It uses no action from
+  # lvlup-sw/.github: that repository is private, and a public repository cannot use it.
   test-root:
     name: Root Package
-    needs: plan
-    if: ${{ !cancelled() && (needs.plan.result != 'success' || fromJSON(needs.plan.outputs.lanes).root != 'false') }}
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -165,8 +142,7 @@ jobs:
 
   test-mcp:
     name: Exarchos MCP Server
-    needs: plan
-    if: ${{ !cancelled() && (needs.plan.result != 'success' || fromJSON(needs.plan.outputs.lanes).mcp != 'false') }}
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     timeout-minutes: 35
     env:
@@ -408,10 +384,7 @@ jobs:
   # ─────────────────────────────────────────────────────────────────────
   test-windows-root:
     name: Windows Unit (Root)
-    needs: plan
-    # Push / non-PR events already run every lane (#1699 baseline is the
-    # default-branch push). The skip is byte-exact.
-    if: ${{ !cancelled() && (needs.plan.result != 'success' || fromJSON(needs.plan.outputs.lanes).root != 'false') }}
+    if: ${{ !cancelled() }}
     runs-on: windows-latest
     timeout-minutes: 20
     env:
@@ -550,8 +523,7 @@ jobs:
   # ─────────────────────────────────────────────────────────────────────
   grep-gates:
     name: Grep Gates (idempotency + substrate)
-    if: ${{ !cancelled() && (needs.plan.result != 'success' || fromJSON(needs.plan.outputs.lanes).always != 'false') }}
-    needs: plan
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -1080,13 +1052,6 @@ jobs:
         if: ${{ !cancelled() }}
         run: bash tools/audit/gates/validate-no-legacy.sh
 
-      # Refuses a pull-request workflow with no cancelling concurrency block, and a job
-      # with no timeout-minutes. Exemptions and their reasons are in
-      # .github/workflow-hygiene.toml.
-      - name: Workflow hygiene (concurrency + timeouts)
-        if: ${{ !cancelled() }}
-        uses: lvlup-sw/.github/actions/workflow-hygiene@v1
-
   # ─────────────────────────────────────────────────────────────────────
   # e2e-process
   # ─────────────────────────────────────────────────────────────────────
@@ -1113,8 +1078,7 @@ jobs:
   # ─────────────────────────────────────────────────────────────────────
   e2e-process:
     name: E2E Process (linux-x64)
-    needs: plan
-    if: ${{ !cancelled() && (needs.plan.result != 'success' || fromJSON(needs.plan.outputs.lanes).always != 'false') }}
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -1215,8 +1179,7 @@ jobs:
   # ─────────────────────────────────────────────────────────────────────
   outcome-tests:
     name: Outcome Tests (linux-x64)
-    needs: plan
-    if: ${{ !cancelled() && (needs.plan.result != 'success' || fromJSON(needs.plan.outputs.lanes).always != 'false') }}
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -1255,8 +1218,7 @@ jobs:
 
   testgen:
     name: Testgen (${{ matrix.os }})
-    needs: plan
-    if: ${{ !cancelled() && (needs.plan.result != 'success' || fromJSON(needs.plan.outputs.lanes).testgen != 'false') }}
+    if: ${{ !cancelled() }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 15
     strategy:
@@ -1296,24 +1258,23 @@ jobs:
             rm "$target"
           done
 
-  # Always-on jobs (grep-gates, outcome-tests, e2e-process) are targeted on lane
-  # `always` (paths: ** ) so this required check still aggregates them. binary-matrix,
-  # startup-budget and test-windows are untargeted and non-blocking. Every event of this
-  # workflow (dispatch or push to main) runs them.
-  # lanes-check is untargeted. Its failure still fails the workflow run.
+  # The verdict of the run: it fails unless every job in `needs` succeeded.
+  # binary-matrix, startup-budget and test-windows are non-blocking and stay out of it.
   ci-gate:
     name: CI Gate
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    needs: [plan, test-root, test-mcp, test-windows-root, grep-gates, outcome-tests, e2e-process, testgen]
+    needs: [test-root, test-mcp, test-windows-root, grep-gates, outcome-tests, e2e-process, testgen]
     if: ${{ !cancelled() }}
     steps:
-      # The verdict reads `.github/ci-lanes.toml` from the checkout. Without this step the
-      # action cannot read the manifest, and the required check fails on each PR.
-      - uses: actions/checkout@v4
-      - uses: lvlup-sw/.github/actions/ci-lanes@v1
-        with:
-          mode: verdict
-          gate: ci-gate
-          needs: ${{ toJSON(needs) }}
+      - name: Require every gated job to succeed
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: |
+          echo "$NEEDS" | jq -r 'to_entries[] | "\(.key)=\(.value.result)"'
+          failed=$(echo "$NEEDS" | jq -r '[to_entries[] | select(.value.result != "success") | .key] | join(", ")')
+          if [ -n "$failed" ]; then
+            echo "::error::These gated jobs did not succeed: $failed"
+            exit 1
+          fi
 

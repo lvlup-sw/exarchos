@@ -11,7 +11,6 @@ import { readFileSync, existsSync } from 'node:fs';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { lanePathsFromManifest } from '../../tools/audit/gates/guard-inventory.js';
 import { execFileAsync } from '../../tools/test-helpers/spawn.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -36,7 +35,7 @@ const DECLARED_PACKAGES: Readonly<
   'tools/evals-pkg/package.json': {
     role: 'tool',
     disposition: 'retained',
-    why: 'RETAINED (task 011a). Opt-in promptfoo eval harness, isolated so the heavy eval-only dependency stays OUT of the default product install (DR-3). The graders resolve promptfoo from THIS package at runtime, and `.github/ci-lanes.toml` names it in lane `mcp` so a change here still runs the eval lane. Retiring it would delete a live eval capability and orphan that glob.',
+    why: 'RETAINED (task 011a). Opt-in promptfoo eval harness, isolated so the heavy eval-only dependency stays OUT of the default product install (DR-3). The graders resolve promptfoo from THIS package at runtime, and the eval lane of `ci.yml` runs them on each push to main. Retiring it would delete a live eval capability.',
   },
 };
 
@@ -98,29 +97,40 @@ describe('ManifestSet_EveryTrackedPackageJson_IsClassifiedRetainedOrRetired', ()
    * A CI filter that names a retired package can never fire, and a gate that
    * never fires reads as green.
    */
-  it('a retired package leaves no CI paths-filter behind', () => {
-    const lanes = lanePathsFromManifest(REPO_ROOT);
-    expect(Object.keys(lanes), 'the lane manifest declares no lanes').not.toEqual([]);
+  it('a retired package leaves no CI path glob behind', () => {
+    const lane = JSON.parse(readFileSync(path.join(REPO_ROOT, 'tools/ci/pr-lane.json'), 'utf8')) as {
+      fullModeGlobs: string[];
+      tests: { acceptanceFullGlobs: string[]; binaryTierGlobs: string[]; forcedCore: string[]; coreTestGlobs: string[] };
+    };
+    const globs: Record<string, string[]> = {
+      fullModeGlobs: lane.fullModeGlobs,
+      acceptanceFullGlobs: lane.tests.acceptanceFullGlobs,
+      binaryTierGlobs: lane.tests.binaryTierGlobs,
+      forcedCore: lane.tests.forcedCore,
+      coreTestGlobs: lane.tests.coreTestGlobs,
+    };
+    expect(Object.values(globs).flat().length, 'the pull request lane declares no globs').toBeGreaterThan(0);
     for (const [manifest, meta] of Object.entries(DECLARED_PACKAGES)) {
       if (meta.disposition !== 'retired') continue;
       const dir = path.dirname(manifest);
-      for (const [lane, globs] of Object.entries(lanes)) {
-        const stale = globs.filter((glob) => glob === dir || glob.startsWith(`${dir}/`));
-        expect(stale, `${manifest} is retired but lane ${lane} still filters on ${dir}`).toEqual([]);
+      for (const [list, entries] of Object.entries(globs)) {
+        const stale = entries.filter((glob) => glob === dir || glob.startsWith(`${dir}/`));
+        expect(stale, `${manifest} is retired but ${list} still names ${dir}`).toEqual([]);
       }
     }
   });
 
   /**
-   * The package states its purpose, and the CI filter still names the package
-   * so that a change to it fires the eval lane. If one of the two disappears,
-   * the eval lane stops silently. The `private` flag keeps the package off the
-   * registry.
+   * The package states its purpose, and `ci.yml` still runs the eval lane that uses it.
+   * If one of the two disappears, the eval lane stops silently. The `private` flag keeps
+   * the package off the registry.
    */
-  it('evals-pkg is retained, and the CI filter that depends on it still exists', () => {
+  it('evals-pkg is retained, and the eval lane that depends on it still runs', () => {
     const meta = DECLARED_PACKAGES['tools/evals-pkg/package.json'];
     expect(meta?.disposition).toBe('retained');
-    expect(lanePathsFromManifest(REPO_ROOT)['mcp'] ?? []).toContain('tools/evals-pkg/**');
+    expect(readFileSync(path.join(REPO_ROOT, '.github/workflows/ci.yml'), 'utf8')).toContain(
+      'tools/evals/evals/harness.test.ts',
+    );
 
     const manifest = JSON.parse(
       readFileSync(path.join(REPO_ROOT, 'tools/evals-pkg/package.json'), 'utf8'),
