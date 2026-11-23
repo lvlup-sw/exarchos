@@ -5,13 +5,13 @@
  * as any non-empty string. `GitHubProvider` then places that string in the `gh`
  * argument vector with no end-of-options marker, and interpolates it into `gh api`
  * paths. These tests fail until a numeric id is required and every positional id
- * is passed after `--`, with flags before that marker. API paths may contain only
+ * is passed after `--`, with flags before that marker. An API path holds only
  * the decimal id as one segment.
  *
  * `getPrDiff` has no orchestrate action. The provider method is covered here
- * because it shares the positional-id call. `create_pr` title, body, base, and
- * head are flag values, so a leading dash is the value of the preceding flag
- * and is not part of this spec.
+ * because it shares the positional-id call. The `create_pr` title, body, base,
+ * and head are flag values. A leading dash there is the value of the preceding
+ * flag, so it is not part of this spec.
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';

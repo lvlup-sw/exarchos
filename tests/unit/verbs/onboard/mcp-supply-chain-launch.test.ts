@@ -6,7 +6,7 @@
  * the editor spawns. The entry must be the local `exarchos mcp` binary, or a
  * package spec with an exact version and an integrity digest and without the
  * automatic-yes flag. A name-only package with `-y` is a floating registry
- * install: the editor's stdio spawn is not a TTY, and npx installs that
+ * install. The editor's stdio spawn is not a TTY, so npx installs that
  * package and runs its bin.
  *
  * These tests fail while that floating entry is what the writers publish.
@@ -134,9 +134,9 @@ function isLocalMcpLaunch(argv: readonly string[]): boolean {
 }
 
 /**
- * A launch is safe when it is the local exarchos binary, or a package runner
- * whose positional specs are exact versions, with an integrity pin and without
- * the automatic-yes flag.
+ * A launch is safe when it is the local exarchos binary.
+ * A package runner is also safe when its positional specs are exact versions,
+ * with an integrity pin and without the automatic-yes flag.
  */
 function isPinnedEditorLaunch(command: unknown, args: unknown): boolean {
   if (typeof command !== 'string' || !Array.isArray(args)) return false;

@@ -4,11 +4,11 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1495,
-    "parsedFiles": 1450,
+    "testFiles": 1499,
+    "parsedFiles": 1454,
     "shellFiles": 45,
-    "cases": 16552,
-    "dynamicTitles": 288,
+    "cases": 16601,
+    "dynamicTitles": 303,
     "unparseableFiles": 0
   },
   "unparseable": [],
@@ -17862,6 +17862,32 @@
         {
           "suite": "globToRegExp (shared, FIX-3)",
           "name": "GlobToRegExp_DoubleStarSlash_MatchesZeroDepth",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/architecture/invariant-check-redos.test.ts": {
+      "file": "tests/unit/architecture/invariant-check-redos.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "invariant conformance bounds catalog patterns",
+          "name": "CheckInvariantConformance_GrepNestedQuantifier_ReturnsWithinDeadline",
+          "dynamic": false
+        },
+        {
+          "suite": "invariant conformance bounds catalog patterns",
+          "name": "CheckInvariantConformance_StructuralNestedQuantifier_ReturnsWithinDeadline",
+          "dynamic": false
+        },
+        {
+          "suite": "invariant conformance bounds catalog patterns",
+          "name": "CheckInvariantConformance_HeuristicNestedQuantifier_ReturnsWithinDeadline",
+          "dynamic": false
+        },
+        {
+          "suite": "invariant conformance bounds catalog patterns",
+          "name": "CheckInvariantConformance_NegatedNestedQuantifier_ReturnsWithinDeadline",
           "dynamic": false
         }
       ]
@@ -53123,6 +53149,192 @@
         }
       ]
     },
+    "tests/unit/vcs/github-pr-id-injection.test.ts": {
+      "file": "tests/unit/vcs/github-pr-id-injection.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "GitHub pull request id injection > action schemas",
+          "name": "%s rejects a non-numeric prId before a handler runs",
+          "dynamic": false
+        },
+        {
+          "suite": "GitHub pull request id injection > action schemas",
+          "name": "<dynamic-case-1>",
+          "dynamic": true
+        },
+        {
+          "suite": "GitHub pull request id injection > action schemas",
+          "name": "add_pr_comment rejects a non-numeric threadId",
+          "dynamic": false
+        },
+        {
+          "suite": "GitHub pull request id injection > GitHubProvider argument vector",
+          "name": "mergePr passes a numeric id after -- and keeps the strategy flag before it",
+          "dynamic": false
+        },
+        {
+          "suite": "GitHub pull request id injection > GitHubProvider argument vector",
+          "name": "mergePr does not invoke gh for prId %j",
+          "dynamic": false
+        },
+        {
+          "suite": "GitHub pull request id injection > GitHubProvider argument vector",
+          "name": "<dynamic-case-2>",
+          "dynamic": true
+        },
+        {
+          "suite": "GitHub pull request id injection > GitHubProvider argument vector",
+          "name": "checkCi passes a numeric id after --",
+          "dynamic": false
+        },
+        {
+          "suite": "GitHub pull request id injection > GitHubProvider argument vector",
+          "name": "checkCi does not invoke gh for prId %j",
+          "dynamic": false
+        },
+        {
+          "suite": "GitHub pull request id injection > GitHubProvider argument vector",
+          "name": "<dynamic-case-3>",
+          "dynamic": true
+        },
+        {
+          "suite": "GitHub pull request id injection > GitHubProvider argument vector",
+          "name": "getReviewStatus passes a numeric id after --",
+          "dynamic": false
+        },
+        {
+          "suite": "GitHub pull request id injection > GitHubProvider argument vector",
+          "name": "getReviewStatus does not invoke gh for prId %j",
+          "dynamic": false
+        },
+        {
+          "suite": "GitHub pull request id injection > GitHubProvider argument vector",
+          "name": "<dynamic-case-4>",
+          "dynamic": true
+        },
+        {
+          "suite": "GitHub pull request id injection > GitHubProvider argument vector",
+          "name": "getPrDiff passes a numeric id after --",
+          "dynamic": false
+        },
+        {
+          "suite": "GitHub pull request id injection > GitHubProvider argument vector",
+          "name": "getPrDiff does not invoke gh for prId %j",
+          "dynamic": false
+        },
+        {
+          "suite": "GitHub pull request id injection > GitHubProvider argument vector",
+          "name": "<dynamic-case-5>",
+          "dynamic": true
+        },
+        {
+          "suite": "GitHub pull request id injection > GitHubProvider argument vector",
+          "name": "addComment passes a numeric id after -- and the body stays a flag value",
+          "dynamic": false
+        },
+        {
+          "suite": "GitHub pull request id injection > GitHubProvider argument vector",
+          "name": "addComment does not invoke gh for prId %j",
+          "dynamic": false
+        },
+        {
+          "suite": "GitHub pull request id injection > GitHubProvider argument vector",
+          "name": "<dynamic-case-6>",
+          "dynamic": true
+        },
+        {
+          "suite": "GitHub pull request id injection > GitHubProvider argument vector",
+          "name": "addReply builds the reply path from numeric segments only",
+          "dynamic": false
+        },
+        {
+          "suite": "GitHub pull request id injection > GitHubProvider argument vector",
+          "name": "addReply does not invoke gh for prId %j",
+          "dynamic": false
+        },
+        {
+          "suite": "GitHub pull request id injection > GitHubProvider argument vector",
+          "name": "<dynamic-case-7>",
+          "dynamic": true
+        },
+        {
+          "suite": "GitHub pull request id injection > GitHubProvider argument vector",
+          "name": "addReply does not invoke gh for threadId %j",
+          "dynamic": false
+        },
+        {
+          "suite": "GitHub pull request id injection > GitHubProvider argument vector",
+          "name": "<dynamic-case-8>",
+          "dynamic": true
+        },
+        {
+          "suite": "GitHub pull request id injection > GitHubProvider argument vector",
+          "name": "getPrComments requests only numeric issue, review, and diff-comment paths",
+          "dynamic": false
+        },
+        {
+          "suite": "GitHub pull request id injection > GitHubProvider argument vector",
+          "name": "getPrComments does not invoke gh for prId %j",
+          "dynamic": false
+        },
+        {
+          "suite": "GitHub pull request id injection > GitHubProvider argument vector",
+          "name": "<dynamic-case-9>",
+          "dynamic": true
+        },
+        {
+          "suite": "GitHub pull request id injection > orchestrate handlers",
+          "name": "merge_pr refuses %j before gh runs and records no pr.merged event",
+          "dynamic": false
+        },
+        {
+          "suite": "GitHub pull request id injection > orchestrate handlers",
+          "name": "<dynamic-case-10>",
+          "dynamic": true
+        },
+        {
+          "suite": "GitHub pull request id injection > orchestrate handlers",
+          "name": "check_ci refuses %j before gh runs",
+          "dynamic": false
+        },
+        {
+          "suite": "GitHub pull request id injection > orchestrate handlers",
+          "name": "<dynamic-case-11>",
+          "dynamic": true
+        },
+        {
+          "suite": "GitHub pull request id injection > orchestrate handlers",
+          "name": "get_pr_comments refuses %j before gh runs",
+          "dynamic": false
+        },
+        {
+          "suite": "GitHub pull request id injection > orchestrate handlers",
+          "name": "<dynamic-case-12>",
+          "dynamic": true
+        },
+        {
+          "suite": "GitHub pull request id injection > orchestrate handlers",
+          "name": "add_pr_comment refuses prId %j before gh runs and writes no event",
+          "dynamic": false
+        },
+        {
+          "suite": "GitHub pull request id injection > orchestrate handlers",
+          "name": "<dynamic-case-13>",
+          "dynamic": true
+        },
+        {
+          "suite": "GitHub pull request id injection > orchestrate handlers",
+          "name": "add_pr_comment refuses threadId %j before gh runs and writes no event",
+          "dynamic": false
+        },
+        {
+          "suite": "GitHub pull request id injection > orchestrate handlers",
+          "name": "<dynamic-case-14>",
+          "dynamic": true
+        }
+      ]
+    },
     "tests/unit/vcs/github.test.ts": {
       "file": "tests/unit/vcs/github.test.ts",
       "runner": "vitest:root",
@@ -62243,6 +62455,22 @@
         {
           "suite": "onboardMigrate (DR-3/DR-8 — stale old-name skill dir reconcile)",
           "name": "migrationHashers_MirrorInstallSkillsSourceOfTruth",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/verbs/onboard/mcp-supply-chain-launch.test.ts": {
+      "file": "tests/unit/verbs/onboard/mcp-supply-chain-launch.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "editor MCP launch written by generate",
+          "name": "Onboard_FreshRepo_DoesNotPublishFloatingRegistryLaunch",
+          "dynamic": false
+        },
+        {
+          "suite": "editor MCP launch written by generate",
+          "name": "DoctorFix_FreshRepo_DoesNotPublishFloatingRegistryLaunch",
           "dynamic": false
         }
       ]
@@ -93384,6 +93612,47 @@
         {
           "suite": "A transition to the current phase through dispatch",
           "name": "Dispatch_CancelWithTheFoldAtCancelled_SucceedsIdempotently",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/integration/mcp-reviewer-capability-grant.test.ts": {
+      "file": "tests/integration/mcp-reviewer-capability-grant.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "reviewer MCP session cannot use the operator grant",
+          "name": "reviewer_session_can_query_an_empty_stream",
+          "dynamic": false
+        },
+        {
+          "suite": "reviewer MCP session cannot use the operator grant",
+          "name": "cli_mcp_refuses_$args.action",
+          "dynamic": false
+        },
+        {
+          "suite": "reviewer MCP session cannot use the operator grant",
+          "name": "<dynamic-case-1>",
+          "dynamic": true
+        },
+        {
+          "suite": "reviewer MCP session cannot use the operator grant",
+          "name": "createServer_refuses_event_append",
+          "dynamic": false
+        },
+        {
+          "suite": "reviewer MCP session cannot use the operator grant",
+          "name": "cli_mcp_refuses_merge_orchestrate",
+          "dynamic": false
+        },
+        {
+          "suite": "reviewer MCP session cannot use the operator grant",
+          "name": "cli_mcp_refuses_project_lint_command",
+          "dynamic": false
+        },
+        {
+          "suite": "untested shared operations stay named",
+          "name": "untested_list_is_non_empty",
           "dynamic": false
         }
       ]

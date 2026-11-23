@@ -2,11 +2,10 @@
  * The reviewer agent is read-only and is still given the Exarchos MCP server.
  * `exarchos mcp` builds that server through `initializeContext` and `createMcpServer`.
  * `createServer` installs the same process capability resolver.
- * A reviewer session may read. It must not append events, merge a branch, or run a project command.
+ * A reviewer session can read. It must not append events, merge a branch, or run a project command.
  * These tests fail while that server grants the local operator capability set.
  */
 
-import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -25,6 +24,7 @@ import { createServer } from '../../src/index.js';
 import { resetInstallFreshnessGateForTest } from '../../src/install/freshness-gate.js';
 import { __resetMachineryConsumedCache } from '../../src/dispatch/core/interceptors/session-machinery.js';
 import { configureStateStoreBackend } from '../../src/workflow/state-store.js';
+import { execFileAsync } from '../../tools/test-helpers/spawn.js';
 import { rmrf } from '../../tools/test-helpers/temp-dir.js';
 
 const AUTH_DENIAL = new Set([
@@ -120,24 +120,24 @@ const GATE_ONLY_CALLS: readonly {
   },
 ];
 
-function git(cwd: string, args: readonly string[]): string {
-  return execFileSync('git', args, { cwd, encoding: 'utf8' }).trim();
+async function git(cwd: string, args: readonly string[]): Promise<string> {
+  return (await execFileAsync('git', args, { cwd })).trim();
 }
 
-function initRepo(root: string): { readonly integration: string } {
+async function initRepo(root: string): Promise<{ readonly integration: string }> {
   mkdirSync(root, { recursive: true });
-  git(root, ['init', '-b', 'integration']);
-  git(root, ['config', 'user.email', 'reviewer-test@example.com']);
-  git(root, ['config', 'user.name', 'Reviewer Test']);
+  await git(root, ['init', '-b', 'integration']);
+  await git(root, ['config', 'user.email', 'reviewer-test@example.com']);
+  await git(root, ['config', 'user.name', 'Reviewer Test']);
   writeFileSync(path.join(root, 'base.txt'), 'base\n');
-  git(root, ['add', 'base.txt']);
-  git(root, ['commit', '-m', 'base']);
-  const integration = git(root, ['rev-parse', 'integration']);
-  git(root, ['checkout', '-b', 'feature']);
+  await git(root, ['add', 'base.txt']);
+  await git(root, ['commit', '-m', 'base']);
+  const integration = await git(root, ['rev-parse', 'integration']);
+  await git(root, ['checkout', '-b', 'feature']);
   writeFileSync(path.join(root, 'feature.txt'), 'feature\n');
-  git(root, ['add', 'feature.txt']);
-  git(root, ['commit', '-m', 'feature']);
-  git(root, ['checkout', '-b', 'holding', 'integration']);
+  await git(root, ['add', 'feature.txt']);
+  await git(root, ['commit', '-m', 'feature']);
+  await git(root, ['checkout', '-b', 'holding', 'integration']);
   return { integration };
 }
 
@@ -244,7 +244,7 @@ describe('reviewer MCP session cannot use the operator grant', () => {
   const dirs: string[] = [];
   let workspaceHead = '';
 
-  afterEach(() => {
+  afterEach(async () => {
     resetInstallFreshnessGateForTest();
     __resetMachineryConsumedCache();
     configureStateStoreBackend(undefined);
@@ -252,9 +252,9 @@ describe('reviewer MCP session cannot use the operator grant', () => {
       rmrf(dir);
     }
     if (workspaceHead !== '') {
-      const head = git(process.cwd(), ['rev-parse', 'HEAD']);
+      const head = await git(process.cwd(), ['rev-parse', 'HEAD']);
       if (head !== workspaceHead) {
-        git(process.cwd(), ['reset', '--keep', workspaceHead]);
+        await git(process.cwd(), ['reset', '--keep', workspaceHead]);
       }
     }
   });
@@ -328,13 +328,13 @@ describe('reviewer MCP session cannot use the operator grant', () => {
    * The feature stream and the state file must stay absent.
    */
   it('cli_mcp_refuses_merge_orchestrate', async () => {
-    workspaceHead = git(process.cwd(), ['rev-parse', 'HEAD']);
+    workspaceHead = await git(process.cwd(), ['rev-parse', 'HEAD']);
     const stateDir = mkdtempSync(path.join(tmpdir(), 'reviewer-mcp-'));
     const victim = mkdtempSync(path.join(tmpdir(), 'reviewer-repo-'));
     const bystander = mkdtempSync(path.join(tmpdir(), 'reviewer-other-repo-'));
     dirs.push(stateDir, victim, bystander);
-    const victimBefore = initRepo(victim);
-    const bystanderBefore = initRepo(bystander);
+    const victimBefore = await initRepo(victim);
+    const bystanderBefore = await initRepo(bystander);
     const opened = await openCliMcp(stateDir);
     try {
       const initEnv = await callTool(opened.client, 'exarchos_workflow', {
@@ -352,14 +352,14 @@ describe('reviewer MCP session cannot use the operator grant', () => {
       });
       const events = await streamEvents(opened.client, 'reviewer-merge');
       const stateFile = path.join(stateDir, 'reviewer-merge.state.json');
-      expect(git(victim, ['rev-parse', 'integration'])).toBe(victimBefore.integration);
+      expect(await git(victim, ['rev-parse', 'integration'])).toBe(victimBefore.integration);
       expectNoSideEffect(events, [stateFile]);
       expect(refusalCode(initEnv)).toBe('CAPABILITY_DENIED');
       expect(AUTH_DENIAL.has(refusalCode(env)), `${refusalCode(env)} ${env.error?.message ?? ''}`).toBe(
         true,
       );
-      expect(git(bystander, ['rev-parse', 'integration'])).toBe(bystanderBefore.integration);
-      expect(git(process.cwd(), ['rev-parse', 'HEAD'])).toBe(workspaceHead);
+      expect(await git(bystander, ['rev-parse', 'integration'])).toBe(bystanderBefore.integration);
+      expect(await git(process.cwd(), ['rev-parse', 'HEAD'])).toBe(workspaceHead);
     } finally {
       await opened.close();
     }

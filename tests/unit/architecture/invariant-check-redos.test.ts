@@ -3,16 +3,18 @@
  *
  * A review checkout can carry a user catalog, and the review runbook passes that checkout's diff
  * to `check_invariant_conformance`. These tests drive that dispatch. They fail while a nested
- * quantifier keeps the match from returning, and they pass once the gate returns a verdict inside
+ * quantifier keeps the match from returning. They pass when the gate returns a verdict inside
  * the deadline for every leaf kind.
  */
 import { spawn } from 'node:child_process';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { describe, expect, it } from 'vitest';
+
+import { rmrfAsync } from '../../../tools/test-helpers/temp-dir.js';
 
 const repoRootOfWorkspace = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -41,8 +43,8 @@ interface ChildWatch {
 
 /**
  * Spawns the worker and kills it if the exploding match does not return.
- * The deadline starts when the worker reports that the safe match finished and the exploding
- * match is about to start, so module load is not counted as matcher time.
+ * The deadline starts when the worker reports that the safe match finished.
+ * The exploding match starts next, so module load is not counted as matcher time.
  */
 async function watchKind(kind: string): Promise<ChildWatch> {
   const checkout = await mkdtemp(path.join(tmpdir(), 'inv-redos-repo-'));
@@ -84,8 +86,8 @@ async function watchKind(kind: string): Promise<ChildWatch> {
     child.once('exit', (exitCode) => resolve(exitCode));
   });
   clearInterval(killer);
-  await rm(checkout, { recursive: true, force: true });
-  await rm(stateDir, { recursive: true, force: true });
+  await rmrfAsync(checkout);
+  await rmrfAsync(stateDir);
   return { stdout, stderr, timedOut, code };
 }
 
