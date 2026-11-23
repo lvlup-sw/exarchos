@@ -456,6 +456,33 @@ describe('claudeCodeWriter', () => {
   });
 
   /**
+   * The upgrade of a read-only legacy entry changes only the launch arguments.
+   * A custom `WORKFLOW_STATE_DIR` stays, so the restarted orchestrator opens the same store.
+   */
+  it('ClaudeCodeWriter_ReadOnlyLegacyEntry_KeepsCustomStateDir', async () => {
+    const legacy = {
+      type: 'stdio',
+      command: 'exarchos',
+      args: ['mcp'],
+      env: { WORKFLOW_STATE_DIR: '/srv/exarchos-state', EXTRA: '1' },
+    };
+    const fs = makeMemFs({
+      '/home/user/.claude.json': JSON.stringify({ mcpServers: { exarchos: legacy } }),
+    });
+    const deps = makeStubWriterDeps({
+      fs,
+      home: () => '/home/user',
+      cwd: () => '/project',
+    });
+
+    const result = await claudeCodeWriter.write(deps, defaultOptions());
+
+    expect(result.status).toBe('written');
+    const content = stagedJson(fs.written, '/home/user/.claude.json.tmp');
+    expect(exarchosEntryOf(content)).toEqual({ ...legacy, args: ['mcp', '--operator'] });
+  });
+
+  /**
    * The repair matches the bundle directory only.
    * A `node` entry in a sibling directory is a hand edit, so the writer keeps it without `forceOverwrite`.
    */

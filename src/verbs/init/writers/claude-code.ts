@@ -170,6 +170,15 @@ function isReadOnlyLegacyEntry(entry: unknown): boolean {
     && args.every((arg, index) => arg === READONLY_MCP_ARGS[index]);
 }
 
+/**
+ * Returns a read-only legacy entry with the orchestrator arguments. The other fields stay, so a custom
+ * `env.WORKFLOW_STATE_DIR` still points the restarted server at the same store.
+ */
+function upgradedLegacyEntry(entry: unknown): McpServerEntry {
+  const fields = typeof entry === 'object' && entry !== null ? entry : {};
+  return { type: 'stdio', ...fields, command: 'exarchos', args: [...OPERATOR_MCP_ARGS] };
+}
+
 /** Check if a directory exists at the given path. */
 async function dirExists(fs: WriterFs, p: string): Promise<boolean> {
   try {
@@ -231,7 +240,9 @@ interface McpDeployResult {
  * When an enabled exarchos plugin serves the project and wires the server, the phase adds no entry, because a second server is a duplicate.
  * In that case it removes a stale bundle entry ({@link isStaleBundleEntry}) and keeps each other entry, also with `forceOverwrite`.
  * It also writes nothing when it cannot read the config, because the plugin already starts the server.
- * Without that plugin, the phase replaces a stale bundle entry and a read-only legacy entry. Any other existing entry stays unless `forceOverwrite` is set.
+ *
+ * Without that plugin, the phase replaces a stale bundle entry. It sets the orchestrator arguments on a read-only legacy entry and keeps the other fields of that entry.
+ * Any other existing entry stays unless `forceOverwrite` is set.
  *
  * `stagePath` pins the staged copy at `<target>.tmp`, because `claude-code.test.ts` asserts that path.
  * The verify comes before the publish. So a concurrent writer that clobbers the staged copy makes the verify refuse.
@@ -272,11 +283,14 @@ async function deployMcpConfig(
     return { wrote: false, skipped: 'registered' };
   }
 
+  const entry = legacyReadOnly && !options.forceOverwrite
+    ? upgradedLegacyEntry(existingServers.exarchos)
+    : buildExarchosEntry(home);
   const mergedConfig: ClaudeConfig = {
     ...config,
     mcpServers: {
       ...existingServers,
-      exarchos: buildExarchosEntry(home),
+      exarchos: entry,
     },
   };
 
