@@ -19,11 +19,11 @@ const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..
 
 /**
  * Top-level directories that are not repository structure and need no README.
- * An external contract fixes the paths of `binding/` and `hooks/`, so their
- * location is not a choice of this repository. `structuralDirectories` also
- * skips dot-directories, which hold tooling.
+ * `node_modules`, `dist` and `coverage` are gitignored output that the root
+ * contract declares as untracked. An external contract fixes the paths of
+ * `binding/` and `hooks/`. `structuralDirectories` also skips dot-directories.
  */
-const NOT_STRUCTURE = new Set(['node_modules', 'dist', 'binding', 'hooks']);
+const NOT_STRUCTURE = new Set(['node_modules', 'dist', 'coverage', 'binding', 'hooks']);
 
 function structuralDirectories(): string[] {
   return fs
