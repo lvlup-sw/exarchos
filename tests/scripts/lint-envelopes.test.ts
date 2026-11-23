@@ -8,6 +8,10 @@ import tseslint from 'typescript-eslint';
 import { expect, it } from 'vitest';
 import { makeTempDir, rmrf } from '../../tools/test-helpers/temp-dir.js';
 
+/**
+ * The test compiles a TypeScript program with the default library, which takes 1.3 s on an idle 4-vCPU box.
+ * A busy shared agent took more than 5 s, so the test has its own 30 s budget.
+ */
 it('EnvelopeAdapter_BooleanOptions_ResolveActualHandlersAndRefuseUnsupportedShapes', async () => {
   const root = makeTempDir('envelope-adapter-');
   try {
@@ -69,4 +73,4 @@ const ACTION_HANDLERS = {
     }
     expect(messages).toHaveLength(16);
   } finally { rmrf(root); }
-});
+}, 30_000);

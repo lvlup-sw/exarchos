@@ -907,7 +907,7 @@ jobs:
         run: >-
           npx --no-install vitest run
           tests/core/scripts/output-schema-ratchet-guard.test.ts
-          src/output-schema-vacuity-allowlist.test.ts
+          tests/unit/output-schema-vacuity-allowlist.test.ts
 
       # THE WHOLE extracted conformance suite, unfiltered — G2's census and
       # selftest, G3, G5, and every other census task 018a moved out.
