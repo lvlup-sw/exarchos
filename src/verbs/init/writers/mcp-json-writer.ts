@@ -53,9 +53,14 @@ export interface McpJsonWriterDeps {
   readonly promotionIo?: PromotionIo;
 }
 
+/**
+ * The project entry starts the `exarchos` binary on PATH with the `mcp` subcommand, as `.claude-plugin/plugin.json` does.
+ * The editor runs this command when it loads the project, and the file is often committed.
+ * Thus the entry must not fetch a registry package, and it holds no path from the home directory of this host.
+ */
 const EXARCHOS_MCP_ENTRY = {
-  command: 'npx',
-  args: ['-y', '@anthropic-ai/claude-code', '--mcp-server-name=exarchos'],
+  command: 'exarchos',
+  args: ['mcp'],
   type: 'stdio',
 } as const;
 
