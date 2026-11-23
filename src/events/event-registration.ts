@@ -181,7 +181,6 @@ export const JUDGMENT_GATE_CLASSES: readonly [
   'operational-resilience',
   'post-delegation',
   'post-merge',
-  'pr-stack',
   'pre-synthesis',
   'workflow-determinism',
 ] = [
@@ -206,7 +205,6 @@ export const JUDGMENT_GATE_CLASSES: readonly [
   'operational-resilience',
   'post-delegation',
   'post-merge',
-  'pr-stack',
   'pre-synthesis',
   'workflow-determinism',
 ];

@@ -16,7 +16,6 @@
           "native:Bash"
         ],
         "onlyInRunbook": [
-          "exarchos_orchestrate.validate_pr_stack",
           "native:bash.gh_pr_create"
         ],
         "runbook": "synthesis-flow"
@@ -1696,7 +1695,6 @@
             "native:Bash"
           ],
           "onlyInRunbook": [
-            "exarchos_orchestrate.validate_pr_stack",
             "native:bash.gh_pr_create"
           ],
           "runbook": "synthesis-flow"
@@ -2543,7 +2541,7 @@
   ],
   "pins": {
     "contractAuthority": {
-      "actionIdRegistryDigest": "sha256:8517b95c1eb689182aa9d56ae6417e1105cb36c67ead1175baa635ea8970c6ee",
+      "actionIdRegistryDigest": "sha256:833ee62409242ba6f8e6d673fdcb5d282c388eec4ef5e843ab158cdaffe3d1a5",
       "file": "src/contract/contract-authority.lock.json"
     },
     "inputs": [
@@ -2565,12 +2563,12 @@
       },
       {
         "file": "src/runbooks/definitions.ts",
-        "sha256": "c3e88be16a849ad9d7f12fd8225a6364fc6b73b3e8273f80edfc1d20bbec6358"
+        "sha256": "f097b3ecaec7665be07a7a9739d2bf04e4d948d6181fd662f0df660069664119"
       }
     ],
     "registry": {
-      "actionIdsSha256": "8517b95c1eb689182aa9d56ae6417e1105cb36c67ead1175baa635ea8970c6ee",
-      "actions": 119,
+      "actionIdsSha256": "833ee62409242ba6f8e6d673fdcb5d282c388eec4ef5e843ab158cdaffe3d1a5",
+      "actions": 116,
       "file": "tools/audit/registered-actions-snapshot.json",
       "tools": 5,
       "visibleTools": 4
@@ -2728,7 +2726,7 @@
     {
       "counts": {
         "decision": 0,
-        "exarchos": 4,
+        "exarchos": 3,
         "native": 1
       },
       "id": "synthesis-flow",
@@ -2736,11 +2734,6 @@
       "steps": [
         {
           "call": "exarchos_orchestrate.prepare_synthesis",
-          "status": "registered",
-          "surface": "exarchos"
-        },
-        {
-          "call": "exarchos_orchestrate.validate_pr_stack",
           "status": "registered",
           "surface": "exarchos"
         },

@@ -146,7 +146,7 @@ Exception `readiness-fails`: the readiness check fails, so synthesis returns to 
 ## Findings
 
 - No located call names an unregistered action.
-- synthesis fetches runbook synthesis-flow at `content/synthesis/skills/synthesize/SKILL.md:54` but spells a different path. Only in the runbook: `exarchos_orchestrate.validate_pr_stack`, `native:bash.gh_pr_create`. Only in the prose: `exarchos_workflow.update`, `native:Bash`.
+- synthesis fetches runbook synthesis-flow at `content/synthesis/skills/synthesize/SKILL.md:54` but spells a different path. Only in the runbook: `native:bash.gh_pr_create`. Only in the prose: `exarchos_workflow.update`, `native:Bash`.
 
 ## Scope
 
@@ -159,10 +159,10 @@ Exception `readiness-fails`: the readiness check fails, so synthesis returns to 
 
 ## Pins
 
-- Registry: 119 actions over 5 tools (4 visible), action ids sha256 `8517b95c1eb689182aa9d56ae6417e1105cb36c67ead1175baa635ea8970c6ee` from `tools/audit/registered-actions-snapshot.json`.
-- Contract authority `action-id-registry` digest `sha256:8517b95c1eb689182aa9d56ae6417e1105cb36c67ead1175baa635ea8970c6ee` from `src/contract/contract-authority.lock.json`.
+- Registry: 116 actions over 5 tools (4 visible), action ids sha256 `833ee62409242ba6f8e6d673fdcb5d282c388eec4ef5e843ab158cdaffe3d1a5` from `tools/audit/registered-actions-snapshot.json`.
+- Contract authority `action-id-registry` digest `sha256:833ee62409242ba6f8e6d673fdcb5d282c388eec4ef5e843ab158cdaffe3d1a5` from `src/contract/contract-authority.lock.json`.
 - `content/delivery/skills/delegate/SKILL.md` sha256 `0d6c5565ed2f8ce56378d7a7cd649938acd5effc39f55067d6af9fe546ea8c95`
 - `content/design/skills/plan/SKILL.md` sha256 `6d7b658968132f43ebe1e174c8187d9223177c1312c5bf435323968a5e02674a`
 - `content/review/skills/review/SKILL.md` sha256 `4cd725350933698f5491d7aff5ccc726a36d05f8b4fcf7e289fa83dd3365907c`
 - `content/synthesis/skills/synthesize/SKILL.md` sha256 `f6e243e497576d24b32549ad8da9653322f57f26286699f902fcac57e2b8ee15`
-- `src/runbooks/definitions.ts` sha256 `c3e88be16a849ad9d7f12fd8225a6364fc6b73b3e8273f80edfc1d20bbec6358`
+- `src/runbooks/definitions.ts` sha256 `f097b3ecaec7665be07a7a9739d2bf04e4d948d6181fd662f0df660069664119`

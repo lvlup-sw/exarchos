@@ -88,7 +88,6 @@ const DISPOSITIONS = Object.freeze([
     ['src/verbs/gates/workflow-determinism.ts', 'orchestrate/gate-runner'],
     ['src/verbs/review/debug-review-gate.ts', 'orchestrate/gate-runner'],
     ['src/verbs/team/post-delegation-check.ts', 'orchestrate/gate-runner'],
-    ['src/verbs/vcs/validate-pr-stack.ts', 'orchestrate/gate-runner'],
   ].map(([file, owner]) => ({
     file,
     kind: 'durable-runner',

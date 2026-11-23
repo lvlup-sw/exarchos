@@ -1,6 +1,6 @@
 // @oracle-sources: ../../../../src/dispatch/core/dispatch.ts, the post-dispatch postcondition observation — the store and the persisted-evidence reader, asked after the handler returned, rather than anything the handler said about itself
 //
-// The ten gate actions in this file declare `durable-evidence` as a postcondition. Dispatch checks
+// The nine gate actions in this file declare `durable-evidence` as a postcondition. Dispatch checks
 // declared postconditions after the handler returns. When the observer finds no
 // `admission.evidence-recorded` row, dispatch returns ENSURE_CONTRACT_VIOLATED.
 // A `gate.executed` row is a different record, so it does not pay the postcondition.
@@ -177,17 +177,6 @@ describe('gates that declare durable evidence pay it on dispatch', () => {
     expect(result.success).toBe(true);
   });
 
-  it('ValidatePrStack_Dispatched_RecordsEvidence', async () => {
-    const stream = await streamInPhase('wf-pr-stack', 'synthesize');
-
-    const result = await expectsEvidence(stream, {
-      action: 'validate_pr_stack',
-      featureId: stream,
-      baseBranch: 'main',
-    });
-    expect(result.success).toBe(true);
-  });
-
   /** `main...HEAD` of a one-commit checkout is an empty diff, so the gate reaches its verdict without a test run. */
   it('DebugReviewGate_Dispatched_RecordsEvidence', async () => {
     const stream = await streamInPhase('wf-debug-review', 'debug-review');
@@ -310,16 +299,16 @@ describe('gates that declare durable evidence pay it on dispatch', () => {
   });
 
   /**
-   * The `validate_pr_stack` carrier references its evidence, so a caller finds the record without a
+   * The `check_exploration_depth` carrier references its evidence, so a caller finds the record without a
    * query.
    */
   it('EachGate_AttachesTheEvidenceItRecorded_ToItsOwnCarrier', async () => {
-    const stream = await streamInPhase('wf-carrier-reference', 'synthesize');
+    const stream = await streamInPhase('wf-carrier-reference', 'plan');
 
     const result = await call({
-      action: 'validate_pr_stack',
+      action: 'check_exploration_depth',
       featureId: stream,
-      baseBranch: 'main',
+      designDepth: 'standard',
     });
 
     const references = (result.data as { evidenceReferences?: unknown[] }).evidenceReferences;

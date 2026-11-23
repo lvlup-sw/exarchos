@@ -51,7 +51,7 @@ export const RETIRED_ACTIONS: readonly RetiredAction[] = Object.freeze([
     code: PROVIDER_WRITE_RETIRED,
     message: PROVIDER_WRITE_MESSAGE,
   })),
-  ...['check_ci', 'list_prs', 'get_pr_comments'].map((action) => Object.freeze({
+  ...['check_ci', 'list_prs', 'get_pr_comments', 'check_pr_comments', 'check_coderabbit', 'validate_pr_stack'].map((action) => Object.freeze({
     tool: 'exarchos_orchestrate',
     action,
     code: PROVIDER_READ_RETIRED,

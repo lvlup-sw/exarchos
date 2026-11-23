@@ -1,9 +1,8 @@
-import { coercedIntArray } from '../../../coerce.js';
 import { vacuityWaiver, withCappedShape } from '../../../output-schema-declaration.js';
 import { CheckInvariantConformanceOutputSchema } from '../../../verbs/gates/check-invariant-conformance-schema.js';
 import { z } from 'zod';
 import { declared, none, withActionContract } from '../../action-contract.js';
-import { LOCAL_MUTATION, READ_ONLY_LOCAL, READ_ONLY_REMOTE } from '../../annotations.js';
+import { LOCAL_MUTATION, READ_ONLY_LOCAL } from '../../annotations.js';
 import { ALL_PHASES, PREPARE_REVIEW_PHASES, REVIEW_PHASES, ROLE_ANY, ROLE_LEAD, featureIdSchema } from '../../phases.js';
 import type { BuiltinActionDraft, BuiltinToolAction } from '../../types.js';
 
@@ -95,34 +94,6 @@ export const reviewOpsActions: readonly BuiltinToolAction[] = [
         role: 'primary',
         owner: 'orchestrate',
       }),
-    },
-  ),
-  contracted(
-    {
-      name: 'check_coderabbit',
-      description: 'Query CodeRabbit review state on GitHub PRs — APPROVED/NONE → pass, else fail',
-      schema: z.object({
-        owner: z.string(),
-        repo: z.string(),
-        /** The same coerced integer array as `assess_stack`, so the registration flattener sees one contract. */
-        prNumbers: coercedIntArray(),
-      }),
-      phases: ALL_PHASES,
-      roles: ROLE_ANY,
-      outputSchema: vacuityWaiver('exarchos_orchestrate.check_coderabbit'),
-      annotations: READ_ONLY_REMOTE,
-    },
-    {
-      requires: none('check_coderabbit queries remote review state without an admission obligation'),
-      ensures: none('check_coderabbit returns an ephemeral verdict with no durable postcondition'),
-      needs: none('check_coderabbit reads GitHub through the host adapter'),
-      touches: {
-        frame: 'single-machine',
-        resources: none('check_coderabbit does not touch local streams, paths, worktrees, or git refs'),
-      },
-      executionAuthority: { kind: 'host', obligation: 'interactive-authentication' },
-      replay: { kind: 'safe-repeat' },
-      emissions: none('check_coderabbit emits no catalog events'),
     },
   ),
   contracted(

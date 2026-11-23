@@ -330,7 +330,6 @@ register({
   guardPrerequisites: 'artifacts.pr exists',
   validationScripts: [
     'pre_synthesis_check',
-    'validate_pr_stack',
   ],
   humanCheckpoint: true,
   compactGuidance:
@@ -921,7 +920,6 @@ register({
   guardPrerequisites: 'artifacts.pr exists',
   validationScripts: [
     'pre_synthesis_check',
-    'validate_pr_stack',
   ],
   humanCheckpoint: true,
   compactGuidance:

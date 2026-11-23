@@ -836,7 +836,7 @@ describe('gates carry no language code', () => {
     const { denominator } = measured();
     const unresolved = [...denominator.actions].filter(([, entry]) => entry === undefined).map(([action]) => action);
 
-    expect(registryGateActions().length).toBeGreaterThanOrEqual(26);
+    expect(registryGateActions().length).toBeGreaterThanOrEqual(25);
     expect(unresolved).toEqual([]);
     for (const [action, entry] of denominator.actions) {
       expect(entry?.module, action).toMatch(/^src\/.+\.ts$/);

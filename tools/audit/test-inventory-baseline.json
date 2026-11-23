@@ -4,10 +4,10 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1466,
-    "parsedFiles": 1422,
+    "testFiles": 1462,
+    "parsedFiles": 1418,
     "shellFiles": 44,
-    "cases": 16452,
+    "cases": 16421,
     "dynamicTitles": 321,
     "unparseableFiles": 0
   },
@@ -5215,6 +5215,11 @@
         {
           "suite": "host-owned actions — execute vs return the obligation",
           "name": "HostObligations_AgentSpec_ReturnsTheSpecNotTheObligation",
+          "dynamic": false
+        },
+        {
+          "suite": "host-owned actions — execute vs return the obligation",
+          "name": "HostObligations_UnderTheShippedTelemetryDefault_RunOrReturnTheObligationAsBefore",
           "dynamic": false
         }
       ]
@@ -38097,6 +38102,11 @@
         },
         {
           "suite": "computeNextActions — admission-derived affordances (DR-9, T-13)",
+          "name": "NextActions_EventLogDecidesBlocked_PublishesItOnlyAtTheCap",
+          "dynamic": false
+        },
+        {
+          "suite": "computeNextActions — admission-derived affordances (DR-9, T-13)",
           "name": "NextActions_NoAdmissionFacts_KeepsTopologyOnlyBehaviour",
           "dynamic": false
         },
@@ -39624,7 +39634,7 @@
         },
         {
           "suite": "validateExample against the LIVE registry — seeded drift FAILS",
-          "name": "flags a stale/retired action name (reconstruct_stack → validate_pr_stack)",
+          "name": "flags a retired action name (validate_pr_stack)",
           "dynamic": false
         },
         {
@@ -42679,6 +42689,11 @@
       "file": "tests/unit/projections/views/gate-reliability-view.test.ts",
       "runner": "vitest:root",
       "cases": [
+        {
+          "suite": "gate reliability diagnostic projection",
+          "name": "GateReliability_RetiredPrStackEvidence_ReadsItsOriginalVerdict",
+          "dynamic": false
+        },
         {
           "suite": "gate reliability diagnostic projection",
           "name": "GateReliability_VerdictAndContradiction_FoldsAttributably",
@@ -46362,11 +46377,6 @@
         },
         {
           "suite": "Task 022 — registry schema batch (DR-1/DR-3/DR-8) > registrySchemas_EconomyParams_ValidateAndCoerce",
-          "name": "check_coderabbit prNumbers routes through the same coerced int-array",
-          "dynamic": false
-        },
-        {
-          "suite": "Task 022 — registry schema batch (DR-1/DR-3/DR-8) > registrySchemas_EconomyParams_ValidateAndCoerce",
           "name": "prepare_delegation declares the DR-4 detail/outputFormat escape hatch",
           "dynamic": false
         },
@@ -47362,7 +47372,7 @@
         },
         {
           "suite": "Runbook definitions",
-          "name": "SynthesisFlow_HasFiveSteps",
+          "name": "SynthesisFlow_HasFourSteps",
           "dynamic": false
         },
         {
@@ -54018,37 +54028,6 @@
         }
       ]
     },
-    "tests/unit/vcs/require-github.test.ts": {
-      "file": "tests/unit/vcs/require-github.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "requiresGitHub",
-          "name": "requiresGitHub_GitHubProvider_ReturnsNull",
-          "dynamic": false
-        },
-        {
-          "suite": "requiresGitHub",
-          "name": "requiresGitHub_UndefinedProvider_ReturnsNull",
-          "dynamic": false
-        },
-        {
-          "suite": "requiresGitHub",
-          "name": "requiresGitHub_GitLabProvider_ReturnsSkippedResult",
-          "dynamic": false
-        },
-        {
-          "suite": "requiresGitHub",
-          "name": "requiresGitHub_AzureDevOpsProvider_ReturnsSkippedResult",
-          "dynamic": false
-        },
-        {
-          "suite": "requiresGitHub",
-          "name": "requiresGitHub_DifferentOperations_IncludeOperationInReason",
-          "dynamic": false
-        }
-      ]
-    },
     "tests/unit/vcs/worktree-provisioner.test.ts": {
       "file": "tests/unit/vcs/worktree-provisioner.test.ts",
       "runner": "vitest:root",
@@ -59307,11 +59286,6 @@
         {
           "suite": "gates that declare durable evidence pay it on dispatch",
           "name": "CheckCoverageThresholds_Dispatched_RecordsEvidence",
-          "dynamic": false
-        },
-        {
-          "suite": "gates that declare durable evidence pay it on dispatch",
-          "name": "ValidatePrStack_Dispatched_RecordsEvidence",
           "dynamic": false
         },
         {
@@ -69658,108 +69632,6 @@
         }
       ]
     },
-    "tests/unit/verbs/vcs/check-coderabbit.test.ts": {
-      "file": "tests/unit/verbs/vcs/check-coderabbit.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "handleCheckCoderabbit",
-          "name": "handleCheckCoderabbit_AllApproved_ReturnsPassed",
-          "dynamic": false
-        },
-        {
-          "suite": "handleCheckCoderabbit",
-          "name": "handleCheckCoderabbit_UsesProviderGetReviewStatus",
-          "dynamic": false
-        },
-        {
-          "suite": "handleCheckCoderabbit",
-          "name": "handleCheckCoderabbit_ChangesRequested_ReturnsFailed",
-          "dynamic": false
-        },
-        {
-          "suite": "handleCheckCoderabbit",
-          "name": "handleCheckCoderabbit_NoReview_ReturnsPassedWithNone",
-          "dynamic": false
-        },
-        {
-          "suite": "handleCheckCoderabbit",
-          "name": "handleCheckCoderabbit_ApiError_ReturnsFailed",
-          "dynamic": false
-        },
-        {
-          "suite": "handleCheckCoderabbit",
-          "name": "handleCheckCoderabbit_MissingOwner_ReturnsError",
-          "dynamic": false
-        },
-        {
-          "suite": "handleCheckCoderabbit",
-          "name": "handleCheckCoderabbit_InvalidPrNumber_ReturnsSkip",
-          "dynamic": false
-        },
-        {
-          "suite": "handleCheckCoderabbit",
-          "name": "handleCheckCoderabbit_ReportContainsMarkdownTable",
-          "dynamic": false
-        },
-        {
-          "suite": "handleCheckCoderabbit",
-          "name": "handleCheckCoderabbit_AlternativeLoginNames_Recognized",
-          "dynamic": false
-        },
-        {
-          "suite": "handleCheckCoderabbit",
-          "name": "handleCheckCoderabbit_PendingReview_ReturnsFailed",
-          "dynamic": false
-        }
-      ]
-    },
-    "tests/unit/verbs/vcs/check-pr-comments.test.ts": {
-      "file": "tests/unit/verbs/vcs/check-pr-comments.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "handleCheckPrComments",
-          "name": "handleCheckPrComments_UsesProviderGetPrComments",
-          "dynamic": false
-        },
-        {
-          "suite": "handleCheckPrComments",
-          "name": "handleCheckPrComments_UsesProviderGetRepository_WhenRepoNotSpecified",
-          "dynamic": false
-        },
-        {
-          "suite": "handleCheckPrComments",
-          "name": "handleCheckPrComments_NoComments_ReturnsPassed",
-          "dynamic": false
-        },
-        {
-          "suite": "handleCheckPrComments",
-          "name": "handleCheckPrComments_MissingPrNumber_ReturnsError",
-          "dynamic": false
-        },
-        {
-          "suite": "handleCheckPrComments",
-          "name": "handleCheckPrComments_ProviderFailure_ReturnsError",
-          "dynamic": false
-        },
-        {
-          "suite": "handleCheckPrComments",
-          "name": "handleCheckPrComments_RepoDetectionFailure_ReturnsError",
-          "dynamic": false
-        },
-        {
-          "suite": "handleCheckPrComments",
-          "name": "handleCheckPrComments_ReportContainsAnalysis",
-          "dynamic": false
-        },
-        {
-          "suite": "handleCheckPrComments",
-          "name": "checkPrComments_ManyComments_CapsWithCountAndSteering",
-          "dynamic": false
-        }
-      ]
-    },
     "tests/unit/verbs/vcs/git-exec-default.test.ts": {
       "file": "tests/unit/verbs/vcs/git-exec-default.test.ts",
       "runner": "vitest:root",
@@ -69990,57 +69862,6 @@
         {
           "suite": "ValidatePrBody_WithIntent_GroundsBody (DR-1 task 006)",
           "name": "EmptyIntent_NotMeaningful_GroundingFieldsAbsent",
-          "dynamic": false
-        }
-      ]
-    },
-    "tests/unit/verbs/vcs/validate-pr-stack.test.ts": {
-      "file": "tests/unit/verbs/vcs/validate-pr-stack.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "handleValidatePrStack",
-          "name": "NoPRs_ReturnsPassedTrue",
-          "dynamic": false
-        },
-        {
-          "suite": "handleValidatePrStack",
-          "name": "ValidLinearChain_ReturnsPassedTrueWithVisualization",
-          "dynamic": false
-        },
-        {
-          "suite": "handleValidatePrStack",
-          "name": "PRBaseNotInStack_ReturnsPassedFalseWithError",
-          "dynamic": false
-        },
-        {
-          "suite": "handleValidatePrStack",
-          "name": "MultiplePRsTargetBase_ReturnsPassedFalse",
-          "dynamic": false
-        },
-        {
-          "suite": "handleValidatePrStack",
-          "name": "NoPRTargetsBase_ReturnsPassedFalse",
-          "dynamic": false
-        },
-        {
-          "suite": "handleValidatePrStack",
-          "name": "ProviderFailure_ReturnsErrorResult",
-          "dynamic": false
-        },
-        {
-          "suite": "handleValidatePrStack",
-          "name": "ForkDetection_BranchUsedAsBaseByMultiplePRs",
-          "dynamic": false
-        },
-        {
-          "suite": "handleValidatePrStack",
-          "name": "MissingBaseBranch_ReturnsError",
-          "dynamic": false
-        },
-        {
-          "suite": "handleValidatePrStack",
-          "name": "UsesProviderListPrs_WithStateOpenFilter",
           "dynamic": false
         }
       ]

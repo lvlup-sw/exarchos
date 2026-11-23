@@ -40,7 +40,6 @@ export const VACUITY_ALLOWLIST = Object.freeze({
   'exarchos_orchestrate.agent_spec': { owner: 'orchestration', expires: '2027-02-28' },
   'exarchos_orchestrate.assess_refactor_scope': { owner: 'orchestration', expires: '2027-02-28' },
   'exarchos_orchestrate.assess_stack': { owner: 'orchestration', expires: '2027-02-28' },
-  'exarchos_orchestrate.check_coderabbit': { owner: 'orchestration', expires: '2027-02-28' },
   'exarchos_orchestrate.check_context_economy': { owner: 'orchestration', expires: '2027-02-28' },
   'exarchos_orchestrate.check_contract_drift': { owner: 'orchestration', expires: '2027-02-28' },
   'exarchos_orchestrate.check_convergence': { owner: 'orchestration', expires: '2027-02-28' },
@@ -54,7 +53,6 @@ export const VACUITY_ALLOWLIST = Object.freeze({
   'exarchos_orchestrate.check_plan_coverage': { owner: 'orchestration', expires: '2027-02-28' },
   'exarchos_orchestrate.check_polish_scope': { owner: 'orchestration', expires: '2027-02-28' },
   'exarchos_orchestrate.check_post_merge': { owner: 'orchestration', expires: '2027-02-28' },
-  'exarchos_orchestrate.check_pr_comments': { owner: 'orchestration', expires: '2027-02-28' },
   'exarchos_orchestrate.check_provenance_chain': { owner: 'orchestration', expires: '2027-02-28' },
   'exarchos_orchestrate.check_review_verdict': { owner: 'orchestration', expires: '2027-02-28' },
   'exarchos_orchestrate.check_security_scan': { owner: 'orchestration', expires: '2027-02-28' },
@@ -94,7 +92,6 @@ export const VACUITY_ALLOWLIST = Object.freeze({
   'exarchos_orchestrate.task_complete': { owner: 'orchestration', expires: '2027-02-28' },
   'exarchos_orchestrate.task_fail': { owner: 'orchestration', expires: '2027-02-28' },
   'exarchos_orchestrate.validate_pr_body': { owner: 'orchestration', expires: '2027-02-28' },
-  'exarchos_orchestrate.validate_pr_stack': { owner: 'orchestration', expires: '2027-02-28' },
   'exarchos_orchestrate.verify_delegation_saga': { owner: 'orchestration', expires: '2027-02-28' },
   'exarchos_orchestrate.verify_doc_links': { owner: 'orchestration', expires: '2027-02-28' },
   'exarchos_orchestrate.verify_review_triage': { owner: 'orchestration', expires: '2027-02-28' },
@@ -157,10 +154,20 @@ export const VACUITY_RETIRED: Readonly<Record<string, VacuityRetiredEntry>> = Ob
     owner: 'orchestration',
     retiredAt: '2026-11-23',
   },
+  /** The provider read is deleted. The retired-action table refuses a call of it before dispatch, so it declares no schema. */
+  'exarchos_orchestrate.check_coderabbit': {
+    owner: 'orchestration',
+    retiredAt: '2026-11-23',
+  },
   /** The action now declares `withCappedShape(CheckInvariantConformanceOutputSchema)`. */
   'exarchos_orchestrate.check_invariant_conformance': {
     owner: 'orchestration',
     retiredAt: '2026-08-07',
+  },
+  /** The provider read is deleted. The retired-action table refuses a call of it before dispatch, so it declares no schema. */
+  'exarchos_orchestrate.check_pr_comments': {
+    owner: 'orchestration',
+    retiredAt: '2026-11-23',
   },
   /** The provider writer is deleted. The retired-action table refuses a call of it before dispatch, so it declares no schema. */
   'exarchos_orchestrate.create_issue': {
@@ -206,6 +213,11 @@ export const VACUITY_RETIRED: Readonly<Record<string, VacuityRetiredEntry>> = Ob
   },
   /** The action is deleted. The retired-action table refuses a call of it before dispatch, so it declares no schema. */
   'exarchos_orchestrate.mutation-adequacy': {
+    owner: 'orchestration',
+    retiredAt: '2026-11-23',
+  },
+  /** The provider read is deleted. The retired-action table refuses a call of it before dispatch, so it declares no schema. */
+  'exarchos_orchestrate.validate_pr_stack': {
     owner: 'orchestration',
     retiredAt: '2026-11-23',
   },

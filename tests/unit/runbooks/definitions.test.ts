@@ -107,9 +107,13 @@ describe('Runbook definitions', () => {
     expect(AGENT_TEAMS_SAGA.steps[12].action).toBe('transition');
   });
 
-  it('SynthesisFlow_HasFiveSteps', () => {
-    expect(SYNTHESIS_FLOW.steps).toHaveLength(5);
-    expect(SYNTHESIS_FLOW.steps[0].action).toBe('prepare_synthesis');
+  it('SynthesisFlow_HasFourSteps', () => {
+    expect(SYNTHESIS_FLOW.steps.map((step) => step.action)).toEqual([
+      'prepare_synthesis',
+      'validate_pr_body',
+      'gh_pr_create',
+      'append',
+    ]);
     expect(SYNTHESIS_FLOW.phase).toBe('synthesize');
   });
 

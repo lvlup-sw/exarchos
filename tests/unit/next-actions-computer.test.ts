@@ -665,7 +665,7 @@ describe('computeNextActions — admission-derived affordances (DR-9, T-13)', ()
 
 const ADVERTISE_AT = '2026-01-01T00:00:00.000Z';
 const GET_ACTION_ID = 'exarchos_workflow.get';
-const HOST_OWNED_ACTION_ID = 'exarchos_orchestrate.check_coderabbit';
+const HOST_OWNED_ACTION_ID = 'exarchos_orchestrate.agent_spec';
 const GATED_ACTION_ID = 'exarchos_orchestrate.check_polish_scope';
 const REQUIRES_ACTION_ID = 'exarchos_orchestrate.pre_synthesis_check';
 
@@ -830,7 +830,10 @@ describe('computeRegistryAdvertisements — allow-only ActionIds', () => {
     const advertised = computeRegistryAdvertisements({
       phase: 'plan',
       workflowType: 'feature',
-      actionAdmission: advertiseFacts({ actionIds: [HOST_OWNED_ACTION_ID] }),
+      actionAdmission: advertiseFacts({
+        actionIds: [HOST_OWNED_ACTION_ID],
+        authorization: advertiseAuth(['fs:read', 'shell:exec', 'subagent:spawn']),
+      }),
     });
     const hostOwned = advertised.find((a) => a.actionId === HOST_OWNED_ACTION_ID);
     expect(hostOwned).toBeDefined();

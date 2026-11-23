@@ -63,7 +63,6 @@ function hostOwnedActions(): readonly HostAction[] {
 const ARGS: Readonly<Record<string, Record<string, unknown>>> = {
   agent_spec: { agent: 'implementer' },
   prepare_review: { featureId: 'feat-host-obligation' },
-  check_coderabbit: { owner: 'acme', repo: 'widgets', prNumbers: [1] },
   discover_bridge: { featureId: 'feat-host-obligation', artifact: 'docs/specs/example.md' },
 };
 
@@ -89,16 +88,15 @@ describe('host-owned actions — execute vs return the obligation', () => {
 
   /**
    * The denominator. A registry that declares no host authority makes each test below vacuous.
-   * The population holds two blocking obligations: interactive-authentication on
-   * `check_coderabbit` and human-approval on `discover_bridge`. It also holds the agent-spawn
-   * obligation on `agent_spec` and `prepare_review`. `cutover_decide` declares local authority,
+   * The population holds one blocking obligation, human-approval on `discover_bridge`. It also
+   * holds the agent-spawn obligation on `agent_spec` and `prepare_review`. `cutover_decide` declares local authority,
    * so it is not in the population. Each action must have an `ARGS` fixture, because the tests
    * below call every action.
    */
   it('HostObligations_Population_IsNonEmptyAndCarriesBothKinds', () => {
     const rows = hostOwnedActions();
 
-    expect(rows.length).toBeGreaterThanOrEqual(4);
+    expect(rows.length).toBeGreaterThanOrEqual(3);
     expect(rows.filter((r) => r.blocking).length).toBeGreaterThan(0);
     expect(rows.filter((r) => !r.blocking).length).toBeGreaterThan(0);
     for (const row of rows) {

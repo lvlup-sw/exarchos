@@ -171,7 +171,6 @@ export const SYNTHESIS_FLOW: RunbookDefinition = {
     { tool: 'exarchos_orchestrate', action: 'prepare_synthesis', onFail: 'stop',
       params: { repoRoot: '<repoRoot>' },
       note: 'Fill <repoRoot> with the absolute path of the repo under synthesis; all four legs (tests, typecheck, stack, changed files) run there' },
-    { tool: 'exarchos_orchestrate', action: 'validate_pr_stack', onFail: 'stop' },
     { tool: 'exarchos_orchestrate', action: 'validate_pr_body', onFail: 'stop' },
     { tool: 'native:bash', action: 'gh_pr_create', onFail: 'stop',
       note: 'Create PR via gh CLI' },

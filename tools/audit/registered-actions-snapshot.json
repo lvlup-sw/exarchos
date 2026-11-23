@@ -4,7 +4,7 @@
   "counts": {
     "tools": 5,
     "visibleTools": 4,
-    "actions": 119,
+    "actions": 116,
     "eventTypes": 186
   },
   "tools": [
@@ -26,7 +26,6 @@
         "agent_spec",
         "assess_refactor_scope",
         "assess_stack",
-        "check_coderabbit",
         "check_context_economy",
         "check_contract_drift",
         "check_convergence",
@@ -41,7 +40,6 @@
         "check_plan_coverage",
         "check_polish_scope",
         "check_post_merge",
-        "check_pr_comments",
         "check_provenance_chain",
         "check_review_verdict",
         "check_security_scan",
@@ -93,7 +91,6 @@
         "task_complete",
         "task_fail",
         "validate_pr_body",
-        "validate_pr_stack",
         "verify_delegation_saga",
         "verify_doc_links",
         "verify_review_triage",

@@ -146,6 +146,11 @@ const LOCK_NOTE =
   're-approval at the pull request: exarchos_orchestrate.check_ci, list_prs and ' +
   'get_pr_comments are the removed ActionIds. The closed retired-action table refuses a ' +
   'call of each before dispatch, with the code PROVIDER_READ_RETIRED. All other authority ' +
+  'pins remain unchanged.' +
+  ' RE-APPROVED for #1928 S4 T-32 under the slice plan that Reed approved, for Reed ' +
+  're-approval at the pull request: exarchos_orchestrate.check_pr_comments, check_coderabbit ' +
+  'and validate_pr_stack are the removed ActionIds. The closed retired-action table refuses a ' +
+  'call of each before dispatch, with the code PROVIDER_READ_RETIRED. All other authority ' +
   'pins remain unchanged.';
 
 /**
@@ -153,6 +158,9 @@ const LOCK_NOTE =
  * the lockfile records who approved and not the tool.
  */
 export const CURRENT_APPROVER =
+  'Delegated Claude worker (#1928 S4 T-32 provider review and stack read retirement under the ' +
+  'slice plan that Reed approved, 2026-11-23; for Reed re-approval at the pull request). ' +
+  'Previously: ' +
   'Delegated Claude worker (#1928 S4 T-31 provider read retirement under the slice plan ' +
   'that Reed approved, 2026-11-23; for Reed re-approval at the pull request). Previously: ' +
   'Delegated Claude worker (#1928 S4 T-29 provider writer retirement under the slice plan ' +

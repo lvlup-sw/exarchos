@@ -1,7 +1,7 @@
 {
   "capturedAt": "2026-11-25",
-  "tree": "eb9fe9c4b8d72d61a0094c099c5f177ddcaf3cf8",
-  "count": 119,
+  "tree": "a8e2a035512b24567e36382e7667ba3f015423f6",
+  "count": 116,
   "actionIds": [
     "exarchos_event.append",
     "exarchos_event.batch_append",
@@ -11,7 +11,6 @@
     "exarchos_orchestrate.agent_spec",
     "exarchos_orchestrate.assess_refactor_scope",
     "exarchos_orchestrate.assess_stack",
-    "exarchos_orchestrate.check_coderabbit",
     "exarchos_orchestrate.check_context_economy",
     "exarchos_orchestrate.check_contract_drift",
     "exarchos_orchestrate.check_convergence",
@@ -26,7 +25,6 @@
     "exarchos_orchestrate.check_plan_coverage",
     "exarchos_orchestrate.check_polish_scope",
     "exarchos_orchestrate.check_post_merge",
-    "exarchos_orchestrate.check_pr_comments",
     "exarchos_orchestrate.check_provenance_chain",
     "exarchos_orchestrate.check_review_verdict",
     "exarchos_orchestrate.check_security_scan",
@@ -78,7 +76,6 @@
     "exarchos_orchestrate.task_complete",
     "exarchos_orchestrate.task_fail",
     "exarchos_orchestrate.validate_pr_body",
-    "exarchos_orchestrate.validate_pr_stack",
     "exarchos_orchestrate.verify_delegation_saga",
     "exarchos_orchestrate.verify_doc_links",
     "exarchos_orchestrate.verify_review_triage",

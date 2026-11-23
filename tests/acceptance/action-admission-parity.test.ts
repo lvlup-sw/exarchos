@@ -369,15 +369,14 @@ describe('action admission dispatch parity', () => {
       const result = await dispatch(
         'exarchos_orchestrate',
         {
-          action: 'check_coderabbit',
-          owner: 'acme',
-          repo: 'widgets',
-          prNumbers: [1],
+          action: 'discover_bridge',
+          featureId: 'feat-host-obligation',
+          artifact: 'docs/specs/example.md',
         },
         ctx(),
       );
       expect(result.success, result.error?.message).toBe(true);
-      expect(result.data).toEqual({ obligation: 'interactive-authentication' });
+      expect(result.data).toEqual({ obligation: 'human-approval' });
       expect(handlerCalls).toBe(0);
       expect(result).not.toHaveProperty('actionId');
       expect(

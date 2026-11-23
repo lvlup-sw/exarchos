@@ -37,7 +37,6 @@ export type PhaseGateClass =
   | 'operational-resilience'
   | 'post-delegation'
   | 'post-merge'
-  | 'pr-stack'
   | 'pre-synthesis'
   | 'workflow-determinism';
 export type SupportedGateClass = MechanicalGateClass | PhaseGateClass;
@@ -179,9 +178,6 @@ const BUILTIN_REGISTRATIONS = {
   },
   'post-merge': {
     actionName: 'check_post_merge',
-  },
-  'pr-stack': {
-    actionName: 'validate_pr_stack',
   },
   'pre-synthesis': {
     actionName: 'pre_synthesis_check',

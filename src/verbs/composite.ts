@@ -50,9 +50,7 @@ import { handleSelectDebugTrack } from './review/select-debug-track.js';
 import { handleInvestigationTimer } from './review/investigation-timer.js';
 import { handleCheckCoverageThresholds } from './gates/check-coverage-thresholds.js';
 import { handleAssessRefactorScope } from './gates/assess-refactor-scope.js';
-import { handleCheckPrComments } from './vcs/check-pr-comments.js';
 import { handleValidatePrBody } from './vcs/validate-pr-body.js';
-import { handleValidatePrStack } from './vcs/validate-pr-stack.js';
 import { handleDebugReviewGate } from './review/debug-review-gate.js';
 import { handleExtractFixTasks } from './tasks/extract-fix-tasks.js';
 import { handleClassifyReviewItems } from './review/classify-review-items.js';
@@ -64,7 +62,6 @@ import { handleVerifyDelegationSaga } from './team/verify-delegation-saga.js';
 import { handlePostDelegationCheck } from './team/post-delegation-check.js';
 import { handleReconcileState } from './reconcile-state.js';
 import { handlePreSynthesisCheck, type PreSynthesisCheckArgs } from './gates/pre-synthesis-check.js';
-import { handleCheckCoderabbit } from './vcs/check-coderabbit.js';
 import { handleCheckPolishScope, type CheckPolishScopeArgs } from './gates/check-polish-scope.js';
 import { handleNeedsSchemaSync } from './gates/needs-schema-sync.js';
 import { handleVerifyDocLinks } from './gates/verify-doc-links.js';
@@ -468,9 +465,7 @@ export const ACTION_HANDLERS: Readonly<Record<string, ActionHandler>> = {
   investigation_timer: adaptWithOptionalEventStore(handleInvestigationTimer),
   check_coverage_thresholds: adaptWithEventStore(handleCheckCoverageThresholds),
   assess_refactor_scope: adaptArgsWithEventStore(handleAssessRefactorScope),
-  check_pr_comments: adaptArgs(handleCheckPrComments),
   validate_pr_body: adaptWithOptionalEventStore(handleValidatePrBody),
-  validate_pr_stack: adaptWithEventStore(handleValidatePrStack),
   debug_review_gate: privateTermsRemoved(adaptWithEventStore(handleDebugReviewGate)),
   extract_fix_tasks: adaptArgsWithStateDirAndEventStore(handleExtractFixTasks),
   classify_review_items: adaptArgsWithEventStore(handleClassifyReviewItems),
@@ -483,7 +478,6 @@ export const ACTION_HANDLERS: Readonly<Record<string, ActionHandler>> = {
   post_delegation_check: privateTermsRemoved(adaptArgsWithStateDirAndEventStore(handlePostDelegationCheck)),
   reconcile_state: adaptArgsWithEventStore(handleReconcileState),
   pre_synthesis_check: privateTermsRemoved(adaptArgsWithStateDirAndEventStore((args: PreSynthesisCheckArgs) => handlePreSynthesisCheck(args))),
-  check_coderabbit: adaptArgs(handleCheckCoderabbit),
   check_polish_scope: privateTermsRemoved(adapt((args: CheckPolishScopeArgs) => handleCheckPolishScope(args))),
   needs_schema_sync: privateTermsRemoved(adapt((args: Parameters<typeof handleNeedsSchemaSync>[0]) => handleNeedsSchemaSync(args))),
   verify_doc_links: adaptArgs(handleVerifyDocLinks),

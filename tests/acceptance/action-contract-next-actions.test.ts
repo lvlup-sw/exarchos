@@ -16,7 +16,7 @@ import { getHSMDefinition } from '../../src/workflow/state-machine.js';
 
 const ADVERTISE_AT = '2026-01-01T00:00:00.000Z';
 const GET_ACTION_ID = 'exarchos_workflow.get';
-const HOST_OWNED_ACTION_ID = 'exarchos_orchestrate.check_coderabbit';
+const HOST_OWNED_ACTION_ID = 'exarchos_orchestrate.agent_spec';
 const GATED_ACTION_ID = 'exarchos_orchestrate.check_polish_scope';
 const REQUIRES_ACTION_ID = 'exarchos_orchestrate.pre_synthesis_check';
 
@@ -161,7 +161,9 @@ describe('action-contract next_actions — allow-only registry advertisements', 
   });
 
   it('NextActions_HostOwned_AdvertisedWhenLocalChecksPass', () => {
-    const advertised = advertisedFromWrap(workflowPayload());
+    const advertised = advertisedFromWrap(
+      workflowPayload({ authorization: advertiseAuth(['fs:read', 'shell:exec', 'subagent:spawn']) }),
+    );
     const hostOwned = advertised.find((a) => a.actionId === HOST_OWNED_ACTION_ID);
     expect(hostOwned).toBeDefined();
     expect(hostOwned?.subject).toEqual({
