@@ -14,7 +14,7 @@ export function emitStatefulTUnit(input: Input, scenarios: Scenario[]): string {
   const cases = scenarios.map((scenario, index) => {
     const name = `Case_${index + 1}` === input.target.className ? `Case_${index + 1}_` : `Case_${index + 1}`;
     return { name, body: `        using var scenario = JsonDocument.Parse(${csharpLiteral(JSON.stringify(scenario))});
-        await ${runtime}.RunCase(scenario.RootElement, "Case_${index + 1}").ConfigureAwait(false);` };
+        await ${runtime}.RunCase(scenario.RootElement, "Case_${index + 1}");` };
   });
   return csharpFile(input.target.namespace, input.target.className, cases, `
 
@@ -34,8 +34,8 @@ ${checks}
 ${csharpReduction}
     private static async Task<Outcome> CheckHistory(Step[] steps, string mode, int requiredSteps)
     {
-        var model = await ${binding}.CreateModel().ConfigureAwait(false);
-        var system = await ${binding}.CreateSystem().ConfigureAwait(false);
+        var model = await ${binding}.CreateModel();
+        var system = await ${binding}.CreateSystem();
         var history = new List<Step>();
         var attempts = 0;
         var rejected = 0;
@@ -43,7 +43,7 @@ ${csharpReduction}
             new(status, signature, history.ToArray(), attempts, rejected, exhausted);
         try
         {
-            if (!await ${binding}.Equivalent(model, await ${binding}.Observe(system).ConfigureAwait(false)).ConfigureAwait(false))
+            if (!await ${binding}.Equivalent(model, await ${binding}.Observe(system)))
                 return Result("fail", "stateful/initial-state");
             foreach (var step in steps)
             {
@@ -56,10 +56,10 @@ ${csharpReduction}
                     if (mode == "exact") return Result("rejected", "stateful/precondition");
                     continue;
                 }
-                model = await ${binding}.Transition(model, step.Operation, step.Args).ConfigureAwait(false);
-                await ${binding}.Execute(system, step.Operation, step.Args).ConfigureAwait(false);
+                model = await ${binding}.Transition(model, step.Operation, step.Args);
+                await ${binding}.Execute(system, step.Operation, step.Args);
                 history.Add(step);
-                if (!await ${binding}.Equivalent(model, await ${binding}.Observe(system).ConfigureAwait(false)).ConfigureAwait(false))
+                if (!await ${binding}.Equivalent(model, await ${binding}.Observe(system)))
                     return Result("fail", "stateful/" + step.Operation + "/state-mismatch");
             }
             if (history.Count != requiredSteps) return Result("rejected", "stateful/generation-exhausted", true);
@@ -67,7 +67,7 @@ ${csharpReduction}
         }
         finally
         {
-            await ${binding}.DisposeSystem(system).ConfigureAwait(false);
+            await ${binding}.DisposeSystem(system);
         }
     }
 
@@ -90,7 +90,7 @@ ${csharpReduction}
     {
         var steps = scenario.GetProperty("steps").EnumerateArray()
             .Select(step => new Step(step.GetProperty("operation").GetString()!, step.GetProperty("args").Clone())).ToArray();
-        var original = await CheckHistory(steps, scenario.GetProperty("mode").GetString()!, scenario.GetProperty("requiredSteps").GetInt32()).ConfigureAwait(false);
+        var original = await CheckHistory(steps, scenario.GetProperty("mode").GetString()!, scenario.GetProperty("requiredSteps").GetInt32());
         Console.Error.WriteLine("TESTGEN_HISTORY " + JsonSerializer.Serialize(new
         {
             version = 2, propertyRef = ${csharpLiteral(input.propertyRef)}, caseId,
@@ -117,7 +117,7 @@ ${csharpReduction}
                 if (!seen.Add(JsonSerializer.Serialize(candidate))) { duplicates++; continue; }
                 try
                 {
-                    var result = await CheckHistory(candidate, "exact", candidate.Length).ConfigureAwait(false);
+                    var result = await CheckHistory(candidate, "exact", candidate.Length);
                     if (result.Status == "rejected") rejected++;
                     if (result.Status == "fail" && result.Signature == original.Signature)
                     {
