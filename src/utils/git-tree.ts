@@ -6,7 +6,7 @@
  * The two path forms follow `normalizeRepoPath` of `paths.ts`. The canonical form is the real path
  * in POSIX form, as `git rev-parse --show-toplevel` prints it. The lexical form reads no file, so it
  * serves a path that does not exist. The module spawns git with the async `execFile`, with a
- * timeout and an output cap. One constrained read writes exact blob IDs to the stdin of `cat-file --batch`.
+ * timeout and an output cap. One constrained read writes exact blob IDs to the stdin of `cat-file --batch`, through `spawnCommand`.
  * It imports nothing from `src/verbs`.
  *
  * It also keeps the process-wide Git path of the observational reads. A PATH search finds it with no process.
@@ -18,6 +18,7 @@ import { delimiter, isAbsolute, join } from 'node:path';
 import { promisify } from 'node:util';
 
 import { lexicalRepoPath, normalizeRepoPath } from './paths.js';
+import { spawnCommand } from './process.js';
 
 /** The wall-clock budget of one git call. A call that runs longer gives an unobservable tree. */
 const GIT_TIMEOUT_MS = 30_000;
@@ -424,11 +425,29 @@ export async function createConstrainedGitReads(executable: string) {
   async function readBlobs(gitDir: string, checkout: string, ids: readonly string[], maxBytes: number): Promise<ReadonlyMap<string, Buffer>> {
     const unique = [...new Set(ids.map(constrainedCommitId))];
     if (unique.length === 0) return new Map();
+    const limit = maxBytes + unique.length * BLOB_RECORD_OVERHEAD_BYTES;
     const output = await new Promise<Buffer>((resolve, reject) => {
-      const child = execFile(git, argv(gitDir, checkout, ['cat-file', '--batch']), {
-        env, encoding: 'buffer', timeout: 120_000, maxBuffer: maxBytes + unique.length * BLOB_RECORD_OVERHEAD_BYTES,
-        windowsHide: true, cwd: checkout,
-      }, (error, stdout) => { if (error === null) resolve(stdout); else reject(error); });
+      const child = spawnCommand(git, argv(gitDir, checkout, ['cat-file', '--batch']), {
+        env, timeout: 120_000, killSignal: 'SIGKILL', windowsHide: true, cwd: checkout, stdio: ['pipe', 'pipe', 'ignore'],
+      });
+      const chunks: Buffer[] = [];
+      let total = 0;
+      let overrun = false;
+      child.stdout?.on('data', (bytes: Buffer) => {
+        total += bytes.length;
+        if (total > limit) {
+          overrun = true;
+          child.kill('SIGKILL');
+        } else {
+          chunks.push(bytes);
+        }
+      });
+      child.once('error', reject);
+      child.once('close', (code, signal) => {
+        if (overrun) reject(new Error('The blob read output is above its bound'));
+        else if (code !== 0) reject(new Error(`The blob read ended with ${code === null ? `signal ${String(signal)}` : `exit code ${code}`}`));
+        else resolve(Buffer.concat(chunks));
+      });
       child.stdin?.once('error', reject);
       child.stdin?.end(unique.join('\n') + '\n');
     });

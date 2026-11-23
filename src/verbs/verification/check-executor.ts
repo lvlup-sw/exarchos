@@ -7,7 +7,6 @@
  * Each check binds its request and claims an attempt before a process starts. A stored terminal observation replays with no process.
  * A retry of an attempt with no terminal observation records that attempt as incomplete, then starts the next attempt.
  */
-import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { accessSync, constants as fsConstants, mkdtempSync, rmSync, statSync, type RmOptions } from 'node:fs';
 import { realpath } from 'node:fs/promises';
@@ -20,7 +19,7 @@ import { checkPlanDigest, verificationJson, verificationValueDigest, type CheckP
 import { getDispatchContext } from '../../dispatch/dispatch-context.js';
 import { PLUGIN_MODE_ENV_KEYS, STORE_LOCATION_ENV_KEYS } from '../../utils/paths.js';
 import type { EventStore } from '../../events/store.js';
-import { isPidAlive, isWindowsBatchFile, windowsBatchLaunch } from '../../utils/process.js';
+import { isPidAlive, isWindowsBatchFile, spawnCommand, windowsBatchLaunch } from '../../utils/process.js';
 import { processObservationalGitPath } from '../../utils/git-tree.js';
 import { loadPreparedCustody, selectPreparedAuthority } from '../../workflow/capsule/prepared-custody.js';
 import { ContentDigestV1Schema } from '../../workflow/admission/types.js';
@@ -316,7 +315,7 @@ function stopGroup(pid: number | undefined): void {
   try {
     if (process.platform === 'win32') {
       const taskkill = join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'taskkill.exe');
-      spawn(taskkill, ['/pid', String(pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true }).once('error', () => undefined);
+      spawnCommand(taskkill, ['/pid', String(pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true }).once('error', () => undefined);
     } else {
       process.kill(-pid, 'SIGKILL');
     }
@@ -344,7 +343,7 @@ function spawnLeg(path: string, argv: readonly string[], cwd: string, timeoutMs:
     let total = 0;
     let stopped: 'timeout' | 'output-limit' | undefined;
     let failure: { readonly message: string; readonly code?: string } | undefined;
-    const child = spawn(launch.file, launch.args, {
+    const child = spawnCommand(launch.file, launch.args, {
       cwd, env: { ...probeTestEnvironment(process.env, scratch), ...extraEnv }, stdio: ['ignore', 'pipe', 'pipe'],
       detached: process.platform !== 'win32', windowsHide: true, windowsVerbatimArguments: batch,
     });

@@ -291,14 +291,25 @@ function coordinateRefusal(args: Record<string, unknown>, ctx: DispatchContext |
  * `verificationProfile` comes only from the context. The adapter removes a value that the args carry, so a wire caller cannot pin a profile.
  * The private verifier terms come only from the context too. The adapter removes `hostAdequacy`, `hostCheck` and `verificationHost` from the args.
  * A check gate and the adequacy gate ignore the connector and run in the local approved-check executor, with or without a verifier provisioning.
- * A selector gives the gate an extra fourth argument, such as the connector of a provisioned context.
+ * The adapter has two parameters, so the envelope rule resolves the handler of a call with a literal Boolean option.
  *
  * @internal Exported so that a test can call the adapter with a gate of its own.
  */
-export function adaptLadderGate<T, X = never>(
-  handler: (args: T, stateDir: string, eventStore: EventStore, extra?: X) => Promise<ToolResult>,
+export function adaptLadderGate<T>(
+  handler: (args: T, stateDir: string, eventStore: EventStore) => Promise<ToolResult>,
   coordinateAware = false,
-  extraOf?: (ctx: DispatchContext) => X | undefined,
+): ActionHandler {
+  return adaptLadderGateWithExtra(handler, coordinateAware, () => undefined);
+}
+
+/**
+ * The adapter {@link adaptLadderGate} for a gate that takes an extra fourth argument.
+ * The selector gives that argument from the context, such as the connector of a provisioned context.
+ */
+function adaptLadderGateWithExtra<T, X>(
+  handler: (args: T, stateDir: string, eventStore: EventStore, extra?: X) => Promise<ToolResult>,
+  coordinateAware: boolean,
+  extraOf: (ctx: DispatchContext) => X | undefined,
 ): ActionHandler {
   return async (args, stateDir, ctx) => {
     if (!ctx?.eventStore) {
@@ -321,7 +332,7 @@ export function adaptLadderGate<T, X = never>(
     const selectedArgs = coordinateAware && ctx.verificationInput !== undefined
       ? { ...gateArgs, coordinate: ctx.verificationInput.coordinate } : gateArgs;
     const typedArgs = selectedArgs as unknown as T;
-    const extra = extraOf?.(ctx);
+    const extra = extraOf(ctx);
     return extra === undefined ? handler(typedArgs, stateDir, ctx.eventStore) : handler(typedArgs, stateDir, ctx.eventStore, extra);
   };
 }
@@ -502,13 +513,13 @@ export const ACTION_HANDLERS: Readonly<Record<string, ActionHandler>> = {
   /** Verification-ladder gate. {@link adaptLadderGate} copies the dispatch config into the args, and the severity wrapper applies the severity. */
   check_test_adequacy: adaptLadderGate(handleTestAdequacy, true),
   check_contract_drift: adaptLadderGate(handleContractDrift, true),
-  check_mock_boundary: adaptLadderGate(handleMockBoundary, true, connectorOf),
+  check_mock_boundary: adaptLadderGateWithExtra(handleMockBoundary, true, connectorOf),
   /**
    * Action of the mutation-adequacy review dimension. It is advisory by default, because its seeded gate default is warning-only.
    * A score under the threshold shows survivor `next_actions` and does not block.
    * An explicit `review.gates['mutation-adequacy']` override can make it blocking.
    */
-  [MUTATION_GATE_NAME]: adaptLadderGate(handleMutationAdequacy, false, connectorOf),
+  [MUTATION_GATE_NAME]: adaptLadderGateWithExtra(handleMutationAdequacy, false, connectorOf),
   check_post_merge: privateTermsRemoved(adaptWithEventStore(handlePostMerge)),
   check_static_analysis: adaptLadderGate(handleStaticAnalysis, true),
   check_integration_suite: adaptLadderGate(handleCheckIntegrationSuite, true),

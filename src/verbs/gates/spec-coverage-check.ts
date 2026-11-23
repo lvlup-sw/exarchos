@@ -17,7 +17,7 @@ import { matchesAnyGlob, testPathWellFormednessError as declaredTestPathError } 
 import { readValidatedDesignRecord } from '../../workflow/design-record/read.js';
 import { createEvidenceSubject } from '../../workflow/admission/evidence-subject.js';
 import { PROFILE_UNRESOLVED, type VerificationProfile } from '../../workflow/verification/profile.js';
-import { HostedAdequacyPending, runPhaseGateWithEvidence } from './gate-runner.js';
+import { hostedPendingResult, runPhaseGateWithEvidence } from './gate-runner.js';
 import { contentDigest } from '../../contract/capsule/capsule-digest.js';
 import type { CheckPlan } from '../../contract/verification/harness-verification.js';
 import { refusedCheckResult, runApprovedCheck, type CheckExecutor } from '../verification/check-executor.js';
@@ -268,10 +268,7 @@ export async function handleSpecCoverageCheck(
       executeProvider: async () => executeSpecCoverageCheck(args, host),
     });
   } catch (error) {
-    if (error instanceof HostedAdequacyPending) {
-      return { success: false, error: { code: 'HOSTED_ADEQUACY_PENDING', message: error.message } };
-    }
-    throw error;
+    return hostedPendingResult(error);
   }
 }
 

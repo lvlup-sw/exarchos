@@ -1,10 +1,11 @@
 /** The verifier alone starts fixed operator profiles inside an explicit Linux namespace boundary. */
-import { execFile, spawn } from 'node:child_process';
+import { execFile } from 'node:child_process';
 import { dirname, join } from 'node:path';
 import { promisify } from 'node:util';
 import { stat, realpath } from 'node:fs/promises';
 import { authorizeVerification, trustedSystemExecutable, type AuthorizedVerification } from './authorization.js';
 import { verificationJson, type VerificationEvidence } from '../../contract/verification/harness-verification.js';
+import { spawnCommand } from '../../utils/process.js';
 
 const namespaceFlags: readonly string[] = [
   '--die-with-parent', '--new-session', '--unshare-all', '--unshare-user',
@@ -15,7 +16,7 @@ const namespaceFlags: readonly string[] = [
 export async function confirmConfinement(path: string): Promise<void> {
   const bwrap = await trustedSystemExecutable(path, 'bwrap');
   await new Promise<void>((resolve, reject) => {
-    const child = spawn(bwrap, [...namespaceFlags, '--ro-bind', '/usr', '/usr',
+    const child = spawnCommand(bwrap, [...namespaceFlags, '--ro-bind', '/usr', '/usr',
       '--symlink', 'usr/lib', '/lib', '--symlink', 'usr/lib64', '/lib64',
       '--proc', '/proc', '--dev', '/dev', '--tmpfs', '/tmp', '--', '/usr/bin/true'],
     { env: {}, stdio: 'ignore' });
@@ -75,7 +76,7 @@ export async function readAdequacyBlobs(
   if (ids.length === 0) return new Map();
   if (ids.some(id => !/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(id))) throw new Error('Noncanonical Git blob ID');
   const output = await new Promise<Buffer>((resolve, reject) => {
-    const child = spawn(authorized.gitPath, immutableGitArgs(authorized, ['cat-file', '--batch']), {
+    const child = spawnCommand(authorized.gitPath, immutableGitArgs(authorized, ['cat-file', '--batch']), {
       cwd: authorized.resource.checkout, env: immutableGitEnvironment,
       stdio: ['pipe', 'pipe', 'ignore'], signal,
     });
@@ -84,9 +85,9 @@ export async function readAdequacyBlobs(
     let stopped = false;
     const stop = () => { stopped = true; child.kill('SIGKILL'); };
     const deadline = setTimeout(stop, 5000);
-    child.stdin.once('error', stop);
-    child.stdin.end(ids.join('\n') + '\n');
-    child.stdout.on('data', (bytes: Buffer) => {
+    child.stdin?.once('error', stop);
+    child.stdin?.end(ids.join('\n') + '\n');
+    child.stdout?.on('data', (bytes: Buffer) => {
       count += bytes.length;
       if (count > maxBytes + ids.length * 100) stop();
       else if (!stopped) chunks.push(bytes);
@@ -168,7 +169,7 @@ export function spawnConfined(authorized: AuthorizedVerification, signal: AbortS
   const outputLimit = options.outputLimit ?? (image === undefined ? 4096 : 64 * 1024);
   return new Promise(resolve => {
     if (signal.aborted) { resolve({ code: null, reason: 'Host canceled before execution', stdout: Buffer.alloc(0), stderr: Buffer.alloc(0) }); return; }
-    const child = spawn(authorized.bwrap, args, { env: {}, stdio: ['ignore', 'pipe', 'pipe'], detached: true });
+    const child = spawnCommand(authorized.bwrap, args, { env: {}, stdio: ['ignore', 'pipe', 'pipe'], detached: true });
     const stdout: Buffer[] = [];
     const stderr: Buffer[] = [];
     let outBytes = 0;
@@ -178,8 +179,8 @@ export function spawnConfined(authorized: AuthorizedVerification, signal: AbortS
     const abort = () => { reason = 'Host canceled execution'; stop(); };
     signal.addEventListener('abort', abort, { once: true });
     const timer = setTimeout(() => { reason = 'Execution deadline exceeded'; stop(); }, options.timeoutMs ?? authorized.profile.timeoutMs);
-    child.stdout.on('data', (bytes: Buffer) => { outBytes += bytes.length; if (outBytes > outputLimit) { reason = 'Output limit exceeded'; stop(); } else stdout.push(bytes); });
-    child.stderr.on('data', (bytes: Buffer) => { errBytes += bytes.length; if (errBytes > outputLimit) { reason = 'Output limit exceeded'; stop(); } else stderr.push(bytes); });
+    child.stdout?.on('data', (bytes: Buffer) => { outBytes += bytes.length; if (outBytes > outputLimit) { reason = 'Output limit exceeded'; stop(); } else stdout.push(bytes); });
+    child.stderr?.on('data', (bytes: Buffer) => { errBytes += bytes.length; if (errBytes > outputLimit) { reason = 'Output limit exceeded'; stop(); } else stderr.push(bytes); });
     child.once('error', () => { reason = 'Confinement process unavailable'; });
     child.once('close', code => {
       clearTimeout(timer);
