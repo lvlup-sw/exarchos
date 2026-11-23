@@ -116,14 +116,23 @@ const LOCK_NOTE =
   'RESERVED expiry of 2026-10-31. INV-3 keeps its other references, and no other invariant changed.' +
   ' RE-APPROVED for S7 T12 by the delegated Codex coordinator under Reed\'s authorized ' +
   'project decision: read_prepared_capsule is the sole added ActionId. It reads bounded ' +
-  'historical prepared custody with no writes. All other authority pins remain unchanged.';
+  'historical prepared custody with no writes. All other authority pins remain unchanged.' +
+  ' RE-APPROVED by Reed for the Cursor security rollup (#2248, ReDoS in the conformance gate). ' +
+  'The `strategos-contracts` digest moves because `invariant-schema.ts` now validates check ' +
+  'leaves: a `pattern` must compile with the linear-time RE2 engine (re2js) inside the ' +
+  '`check-pattern.ts` size limits, and a `fileGlob` has a length limit. RE2 has no lookaround ' +
+  'and no backreference, so a catalog pattern that uses either no longer loads. No shipped ' +
+  'catalog uses them. The schema shape, every field name, the action set and the wire format ' +
+  'are unchanged.';
 
 /**
  * The approver that the freeze records for the current snapshot. Change it at each new approval, so
  * the lockfile records who approved and not the tool.
  */
 export const CURRENT_APPROVER =
-  'Delegated Codex coordinator (S7 T12 action introduction reviewed under Reed\'s authorized ' +
+  'Reed (re-approved for the invariant-schema change in the Cursor security rollup: check ' +
+  'patterns must compile with RE2 and globs have a length limit; decision of 2026-11-23). ' +
+  'Previously: Delegated Codex coordinator (S7 T12 action introduction reviewed under Reed\'s authorized ' +
   'project decision, 2026-11-14). Previously: ' +
   'Reed (re-approved for the INV-3 edit: the reference to the deleted remote-MCP skeleton ' +
   'removed; decision of 2026-10-23). Previously: ' +
