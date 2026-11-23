@@ -3,12 +3,17 @@ import { z } from 'zod';
 export const identifier = z.string().max(100).regex(/^[A-Za-z_][A-Za-z0-9_]*(?![\s\S])/);
 export const binding = z.string().max(200).regex(/^(?:[A-Za-z_][A-Za-z0-9_]*\.)+[A-Za-z_][A-Za-z0-9_]*(?![\s\S])/);
 export const frameworkVersions = { tunit: '1.2.11', vitest: '3.2.7' } as const;
-export const qualifiedVersions = {
+/** Return a version table with its literal tuple types, without a type assertion. */
+function versionTable<const T extends Record<string, readonly [string, ...string[]]>>(table: T): T {
+  return table;
+}
+
+export const qualifiedVersions = versionTable({
   tunit: [frameworkVersions.tunit, '1.69.16', '1.83.8'],
   vitest: [frameworkVersions.vitest, '4.1.12', '5.1.0'],
   'node-test': ['24.12.0'],
   'bun-test': ['1.4.4'],
-} as const;
+});
 
 export function supportsFramework(framework: string, version: string): boolean {
   return Object.entries(qualifiedVersions).some(([name, versions]) =>
