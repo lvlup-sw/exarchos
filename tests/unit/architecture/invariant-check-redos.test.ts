@@ -91,6 +91,18 @@ async function watchKind(kind: string): Promise<ChildWatch> {
   return { stdout, stderr, timedOut, code };
 }
 
+/**
+ * The worker prints `RETURNED` also after a failed dispatch. A verdict needs the marker with
+ * `success: true` and a clean exit of the worker.
+ */
+function expectVerdict(watched: ChildWatch): void {
+  const line = watched.stdout.split('\n').find((text) => text.startsWith('RETURNED '));
+  expect(line, `${watched.stdout}\n${watched.stderr}`).toBeDefined();
+  const returned: unknown = JSON.parse((line ?? '').slice('RETURNED '.length));
+  expect(returned, watched.stderr).toMatchObject({ success: true });
+  expect(watched.code, watched.stderr).toBe(0);
+}
+
 describe('invariant conformance bounds catalog patterns', () => {
   /**
    * A grep leaf under a user catalog, including a file glob, must return a verdict. The pattern is
@@ -100,7 +112,7 @@ describe('invariant conformance bounds catalog patterns', () => {
     const watched = await watchKind('grep');
     expect(watched.stdout, watched.stderr).toContain('SAFE_OK');
     expect(watched.timedOut, `${watched.stdout}\n${watched.stderr}`).toBe(false);
-    expect(watched.stdout).toContain('RETURNED');
+    expectVerdict(watched);
   });
 
   /**
@@ -111,7 +123,7 @@ describe('invariant conformance bounds catalog patterns', () => {
     const watched = await watchKind('structural');
     expect(watched.stdout, watched.stderr).toContain('SAFE_OK');
     expect(watched.timedOut, `${watched.stdout}\n${watched.stderr}`).toBe(false);
-    expect(watched.stdout).toContain('RETURNED');
+    expectVerdict(watched);
   });
 
   /**
@@ -122,7 +134,7 @@ describe('invariant conformance bounds catalog patterns', () => {
     const watched = await watchKind('heuristic');
     expect(watched.stdout, watched.stderr).toContain('SAFE_OK');
     expect(watched.timedOut, `${watched.stdout}\n${watched.stderr}`).toBe(false);
-    expect(watched.stdout).toContain('RETURNED');
+    expectVerdict(watched);
   });
 
   /**
@@ -133,6 +145,6 @@ describe('invariant conformance bounds catalog patterns', () => {
     const watched = await watchKind('negated');
     expect(watched.stdout, watched.stderr).toContain('SAFE_OK');
     expect(watched.timedOut, `${watched.stdout}\n${watched.stderr}`).toBe(false);
-    expect(watched.stdout).toContain('RETURNED');
+    expectVerdict(watched);
   });
 });
