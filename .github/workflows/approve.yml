@@ -1,6 +1,4 @@
-# Runs the org /approve comment command in this repository.
-# A repository admin comments /approve on a pull request and github-actions[bot]
-# approves its head commit. See approve-command.yml in lvlup-sw/.github.
+# Vendored from workflow-templates/approve.yml in lvlup-sw/.github.
 
 name: Approve
 
@@ -12,6 +10,118 @@ permissions: {}
 
 jobs:
   approve:
-    uses: lvlup-sw/.github/.github/workflows/approve-command.yml@v1.13
+    if: >-
+      github.event_name == 'issue_comment' && github.event.action == 'created' &&
+      github.event.issue.pull_request && github.event.issue.state == 'open' &&
+      (github.event.comment.body == '/approve' || startsWith(github.event.comment.body, '/approve override '))
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
     permissions:
       pull-requests: write
+    concurrency:
+      group: approve-command-${{ github.repository }}-${{ github.event.issue.number }}
+      cancel-in-progress: false
+    steps:
+      - name: Process the repository admin's approval command
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.issue.number }}
+          COMMENT_AUTHOR: ${{ github.event.comment.user.login }}
+          COMMENT_BODY: ${{ github.event.comment.body }}
+          COMMENT_CREATED_AT: ${{ github.event.comment.created_at }}
+        run: |
+          set -euo pipefail
+
+          review_id=''
+          override_pattern='^/approve override ([1-9][0-9]*) ([^[:space:]].*)$'
+          if [[ "$COMMENT_BODY" == '/approve override '* ]]; then
+            if [[ "$COMMENT_BODY" == *$'\n'* || "$COMMENT_BODY" == *$'\r'* ]] ||
+               ! [[ "$COMMENT_BODY" =~ $override_pattern ]]; then
+              echo '::error::Use /approve override <review-id> <reason> on one line.'
+              exit 1
+            fi
+            review_id=${BASH_REMATCH[1]}
+            reason=${BASH_REMATCH[2]}
+          elif [[ "$COMMENT_BODY" != '/approve' ]]; then
+            exit 0
+          fi
+
+          repo_api="repos/$REPOSITORY"
+          permission=$(gh api "$repo_api/collaborators/$COMMENT_AUTHOR/permission" --jq '.permission')
+          if [[ "$permission" != 'admin' ]]; then
+            echo '::warning::Only repository admins can use /approve.'
+            exit 0
+          fi
+
+          pr_api="$repo_api/pulls/$PR_NUMBER"
+          pull=$(gh api "$pr_api")
+          head_sha=$(jq -r 'select(.state == "open") | .head.sha // empty' <<< "$pull")
+          if [[ -z "$head_sha" ]]; then
+            echo '::error::The pull request must be open and have a head commit.'
+            exit 1
+          fi
+
+          head_repo=$(jq -r '.head.repo.full_name // empty' <<< "$pull")
+          head_ref=$(jq -r '.head.ref // empty' <<< "$pull")
+          last_push=''
+          if [[ -n "$head_repo" && -n "$head_ref" ]]; then
+            last_push=$(gh api --method GET "repos/$head_repo/activity" \
+              -f ref="refs/heads/$head_ref" -f direction=desc -F per_page=1 \
+              --jq '.[0] // empty | "\(.after) \(.timestamp)"' || true)
+          fi
+          pushed_sha=''
+          pushed_at=''
+          read -r pushed_sha pushed_at <<< "$last_push" || true
+          if [[ "$pushed_sha" != "$head_sha" || -z "$pushed_at" ]]; then
+            echo "::error::Cannot confirm that head commit $head_sha was pushed before the /approve comment. Review the latest commits and comment again."
+            exit 1
+          fi
+          pushed_epoch=$(date -u -d "$pushed_at" +%s)
+          comment_epoch=$(date -u -d "$COMMENT_CREATED_AT" +%s)
+          if (( pushed_epoch >= comment_epoch )); then
+            echo "::error::Head commit $head_sha was pushed at $pushed_at, not before the /approve comment at $COMMENT_CREATED_AT. Review the new commits and comment again."
+            exit 1
+          fi
+          latest_reviews=$(gh api --paginate --slurp "$pr_api/reviews" | jq -c '
+            (add // [])
+            | map(select(.state == "CHANGES_REQUESTED" or .state == "APPROVED" or .state == "DISMISSED"))
+            | group_by(.user.id)
+            | map(max_by([.submitted_at, .id]))
+          ')
+
+          if [[ -n "$review_id" ]]; then
+            review_state=$(jq -r --arg id "$review_id" '
+              .[] | select((.id | tostring) == $id) | .state
+            ' <<< "$latest_reviews")
+            case "$review_state" in
+              CHANGES_REQUESTED)
+                gh api --method PUT "$pr_api/reviews/$review_id/dismissals" \
+                  -f event=DISMISS \
+                  -f "message=Dismissed through /approve override by @$COMMENT_AUTHOR at commit $head_sha. Reason: $reason" > /dev/null
+                echo "Dismissed review $review_id on $REPOSITORY#$PR_NUMBER."
+                ;;
+              DISMISSED)
+                echo "Review $review_id is already dismissed."
+                ;;
+              *)
+                echo "::error::Review $review_id is not a current change request on this pull request."
+                exit 1
+                ;;
+            esac
+          fi
+
+          already_approved=$(jq -r --arg head "$head_sha" '
+            any(.[]; .user.login == "github-actions[bot]" and .state == "APPROVED" and .commit_id == $head)
+          ' <<< "$latest_reviews")
+          if [[ "$already_approved" == 'true' ]]; then
+            echo "github-actions[bot] already approved $head_sha."
+            exit 0
+          fi
+
+          gh api --method POST "$pr_api/reviews" \
+            -f event=APPROVE \
+            -f commit_id="$head_sha" \
+            -f body="Approved through /approve by @$COMMENT_AUTHOR at commit $head_sha." > /dev/null
+          echo "Approved $REPOSITORY#$PR_NUMBER at $head_sha."
