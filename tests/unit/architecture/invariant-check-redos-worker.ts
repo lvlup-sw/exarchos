@@ -145,6 +145,7 @@ async function runGate(store: EventStore, diff: string): Promise<{
   readonly success: boolean;
   readonly errorCode?: string;
   readonly sources: readonly string[];
+  readonly message: string | undefined;
   readonly raw: unknown;
 }> {
   const result = await dispatch(
