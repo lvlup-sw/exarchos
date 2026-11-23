@@ -2,7 +2,9 @@ name: CI
 
 # No pull_request trigger: a PR push starts no CI. Run the suite on demand with
 # `gh workflow run ci.yml --ref <branch>`. Its CI Gate check then lands on that
-# branch head. Each push to main runs the full suite.
+# branch head. Each push to main runs the full suite, with the coverage ratchet.
+# Pull requests are checked on Buildkite by tools/ci/pr-lane.mjs after a maintainer
+# posts /bk. Map each new step here in tools/ci/pr-lane.json.
 on:
   push:
     branches: [main]

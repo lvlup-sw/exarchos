@@ -4,10 +4,10 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1494,
-    "parsedFiles": 1449,
+    "testFiles": 1495,
+    "parsedFiles": 1450,
     "shellFiles": 45,
-    "cases": 16546,
+    "cases": 16560,
     "dynamicTitles": 288,
     "unparseableFiles": 0
   },
@@ -15121,6 +15121,82 @@
         {
           "suite": "release gate on the unpinned trust root",
           "name": "Workflows_OnlyTheReleaseWorkflowRunsTheTrustRootGate",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/scripts/pr-lane-parity.test.ts": {
+      "file": "tests/scripts/pr-lane-parity.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "pull request lane parity with ci.yml",
+          "name": "maps every ci.yml run step to a lane step or a post-merge reason, with no stale entries",
+          "dynamic": false
+        },
+        {
+          "suite": "pull request lane parity with ci.yml",
+          "name": "reports a seeded unmapped step, a stale entry, and an unknown target",
+          "dynamic": false
+        },
+        {
+          "suite": "pull request lane parity with ci.yml",
+          "name": "reports a self-test that maps to a lane step that runs another command",
+          "dynamic": false
+        },
+        {
+          "suite": "pull request lane parity with ci.yml",
+          "name": "runs every core file that a ci.yml step re-asserts in the forced core list",
+          "dynamic": false
+        },
+        {
+          "suite": "pull request lane never collects coverage",
+          "name": "keeps --coverage out of the manifest and the runner",
+          "dynamic": false
+        },
+        {
+          "suite": "pull request lane never collects coverage",
+          "name": "keeps the coverage run and the blocking coverage ratchet in ci.yml after merge",
+          "dynamic": false
+        },
+        {
+          "suite": "pull request lane never collects coverage",
+          "name": "plans no coverage and stops at the first failure in both modes of the tests suite",
+          "dynamic": false
+        },
+        {
+          "suite": "pull request lane selection",
+          "name": "matches globs by path segment",
+          "dynamic": false
+        },
+        {
+          "suite": "pull request lane selection",
+          "name": "resolves auto mode to full for a lockfile, config or runner change, and to selected otherwise",
+          "dynamic": false
+        },
+        {
+          "suite": "pull request lane selection",
+          "name": "runs a self-test only when its gate, its test or a shared trigger changes, and all of them in full mode",
+          "dynamic": false
+        },
+        {
+          "suite": "pull request lane selection",
+          "name": "runs the acceptance suite in full when shipped content changes, and the process tiers only for binary inputs",
+          "dynamic": false
+        },
+        {
+          "suite": "pull request lane selection",
+          "name": "passes the base to the comment lint and sizes vitest workers from the agent limits",
+          "dynamic": false
+        },
+        {
+          "suite": "pull request lane selection",
+          "name": "refuses a missing base, an unknown suite and an unknown mode",
+          "dynamic": false
+        },
+        {
+          "suite": "pull request lane selection",
+          "name": "prints the same unit file list in a dry run as in a real run",
           "dynamic": false
         }
       ]
