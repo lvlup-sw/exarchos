@@ -10,7 +10,7 @@ All notable changes to Exarchos are documented in this file. Organized by semver
   - The plugin manifest, `~/.claude.json` registration, the Claude writer and the Cursor and Copilot project writers start the orchestrator entry with `--operator`.
   - Read-only agents, such as the reviewer, name a separate `exarchos-readonly` server. On Claude it is inline in the agent file.
   - A hand-registered `exarchos mcp` entry for the orchestrator needs `--operator`. An older binary rejects the flag, so set `minBinaryVersion` to the first release that has it.
-  - A Codex, Cursor, OpenCode or Copilot reviewer that needs Exarchos reads must register `exarchos-readonly` as `exarchos mcp`.
+  - The Cursor and Copilot project writers also register `exarchos-readonly` as `exarchos mcp`. Onboard writes no MCP config for Codex or OpenCode, so a reviewer there that needs Exarchos reads must register `exarchos-readonly` by hand.
 - **Pull request ids must be positive decimal integers.** `merge_pr`, `check_ci`, `get_pr_comments` and `add_pr_comment` refuse any other `prId` or `threadId` before a `gh`, `glab` or `az` call. Each positional id goes after `--` (#2246).
 - **Invariant check patterns compile with RE2.** A catalog pattern that uses lookaround or a backreference fails at load time. A pattern has at most 1,000 characters and 1,000 instructions. A check that the match budget stops counts as violated at the severity of its invariant (#2248).
 - **Onboard writes `exarchos mcp --operator` as the `exarchos` entry of `.cursor/mcp.json` and `.vscode/mcp.json`.** Earlier versions wrote an unpinned `npx -y` launch. A re-run of onboard replaces that entry (#2242).

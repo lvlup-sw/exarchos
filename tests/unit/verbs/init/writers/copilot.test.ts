@@ -84,6 +84,20 @@ describe('CopilotWriter', () => {
     expect(parsed.mcpServers.exarchos.type).toBe('stdio');
   });
 
+  /**
+   * The reviewer agent file names `exarchos-readonly`, so the writer registers that server next to the orchestrator entry.
+   * The read-only entry starts `exarchos mcp` without `--operator`.
+   */
+  it('CopilotWriter_Write_RegistersOrchestratorAndReadOnlyServers', async () => {
+    fs.dirs.add('/project/.vscode');
+
+    await new CopilotWriter({ fs }).write(stubDeps, defaultOptions);
+
+    const parsed = JSON.parse(fs.files.get('/project/.vscode/mcp.json')!);
+    expect(parsed.mcpServers.exarchos).toEqual({ command: 'exarchos', args: ['mcp', '--operator'], type: 'stdio' });
+    expect(parsed.mcpServers['exarchos-readonly']).toEqual({ command: 'exarchos', args: ['mcp'], type: 'stdio' });
+  });
+
   it('CopilotWriter_Write_PreservesExistingServers', async () => {
     const existing = JSON.stringify(
       {

@@ -12,7 +12,11 @@ import { promises as nodeFs } from 'node:fs';
 import { toPosix } from '../../../utils/paths.js';
 import type { ConfigWriteResult } from '../schema.js';
 import type { AgentRuntimeName } from '../../../runtime/agent-environment-detector.js';
-import { OPERATOR_MCP_ARGS } from '../../../runtime/agents/mcp-server-binding.js';
+import {
+  OPERATOR_MCP_ARGS,
+  READONLY_MCP_ARGS,
+  READONLY_MCP_SERVER_NAME,
+} from '../../../runtime/agents/mcp-server-binding.js';
 import type { RuntimeConfigWriter, WriteOptions } from './writer.js';
 import type { WriterDeps } from '../probes.js';
 import {
@@ -62,6 +66,16 @@ export interface McpJsonWriterDeps {
 const EXARCHOS_MCP_ENTRY = {
   command: 'exarchos',
   args: [...OPERATOR_MCP_ARGS],
+  type: 'stdio',
+} as const;
+
+/**
+ * The project entry of the read-only server. Read-only agents, such as the reviewer, name it in their agent files.
+ * It starts the same binary without `--operator`, so its sessions hold no write grant.
+ */
+const READONLY_PROJECT_MCP_ENTRY = {
+  command: 'exarchos',
+  args: [...READONLY_MCP_ARGS],
   type: 'stdio',
 } as const;
 
@@ -428,7 +442,7 @@ export abstract class McpJsonWriter implements RuntimeConfigWriter {
 
   /**
    * Recovers an interrupted promotion before it reads the existing config, because a merge over an interrupted state uses the wrong base.
-   * It then sets the `exarchos` entry in `mcpServers` and publishes through {@link promoteConfigFile}.
+   * It then sets the `exarchos` and `exarchos-readonly` entries in `mcpServers` and publishes through {@link promoteConfigFile}.
    */
   async write(_deps: WriterDeps, options: WriteOptions): Promise<ConfigWriteResult> {
     const dirPath = toPosix(join(options.projectRoot, this.configDir));
@@ -457,6 +471,7 @@ export abstract class McpJsonWriter implements RuntimeConfigWriter {
         ? { ...(existing.mcpServers as Record<string, unknown>) }
         : {};
     mcpServers.exarchos = { ...EXARCHOS_MCP_ENTRY };
+    mcpServers[READONLY_MCP_SERVER_NAME] = { ...READONLY_PROJECT_MCP_ENTRY };
 
     const merged = { ...existing, mcpServers };
     const content = JSON.stringify(merged, null, 2) + '\n';
