@@ -439,11 +439,12 @@ export async function main(argv) {
   if (options.dryRun) {
     rmSync(scratch, { recursive: true, force: true });
     const forced = options.suite === 'tests' && mode === 'selected' ? forcedCoreFiles(manifest) : [];
+    const unitFiles = options.suite === 'tests' ? unitFilesOutsideArchitecture(env) : [];
     const plan =
       options.suite === 'static'
         ? Object.values(staticPlan(manifest, { base: options.base, mode, changed: all, limits })).flat()
-        : testsPlan(manifest, { base: options.base, mode, changed: all, present, limits, binDir, scratch, forced });
-    process.stdout.write(`changed present files: ${present.length}, forced core files: ${forced.length}\n`);
+        : testsPlan(manifest, { base: options.base, mode, changed: all, present, limits, binDir, scratch, forced, unitFiles });
+    process.stdout.write(`changed present files: ${present.length}, forced core files: ${forced.length}, unit files: ${unitFiles.length}\n`);
     for (const step of plan) process.stdout.write(`- ${step.id}: ${step.run.length > 240 ? `${step.run.slice(0, 240)}… (${step.run.length} chars)` : step.run}\n`);
     return 0;
   }

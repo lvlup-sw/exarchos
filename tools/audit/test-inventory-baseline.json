@@ -7,7 +7,7 @@
     "testFiles": 1495,
     "parsedFiles": 1450,
     "shellFiles": 45,
-    "cases": 16559,
+    "cases": 16560,
     "dynamicTitles": 288,
     "unparseableFiles": 0
   },
@@ -15192,6 +15192,11 @@
         {
           "suite": "pull request lane selection",
           "name": "refuses a missing base, an unknown suite and an unknown mode",
+          "dynamic": false
+        },
+        {
+          "suite": "pull request lane selection",
+          "name": "prints the same unit file list in a dry run as in a real run",
           "dynamic": false
         }
       ]
