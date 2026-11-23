@@ -1,5 +1,6 @@
 /**
  * Exercises a complete typed feature through registered prepare and settle.
+ * The bootstrap compiles compiler 8-vcs. Before the settle, each task branch lands on the integration branch, as a harness does.
  * @oracle-sources: The approved bytes, authored task IDs and durable phase and completion rows.
  */
 import { createHash } from 'node:crypto';
@@ -13,6 +14,7 @@ import type { WorkflowEvent } from '../../src/events/schemas.js';
 import { EventStore } from '../../src/events/store.js';
 import { foldGuardInput } from '../../src/projections/guard-input/fold.js';
 import { loadPreparedCustody, selectPreparedAuthority } from '../../src/workflow/capsule/prepared-custody.js';
+import { execFileAsync } from '../../tools/test-helpers/spawn.js';
 import { makeTempDir, rmrfAsync } from '../../tools/test-helpers/temp-dir.js';
 import { task, textOf } from '../helpers/capsule/prepared-authority.js';
 import { scopedRepository } from '../helpers/scoped-repository.js';
@@ -77,8 +79,9 @@ it('Acceptance_TypedFeature_PrepareAndSettleUsesApprovedPlan', async () => {
     expect(first.data).toMatchObject({
       capsuleVersion: 1,
       capsule: {
+        settlementContract: { integration: { ref: `refs/heads/${BASE}` } },
         graph: { tasks: IDS.map(taskId => expect.objectContaining({ taskId, stepId: 'delegate' })) },
-        provenance: { sources: expect.arrayContaining([{ sourceId: 'design-record', digest: designDigest }]) },
+        provenance: { compilerVersion: 'exarchos-prepare-8-vcs', sources: expect.arrayContaining([{ sourceId: 'design-record', digest: designDigest }]) },
       },
     });
     const rows = await events.query(STREAM);
@@ -95,6 +98,7 @@ it('Acceptance_TypedFeature_PrepareAndSettleUsesApprovedPlan', async () => {
     expect(denied).toMatchObject({ success: false, error: { code: 'GUARD_FAILED' } });
 
     const worktrees = await Promise.all(IDS.map(id => checkout.worktreeFor(id, { [`src/${id}.js`]: 'export const value = 2;\n' })));
+    for (const id of IDS) await execFileAsync('git', ['merge', '-q', '--no-edit', `task/${id}`], { cwd: checkout.checkout });
     const settle = {
       capsuleVersion: 1, batchId: 'typed-wave',
       claims: IDS.map((taskId, i) => ({ taskId, fields: { worktreePath: worktrees[i], files: [`src/${taskId}.js`] }, evidence: [] })),

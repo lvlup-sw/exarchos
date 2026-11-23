@@ -4,10 +4,10 @@
  * Every other name keeps its historical meaning, and the decoder refuses no name.
  */
 
-/** The name of the immutable compiler with no integration terms. Typed plans use it by default. */
+/** The name of the immutable compiler with no integration terms. Typed workflows that it prepared keep it. */
 export const IMMUTABLE_COMPILER_VERSION = 'exarchos-prepare-8';
 
-/** The name of the immutable compiler that also pins the integration ref and binds the integration tip. */
+/** The name of the immutable compiler that also pins the integration ref and binds the integration tip. Fresh typed plans use it by default. */
 export const INTEGRATION_COMPILER_VERSION = 'exarchos-prepare-8-vcs';
 
 /** The historical names that require a full definition: compiler 7 and each later numbered compiler. */

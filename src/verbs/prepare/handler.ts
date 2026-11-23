@@ -92,7 +92,7 @@ import { resolveTaskStanding } from '../settle/task-standing.js';
 import { pendingRevisionOf, recompiledSliceOf } from './recompiled-slice.js';
 import { compilableSteps, locateStep, type StepFindingRule } from './step-locator.js';
 import type { PreparedCapsuleReceipt, PreparedRecompile, PrepareRefusal } from './types.js';
-import { compilerPolicy, IMMUTABLE_COMPILER_VERSION } from '../../contract/capsule/compiler-policy.js';
+import { compilerPolicy, IMMUTABLE_COMPILER_VERSION, INTEGRATION_COMPILER_VERSION } from '../../contract/capsule/compiler-policy.js';
 import { constrainedBranchRef } from '../../utils/git-tree.js';
 
 /** The runbook that settlement composes for each accepted task. Its leaf needs are the batch needs. */
@@ -486,6 +486,15 @@ function compileStateOf(rows: readonly WorkflowEvent[]) {
   return foldWorkflowState(inputs);
 }
 
+/**
+ * The compiler of a typed compilation. A fresh typed workflow gets compiler 8-vcs.
+ * A workflow whose latest prepared authority is a compiler 8 typed capsule keeps compiler 8, so its prepares replay with their original results.
+ */
+function typedCompilerOf(authority: PreparedAuthoritySelection | undefined): string {
+  return authority?.kind === 'typed' && authority.record.compilerVersion === IMMUTABLE_COMPILER_VERSION
+    ? IMMUTABLE_COMPILER_VERSION : INTEGRATION_COMPILER_VERSION;
+}
+
 function branchOf(state: Record<string, unknown>): unknown {
   return isRecord(state.synthesis) ? state.synthesis.integrationBranch : undefined;
 }
@@ -836,7 +845,7 @@ async function prepareFromSnapshot(
     if (!approved.ok) return refused(approved.refusal);
     snapshot = approved.snapshot;
   }
-  const compilerVersion = deps.compilerVersion ?? (snapshot === undefined ? PREPARE_COMPILER_VERSION : IMMUTABLE_COMPILER_VERSION);
+  const compilerVersion = deps.compilerVersion ?? (snapshot === undefined ? PREPARE_COMPILER_VERSION : typedCompilerOf(authority));
   const integrationRef = compilerPolicy(compilerVersion).integration ? integrationRefOf(branchOf(state)) : undefined;
   if (compilerPolicy(compilerVersion).integration && integrationRef === undefined) {
     return refused({ code: 'BASE_UNRESOLVED', message: 'Compiler 8-vcs requires a recorded integration branch of the workflow (synthesis.integrationBranch).' });

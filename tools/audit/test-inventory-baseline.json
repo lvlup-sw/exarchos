@@ -4,10 +4,10 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1506,
-    "parsedFiles": 1462,
+    "testFiles": 1507,
+    "parsedFiles": 1463,
     "shellFiles": 44,
-    "cases": 16747,
+    "cases": 16749,
     "dynamicTitles": 337,
     "unparseableFiles": 0
   },
@@ -12040,6 +12040,22 @@
           "suite": "",
           "name": "<dynamic-case-2>",
           "dynamic": true
+        }
+      ]
+    },
+    "tests/process/1928-typed-activation.test.ts": {
+      "file": "tests/process/1928-typed-activation.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "packaged compiler 8-vcs activation",
+          "name": "TypedActivation_FreshPrepareHarnessLandingAndSettle_AcceptsAtTheTip",
+          "dynamic": false
+        },
+        {
+          "suite": "packaged compiler 8-vcs activation",
+          "name": "TypedActivation_WrongIntegrationCheckout_RefusesBeforeAnyClaim",
+          "dynamic": false
         }
       ]
     },

@@ -1,4 +1,5 @@
 /** Packaged restart and standing races use original claims and stopped owned processes.
+ * The fixture compiles compiler 8-vcs and lands each task branch before the settle, so each accepting settle also binds one integration attempt at the tip.
  * @oracle-sources: SQLite original claim arrays, immutable bundle bytes, real Node assertion probes and Git argv.
  */
 import Database from 'better-sqlite3';
@@ -45,10 +46,13 @@ describe('packaged S7 DAG races', () => {
       const receipt = SettlementReceiptData.parse(data(result.envelope));
       expect(receipt.acceptedTasks).toEqual(['T-01']);
       expect((await journalOf(f)).filter(row => row.mode === 'probe')).toEqual(before);
-      expect((await journalOf(f)).some(row => row.mode === 'integration')).toBe(true);
+      expect((await journalOf(f)).filter(row => row.mode === 'integration').map(row => row.tree)).toContain(f.repository.checkout);
       expect(allClaims(f.database)).toEqual(expect.arrayContaining(recordArray(ready.members)));
       const rebound = allClaims(f.database).filter(row => row.streamId === '__segment_input_bindings_v1__');
-      expect(rebound.filter(row => !string(row.idempotencyKey).startsWith('local-check:'))).toEqual(bound.filter(row => !string(row.idempotencyKey).startsWith('local-check:')));
+      const segmentBindings = (rows: Record<string, unknown>[]) => rows.filter(row => !string(row.idempotencyKey).startsWith('local-check:')
+        && !string(row.idempotencyKey).startsWith('settle-integration:'));
+      expect(segmentBindings(rebound)).toEqual(segmentBindings(bound));
+      expect(rebound.filter(row => string(row.idempotencyKey).startsWith('settle-integration:'))).toHaveLength(1);
       expect(rebound.filter(row => string(row.idempotencyKey).startsWith(`${adequacyCheck}:`))).toEqual(bound.filter(row => string(row.idempotencyKey).startsWith('local-check:')));
       const bundles = RunBundleStore.forStateDir(f.stateDir);
       const ref = receipt.bundleRefs?.[0]; if (!ref) throw new Error('Missing actual outer bundle');

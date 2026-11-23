@@ -1,5 +1,7 @@
 /**
  * Runs competing packaged prepare, transition and settle calls against one private store.
+ * A fresh typed prepare compiles compiler 8-vcs. The fixture lands each task branch on the integration branch, as a harness does.
+ * The settle race lands after the newer pin and before the release. Thus the newer pin keeps the original base, and the integration checkout stays clean.
  * @oracle-sources: The original bundle bytes, segment claims and durable phase rows.
  */
 import { readFile, rename } from 'node:fs/promises';
@@ -71,7 +73,7 @@ describe('packaged prepared authority', () => {
     await withRaceRepository(async fixture => {
       const request = await prepareRequest(fixture, { workflowType: WORKFLOW_TYPE });
       const original = data((await fixture.cli(request.cli)).envelope);
-      expect(original).toMatchObject({ capsule: { provenance: { compilerVersion: 'exarchos-prepare-8' }, graph: { tasks: [{ taskId: id }] }, settlementContract: { requiredResults: [id] } } });
+      expect(original).toMatchObject({ capsule: { provenance: { compilerVersion: 'exarchos-prepare-8-vcs' }, graph: { tasks: [{ taskId: id }] }, settlementContract: { requiredResults: [id] } } });
       await completeOverCli(fixture, id, original.capsuleVersion);
       expect(transitionRows(fixture)).toEqual([]);
       expect(fixture.ledger().rows.filter(row => row.type === 'task.completed')).toMatchObject([{ data: { taskId: id } }]);
@@ -93,7 +95,7 @@ describe('packaged prepared authority', () => {
         await fixture.writePlan(textOf(typedTasks(TASKS)));
         const updated = await prepareRequest(fixture, { workflowType: WORKFLOW_TYPE, mode: 'compile' });
         const newer = data((await fixture.cli(updated.cli)).envelope);
-        expect(newer).toMatchObject({ capsuleVersion: 2, capsule: { provenance: { compilerVersion: 'exarchos-prepare-8' }, graph: { tasks: TASKS.map(taskId => ({ taskId })) }, settlementContract: { requiredResults: TASKS } } });
+        expect(newer).toMatchObject({ capsuleVersion: 2, capsule: { provenance: { compilerVersion: 'exarchos-prepare-8-vcs' }, graph: { tasks: TASKS.map(taskId => ({ taskId })) }, settlementContract: { requiredResults: TASKS } } });
         expect(transitionRows(fixture)).toEqual([]);
         await hold.release();
         const transfer = await writer;
@@ -115,7 +117,7 @@ describe('packaged prepared authority', () => {
     await withRaceRepository(async fixture => {
       const request = await prepareRequest(fixture, { workflowType: WORKFLOW_TYPE });
       const first = data((await fixture.cli(request.cli)).envelope);
-      expect(first).toMatchObject({ capsule: { provenance: { compilerVersion: 'exarchos-prepare-8' }, graph: { tasks: TASKS.map(taskId => ({ taskId })) }, settlementContract: { requiredResults: TASKS } } });
+      expect(first).toMatchObject({ capsule: { provenance: { compilerVersion: 'exarchos-prepare-8-vcs' }, graph: { tasks: TASKS.map(taskId => ({ taskId })) }, settlementContract: { requiredResults: TASKS } } });
       const trees = await Promise.all(TASKS.map(id => worktree(fixture, id)));
       const claims = TASKS.map((id, index) => ({ taskId: id, fields: { worktreePath: trees[index], files: [`src/${id}.js`] }, evidence: [] }));
       const hold = await makeBarrier(fixture.controls, 'second-task-integration');
@@ -134,8 +136,10 @@ describe('packaged prepared authority', () => {
           await fixture.writePlan(request.bytes.toString() + '\nNewly approved plan text.\n');
           const updated = await prepareRequest(fixture, { workflowType: WORKFLOW_TYPE, mode: 'compile' });
           const next = data((await fixture.cli(updated.cli)).envelope);
-          expect(next).toMatchObject({ capsuleVersion: 2, capsule: { provenance: { compilerVersion: 'exarchos-prepare-8' }, graph: { tasks: TASKS.map(taskId => ({ taskId })) }, settlementContract: { requiredResults: TASKS } } });
+          expect(next).toMatchObject({ capsuleVersion: 2, capsule: { provenance: { compilerVersion: 'exarchos-prepare-8-vcs' }, graph: { tasks: TASKS.map(taskId => ({ taskId })) }, settlementContract: { requiredResults: TASKS } } });
+          await fixture.writePlan(request.bytes.toString());
         }
+        for (const id of TASKS) await fixture.git(['merge', '-q', '--no-edit', `task/${id}`]);
         await hold.release();
         const settled = data((await pending).envelope);
         expect(settled).toMatchObject({ outcome: 'settled', acceptedTasks: TASKS });

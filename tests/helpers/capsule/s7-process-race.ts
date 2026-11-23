@@ -48,7 +48,10 @@ function changedFiles(id: string) {
     [`tests/${id}.test.cjs`]: `require('node:assert/strict').equal(require('../src/${id}.cjs'), 1);\n` };
 }
 
-/** Bootstraps through the actual binary, with its checked public compiler selector. */
+/**
+ * Bootstraps through the actual binary, which compiles a fresh typed plan with compiler 8-vcs.
+ * Each task commits in its own worktree. Then the fixture lands each task branch on the integration branch, as a harness does.
+ */
 export async function withS7Repository(work: (f: S7Fixture) => Promise<void>, ids: readonly string[], risk: 'low' | 'high') {
   const tasks = ids.map(id => task(id, { files: [`src/${id}.cjs`], testFiles: [`tests/${id}.test.cjs`], riskTier: risk }));
   await withRaceRepository(async fixture => {
@@ -56,9 +59,10 @@ export async function withS7Repository(work: (f: S7Fixture) => Promise<void>, id
     const env = { S7_JOURNAL: journal };
     const request = await prepareRequest(fixture, { workflowType: 'release-check' });
     const prepared = data((await fixture.cli(request.cli, env)).envelope);
-    expect(record(prepared.capsule).provenance).toMatchObject({ compilerVersion: 'exarchos-prepare-8' });
+    expect(record(prepared.capsule).provenance).toMatchObject({ compilerVersion: 'exarchos-prepare-8-vcs' });
     const trees = new Map<string, string>();
     for (const id of ids) trees.set(id, await fixture.repository.worktreeFor(id, changedFiles(id)));
+    for (const id of ids) await fixture.git(['merge', '-q', '--no-edit', `task/${id}`]);
     const claims = ids.map(id => ({ taskId: id, fields: { worktreePath: trees.get(id), files: [`src/${id}.cjs`] }, evidence: [] }));
     const args = settleArgs(prepared.capsuleVersion, claims, 's7-process');
     await work({ ...fixture, journal, env, prepared, trees, args });

@@ -756,6 +756,19 @@ decisions:
       Four test files whose only subject is deleted host code are retired rows of the test inventory oracle.
     status: "Committed on codex/1928-s2-mutation-and-host. Reed publishes the docs, including the revision of DR-3 in the specification of 2026-11-14."
 
+  - date: "2026-11-23"
+    source: "#1928 revision 26, slice S2 step T-26."
+    decision: >-
+      A fresh typed prepare compiles exarchos-prepare-8-vcs by default. The capsule pins the recorded integration branch as its integration ref, and a bootstrap records its base as that branch.
+      A harness lands each task branch on the integration ref. Settle then runs the integration suite in its local executor at the observed tip, in the checkout of the capsule scope, with no verifier.
+      A settle refuses an integration checkout that does not hold the integration ref before any claim, row or suite run.
+      The deps.compilerVersion override of prepare still selects any compiler.
+      A workflow whose latest prepared authority is a compiler 8 typed capsule keeps compiler 8 for each later prepare, so its prepare replays keep their original receipts.
+    known: >-
+      Historical compiler 8 capsules pin no integration term, so their settlements run no suite at a tip, and their terminal receipts replay unchanged.
+      A bootstrap uses one branch as base and integration ref. A landing moves that base, so a recompile after a landing pins a new base commit and changes the execution terms of each task.
+    status: "Committed on codex/1928-s2-mutation-and-host."
+
 build_order:
   original: "kernel -> capsule contract -> prepare/settle -> one runtime adapter -> divergence loop -> #1249 laws -> second adapter"
   legs:
@@ -1035,7 +1048,7 @@ measured:
     # 00b0a8321, and each check passed again there on 2026-11-05. Five facts above changed with it: the two probe
     # causes, the boundary leg, the compiler of prepare, the gates that default to main and the stored shapes.
     # The fact that gates still carry per-language code is resolved, and the guard fact below replaces it.
-    - fact: "Prepare pins the checkout verification profile and definition extension. S7 activates compiler 8 only for approved typed plans. An unresolved profile term retains its reason. Earlier capsules that omit the profile still parse."
+    - fact: "Prepare pins the checkout verification profile and definition extension. S7 activates compiler 8 only for approved typed plans, and since 2026-11-23 a fresh typed plan compiles compiler 8-vcs. An unresolved profile term retains its reason. Earlier capsules that omit the profile still parse."
       check: "npm run test:files -- tests/acceptance/s7-whole-capsule.test.ts tests/unit/verbs/prepare/prepare-profile.test.ts tests/unit/contract/capsule/capsule-profile.test.ts"
     - fact: "settle hands the pinned profile to each leaf of a segment through the dispatch context, and the request digest of a segment does not cover it. When a batch needs a segment, settle refuses CAPSULE_UNRESOLVED for a capsule that pins no verification profile, after the scope check and before the config check, and the refusal records nothing. On a decision round the refusal names two routes: decide by rejecting, which runs no segment, or prepare again and claim the tasks in a new batch. A rejecting decision on such a held batch settles."
       check: "grep -n 'pins no verification profile' src/verbs/settle/handler.ts; grep -n -A9 '^async function segmentContextOf' src/verbs/settle/handler.ts; npm run test:files -- tests/unit/verbs/settle/settle-profile.test.ts"
