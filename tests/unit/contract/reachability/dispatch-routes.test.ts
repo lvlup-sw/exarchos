@@ -6,7 +6,6 @@
  */
 import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 
 import {
@@ -24,6 +23,7 @@ import {
 import { EFFECT_PROVIDERS } from '../../../../src/contract/reachability/providers.js';
 import { TOOL_REGISTRY } from '../../../../src/registry.js';
 import { COMPOSITE_HANDLER_LOADERS } from '../../../../src/dispatch/core/dispatch.js';
+import { makeTempDir, rmrf } from '../../../../tools/test-helpers/temp-dir.js';
 
 describe('router-source resolution — the tool → shipped router map', () => {
   it('resolves exactly one router file per dispatchable composite tool', () => {
@@ -124,7 +124,7 @@ describe('the scanner reads code, not prose — comments and strings are inert',
 
   /** The computed key resolves through the import of a synthetic router to a string constant of a sibling module. */
   it('reads quoted, bare and computed handler-table keys and skips nested values', () => {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dispatch-routes-computed-'));
+    const dir = makeTempDir('dispatch-routes-computed-');
     try {
       const file = path.join(dir, 'composite.ts');
       const src = [
@@ -143,7 +143,7 @@ describe('the scanner reads code, not prose — comments and strings are inert',
         'computed-key',
       ]);
     } finally {
-      fs.rmSync(dir, { recursive: true, force: true });
+      rmrf(dir);
     }
   });
 
