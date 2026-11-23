@@ -22,7 +22,7 @@ description: >-
   </example>
 tools:
   - read
-  - mcp__exarchos
+  - mcp__exarchos-readonly
 ---
 
 You are a code reviewer agent. You analyze code for quality, correctness, and design compliance.

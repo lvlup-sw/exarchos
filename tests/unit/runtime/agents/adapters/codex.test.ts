@@ -86,19 +86,19 @@ describe('CodexAdapter', () => {
   });
 
   /**
-   * The readonly tier must lower to the same `mcp_servers = ["exarchos"]` line as `mcp:exarchos`.
-   * Without the line, an agent with only the readonly tier cannot call the read-only actions.
-   * The dispatch layer limits the tier per action.
+   * The readonly tier must lower to `mcp_servers = ["exarchos-readonly"]`, also when the spec names `exarchos`.
+   * The `exarchos` server holds the operator grant, so a read-only agent must not share it.
+   * The dispatch layer limits the read-only server per action.
    */
-  it('CodexAdapter_LowerSpec_Readonly_GrantsExarchosTool', () => {
+  it('CodexAdapter_LowerSpec_Readonly_GrantsReadonlyServerOnly', () => {
     forceCapabilities(['fs:read', 'mcp:exarchos:readonly', 'isolation:worktree']);
     const readonlySpec: AgentSpec = {
       ...baseSpec,
-      mcpServers: undefined,
+      mcpServers: ['exarchos'],
     };
     const { contents } = codexAdapter.lowerSpec(readonlySpec);
 
-    expect(contents).toMatch(/^mcp_servers\s*=\s*\["exarchos"\]\s*$/m);
+    expect(contents).toMatch(/^mcp_servers\s*=\s*\["exarchos-readonly"\]\s*$/m);
   });
 
   /** The `task-isolated` posture of `baseSpec` resolves to `mcp:exarchos`, which gives the same `mcp_servers` line. */

@@ -200,7 +200,7 @@ describe('MCP Server Entry Point', () => {
 
   describe('composite handler routing', () => {
     it('should route exarchos_workflow to handleWorkflow', async () => {
-      await createServer('/tmp/test-state-dir');
+      await createServer('/tmp/test-state-dir', { grant: 'operator' });
       await toolRegistrations.get('exarchos_workflow')!.handler({
         action: 'init', featureId: 'test-feat', workflowType: 'feature',
       });
@@ -212,7 +212,7 @@ describe('MCP Server Entry Point', () => {
     });
 
     it('should route exarchos_event to handleEvent', async () => {
-      await createServer('/tmp/test-state-dir');
+      await createServer('/tmp/test-state-dir', { grant: 'operator' });
       await toolRegistrations.get('exarchos_event')!.handler({
         action: 'append', stream: 'my-stream', event: { type: 'test' },
       });
@@ -224,7 +224,7 @@ describe('MCP Server Entry Point', () => {
     });
 
     it('should route exarchos_orchestrate to handleOrchestrate', async () => {
-      await createServer('/tmp/test-state-dir');
+      await createServer('/tmp/test-state-dir', { grant: 'operator' });
       await toolRegistrations.get('exarchos_orchestrate')!.handler({
         action: 'task_claim', taskId: 'T1', agentId: 'agent-1', streamId: 'feat-1',
       });
@@ -248,7 +248,7 @@ describe('MCP Server Entry Point', () => {
     });
 
     it('should wrap results with toEnvelope/toMcpResult', async () => {
-      await createServer('/tmp/test-state-dir');
+      await createServer('/tmp/test-state-dir', { grant: 'operator' });
       const result = await toolRegistrations.get('exarchos_workflow')!.handler({
         action: 'init', featureId: 'test-feat', workflowType: 'feature',
       });
@@ -266,7 +266,7 @@ describe('MCP Server Entry Point', () => {
         error: { code: 'STATE_ALREADY_EXISTS', message: 'Already exists' },
       });
 
-      await createServer('/tmp/test-state-dir');
+      await createServer('/tmp/test-state-dir', { grant: 'operator' });
       const result = await toolRegistrations.get('exarchos_workflow')!.handler({
         action: 'init', featureId: 'dup', workflowType: 'feature',
       });
@@ -293,7 +293,7 @@ describe('MCP Server Entry Point', () => {
       const originalEnv = process.env.EXARCHOS_TELEMETRY;
       try {
         delete process.env.EXARCHOS_TELEMETRY;
-        await createServer('/tmp/test-state-dir');
+        await createServer('/tmp/test-state-dir', { grant: 'operator' });
         await toolRegistrations.get('exarchos_workflow')!.handler({
           action: 'init', featureId: 'test-feat', workflowType: 'feature',
         });

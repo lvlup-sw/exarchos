@@ -11,6 +11,34 @@ import type { AgentSpec, AgentValidationRule } from '../types.js';
 import type { RuntimeAdapter, ValidationResult } from './types.js';
 import { buildSupportMap } from './support-levels.js';
 import { resolveCapabilities } from '../../../workflow/capabilities/posture-mapping.js';
+import {
+  ORCHESTRATOR_MCP_SERVER_NAME,
+  READONLY_MCP_ARGS,
+  READONLY_MCP_SERVER_NAME,
+  exarchosMcpServerFor,
+} from '../mcp-server-binding.js';
+
+/** The state directory of the plugin server entry. The inline read-only server must open the same store. */
+const CLAUDE_WORKFLOW_STATE_DIR = '~/.claude/workflow-state';
+
+/**
+ * Returns the `mcpServers` entry of an agent file. A string entry shares the session connection of the
+ * orchestrator, so only the full tier gets one. The readonly tier gets an inline server, which Claude
+ * Code connects for that agent alone. That server starts without `--operator`, so it grants only reads.
+ */
+function claudeMcpServersEntry(capabilities: ReadonlySet<string>): unknown[] | undefined {
+  const server = exarchosMcpServerFor(capabilities);
+  if (server === ORCHESTRATOR_MCP_SERVER_NAME) return [ORCHESTRATOR_MCP_SERVER_NAME];
+  if (server !== READONLY_MCP_SERVER_NAME) return undefined;
+  return [{
+    [READONLY_MCP_SERVER_NAME]: {
+      type: 'stdio',
+      command: 'exarchos',
+      args: [...READONLY_MCP_ARGS],
+      env: { WORKFLOW_STATE_DIR: CLAUDE_WORKFLOW_STATE_DIR },
+    },
+  }];
+}
 
 /**
  * Translates the capabilities that the posture of a spec resolves to into the flat Claude `tools` array.
@@ -84,9 +112,9 @@ function buildHooksFromRules(
  * YAML library escapes quotes, colons, and `$(...)` in scalar values. The field order matches the snapshot
  * fixtures. `lineWidth: 0` stops the folding of long scalars, and `PLAIN` quotes only the scalars that need it.
  *
- * `isolation` and `mcpServers` come from the resolved capabilities, not from `spec.isolation`. Both
- * `mcp:exarchos` and `mcp:exarchos:readonly` grant the whole `exarchos` server, because the agent file has
- * no per-action allowlist. `enforceReadonlyGate` in `dispatch/core/dispatch.ts` limits the readonly tier per action.
+ * `isolation` and `mcpServers` come from the resolved capabilities, not from `spec.isolation`. The full tier
+ * names the shared `exarchos` server. The readonly tier gets its own read-only server, and `enforceReadonlyGate`
+ * in `dispatch/core/dispatch.ts` limits that session per action.
  *
  * Production callers use `claudeAdapter.lowerSpec`. Tests call this function directly.
  */
@@ -120,11 +148,9 @@ export function generateClaudeAgentMarkdown(spec: AgentSpec): string {
     frontmatter.maxTurns = spec.maxTurns;
   }
 
-  if (
-    resolvedCaps.has('mcp:exarchos') ||
-    resolvedCaps.has('mcp:exarchos:readonly')
-  ) {
-    frontmatter.mcpServers = ['exarchos'];
+  const mcpServers = claudeMcpServersEntry(resolvedCaps);
+  if (mcpServers !== undefined) {
+    frontmatter.mcpServers = mcpServers;
   }
 
   if (spec.skills.length > 0) {

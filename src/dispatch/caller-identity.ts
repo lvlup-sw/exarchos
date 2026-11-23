@@ -2,11 +2,14 @@ import { createHash } from 'node:crypto';
 import * as path from 'node:path';
 import type { CapabilityResolver } from '../workflow/capabilities/resolver.js';
 import {
+  ANTHROPIC_NATIVE_CACHING,
   CAPABILITY_RESOLVER_ID,
   CAPABILITY_RESOLVER_VERSION,
+  createInMemoryResolver,
   localOperatorAuthorization,
   resolveCapabilityAuthorization,
 } from '../workflow/capabilities/resolver.js';
+import { capabilitiesForPosture } from '../workflow/capabilities/posture-mapping.js';
 import type { AgentPosture } from '../runtime/agents/spec.js';
 import type { Capability } from '../runtime/agents/capabilities.js';
 
@@ -73,6 +76,56 @@ export function deriveMcpCallerIdentity(
     kind: 'mcp-session',
     role: 'agent',
   });
+}
+
+/**
+ * The grant that an MCP server gives each session. Only the launch configuration of the server sets it.
+ * A connected agent cannot change it, because no tool argument and no handshake field reads it.
+ */
+export type McpSessionGrant = 'read-only' | 'operator';
+
+/** The grant of an MCP session when the launch configuration names none. Absent authority fails closed. */
+export const DEFAULT_MCP_SESSION_GRANT: McpSessionGrant = 'read-only';
+
+/**
+ * Returns a resolver that holds only `capabilities`. The handshake snapshot and the roots cache stay in `base`.
+ * Thus a narrowed session and its process resolver agree about the client.
+ */
+function restrictResolver(
+  base: CapabilityResolver,
+  capabilities: readonly string[],
+): CapabilityResolver {
+  const held: ReadonlySet<string> = new Set(capabilities);
+  return {
+    has: (capability) => held.has(capability),
+    list: () => [...held],
+    snapshot: (handshake) => base.snapshot(handshake),
+    isRootsDeclared: () => base.isRootsDeclared(),
+    isElicitationDeclared: () => base.isElicitationDeclared(),
+    isTaskSupportDeclared: () => base.isTaskSupportDeclared(),
+    getCachedRoots: () => base.getCachedRoots(),
+    setCachedRoots: (roots) => base.setCachedRoots(roots),
+    invalidateRootsCache: () => base.invalidateRootsCache(),
+  };
+}
+
+/**
+ * Returns the capability resolver of one MCP session from the grant of its server.
+ * The `operator` grant keeps the process resolver. The `read-only` grant holds the read-only posture
+ * and the cache-hint token of the process, and nothing from the operator set.
+ * Thus a read-only session holds no `mcp:exarchos`, no `fs:write`, no `shell:exec` and no policy issuer token.
+ */
+export function resolveMcpSessionResolver(
+  grant: McpSessionGrant,
+  processResolver: CapabilityResolver | undefined,
+): CapabilityResolver | undefined {
+  if (grant === 'operator') return processResolver;
+  const capabilities: string[] = [...capabilitiesForPosture('read-only')];
+  const cacheHints = processResolver === undefined
+    ? process.env.EXARCHOS_DISABLE_CACHE_HINTS !== '1'
+    : processResolver.has(ANTHROPIC_NATIVE_CACHING);
+  if (cacheHints) capabilities.push(ANTHROPIC_NATIVE_CACHING);
+  return restrictResolver(processResolver ?? createInMemoryResolver([]), capabilities);
 }
 
 /**

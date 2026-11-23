@@ -226,7 +226,7 @@ describe('trusted caller identity and authorization snapshots', () => {
           eventStore,
           enableTelemetry: false,
           callerIdentity: deriveMcpCallerIdentity({ sessionId: 'trusted-session' }),
-          capabilityResolver: createInMemoryResolver(['mcp:exarchos:readonly']),
+          capabilityResolver: createInMemoryResolver(['mcp:exarchos']),
         },
       );
 
@@ -234,7 +234,7 @@ describe('trusted caller identity and authorization snapshots', () => {
       expect(observed).toMatchObject({
         identity: { kind: 'mcp-session', role: 'agent' },
         posture: 'read-only',
-        capabilities: ['mcp:exarchos:readonly'],
+        capabilities: ['mcp:exarchos'],
       });
       expect(JSON.stringify(observed)).not.toContain('forged');
       expect(JSON.stringify(observed)).not.toContain('administrator');

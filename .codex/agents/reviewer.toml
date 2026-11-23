@@ -38,4 +38,4 @@ When done, output a JSON completion report. This report is a review verdict and 
 - mcp:exarchos:readonly
 """
 sandbox_mode = "read-only"
-mcp_servers = ["exarchos"]
+mcp_servers = ["exarchos-readonly"]

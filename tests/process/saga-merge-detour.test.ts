@@ -54,7 +54,7 @@ describe('#1208 — task.completed{worktreePath} auto-detours to merge-pending',
       );
       const mcp = await spawnMcpClient({
         command: WORKTREE_BINARY,
-        args: ['mcp'],
+        args: ['mcp', '--operator'],
         stateDir: env.stateDir,
       });
       try {

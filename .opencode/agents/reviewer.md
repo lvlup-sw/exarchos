@@ -30,7 +30,7 @@ tools:
   edit: false
   bash: false
 mcp:
-  exarchos: true
+  exarchos-readonly: true
 ---
 Use this agent when performing read-only code review for quality, design compliance, and test coverage.
 

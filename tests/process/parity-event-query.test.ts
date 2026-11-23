@@ -44,7 +44,7 @@ describe('parity: exarchos event query — CLI ↔ MCP', () => {
       const featureId = `parity-eventquery-${env.testId.slice(0, 8)}`;
       const mcp = await spawnMcpClient({
         command: WORKTREE_BINARY,
-        args: ['mcp'],
+        args: ['mcp', '--operator'],
         stateDir: env.stateDir,
       });
       try {

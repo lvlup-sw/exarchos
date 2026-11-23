@@ -485,9 +485,9 @@ function createCustomToolHandler(
 /**
  * Routes a tool call to its composite or custom handler. It strips the SDK `task` key before the
  * `.strict()` validation, and it mints the correlation context before any early event.
- * A built-in call then goes through inferred values, validation with a one-field elicitation, and
- * the undeclared-parameter refusal. Next come the readonly gate, the store-divergence refusal,
- * admission, the session-machinery interceptor and the install-freshness gate.
+ * The readonly gate runs first for every tool, before inference or elicitation can append an event.
+ * A built-in call then goes through inferred values, validation with a one-field elicitation, and the
+ * undeclared-parameter refusal. Next come the store-divergence refusal, admission, the session-machinery interceptor and the install-freshness gate.
  *
  * The divergence refusal comes before the interceptor, because the interceptor appends an event.
  * Each handler path applies `enforceResponseEconomy`, also with telemetry off. After the handler,
@@ -586,6 +586,11 @@ export async function dispatch(
   }
 
   const isBuiltIn = Object.prototype.hasOwnProperty.call(COMPOSITE_HANDLERS, tool);
+  if (!(isBuiltIn && registeredTool)) {
+    const customAction = typeof args.action === 'string' ? args.action : '';
+    const customDenied = enforceReadonlyGate(tool, customAction, ctx.capabilityResolver);
+    if (customDenied) return attachMeta(customDenied);
+  }
   if (isBuiltIn && registeredTool) {
     const actionName = args.action;
     if (typeof actionName !== 'string' || !actionName) {
@@ -607,6 +612,9 @@ export async function dispatch(
         ),
       };
     }
+
+    const denied = enforceReadonlyGate(tool, actionName, ctx.capabilityResolver);
+    if (denied) return attachMeta(denied);
 
     let { action: _action, ...rest } = args;
 
@@ -683,9 +691,6 @@ export async function dispatch(
     }
 
     args = { action: actionName, ...parsed.data } as Record<string, unknown>;
-
-    const denied = enforceReadonlyGate(tool, actionName, ctx.capabilityResolver);
-    if (denied) return attachMeta(denied);
 
     if (!isReadOnlyAction(tool, actionName) && storeDivergence !== undefined) {
       const divergence = storeDivergence;

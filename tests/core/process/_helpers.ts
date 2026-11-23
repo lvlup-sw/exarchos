@@ -339,7 +339,7 @@ export interface Fixture {
 }
 
 /**
- * Starts the binary as `exarchos mcp` with a temporary `WORKFLOW_STATE_DIR` and connects an MCP
+ * Starts the binary as `exarchos mcp --operator` with a temporary `WORKFLOW_STATE_DIR` and connects an MCP
  * stdio client to it. When the connect fails, the function removes the temp directory before it
  * throws again, so a failed run leaves no `exarchos-compiled-test-*` directory.
  */
@@ -347,7 +347,7 @@ export async function openFixture(binaryPath: string, repoRoot: string): Promise
   const stateDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'exarchos-compiled-test-'));
   const transport = new StdioClientTransport({
     command: binaryPath,
-    args: ['mcp'],
+    args: ['mcp', '--operator'],
     env: {
       ...process.env,
       WORKFLOW_STATE_DIR: stateDir,
