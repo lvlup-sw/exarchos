@@ -12,6 +12,8 @@
  * because it shares the positional-id call. The `create_pr` title, body, base,
  * and head are flag values. A leading dash there is the value of the preceding
  * flag, so it is not part of this spec.
+ *
+ * @oracle-sources: the GitHub REST routes for issue comments, review comments and reviews, written by hand from the GitHub API documentation
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
