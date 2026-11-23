@@ -10,13 +10,13 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import * as fs from 'node:fs/promises';
 import { existsSync } from 'node:fs';
-import * as os from 'node:os';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createPublicRootHarness, type PublicRootHarness } from '../_harness.js';
 import { deriveLocalOperatorIdentity } from '../../../../src/dispatch/caller-identity.js';
 import { findLocalDepcruise } from '../../../../src/config/boundary-adapters.js';
 import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
+import { scopedRepository, type FixtureFiles } from '../../../helpers/scoped-repository.js';
 
 type Rec = Record<string, unknown>;
 
@@ -80,44 +80,40 @@ function expectTheFixtureBin(dir: string): void {
   expect(findLocalDepcruise(dir)).toBe(path.join(dir, 'node_modules', '.bin', path.basename(CHECKOUT_DEPCRUISE)));
 }
 
-/** Writes a `domain-core` module and an `io-adapters` module under `base`. The violation is the import of the second. */
-async function writeModules(base: string, violation: boolean): Promise<void> {
-  await fs.mkdir(path.join(base, 'domain-core'), { recursive: true });
-  await fs.mkdir(path.join(base, 'io-adapters'), { recursive: true });
-  await fs.writeFile(path.join(base, 'io-adapters', 'db.js'), 'export const db = {};\n', 'utf-8');
-  await fs.writeFile(
-    path.join(base, 'domain-core', 'order.js'),
-    violation
+/** The `domain-core` module and the `io-adapters` module under `base`. The violation is the import of the second. */
+function modules(base: string, violation: boolean): FixtureFiles {
+  return {
+    [`${base}/io-adapters/db.js`]: 'export const db = {};\n',
+    [`${base}/domain-core/order.js`]: violation
       ? "import { db } from '../io-adapters/db.js';\nexport const order = db;\n"
       : 'export const order = {};\n',
-    'utf-8',
-  );
+  };
 }
 
-/** Makes a Node fixture repository with real npm scripts and the boundary config. */
+/**
+ * Makes a Node fixture repository with real npm scripts and the boundary config, and returns its checkout.
+ * The local check executor runs a direct call only in the root of a branch checkout with a clean tree.
+ * So the fixture is a committed Git repository.
+ * Its `.gitignore` keeps the `node_modules` link of a local install out of the tree.
+ */
 async function fixture(opts: FixtureOptions): Promise<string> {
-  const dir = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'gov-boundary-')));
-  scratchDirs.push(dir);
-  await fs.writeFile(
-    path.join(dir, 'package.json'),
-    JSON.stringify({
+  const files: Record<string, string> = {
+    'package.json': JSON.stringify({
       name: 'gov-boundary-fixture',
       version: '1.0.0',
       private: true,
       scripts: { lint: OK, typecheck: OK, 'quality-check': OK },
     }),
-    'utf-8',
-  );
-  await fs.writeFile(path.join(dir, '.dependency-cruiser.cjs'), opts.cruiserConfig ?? CRUISER_CONFIG, 'utf-8');
-  await writeModules(path.join(dir, opts.root), opts.violation);
-  if (opts.cleanSrcToo === true) await writeModules(path.join(dir, 'src'), false);
-  if (opts.docsOnly === true) {
-    await fs.mkdir(path.join(dir, 'docs'), { recursive: true });
-    await fs.writeFile(path.join(dir, 'docs', 'README.md'), '# notes\n', 'utf-8');
-  }
-  if (opts.exarchosYml !== undefined) {
-    await fs.writeFile(path.join(dir, '.exarchos.yml'), opts.exarchosYml, 'utf-8');
-  }
+    '.gitignore': 'node_modules\n',
+    '.dependency-cruiser.cjs': opts.cruiserConfig ?? CRUISER_CONFIG,
+    ...modules(opts.root, opts.violation),
+    ...(opts.cleanSrcToo === true ? modules('src', false) : {}),
+    ...(opts.docsOnly === true ? { 'docs/README.md': '# notes\n' } : {}),
+    ...(opts.exarchosYml === undefined ? {} : { '.exarchos.yml': opts.exarchosYml }),
+  };
+  const repository = await scopedRepository({ integrationBranch: 'gov-boundary-fixture', files });
+  scratchDirs.push(repository.root);
+  const dir = repository.checkout;
   if (opts.localInstall) {
     await fs.symlink(CHECKOUT_NODE_MODULES, path.join(dir, 'node_modules'), process.platform === 'win32' ? 'junction' : 'dir');
   }

@@ -183,7 +183,7 @@ describe('handlePostDelegationCheck', () => {
     const result = await handlePostDelegationCheck({ ...gateWiring(), repoRoot });
 
     expect(mockExecFileSync).not.toHaveBeenCalled();
-    expect(vi.mocked(admitLifecycleLegs).mock.calls.every(([input]) => input.eventStore === currentStore)).toBe(true);
+    expect(vi.mocked(admitLifecycleLegs).mock.calls.map(([input]) => input.eventStore === currentStore)).toEqual([true, true]);
     expect(vi.mocked(admitLifecycleLegs).mock.calls.map(([input]) => [input.checkout.replace(/^.*\//, ''), input.taskId, input.streamId, input.legs]))
       .toEqual([
         ['wt-a', 'task-a', FEATURE_ID, [{ kind: 'command', argv: ['go', 'test', './...'] }]],

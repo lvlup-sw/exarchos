@@ -11,6 +11,7 @@ import { describe, it, expect } from 'vitest';
 import { withHermeticEnv } from '../helpers/hermetic.js';
 import { spawnMcpClient } from '../helpers/mcp-client.js';
 import { driveSaga } from '../helpers/saga-driver.js';
+import { execFileAsync } from '../../tools/test-helpers/spawn.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 /**
@@ -38,6 +39,7 @@ describe('#1208 — task.completed{worktreePath} auto-detours to merge-pending',
    * `task_complete` needs a passing `gate.executed` row for the blocking `static-analysis` gate.
    * Caller evidence cannot replace that row, and the generic append refuses it. Thus the saga runs
    * `check_static_analysis` for the task on a Node project whose npm scripts exit with 0.
+   * The local check executor runs a direct call only on a branch checkout with a clean tree, so the saga commits the project first.
    * A thrown transport error in the saga fails the test and names the step.
    */
   it('next_actions surfaces merge_orchestrate after worktree-bearing task.completed', async () => {
@@ -52,6 +54,10 @@ describe('#1208 — task.completed{worktreePath} auto-detours to merge-pending',
         }),
         'utf-8',
       );
+      const git = (...args: string[]) => execFileAsync('git', ['-c', 'user.email=test@example.com', '-c', 'user.name=Test', '-c', 'commit.gpgsign=false', ...args], { cwd: env.gitDir });
+      await git('switch', '-q', '-c', 'feature/p2-detour-001');
+      await git('add', 'package.json');
+      await git('commit', '-q', '-m', 'the detour fixture');
       const mcp = await spawnMcpClient({
         command: WORKTREE_BINARY,
         args: ['mcp', '--operator'],

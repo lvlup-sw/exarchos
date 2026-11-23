@@ -19,7 +19,7 @@ import {
   runTimeoutOf,
   type TestAdequacyArgs,
 } from '../../../../src/verbs/gates/test-adequacy-handler.js';
-import type { CheckExecutor } from '../../../../src/verbs/verification/check-executor.js';
+import type { ApprovedCheckRequest, CheckExecutor } from '../../../../src/verbs/verification/check-executor.js';
 import type { RiskTier } from '../../../../src/workflow/verification-policy.js';
 import { execFileAsync } from '../../../../tools/test-helpers/spawn.js';
 import { exitedWith, imageExecutor } from '../../../helpers/verification/check-executor.js';
@@ -147,19 +147,20 @@ interface RecordedCall {
 /**
  * An executor that records each run in its real source image. It exits 0 while `source` holds the task text and exits 1 on the reverted source.
  * It reads each file of `watched` in the image, so a case can tell which files the revert changed. The appended operands are the test files.
+ * The requests hold the test selection of each check, which a probe with no file operand does not append.
  */
 function recordingRunner(
   source: string,
   watched: readonly string[] = [],
-): { readonly executor: CheckExecutor; readonly calls: RecordedCall[] } {
+): { readonly executor: CheckExecutor; readonly calls: RecordedCall[]; readonly requests: readonly ApprovedCheckRequest[] } {
   const calls: RecordedCall[] = [];
-  const { executor } = imageExecutor(({ argv, append, root }) => {
+  const { executor, requests } = imageExecutor(({ argv, append, root }) => {
     const read = (file: string): string | null =>
       existsSync(path.join(root, file)) ? readFileSync(path.join(root, file), 'utf-8') : null;
     calls.push({ testFiles: append.filter((operand) => operand !== '--'), watched: watched.map(read) });
     return exitedWith(argv, read(source) === TASK ? 0 : 1);
   });
-  return { executor, calls };
+  return { executor, calls, requests };
 }
 
 /** The name of the recorder script of a fixture. It is at the base, so the revert never touches it. */
@@ -208,7 +209,7 @@ describe('the kill probe in a root where a test of another toolchain can change'
       { 'package.json': NODE_MANIFEST, 'App.sln': '', 'src/Foo.cs': BASE, '.exarchos.yml': DOTNET_PROBE_WITH_GLOBS },
       { 'src/Foo.cs': TASK, 'Tests/FooTests.cs': TASK },
     );
-    const { executor, calls } = recordingRunner('src/Foo.cs');
+    const { executor, calls, requests } = recordingRunner('src/Foo.cs');
 
     const carrier = await runGate(repoRoot, {}, executor);
 
@@ -216,8 +217,8 @@ describe('the kill probe in a root where a test of another toolchain can change'
     expect(carrier.passed).toBe(true);
     expect(carrier.redObserved).toBe(true);
     expect(carrier.probedTests).toEqual(['Tests/FooTests.cs']);
-    expect(calls).toHaveLength(2);
-    expect(calls.map((call) => call.testFiles).flat().every((file) => file === 'Tests/FooTests.cs')).toBe(true);
+    expect(requests.map((request) => request.selection)).toEqual([['Tests/FooTests.cs']]);
+    expect(calls.map((call) => call.testFiles)).toEqual([[], []]);
   }, CASE_TIMEOUT_MS);
 
   /**

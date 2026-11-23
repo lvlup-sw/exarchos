@@ -4,7 +4,9 @@
  * Each call goes through `dispatch` with a real caller identity and capability resolver. Telemetry is at its shipped default,
  * and the context sets no observer of a named tree, so the completion leaf observes each tree with git. Each workflow is seeded
  * as rows of the event store only, so no case writes a state document. `prepare` pins the scope from a real checkout.
- * `check_static_analysis` passes on the green fixture of the tree that the completion names.
+ *
+ * `check_static_analysis` passes on the green fixture of the tree that the completion names. The gate refuses a tree of another
+ * repository, so that case seeds the pass as a runner row.
  * Each case spawns git and npm, so it sets its own timeout and does not raise the budget of its tier.
  *
  * @oracle-sources: ../../src/verbs/tasks/tools.ts, the replies of each dispatched call, the rows of the real event store, and the trees that real git reports in each case
@@ -25,6 +27,7 @@ import { createInMemoryResolver } from '../../src/workflow/capabilities/resolver
 import { execFileAsync } from '../../tools/test-helpers/spawn.js';
 import { rmrfAsync } from '../../tools/test-helpers/temp-dir.js';
 import { scopedRepository, type FixtureFiles, type ScopedRepository } from '../helpers/scoped-repository.js';
+import { seedStaticAnalysisVerdict } from '../helpers/static-analysis-verdict.js';
 
 const STREAM = 'feat-task-complete-scope-acceptance';
 const INTEGRATION_BRANCH = 'feature/task-complete-scope';
@@ -209,13 +212,23 @@ describe('task_complete judges the named tree against the pinned scope on real g
     expect(message).toContain(`it is on the base branch "${INTEGRATION_BRANCH}"`);
   }, CASE_TIMEOUT_MS);
 
-  /** A linked worktree of another repository is not a worktree of the pinned repository. */
+  /**
+   * A linked worktree of another repository is not a worktree of the pinned repository.
+   * The local check executor refuses to run the gate there, so the only live row of the gate does not pass.
+   * A pass that a runner row records for that tree, as an earlier build wrote it, still cannot complete the task.
+   */
   it('TaskCompleteScope_APassOnAnotherRepository_IsRefusedAsOtherRepository', async () => {
     const other = await scopedRepository({ integrationBranch: INTEGRATION_BRANCH, files: GREEN_PROJECT });
     scratchDirs.push(other.root);
     const { capsuleVersion } = await prepareFrom(repository.checkout, ['task-a']);
     const tree = await other.worktreeFor('task-a');
-    await passOn('task-a', tree);
+    const gate = await call('check_static_analysis', { featureId: STREAM, taskId: 'task-a', repoRoot: 'auto', worktreePath: tree });
+    expect(gate.success, JSON.stringify(gate)).toBe(false);
+    expect(gate.error?.code).toBe('LOCAL_CHECK_REFUSED');
+    expect(gate.error?.message).toContain('The working directory is not a worktree of the repository that the workflow prepared.');
+    const refusedRows = (await eventStore.query(STREAM, { type: 'gate.executed' })).filter((row) => row.data?.gateName === 'static-analysis');
+    expect(refusedRows.map((row) => row.data?.passed)).toEqual([false]);
+    await seedStaticAnalysisVerdict(eventStore, { streamId: STREAM, taskId: 'task-a', stateDir, worktreePath: tree });
 
     const result = await completeOn('task-a', tree, capsuleVersion);
 

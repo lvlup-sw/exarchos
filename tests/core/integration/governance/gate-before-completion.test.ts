@@ -14,8 +14,6 @@
  * One `settle` case brings the state document level in the `workflow_state` row of the shipped store.
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import * as fs from 'node:fs/promises';
-import * as os from 'node:os';
 import * as path from 'node:path';
 import {
   createPublicRootHarness,
@@ -46,12 +44,15 @@ function nodeManifest(scripts: Record<string, string>): string {
   return JSON.stringify({ name: 'gov-t2-fixture', version: '1.0.0', private: true, scripts }, null, 2);
 }
 
-/** Makes a real Node project on disk that the production static-analysis gate can run. */
+/**
+ * Makes a real Node project that the production static-analysis gate can run, and returns its checkout.
+ * The local check executor runs a direct call only in the root of a branch checkout with a clean tree.
+ * So the project is a committed Git repository.
+ */
 async function makeNodeFixture(scripts: Record<string, string>): Promise<string> {
-  const dir = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'gov-t2-sa-')));
-  scratchDirs.push(dir);
-  await fs.writeFile(path.join(dir, 'package.json'), nodeManifest(scripts), 'utf-8');
-  return dir;
+  const repository = await scopedRepository({ integrationBranch: 'gov-t2-fixture', files: { 'package.json': nodeManifest(scripts) } });
+  scratchDirs.push(repository.root);
+  return repository.checkout;
 }
 
 function payload(obs: DispatchObservation): Rec {

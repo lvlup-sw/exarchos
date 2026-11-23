@@ -30,7 +30,11 @@ describe('packaged S7 DAG races', () => {
         '-c', 'core.commitGraph=false', '-c', 'protocol.allow=never', `--git-dir=${gitDir}`, `--work-tree=${tree}`, 'symbolic-ref', '--quiet', 'HEAD']);
       expect(ready.rows).toMatchObject([{ type: 'admission.evidence-recorded', data: { evidence: { verdict: 'pass' } } },
         { type: 'gate.executed', data: { passed: true, details: { taskId: 'T-01', worktree: tree, verdict: 'pass' } } }]);
-      expect(ready.bindings).toHaveLength(1);
+      const bound = recordArray(ready.bindings);
+      const checkKeys = bound.map(row => string(row.idempotencyKey)).filter(key => key.startsWith('local-check:'));
+      const adequacyCheck = checkKeys[0]?.replace(/:claim:1$/, '');
+      expect(checkKeys).toEqual([`${adequacyCheck}:claim:1`, `${adequacyCheck}:result:1`]);
+      expect(bound.filter(row => !string(row.idempotencyKey).startsWith('local-check:'))).toHaveLength(1);
       const before = await journalOf(f);
       expect(before.map(row => row.mode)).toEqual(['probe', 'probe']);
       expect(before.map(row => row.args)).toEqual([['tests/T-01.test.cjs'], ['tests/T-01.test.cjs']]);
@@ -43,7 +47,9 @@ describe('packaged S7 DAG races', () => {
       expect((await journalOf(f)).filter(row => row.mode === 'probe')).toEqual(before);
       expect((await journalOf(f)).some(row => row.mode === 'integration')).toBe(true);
       expect(allClaims(f.database)).toEqual(expect.arrayContaining(recordArray(ready.members)));
-      expect(allClaims(f.database).filter(row => row.streamId === '__segment_input_bindings_v1__')).toEqual(ready.bindings);
+      const rebound = allClaims(f.database).filter(row => row.streamId === '__segment_input_bindings_v1__');
+      expect(rebound.filter(row => !string(row.idempotencyKey).startsWith('local-check:'))).toEqual(bound.filter(row => !string(row.idempotencyKey).startsWith('local-check:')));
+      expect(rebound.filter(row => string(row.idempotencyKey).startsWith(`${adequacyCheck}:`))).toEqual(bound.filter(row => string(row.idempotencyKey).startsWith('local-check:')));
       const bundles = RunBundleStore.forStateDir(f.stateDir);
       const ref = receipt.bundleRefs?.[0]; if (!ref) throw new Error('Missing actual outer bundle');
       const settlement = decodeSettlementBundle(await bundles.resolve(ContentDigestV1Schema.parse(ref.digest)));

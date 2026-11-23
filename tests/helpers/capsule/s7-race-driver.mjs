@@ -1,10 +1,11 @@
 /**
  * Holds a completed Git read after original SQLite gate claims or a segment terminal exist.
- * The Git wrapper passes its own barrier settings. Each read runs the real Git with the same argument vector and the environment that the wrapper received.
+ * The Git wrapper passes its own barrier settings. Each read runs the real Git with the same argument vector, environment and standard input that the wrapper received.
+ * The standard input carries the blob IDs of a `cat-file --batch` read, so the wrapper passes it on.
  * Only a constrained read that names the work tree of the barrier can hold. The capability probe names no work tree, so it never holds.
  */
 import Database from 'better-sqlite3';
-import { execFile } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { access, mkdir, rename, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { setTimeout } from 'node:timers/promises';
@@ -16,9 +17,15 @@ import { setTimeout } from 'node:timers/promises';
 export async function drive(settings) {
   const args = process.argv.slice(2);
   const result = await new Promise((resolve, reject) => {
-    execFile(settings.realGit, args, { encoding: 'buffer', timeout: 15000, maxBuffer: 64 * 1024 * 1024 }, (error, stdout, stderr) => {
-      if (error !== null && typeof error.code !== 'number') return reject(error);
-      resolve({ code: error?.code ?? 0, stdout, stderr });
+    const child = spawn(settings.realGit, args, { stdio: ['inherit', 'pipe', 'pipe'], timeout: 15000, killSignal: 'SIGKILL' });
+    const stdout = [];
+    const stderr = [];
+    child.stdout.on('data', chunk => stdout.push(chunk));
+    child.stderr.on('data', chunk => stderr.push(chunk));
+    child.once('error', reject);
+    child.once('close', (code, signal) => {
+      if (code === null) return reject(new Error(`Git stopped on signal ${signal}`));
+      resolve({ code, stdout: Buffer.concat(stdout), stderr: Buffer.concat(stderr) });
     });
   });
   if (result.code === 0 && args.includes(`--work-tree=${settings.tree}`)) {
