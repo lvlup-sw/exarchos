@@ -11,6 +11,9 @@ code here is TypeScript like `src/`, and none of it is in the tarball.
   `*-baseline.json` files each guard compares against.
 - `release/` — build and publish: the binary builder, the signed release
   manifest, the installer scripts served from GitHub Releases.
+- `ci/` — the Buildkite pull request lane. `pr-lane.mjs` runs the `static` or
+  `tests` suite that the protected worker in `lvlup-sw/.github` starts, and
+  `pr-lane.json` lists its steps and maps each `ci.yml` step to one of them.
 - `conformance/` — a real package with its own tsconfig, holding the censuses
   that audit the product's contracts. Its suites are co-located under `src/`
   because that is the directory the `conformance` vitest project collects.

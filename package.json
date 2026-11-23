@@ -46,6 +46,8 @@
     "lint:envelopes": "node tools/audit/gates/lint-envelopes.mjs",
     "protected:guard": "node tools/audit/check-protected.mjs",
     "cli:vocab-guard": "bun run tools/audit/core/cli-vocab-guard.ts",
+    "ci:pr:static": "node tools/ci/pr-lane.mjs static",
+    "ci:pr:tests": "node tools/ci/pr-lane.mjs tests",
     "vendor:sync:pm-detector": "tsx tools/audit/core/sync-vendor-pm-detector.ts",
     "vendor:check:pm-detector": "tsx tools/audit/core/sync-vendor-pm-detector.ts --check",
     "desc:budget-guard": "tsx tools/conformance/src/description-budget-cli.ts",

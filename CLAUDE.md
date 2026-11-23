@@ -17,7 +17,14 @@ npm run test:conformance   # just the extracted conformance suite (tools/conform
 npm run typecheck      # tsc --noEmit, root AND tools/conformance
 npm run build:skills   # render content/ → rendered/
 npm run render:guard   # CI: fails if rendered/ drifts from content/
+npm run ci:pr:static -- --base origin/main --dry-run   # plan the Buildkite PR lane (also ci:pr:tests)
 ```
+
+**PR validation** runs on Buildkite when a maintainer posts `/bk`. The lane is
+`tools/ci/pr-lane.mjs` + `tools/ci/pr-lane.json`. It selects tests by diff and never collects
+coverage. The coverage ratchet and the full suite run on the push-to-main `ci.yml`. A new
+`ci.yml` step fails `tests/scripts/pr-lane-parity.test.ts` until `pr-lane.json` maps it to a
+lane step or gives a post-merge reason.
 
 ## Tooling (use the plugins/MCP available in this repo)
 

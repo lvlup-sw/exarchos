@@ -67,8 +67,9 @@ To add or change a skill:
 2. Run `npm run build:skills` to regenerate the per-runtime variants.
 3. Commit both the source and the regenerated `rendered/` tree.
 
-CI runs `render:guard` on every push and fails your PR if `rendered/` is out of sync with
-`content/`. That catches forgotten rebuilds and stale direct edits in one shot.
+The Buildkite pull request check and each push to `main` run `render:guard`. The check fails
+if `rendered/` is out of sync with `content/`. That catches forgotten rebuilds and stale direct
+edits in one shot.
 
 The placeholder vocabulary, how to add a runtime, and the structural-override
 escape hatch are documented in `content/README.md` and in the renderer's own
