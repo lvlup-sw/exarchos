@@ -149,7 +149,7 @@ exarchos_orchestrate({
 
 ## 5. Land and transition
 
-Both tasks complete. Read `phaseMove` of the receipt first. It is `moved`, so settlement moved the workflow from `delegate` to `review` in its commit, and no `transition` call follows. Land each worktree and run the integration suite after the move, before the review: land each worktree through `serialize_merge`, then run `check_integration_suite` once at the wave boundary. Then auto-continue:
+Both tasks complete. Read `phaseMove` of the receipt first. It is `moved`, so settlement moved the workflow from `delegate` to `review` in its commit, and no `transition` call follows. Land each worktree and run the integration suite after the move, before the review: land the accepted head commit of each worktree through the harness, a fast-forward or a merge commit with no Exarchos call, then run `check_integration_suite` once at the wave boundary. Then auto-continue:
 ```typescript
 Skill({ skill: "exarchos:review", args: "docs/plans/add-email-validation.md" })
 ```

@@ -7,7 +7,7 @@
     "testFiles": 1510,
     "parsedFiles": 1466,
     "shellFiles": 44,
-    "cases": 16803,
+    "cases": 16804,
     "dynamicTitles": 336,
     "unparseableFiles": 0
   },
@@ -96091,12 +96091,17 @@
       "cases": [
         {
           "suite": "the complete delegation fallback",
-          "name": "CallShape_ThePhaseFallback_IncludesLandingAndBothBackstops",
+          "name": "CallShape_ThePhaseFallback_IncludesBothBackstopsAndNoLandingCall",
           "dynamic": false
         },
         {
           "suite": "the complete delegation fallback",
-          "name": "CallShape_TheNormalPath_KeepsItsCount",
+          "name": "CallShape_TheNormalPath_HasNoPerTaskCall",
+          "dynamic": false
+        },
+        {
+          "suite": "the complete delegation fallback",
+          "name": "CallShape_TheRollback_AppendsNoEvent",
           "dynamic": false
         }
       ]

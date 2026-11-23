@@ -12,22 +12,28 @@ function delegation() {
 }
 
 describe('the complete delegation fallback', () => {
-  it('CallShape_ThePhaseFallback_IncludesLandingAndBothBackstops', () => {
+  it('CallShape_ThePhaseFallback_IncludesBothBackstopsAndNoLandingCall', () => {
     const intent = delegation();
     const fallback = intent.exceptions.find((entry) => entry.id === 'phase-not-moved');
-    expect(fallback?.counts.exarchos).toEqual({ fixed: 5, perTask: 1, perPr: 0, formula: '5 + 1*tasks', atUnit: 6 });
+    expect(fallback?.counts.exarchos).toEqual({ fixed: 5, perTask: 0, perPr: 0, formula: '5', atUnit: 5 });
     expect(fallback?.through).toBeNull();
     expect(intent.normal.calls.filter((entry) => entry.role === 'work').map((entry) => entry.call)).toEqual([
       'exarchos_orchestrate.prepare',
       'exarchos_orchestrate.settle',
-      'exarchos_orchestrate.serialize_merge',
       'exarchos_orchestrate.check_integration_suite',
       'exarchos_orchestrate.check_operational_resilience',
     ]);
     expect(fallback?.extraCalls.map((entry) => entry.call)).toEqual(['exarchos_workflow.transition']);
   });
 
-  it('CallShape_TheNormalPath_KeepsItsCount', () => {
-    expect(delegation().normal.counts.exarchos).toEqual({ fixed: 4, perTask: 1, perPr: 0, formula: '4 + 1*tasks', atUnit: 5 });
+  it('CallShape_TheNormalPath_HasNoPerTaskCall', () => {
+    expect(delegation().normal.counts.exarchos).toEqual({ fixed: 4, perTask: 0, perPr: 0, formula: '4', atUnit: 4 });
+  });
+
+  it('CallShape_TheRollback_AppendsNoEvent', () => {
+    const rollback = delegation().exceptions.find((entry) => entry.id === 'integration-advanced-rollback');
+    expect(rollback?.counts.exarchos).toEqual({ fixed: 4, perTask: 0, perPr: 0, formula: '4', atUnit: 4 });
+    expect(rollback?.extraCalls.map((entry) => entry.call)).toEqual(['native:Bash', 'native:Bash', 'native:Bash', 'native:Bash']);
+    expect(rollback?.extraCalls.some((entry) => entry.call === 'exarchos_event.append')).toBe(false);
   });
 });

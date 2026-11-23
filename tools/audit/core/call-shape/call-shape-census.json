@@ -116,7 +116,7 @@
         },
         {
           "call": "exarchos_workflow.describe",
-          "line": 719,
+          "line": 724,
           "per": "once",
           "role": "describe",
           "source": "content/delivery/skills/delegate/SKILL.md",
@@ -124,7 +124,7 @@
         },
         {
           "call": "exarchos_workflow.describe",
-          "line": 720,
+          "line": 725,
           "per": "once",
           "role": "describe",
           "source": "content/delivery/skills/delegate/SKILL.md",
@@ -132,7 +132,7 @@
         },
         {
           "call": "exarchos_orchestrate.describe",
-          "line": 722,
+          "line": 727,
           "per": "once",
           "role": "describe",
           "source": "content/delivery/skills/delegate/SKILL.md",
@@ -175,18 +175,18 @@
               "perTask": 0
             },
             "exarchos": {
-              "atUnit": 6,
+              "atUnit": 5,
               "fixed": 5,
-              "formula": "5 + 1*tasks",
+              "formula": "5",
               "perPr": 0,
-              "perTask": 1
+              "perTask": 0
             },
             "exarchosWithDiscovery": {
-              "atUnit": 8,
+              "atUnit": 7,
               "fixed": 7,
-              "formula": "7 + 1*tasks",
+              "formula": "7",
               "perPr": 0,
-              "perTask": 1
+              "perTask": 0
             },
             "native": {
               "atUnit": 2,
@@ -206,7 +206,7 @@
           "extraCalls": [
             {
               "call": "exarchos_workflow.transition",
-              "line": 885,
+              "line": 887,
               "per": "once",
               "role": "work",
               "source": "content/delivery/skills/delegate/SKILL.md",
@@ -613,18 +613,18 @@
               "perTask": 0
             },
             "exarchos": {
-              "atUnit": 8,
+              "atUnit": 7,
               "fixed": 7,
-              "formula": "7 + 1*tasks",
+              "formula": "7",
               "perPr": 0,
-              "perTask": 1
+              "perTask": 0
             },
             "exarchosWithDiscovery": {
-              "atUnit": 10,
+              "atUnit": 9,
               "fixed": 9,
-              "formula": "9 + 1*tasks",
+              "formula": "9",
               "perPr": 0,
-              "perTask": 1
+              "perTask": 0
             },
             "native": {
               "atUnit": 2,
@@ -687,18 +687,18 @@
               "perTask": 0
             },
             "exarchos": {
-              "atUnit": 6,
-              "fixed": 5,
-              "formula": "5 + 1*tasks",
+              "atUnit": 4,
+              "fixed": 4,
+              "formula": "4",
               "perPr": 0,
-              "perTask": 1
+              "perTask": 0
             },
             "exarchosWithDiscovery": {
-              "atUnit": 8,
-              "fixed": 7,
-              "formula": "7 + 1*tasks",
+              "atUnit": 6,
+              "fixed": 6,
+              "formula": "6",
               "perPr": 0,
-              "perTask": 1
+              "perTask": 0
             },
             "native": {
               "atUnit": 4,
@@ -718,7 +718,7 @@
           "extraCalls": [
             {
               "call": "native:Bash",
-              "line": 793,
+              "line": 809,
               "per": "once",
               "role": "native",
               "source": "content/delivery/skills/delegate/SKILL.md",
@@ -726,27 +726,19 @@
             },
             {
               "call": "native:Bash",
-              "line": 805,
+              "line": 819,
               "per": "once",
               "role": "native",
-              "source": "content/delivery/skills/delegate/SKILL.md",
-              "via": "site"
-            },
-            {
-              "call": "exarchos_orchestrate.serialize_merge",
-              "line": 820,
-              "per": "once",
-              "role": "work",
               "source": "content/delivery/skills/delegate/SKILL.md",
               "via": "site"
             }
           ],
           "id": "integration-advanced",
-          "label": "the integration branch advanced mid-wave, so one worktree is rebased and merged again",
+          "label": "the integration branch advanced mid-wave, so the fast-forward fails and the accepted head lands unchanged with a merge commit",
           "reentersNormalPath": false,
           "through": null,
           "trigger": {
-            "line": 741,
+            "line": 732,
             "source": "content/delivery/skills/delegate/SKILL.md"
           }
         },
@@ -761,23 +753,23 @@
               "perTask": 0
             },
             "exarchos": {
-              "atUnit": 6,
-              "fixed": 5,
-              "formula": "5 + 1*tasks",
+              "atUnit": 4,
+              "fixed": 4,
+              "formula": "4",
               "perPr": 0,
-              "perTask": 1
+              "perTask": 0
             },
             "exarchosWithDiscovery": {
-              "atUnit": 8,
-              "fixed": 7,
-              "formula": "7 + 1*tasks",
+              "atUnit": 6,
+              "fixed": 6,
+              "formula": "6",
               "perPr": 0,
-              "perTask": 1
+              "perTask": 0
             },
             "native": {
-              "atUnit": 5,
-              "fixed": 3,
-              "formula": "3 + 2*tasks",
+              "atUnit": 6,
+              "fixed": 4,
+              "formula": "4 + 2*tasks",
               "perPr": 0,
               "perTask": 2
             },
@@ -792,7 +784,7 @@
           "extraCalls": [
             {
               "call": "native:Bash",
-              "line": 793,
+              "line": 809,
               "per": "once",
               "role": "native",
               "source": "content/delivery/skills/delegate/SKILL.md",
@@ -800,7 +792,7 @@
             },
             {
               "call": "native:Bash",
-              "line": 805,
+              "line": 819,
               "per": "once",
               "role": "native",
               "source": "content/delivery/skills/delegate/SKILL.md",
@@ -808,27 +800,27 @@
             },
             {
               "call": "native:Bash",
-              "line": 853,
+              "line": 841,
               "per": "once",
               "role": "native",
               "source": "content/delivery/skills/delegate/SKILL.md",
               "via": "site"
             },
             {
-              "call": "exarchos_event.append",
-              "line": 864,
+              "call": "native:Bash",
+              "line": 852,
               "per": "once",
-              "role": "work",
+              "role": "native",
               "source": "content/delivery/skills/delegate/SKILL.md",
-              "via": "mention"
+              "via": "site"
             }
           ],
           "id": "integration-advanced-rollback",
-          "label": "the rebase cannot be resolved, so the branch is rolled back and the abort recorded",
+          "label": "the merge of the accepted head conflicts, so the merge is aborted and the integration branch is compared with the captured commit",
           "reentersNormalPath": false,
           "through": null,
           "trigger": {
-            "line": 848,
+            "line": 836,
             "source": "content/delivery/skills/delegate/SKILL.md"
           }
         }
@@ -858,14 +850,14 @@
         {
           "call": "native:CHAIN",
           "kind": "beyond-boundary",
-          "line": 886,
+          "line": 888,
           "source": "content/delivery/skills/delegate/SKILL.md",
           "why": "invokes the review skill after the transition this intent ends at"
         },
         {
           "call": "exarchos_orchestrate.prepare_delegation",
           "kind": "alternate-mode",
-          "line": 896,
+          "line": 898,
           "source": "content/delivery/skills/delegate/SKILL.md",
           "why": "the primitive path, for the workflow types prepare does not compile; this census counts the capsule path"
         }
@@ -922,14 +914,6 @@
             "via": "site"
           },
           {
-            "call": "exarchos_orchestrate.serialize_merge",
-            "line": 702,
-            "per": "perTask",
-            "role": "work",
-            "source": "content/delivery/skills/delegate/SKILL.md",
-            "via": "mention"
-          },
-          {
             "call": "exarchos_orchestrate.check_integration_suite",
             "line": 618,
             "per": "once",
@@ -955,18 +939,18 @@
             "perTask": 0
           },
           "exarchos": {
-            "atUnit": 5,
+            "atUnit": 4,
             "fixed": 4,
-            "formula": "4 + 1*tasks",
+            "formula": "4",
             "perPr": 0,
-            "perTask": 1
+            "perTask": 0
           },
           "exarchosWithDiscovery": {
-            "atUnit": 7,
+            "atUnit": 6,
             "fixed": 6,
-            "formula": "6 + 1*tasks",
+            "formula": "6",
             "perPr": 0,
-            "perTask": 1
+            "perTask": 0
           },
           "native": {
             "atUnit": 2,
@@ -996,7 +980,7 @@
       "conditional": [
         {
           "call": "exarchos_orchestrate.describe",
-          "line": 898,
+          "line": 900,
           "per": "once",
           "role": "describe",
           "source": "content/delivery/skills/delegate/SKILL.md",
@@ -1062,7 +1046,7 @@
             },
             {
               "call": "exarchos_orchestrate.runbook",
-              "line": 915,
+              "line": 917,
               "per": "once",
               "role": "runbook-fetch",
               "source": "content/delivery/skills/delegate/SKILL.md",
@@ -1098,7 +1082,7 @@
           "reentersNormalPath": false,
           "through": "exarchos_orchestrate.check_static_analysis",
           "trigger": {
-            "line": 915,
+            "line": 917,
             "source": "content/delivery/skills/delegate/SKILL.md"
           }
         }
@@ -1107,7 +1091,7 @@
         {
           "call": "exarchos_orchestrate.task_complete",
           "kind": "restatement",
-          "line": 901,
+          "line": 903,
           "source": "content/delivery/skills/delegate/SKILL.md",
           "why": "shows the provenance payload for the runbook terminal step, not a second call"
         }
@@ -1117,7 +1101,7 @@
         "calls": [
           {
             "call": "exarchos_orchestrate.runbook",
-            "line": 898,
+            "line": 900,
             "per": "once",
             "role": "runbook-fetch",
             "source": "content/delivery/skills/delegate/SKILL.md",
@@ -1897,17 +1881,7 @@
       "subject": "exarchos_orchestrate.settle"
     },
     {
-      "decision": "each task works in its own worktree, and the skill names this action as the merge path of each landing. The plane compiles and settles the work, and it moves the phase; it does not land it; counted perTask",
-      "flag": null,
-      "intent": "delegation",
-      "kind": "mention",
-      "line": 702,
-      "path": "normal",
-      "source": "content/delivery/skills/delegate/SKILL.md",
-      "subject": "exarchos_orchestrate.serialize_merge"
-    },
-    {
-      "decision": "the wave-boundary backstop, once per wave after the merges land",
+      "decision": "the wave-boundary backstop, once per wave after the harness lands each accepted head. A landing is a fast-forward or a merge commit that the coordinator makes with git, so no Exarchos call precedes the backstop",
       "flag": null,
       "intent": "delegation",
       "kind": "site",
@@ -1917,7 +1891,7 @@
       "subject": "exarchos_orchestrate.check_integration_suite"
     },
     {
-      "decision": "The fallback path: prepare, the settle whose receipt holds no moved phaseMove, and the transition. A receipt of an earlier build holds no phaseMove. A stayed receipt names the false facts of each edge, and the coordinator fixes them before the call. A moved receipt with a PHASE_LEVEL_FAILED warning takes the same idempotent call, which levels the document. The count includes landing and both backstops before transition.",
+      "decision": "The fallback path: prepare, the settle whose receipt holds no moved phaseMove, and the transition. A receipt of an earlier build holds no phaseMove. A stayed receipt names the false facts of each edge, and the coordinator fixes them before the call. A moved receipt with a PHASE_LEVEL_FAILED warning takes the same idempotent call, which levels the document. The count includes both backstops before transition. The harness landing before them makes no Exarchos call.",
       "flag": null,
       "intent": "delegation",
       "kind": "exception",
@@ -1931,7 +1905,7 @@
       "flag": null,
       "intent": "delegation",
       "kind": "site",
-      "line": 885,
+      "line": 887,
       "path": "exception:phase-not-moved",
       "source": "content/delivery/skills/delegate/SKILL.md",
       "subject": "exarchos_workflow.transition"
@@ -2107,34 +2081,64 @@
       "subject": "context compacts mid-delegation, so state is recovered before continuing"
     },
     {
-      "decision": "One diverged worktree: capture the rollback SHA, rebase, and land it again through the serialized merge.",
+      "decision": "One diverged worktree: check the ancestry, capture the rollback commit, and land the accepted head with a merge commit through the harness. The landing makes no Exarchos call and appends no event, so the Exarchos count is the normal count.",
       "flag": null,
       "intent": "delegation",
       "kind": "exception",
-      "line": 741,
+      "line": 732,
       "path": "exception:integration-advanced",
       "source": "content/delivery/skills/delegate/SKILL.md",
-      "subject": "the integration branch advanced mid-wave, so one worktree is rebased and merged again"
+      "subject": "the integration branch advanced mid-wave, so the fast-forward fails and the accepted head lands unchanged with a merge commit"
     },
     {
-      "decision": "Marking the task failed names no call and is not counted. The fixer dispatch it leads to is the corrective-capsule path.",
+      "decision": "capture the integration rollback commit after the ancestry check and before the merge",
+      "flag": null,
+      "intent": "delegation",
+      "kind": "site",
+      "line": 810,
+      "path": "exception:integration-advanced",
+      "source": "content/delivery/skills/delegate/SKILL.md",
+      "subject": "native:Bash"
+    },
+    {
+      "decision": "land the accepted head unchanged with a merge commit from the integration worktree",
+      "flag": null,
+      "intent": "delegation",
+      "kind": "site",
+      "line": 820,
+      "path": "exception:integration-advanced",
+      "source": "content/delivery/skills/delegate/SKILL.md",
+      "subject": "native:Bash"
+    },
+    {
+      "decision": "The rollback appends no event. The rework is a new task with no blockedBy on the unlanded task, and its worker merges the accepted head into its own branch. No fixer is dispatched. The rework compiles a continuation in a later batch, which this path does not count.",
       "flag": null,
       "intent": "delegation",
       "kind": "exception",
-      "line": 848,
+      "line": 836,
       "path": "exception:integration-advanced-rollback",
       "source": "content/delivery/skills/delegate/SKILL.md",
-      "subject": "the rebase cannot be resolved, so the branch is rolled back and the abort recorded"
+      "subject": "the merge of the accepted head conflicts, so the merge is aborted and the integration branch is compared with the captured commit"
     },
     {
-      "decision": "the rollback prescribes recording the abort as an event",
+      "decision": "abort the conflicted merge, which makes no commit, and check that the integration worktree is clean",
       "flag": null,
       "intent": "delegation",
-      "kind": "mention",
-      "line": 864,
+      "kind": "site",
+      "line": 842,
       "path": "exception:integration-advanced-rollback",
       "source": "content/delivery/skills/delegate/SKILL.md",
-      "subject": "exarchos_event.append"
+      "subject": "native:Bash"
+    },
+    {
+      "decision": "compare the integration branch with the captured commit, and stop on a difference with no reset",
+      "flag": null,
+      "intent": "delegation",
+      "kind": "site",
+      "line": 853,
+      "path": "exception:integration-advanced-rollback",
+      "source": "content/delivery/skills/delegate/SKILL.md",
+      "subject": "native:Bash"
     },
     {
       "decision": "a reference to the runbook settlement runs per accepted task, read when the caller wants to know the steps; the orchestrator does not fetch or run it on this path",
@@ -2151,7 +2155,7 @@
       "flag": null,
       "intent": "delegation",
       "kind": "site",
-      "line": 719,
+      "line": 724,
       "path": "conditional",
       "source": "content/delivery/skills/delegate/SKILL.md",
       "subject": "exarchos_workflow.describe"
@@ -2161,7 +2165,7 @@
       "flag": null,
       "intent": "delegation",
       "kind": "site",
-      "line": 720,
+      "line": 725,
       "path": "conditional",
       "source": "content/delivery/skills/delegate/SKILL.md",
       "subject": "exarchos_workflow.describe"
@@ -2171,7 +2175,7 @@
       "flag": null,
       "intent": "delegation",
       "kind": "site",
-      "line": 722,
+      "line": 727,
       "path": "conditional",
       "source": "content/delivery/skills/delegate/SKILL.md",
       "subject": "exarchos_orchestrate.describe"
@@ -2241,7 +2245,7 @@
       "flag": null,
       "intent": "delegation",
       "kind": "beyond-boundary",
-      "line": 886,
+      "line": 888,
       "path": "excluded",
       "source": "content/delivery/skills/delegate/SKILL.md",
       "subject": "native:CHAIN"
@@ -2251,7 +2255,7 @@
       "flag": null,
       "intent": "delegation",
       "kind": "alternate-mode",
-      "line": 896,
+      "line": 898,
       "path": "excluded",
       "source": "content/delivery/skills/delegate/SKILL.md",
       "subject": "exarchos_orchestrate.prepare_delegation"
@@ -2271,7 +2275,7 @@
       "flag": null,
       "intent": "task-completion",
       "kind": "runbook",
-      "line": 898,
+      "line": 900,
       "path": "normal",
       "source": "content/delivery/skills/delegate/SKILL.md",
       "subject": "runbook:task-completion"
@@ -2281,7 +2285,7 @@
       "flag": null,
       "intent": "task-completion",
       "kind": "exception",
-      "line": 915,
+      "line": 917,
       "path": "exception:gate-failure-fix",
       "source": "content/delivery/skills/delegate/SKILL.md",
       "subject": "a blocking gate fails, so a fixer is dispatched and the task-fix chain runs"
@@ -2311,7 +2315,7 @@
       "flag": null,
       "intent": "task-completion",
       "kind": "runbook",
-      "line": 915,
+      "line": 917,
       "path": "exception:gate-failure-fix",
       "source": "content/delivery/skills/delegate/SKILL.md",
       "subject": "runbook:task-fix"
@@ -2321,7 +2325,7 @@
       "flag": null,
       "intent": "task-completion",
       "kind": "site",
-      "line": 898,
+      "line": 900,
       "path": "conditional",
       "source": "content/delivery/skills/delegate/SKILL.md",
       "subject": "exarchos_orchestrate.describe"
@@ -2331,7 +2335,7 @@
       "flag": null,
       "intent": "task-completion",
       "kind": "restatement",
-      "line": 901,
+      "line": 903,
       "path": "excluded",
       "source": "content/delivery/skills/delegate/SKILL.md",
       "subject": "exarchos_orchestrate.task_complete"
@@ -2679,7 +2683,7 @@
     "inputs": [
       {
         "file": "content/delivery/skills/delegate/SKILL.md",
-        "sha256": "0568c168dd346c5f8828ca876307109e0954e272e2ff90f2981fa6abf502536f"
+        "sha256": "864d162409b95bdb12c405ef040d72fc8738bf13c70295263fd1ab0b08e70782"
       },
       {
         "file": "content/design/skills/plan/SKILL.md",
@@ -3650,8 +3654,8 @@
         "dispositions": [
           "delegation:conditional"
         ],
-        "endLine": 719,
-        "line": 719,
+        "endLine": 724,
+        "line": 724,
         "pattern": "call-expression",
         "runbookId": null,
         "status": "registered"
@@ -3661,8 +3665,8 @@
         "dispositions": [
           "delegation:conditional"
         ],
-        "endLine": 720,
-        "line": 720,
+        "endLine": 725,
+        "line": 725,
         "pattern": "call-expression",
         "runbookId": null,
         "status": "registered"
@@ -3672,8 +3676,8 @@
         "dispositions": [
           "delegation:conditional"
         ],
-        "endLine": 722,
-        "line": 722,
+        "endLine": 727,
+        "line": 727,
         "pattern": "call-expression",
         "runbookId": null,
         "status": "registered"
@@ -3684,8 +3688,8 @@
           "delegation:exception:integration-advanced",
           "delegation:exception:integration-advanced-rollback"
         ],
-        "endLine": 795,
-        "line": 793,
+        "endLine": 811,
+        "line": 809,
         "pattern": "shell-fence",
         "runbookId": null,
         "status": "harness"
@@ -3696,30 +3700,30 @@
           "delegation:exception:integration-advanced",
           "delegation:exception:integration-advanced-rollback"
         ],
-        "endLine": 809,
-        "line": 805,
+        "endLine": 821,
+        "line": 819,
         "pattern": "shell-fence",
         "runbookId": null,
         "status": "harness"
-      },
-      {
-        "call": "exarchos_orchestrate.serialize_merge",
-        "dispositions": [
-          "delegation:exception:integration-advanced"
-        ],
-        "endLine": 828,
-        "line": 820,
-        "pattern": "call-expression",
-        "runbookId": null,
-        "status": "registered"
       },
       {
         "call": "native:Bash",
         "dispositions": [
           "delegation:exception:integration-advanced-rollback"
         ],
-        "endLine": 857,
-        "line": 853,
+        "endLine": 844,
+        "line": 841,
+        "pattern": "shell-fence",
+        "runbookId": null,
+        "status": "harness"
+      },
+      {
+        "call": "native:Bash",
+        "dispositions": [
+          "delegation:exception:integration-advanced-rollback"
+        ],
+        "endLine": 854,
+        "line": 852,
         "pattern": "shell-fence",
         "runbookId": null,
         "status": "harness"
@@ -3729,8 +3733,8 @@
         "dispositions": [
           "delegation:exception:phase-not-moved"
         ],
-        "endLine": 885,
-        "line": 885,
+        "endLine": 887,
+        "line": 887,
         "pattern": "call-expression",
         "runbookId": null,
         "status": "registered"
@@ -3740,8 +3744,8 @@
         "dispositions": [
           "delegation:excluded:beyond-boundary"
         ],
-        "endLine": 886,
-        "line": 886,
+        "endLine": 888,
+        "line": 888,
         "pattern": "harness-placeholder",
         "runbookId": null,
         "status": "harness"
@@ -3751,8 +3755,8 @@
         "dispositions": [
           "delegation:excluded:alternate-mode"
         ],
-        "endLine": 896,
-        "line": 896,
+        "endLine": 898,
+        "line": 898,
         "pattern": "call-expression",
         "runbookId": null,
         "status": "registered"
@@ -3762,8 +3766,8 @@
         "dispositions": [
           "task-completion:normal"
         ],
-        "endLine": 898,
-        "line": 898,
+        "endLine": 900,
+        "line": 900,
         "pattern": "call-expression",
         "runbookId": "task-completion",
         "status": "registered"
@@ -3773,8 +3777,8 @@
         "dispositions": [
           "task-completion:conditional"
         ],
-        "endLine": 898,
-        "line": 898,
+        "endLine": 900,
+        "line": 900,
         "pattern": "call-expression",
         "runbookId": null,
         "status": "registered"
@@ -3784,8 +3788,8 @@
         "dispositions": [
           "task-completion:excluded:restatement"
         ],
-        "endLine": 912,
-        "line": 901,
+        "endLine": 914,
+        "line": 903,
         "pattern": "call-expression",
         "runbookId": null,
         "status": "registered"
@@ -3795,8 +3799,8 @@
         "dispositions": [
           "task-completion:exception:gate-failure-fix"
         ],
-        "endLine": 915,
-        "line": 915,
+        "endLine": 917,
+        "line": 917,
         "pattern": "call-expression",
         "runbookId": "task-fix",
         "status": "registered"
@@ -4190,8 +4194,8 @@
       "endsAt": "transition delegate -> review",
       "exceptions": [
         {
-          "atUnit": 6,
-          "exarchos": "5 + 1*tasks",
+          "atUnit": 5,
+          "exarchos": "5",
           "id": "phase-not-moved"
         },
         {
@@ -4225,25 +4229,25 @@
           "id": "material-revision"
         },
         {
-          "atUnit": 8,
-          "exarchos": "7 + 1*tasks",
+          "atUnit": 7,
+          "exarchos": "7",
           "id": "context-compaction"
         },
         {
-          "atUnit": 6,
-          "exarchos": "5 + 1*tasks",
+          "atUnit": 4,
+          "exarchos": "4",
           "id": "integration-advanced"
         },
         {
-          "atUnit": 6,
-          "exarchos": "5 + 1*tasks",
+          "atUnit": 4,
+          "exarchos": "4",
           "id": "integration-advanced-rollback"
         }
       ],
       "intent": "delegation",
       "native": "2*tasks",
-      "normalExarchos": "4 + 1*tasks",
-      "normalExarchosAtUnit": 5,
+      "normalExarchos": "4",
+      "normalExarchosAtUnit": 4,
       "runbookFetch": "2"
     },
     {

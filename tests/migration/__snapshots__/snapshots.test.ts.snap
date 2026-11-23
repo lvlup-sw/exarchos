@@ -143,7 +143,7 @@ Check \`capsule.provenance.compilerVersion\` before dispatch. Compiler 7 compile
 | \`NOTHING_TO_PREPARE\` | Every planned task is complete | Transition to review |
 | \`NO_READY_TASKS\` | Tasks are pending, but each waits on a task that is not complete (the message names them) | Settle or fix the blocking tasks first; tasks that wait on each other are a cycle to break in the plan |
 | \`BASE_UNRESOLVED\` | No usable integration branch was supplied or recorded, or the supplied compile base conflicts with the recorded base | For bootstrap, supply the actual integration branch in \`intent.baseRef\`. For compile, use the recorded base. If the stream has no base, supply the integration branch in \`intent.baseRef\`. A legacy no-intent stream uses its recorded integration branch |
-| \`BASE_UNRESOLVED\` | The repository of the checkout holds no commit of the integration branch, or a completed blocker of a batch task landed on a commit that the base does not hold (both named in the message) | Create the branch, or pass a \`repoRoot\` that holds it. Land the blocker, then \`prepare\` again. A blocker that landed by a squash or a rebase outside \`serialize_merge\` needs a recorded \`merge.executed\` row (\`references/troubleshooting.md\`) |
+| \`BASE_UNRESOLVED\` | The repository of the checkout holds no commit of the integration branch, or a completed blocker of a batch task landed on a commit that the base does not hold (both named in the message) | Create the branch, or pass a \`repoRoot\` that holds it. Land the blocker through the harness landing (Step 4), then \`prepare\` again. A blocker that landed by a squash or a rebase instead needs a recorded \`merge.executed\` row with \`taskId\`, \`targetBranch\`, \`mergeSha\` (the commit that landed), \`sourceBranch\` and \`rollbackSha\` (\`references/troubleshooting.md\`). That row satisfies \`prepare\` only: \`settle\` still needs a \`forkCommit\` that holds the accepted blocker head |
 | \`SCOPE_UNRESOLVED\` | \`repoRoot\` is not in a git work tree or is in another repository than the latest capsule, the config of the checkout does not load, a registered catalog does not resolve, or the config does not make \`check_static_analysis\` blocking (named in the message) | Correct the cause that the message names, then \`prepare\` again (\`references/troubleshooting.md\`) |
 | \`UNKNOWN_DEPENDENCY\`, \`INVALID_TASK_ID\`, \`INVALID_TASK_STAMP\`, \`CAPSULE_UNSOUND\` | The plan cannot be expressed as a batch | Fix the plan, approve the edited bytes, and submit the appropriate intent |
 | \`DESIGN_APPROVAL_MISMATCH\`, \`PLAN_UNSOUND\` | The approved bytes differ from the file, or the typed plan is invalid | Correct the source, obtain approval for its exact bytes, and submit the appropriate typed intent |
@@ -155,9 +155,9 @@ A compile with unchanged inputs returns its recorded capsule. A valid compile wi
 
 ### Worktrees
 
-Each task works in a linked worktree of its own, materialized by the host under native isolation or laid out with \`setup_worktree\` (the canonical \`.worktrees/<taskId>-<taskName>\` path). A task never runs in the checkout that \`prepare\` read or in the primary worktree of the repository. \`settle\` and \`task_complete\` refuse both (\`the-checkout\`), because each task of a prepared workflow runs in its own linked worktree. Under native isolation, confirm each agent's working directory is under \`.worktrees/\` **before any agent edits files** (its first reported \`pwd\`); an agent in the shared checkout is stopped, given a worktree created by hand (\`git worktree add --detach .worktrees/<taskId>-<taskName> <baseCommit>\`, the task's \`baseCommit\` from the capsule), and only then allowed to edit. The hand-made worktree is detached, so the base step of the agent makes the branch of the task. The worktree path is what the task's claim will carry, and what settlement verifies against.
+Each task works in a linked worktree of its own, which comes from the harness: the host materializes it under native isolation, or the coordinator runs \`git worktree add --detach .worktrees/<taskId>-<taskName> <baseCommit>\` (the canonical path, with the task's \`baseCommit\` from the capsule). The normal path has no Exarchos call that makes a worktree. A task never runs in the checkout that \`prepare\` read or in the primary worktree of the repository. \`settle\` and \`task_complete\` refuse both (\`the-checkout\`), because each task of a prepared workflow runs in its own linked worktree. Under native isolation, confirm each agent's working directory is under \`.worktrees/\` **before any agent edits files** (its first reported \`pwd\`); an agent in the shared checkout is stopped, given a worktree created by hand with that \`git worktree add --detach\` command, and only then allowed to edit. The hand-made worktree is detached, so the base step of the agent makes the branch of the task. The worktree path is what the task's claim will carry, and what settlement verifies against.
 
-For a compiler-8 dependent, replace the root base step below with \`git switch -c <own branch> <forkCommit>\` at the selected clean blocker-containing commit. Do not reset that worktree back to the root base. For roots and compiler 7, the worker starts from \`<baseCommit>\`. After its entry checks and before any file change, an implementer or a scaffolder runs \`git switch -c <own branch> <baseCommit>\` (the base step of its agent definition), so its worktree holds the base on each runtime. \`<own branch>\` is a name that no branch holds yet. It is not the branch of the worktree that \`setup_worktree\` or \`git worktree add -b\` made, because git refuses \`git switch -c\` for a branch that exists. A fixer continues the earlier branch of its task (Fix Failed Tasks, below). Settlement refuses a worktree whose HEAD does not hold \`<baseCommit>\` (\`base-not-held\`) and a worktree on \`baseRef\` (\`on-the-base-branch\`). For compiler 7 the kill probe measures the task's diff from \`baseRef\`. For compiler 8, a root starts at its pinned \`baseCommit\`; a dependent starts at a clean full commit containing its direct blocker heads and the pinned base. Record that starting commit as \`forkCommit\` before editing and return it in the result fields when the contract requires it. Settlement binds the original input and measures the immutable fork-to-observed-head diff; do not substitute a moving branch name or a later HEAD. Leave each worktree clean: settlement refuses a worktree whose \`git status --porcelain\` is not empty (\`uncommitted-changes\`). A linked \`node_modules\` needs the ignore rule \`node_modules\`, without a trailing slash.
+For a compiler-8 dependent, replace the root base step below with \`git switch -c <own branch> <forkCommit>\` at the selected clean blocker-containing commit. Do not reset that worktree back to the root base. For roots and compiler 7, the worker starts from \`<baseCommit>\`. After its entry checks and before any file change, an implementer or a scaffolder runs \`git switch -c <own branch> <baseCommit>\` (the base step of its agent definition), so its worktree holds the base on each runtime. \`<own branch>\` is a name that no branch holds yet. It is not the branch of a worktree that \`git worktree add -b\` made, because git refuses \`git switch -c\` for a branch that exists. A fixer continues the earlier branch of its task (Fix Failed Tasks, below). Settlement refuses a worktree whose HEAD does not hold \`<baseCommit>\` (\`base-not-held\`) and a worktree on \`baseRef\` (\`on-the-base-branch\`). For compiler 7 the kill probe measures the task's diff from \`baseRef\`. For compiler 8, a root starts at its pinned \`baseCommit\`; a dependent starts at a clean full commit containing its direct blocker heads and the pinned base. Record that starting commit as \`forkCommit\` before editing and return it in the result fields when the contract requires it. Settlement binds the original input and measures the immutable fork-to-observed-head diff; do not substitute a moving branch name or a later HEAD. Leave each worktree clean: settlement refuses a worktree whose \`git status --porcelain\` is not empty (\`uncommitted-changes\`). A linked \`node_modules\` needs the ignore rule \`node_modules\`, without a trailing slash.
 
 ### Task Extraction
 
@@ -620,8 +620,8 @@ After the fix completes, claim the fixed task in a new batch on the same capsule
 
 When \`phaseMove\` is \`moved\`, the workflow is at the review step already (\`review\` for a feature). Land each worktree and run the integration suite after the move, before the review starts. The review reads the integration tip, so each landing comes first.
 
-1. **Land each worktree.** Land the worktree of each settled task through \`serialize_merge\` (see "Worktree-Bearing Tasks" below), one worktree at a time, in dependency order.
-2. **Wave backstop** — once, after every merge of the wave has landed, run the cumulative suite against the integration tip:
+1. **Land each worktree.** Land the accepted head commit of each settled task through the harness (see "Worktree-Bearing Tasks" below), one worktree at a time, in dependency order. The landing makes no Exarchos call and appends no \`merge.executed\` event.
+2. **Wave backstop** — once, after every merge of the wave has landed, run the cumulative suite against the integration tip. That suite covers the wave only when every accepted head of the wave is an ancestor of the integration tip:
 
 \`\`\`typescript
 exarchos_orchestrate({
@@ -708,7 +708,12 @@ For the full transition table, consult \`@skills/checkpoint/references/phase-tra
 
 A completion row that names a worktree does not move the workflow through \`merge-pending\`. The \`delegate\` → \`merge-pending\` edge reads event data that the fold does not hold, so the edge does not admit on the fold. The settle move goes from \`delegate\` to \`review\` directly, and the coordinator lands each worktree after the move (Step 4).
 
-**Land it through \`serialize_merge\`.** The integration branch is shared — sibling worktree merges within the same wave (or a concurrent operator) can race for it. \`serialize_merge\` is THE integration-merge path: it holds an optimistic per-\`integrationRef\` single-writer lease, then composes \`merge_orchestrate\` unchanged to do the local \`git merge\` with a recorded recovery-point SHA — see \`@skills/merge-orchestrator/SKILL.md\`. Do **not** dispatch raw \`merge_orchestrate\` to land onto the integration branch — a live foreign lease makes it fail closed (\`MERGE_LEASE_HELD\`, naming \`serialize_merge\`). Raw \`merge_orchestrate\` is for a non-integration merge (a private / scratch branch no sibling will touch) or a crash-resumed caller re-presenting its original lease.
+**Land it through the harness.** The coordinator lands each settled worktree itself, with the git of its harness, one worktree at a time, in dependency order. The normal path makes no Exarchos call for a landing and appends no \`merge.executed\` event.
+
+- Land the accepted head commit of the settled claim, the commit that settlement accepted for the task. Do not land a branch name. If a step names the task branch, first check that \`git rev-parse <task branch>\` equals the accepted head, and stop on a difference: a fixer continues the earlier branch of its task, so the branch can move after the settlement.
+- Before each landing, check that the integration worktree is on the integration branch and that its \`git status --porcelain\` is empty. Then land from the integration worktree with \`git merge --ff-only <accepted head commit>\`.
+- Each landing is a fast-forward or a merge commit of the accepted head, so that head stays reachable. Never rebase or squash an accepted head: settle and the verifier need each blocker head as an ancestor of the fork of a dependent. When the fast-forward fails because the integration branch advanced, follow "When integration advances mid-wave" below.
+- Before a landing is tried again after a crash or a lost reply, run \`git merge-base --is-ancestor <accepted head> <integration-branch>\`. Exit 0 skips the worktree, because the branch holds it already. Exit 1 lands it. Any other exit stops the landing and reports.
 
 Each landing is a merge of the integration branch. It is not a phase of the workflow, so a landing after the move does not change the phase.
 
@@ -735,38 +740,37 @@ for the plane's own schemas — what \`prepare\` returns and what a claim may ca
 
 ## When integration advances mid-wave
 
-Runbook for recovering when a subagent worktree's branch has diverged from the
-integration branch. Triggered by the integration merge's ancestry preflight
-(run by the composed \`merge_orchestrate\` inside \`serialize_merge\`): the
-failure message links here verbatim and includes the manual \`git rebase\`
-command. Auto-rebase is **not** wired today — operators
-must drive recovery by hand.
+Runbook for a worktree whose fast-forward landing fails because the
+integration branch advanced. An earlier landing of the wave, or another
+writer, moved the integration branch while the worktree was in flight. The
+coordinator drives each step by hand. No step makes an Exarchos call.
 
 ### Symptom
 
-The merge-orchestrator reports an ancestry failure of the form:
+The fast-forward landing of Step 4 refuses:
 
 \`\`\`text
-source branch <feature-branch> is not a descendant of <integration-branch>.
-Rebase manually with: git rebase <integration-branch> (run from the <feature-branch> worktree).
-Runbook: content/delivery/skills/delegate/SKILL.md#when-integration-advances-mid-wave
+$ git merge --ff-only <accepted head commit>
+fatal: Not possible to fast-forward, aborting.
 \`\`\`
 
-This means the integration branch advanced (typically because an earlier
-worktree merge landed) while the failing worktree was still in flight.
-Fast-forward merge is no longer safe — the working branch must catch up
-first.
+The accepted head does not hold the new integration tip, so a fast-forward is
+no longer possible. The accepted head still lands unchanged, with a merge
+commit.
 
 ### Why this happens
 
 Each subagent worktree starts at the \`baseCommit\` of its task, the commit of
 the integration branch when \`prepare\` compiled the batch (the base step of the
-agent). When the orchestrator merges sibling worktrees serially, each merge
-moves the integration branch forward. A worktree that started at an older
-integration commit will fail the ancestry preflight when its turn comes.
+agent). Each landing moves the integration branch forward. A worktree that
+started at an older integration commit cannot fast-forward when its turn
+comes.
 
-This is expected behavior under the current single-writer merge contract —
-preflight is fail-only on purpose so the operator stays in control.
+The accepted head is the commit that settlement judged. A rebase or a squash
+makes a new commit that settlement never judged, and settle and the verifier
+need each blocker head as an ancestor of the fork of a dependent. So the
+runbook lands that head unchanged with a merge commit, and it never rebases
+it.
 
 
 > **Prerequisite — pin the worktree base.** Native \`isolation: worktree\`
@@ -793,93 +797,91 @@ preflight is fail-only on purpose so the operator stays in control.
 
 ### Recovery procedure
 
-Before each step, verify you are in the **main worktree** (not the failing
-subagent worktree) and that \`git status\` is clean.
+Run each step from the **integration worktree**, never from the task worktree.
 
-1. **Capture the rollback SHA** before doing anything destructive:
+0. **Check whether the head landed already** with
+   \`git merge-base --is-ancestor <accepted head> <integration-branch>\`.
+   Exit 0 means that the integration branch holds the accepted head already,
+   for example after a crash that followed a landed merge commit. Skip the
+   worktree, and capture no rollback commit. Any exit other than 0 or 1 stops
+   the runbook and reports. On exit 1, check whether the plan already holds a
+   rework task whose rationale names this accepted head. If it does, go to
+   that rework (its dispatch, or its Step 4 landing), and do not merge again or
+   plan a second rework. Otherwise continue.
+
+1. **Check the integration worktree.** It is on the integration branch, and
+   \`git status --porcelain\` prints nothing. If not, stop and report.
+
+2. **Capture the integration rollback commit** before the merge:
 
    \`\`\`bash
-   git rev-parse <feature-branch> > /tmp/rollback.sha
+   git rev-parse <integration-branch> > /tmp/rollback.sha
    \`\`\`
 
-   Keep this until the merge has been verified. If anything goes wrong,
-   \`git reset --hard "$(cat /tmp/rollback.sha)"\` on the feature branch
-   restores the pre-rebase state. The filename is intentionally
-   branch-name-free so slash-delimited branches like \`feature/dr-6\`
-   don't break the path with embedded \`/\` characters.
+   The filename is intentionally branch-name-free, so slash-delimited branches
+   like \`feature/dr-6\` do not break the path with embedded \`/\` characters. The
+   path is local to the machine, so run every later step on the same machine.
 
-2. **Rebase the feature branch onto the current integration tip:**
+3. **Land the accepted head unchanged with a merge commit:**
 
    \`\`\`bash
-   cd <feature-worktree-path>
-   git fetch origin
-   git rebase <integration-branch>
+   git merge --no-ff <accepted head>
    \`\`\`
 
-   Resolve any conflicts that surface. The conflicts are real — they reflect
-   genuine drift between the two branches, not preflight noise. Do **not**
-   pass \`--strategy-option=theirs\` blindly; that drops the subagent's work.
+   Exit 0 is the landing: the merge commit holds the accepted head, so that
+   head stays reachable. The landing needs no \`merge.executed\` row. A conflict
+   goes to the rollback procedure below. Any other refusal (no merge in
+   progress, an unknown commit, a dirty tree) stops the runbook and reports,
+   with no abort.
 
-3. **Re-run the integration merge from the main worktree** — through
-   \`serialize_merge\`, which re-composes \`merge_orchestrate\`'s ancestry
-   preflight under the single-writer lease:
+   A clean merge that later fails the wave suite stays landed, and the defect
+   is repaired forward in a new task.
 
-   \`\`\`typescript
-   exarchos_orchestrate({
-     action: "serialize_merge",
-     featureId: "<featureId>",
-     integrationRef: "<integration-branch>",
-     sourceBranch: "<feature-branch>",
-     strategy: "squash",           // squash | rebase | merge
-     taskId: "<taskId>",
-     dryRun: false,                // REQUIRED to execute — the action DEFAULTS to dry-run
-   })
-   \`\`\`
-
-   \`serialize_merge\` **defaults to a dry-run** (preflight only, no lease
-   claimed): omit \`dryRun\` and it reports whether the merge *would* apply
-   without mutating anything. Pass \`dryRun: false\` to actually claim the
-   single-writer lease and perform the merge. The action is declared
-   **shared-mutating**, so a read-only caller (a session without write
-   capability) is denied even the apply path; in that case fall back to a
-   local-git merge from the main worktree (\`git merge --squash
-   <feature-branch>\` then commit) and record the equivalent merge
-   state/events yourself, since that merge sits outside the serialized lease.
-
-   The preflight should now pass. Proceed with the orchestrator's normal
-   merge flow. (Re-run raw \`merge_orchestrate\` directly only for a
-   non-integration merge, or as the crash-resumed caller re-presenting its
-   original \`leaseOperationId\`.)
+Then run \`check_integration_suite\` at the wave boundary, as Step 4 says.
 
 ### Rollback procedure
 
-If the rebase produces conflicts you cannot resolve safely, or the merge
-still fails after rebase:
+On a conflict, the merge of the accepted head stops with the integration
+worktree in a merge state. Resolve nothing in the integration worktree.
 
-1. **Reset the feature branch** to the captured rollback SHA:
+1. **Abort the merge** and check that the tree is clean:
 
    \`\`\`bash
-   cd <feature-worktree-path>
-   git rebase --abort   # if mid-rebase
-   git reset --hard "$(cat /tmp/rollback.sha)"
+   git merge --abort
+   git status --porcelain
    \`\`\`
 
-2. **Plan the rework as a new task.** The task was accepted before this merge. Under compiler 7 its completion row supplies standing; compiler 8 requires the authenticated accepted proof. Reusing that standing does not verify new edits. Do not present altered work as an unchanged accepted result. Add a new task for the rework to the plan, obtain approval for the edited bytes, compile a continuation, and
-   dispatch a fixer for the new task (see the Failure Recovery section
-   above). Do **not** delete the worktree — the fixer needs the original
-   branch state to diagnose the conflict.
+   The abort makes no commit, and it restores the integration branch to its
+   commit before the merge. If \`git status --porcelain\` prints anything, the
+   abort failed: stop and report.
 
-3. **Record the incident** by emitting a \`merge.aborted\` event with
-   \`reason: "ancestry-rebase-conflict"\` and the failing branch's pre-rebase
-   SHA so the convergence view captures the rollback.
+2. **Compare the integration branch with the captured commit:**
 
-### Why no auto-rebase yet
+   \`\`\`bash
+   test "$(git rev-parse <integration-branch>)" = "$(cat /tmp/rollback.sha)"
+   \`\`\`
 
-Auto-rebase is not yet wired. Today the orchestrator stops at
-the ancestry preflight on purpose: a botched auto-rebase across diverged
-worktrees risks silently dropping subagent work, and the recovery path
-above is short enough that operator-driven rebase is preferable to
-clever-but-fragile automation.
+   A non-zero exit means that another writer moved the integration branch.
+   Stop and report. The runbook has no reset step, and it never resets over a
+   commit that it did not make.
+
+3. **Keep the task worktree for diagnosis only.** Do not delete it, and do not
+   give it to the rework: settlement refuses a claim from that path, because
+   the completion row of the original task names it.
+
+4. **Plan the rework as a new task.** The task was accepted before this merge. Under compiler 7 its completion row supplies standing; compiler 8 requires the authenticated accepted proof. Reusing that standing does not verify new edits. Do not present altered work as an unchanged accepted result. Add a new task for the rework to the plan, obtain approval for the edited bytes, and compile a continuation:
+   - The rework task has no \`blockedBy\` on the unlanded task. It is a root of its continuation, so it gets its own harness worktree and the root base step.
+   - Its files are each path of \`git diff --name-only <rework baseCommit>...<accepted head>\` (the changes of the accepted head since the merge base), plus each conflict file. A file outside that list that the worker must edit to repair a semantic break goes in the list before the dispatch.
+   - Its plan rationale names the unlanded task, the accepted head and the captured rollback commit. It carries the acceptance and the test files of the unlanded task, so that the verifier judges the merged work.
+   - Its instructions name the accepted head and the steps of its worker. The worker branches at its \`baseCommit\` with \`git switch -c <own branch> <baseCommit>\`, runs \`git merge --no-ff <accepted head commit>\`, resolves the conflicts and commits the merge. Before the claim, \`git merge-base --is-ancestor <accepted head> HEAD\` exits 0, and any other exit stops the claim. The worker never rebases, squashes or cherry-picks the accepted head, so its head holds that head unchanged.
+   - The revision that adds the rework changes no term of the unlanded task or of its dependents, because a change to those terms invalidates their blocker standing.
+   - Do not dispatch the fix-mode fixer for the rework, because its base step rebases the earlier branch onto the new base.
+
+5. **Land the rework.** Before the Step 4 landing of the rework head, check that \`git merge-base --is-ancestor <accepted head> <rework head>\` exits 0, and land the rework head only then. Land no dependent of the unlanded task in the wave before that: each dependent head holds the unlanded accepted head, so its merge brings that head in again. The dependents wait for the rework landing, and then fork from a clean commit that holds the accepted head and the pinned base.
+
+6. **Report the wave coverage.** Until the rework lands, the accepted head is not an ancestor of the integration tip, so the wave-boundary suite does not cover the wave. Run \`check_integration_suite\` after the rework landing, or report the wave as uncovered. Do not report an earlier green run as coverage.
+
+The rollback appends no event, because no registered event type records an aborted landing. The rework task, its plan rationale and the captured rollback commit hold the incident record.
 
 ---
 
@@ -1355,7 +1357,7 @@ Check \`capsule.provenance.compilerVersion\` before dispatch. Compiler 7 compile
 | \`NOTHING_TO_PREPARE\` | Every planned task is complete | Transition to review |
 | \`NO_READY_TASKS\` | Tasks are pending, but each waits on a task that is not complete (the message names them) | Settle or fix the blocking tasks first; tasks that wait on each other are a cycle to break in the plan |
 | \`BASE_UNRESOLVED\` | No usable integration branch was supplied or recorded, or the supplied compile base conflicts with the recorded base | For bootstrap, supply the actual integration branch in \`intent.baseRef\`. For compile, use the recorded base. If the stream has no base, supply the integration branch in \`intent.baseRef\`. A legacy no-intent stream uses its recorded integration branch |
-| \`BASE_UNRESOLVED\` | The repository of the checkout holds no commit of the integration branch, or a completed blocker of a batch task landed on a commit that the base does not hold (both named in the message) | Create the branch, or pass a \`repoRoot\` that holds it. Land the blocker, then \`prepare\` again. A blocker that landed by a squash or a rebase outside \`serialize_merge\` needs a recorded \`merge.executed\` row (\`references/troubleshooting.md\`) |
+| \`BASE_UNRESOLVED\` | The repository of the checkout holds no commit of the integration branch, or a completed blocker of a batch task landed on a commit that the base does not hold (both named in the message) | Create the branch, or pass a \`repoRoot\` that holds it. Land the blocker through the harness landing (Step 4), then \`prepare\` again. A blocker that landed by a squash or a rebase instead needs a recorded \`merge.executed\` row with \`taskId\`, \`targetBranch\`, \`mergeSha\` (the commit that landed), \`sourceBranch\` and \`rollbackSha\` (\`references/troubleshooting.md\`). That row satisfies \`prepare\` only: \`settle\` still needs a \`forkCommit\` that holds the accepted blocker head |
 | \`SCOPE_UNRESOLVED\` | \`repoRoot\` is not in a git work tree or is in another repository than the latest capsule, the config of the checkout does not load, a registered catalog does not resolve, or the config does not make \`check_static_analysis\` blocking (named in the message) | Correct the cause that the message names, then \`prepare\` again (\`references/troubleshooting.md\`) |
 | \`UNKNOWN_DEPENDENCY\`, \`INVALID_TASK_ID\`, \`INVALID_TASK_STAMP\`, \`CAPSULE_UNSOUND\` | The plan cannot be expressed as a batch | Fix the plan, approve the edited bytes, and submit the appropriate intent |
 | \`DESIGN_APPROVAL_MISMATCH\`, \`PLAN_UNSOUND\` | The approved bytes differ from the file, or the typed plan is invalid | Correct the source, obtain approval for its exact bytes, and submit the appropriate typed intent |
@@ -1367,9 +1369,9 @@ A compile with unchanged inputs returns its recorded capsule. A valid compile wi
 
 ### Worktrees
 
-Each task works in a linked worktree of its own, materialized by the host under native isolation or laid out with \`setup_worktree\` (the canonical \`.worktrees/<taskId>-<taskName>\` path). A task never runs in the checkout that \`prepare\` read or in the primary worktree of the repository. \`settle\` and \`task_complete\` refuse both (\`the-checkout\`), because each task of a prepared workflow runs in its own linked worktree. Under native isolation, confirm each agent's working directory is under \`.worktrees/\` **before any agent edits files** (its first reported \`pwd\`); an agent in the shared checkout is stopped, given a worktree created by hand (\`git worktree add --detach .worktrees/<taskId>-<taskName> <baseCommit>\`, the task's \`baseCommit\` from the capsule), and only then allowed to edit. The hand-made worktree is detached, so the base step of the agent makes the branch of the task. The worktree path is what the task's claim will carry, and what settlement verifies against.
+Each task works in a linked worktree of its own, which comes from the harness: the host materializes it under native isolation, or the coordinator runs \`git worktree add --detach .worktrees/<taskId>-<taskName> <baseCommit>\` (the canonical path, with the task's \`baseCommit\` from the capsule). The normal path has no Exarchos call that makes a worktree. A task never runs in the checkout that \`prepare\` read or in the primary worktree of the repository. \`settle\` and \`task_complete\` refuse both (\`the-checkout\`), because each task of a prepared workflow runs in its own linked worktree. Under native isolation, confirm each agent's working directory is under \`.worktrees/\` **before any agent edits files** (its first reported \`pwd\`); an agent in the shared checkout is stopped, given a worktree created by hand with that \`git worktree add --detach\` command, and only then allowed to edit. The hand-made worktree is detached, so the base step of the agent makes the branch of the task. The worktree path is what the task's claim will carry, and what settlement verifies against.
 
-For a compiler-8 dependent, replace the root base step below with \`git switch -c <own branch> <forkCommit>\` at the selected clean blocker-containing commit. Do not reset that worktree back to the root base. For roots and compiler 7, the worker starts from \`<baseCommit>\`. After its entry checks and before any file change, an implementer or a scaffolder runs \`git switch -c <own branch> <baseCommit>\` (the base step of its agent definition), so its worktree holds the base on each runtime. \`<own branch>\` is a name that no branch holds yet. It is not the branch of the worktree that \`setup_worktree\` or \`git worktree add -b\` made, because git refuses \`git switch -c\` for a branch that exists. A fixer continues the earlier branch of its task (Fix Failed Tasks, below). Settlement refuses a worktree whose HEAD does not hold \`<baseCommit>\` (\`base-not-held\`) and a worktree on \`baseRef\` (\`on-the-base-branch\`). For compiler 7 the kill probe measures the task's diff from \`baseRef\`. For compiler 8, a root starts at its pinned \`baseCommit\`; a dependent starts at a clean full commit containing its direct blocker heads and the pinned base. Record that starting commit as \`forkCommit\` before editing and return it in the result fields when the contract requires it. Settlement binds the original input and measures the immutable fork-to-observed-head diff; do not substitute a moving branch name or a later HEAD. Leave each worktree clean: settlement refuses a worktree whose \`git status --porcelain\` is not empty (\`uncommitted-changes\`). A linked \`node_modules\` needs the ignore rule \`node_modules\`, without a trailing slash.
+For a compiler-8 dependent, replace the root base step below with \`git switch -c <own branch> <forkCommit>\` at the selected clean blocker-containing commit. Do not reset that worktree back to the root base. For roots and compiler 7, the worker starts from \`<baseCommit>\`. After its entry checks and before any file change, an implementer or a scaffolder runs \`git switch -c <own branch> <baseCommit>\` (the base step of its agent definition), so its worktree holds the base on each runtime. \`<own branch>\` is a name that no branch holds yet. It is not the branch of a worktree that \`git worktree add -b\` made, because git refuses \`git switch -c\` for a branch that exists. A fixer continues the earlier branch of its task (Fix Failed Tasks, below). Settlement refuses a worktree whose HEAD does not hold \`<baseCommit>\` (\`base-not-held\`) and a worktree on \`baseRef\` (\`on-the-base-branch\`). For compiler 7 the kill probe measures the task's diff from \`baseRef\`. For compiler 8, a root starts at its pinned \`baseCommit\`; a dependent starts at a clean full commit containing its direct blocker heads and the pinned base. Record that starting commit as \`forkCommit\` before editing and return it in the result fields when the contract requires it. Settlement binds the original input and measures the immutable fork-to-observed-head diff; do not substitute a moving branch name or a later HEAD. Leave each worktree clean: settlement refuses a worktree whose \`git status --porcelain\` is not empty (\`uncommitted-changes\`). A linked \`node_modules\` needs the ignore rule \`node_modules\`, without a trailing slash.
 
 ### Task Extraction
 
@@ -1795,8 +1797,8 @@ After the fix completes, claim the fixed task in a new batch on the same capsule
 
 When \`phaseMove\` is \`moved\`, the workflow is at the review step already (\`review\` for a feature). Land each worktree and run the integration suite after the move, before the review starts. The review reads the integration tip, so each landing comes first.
 
-1. **Land each worktree.** Land the worktree of each settled task through \`serialize_merge\` (see "Worktree-Bearing Tasks" below), one worktree at a time, in dependency order.
-2. **Wave backstop** — once, after every merge of the wave has landed, run the cumulative suite against the integration tip:
+1. **Land each worktree.** Land the accepted head commit of each settled task through the harness (see "Worktree-Bearing Tasks" below), one worktree at a time, in dependency order. The landing makes no Exarchos call and appends no \`merge.executed\` event.
+2. **Wave backstop** — once, after every merge of the wave has landed, run the cumulative suite against the integration tip. That suite covers the wave only when every accepted head of the wave is an ancestor of the integration tip:
 
 \`\`\`typescript
 exarchos_orchestrate({
@@ -1883,7 +1885,12 @@ For the full transition table, consult \`@skills/checkpoint/references/phase-tra
 
 A completion row that names a worktree does not move the workflow through \`merge-pending\`. The \`delegate\` → \`merge-pending\` edge reads event data that the fold does not hold, so the edge does not admit on the fold. The settle move goes from \`delegate\` to \`review\` directly, and the coordinator lands each worktree after the move (Step 4).
 
-**Land it through \`serialize_merge\`.** The integration branch is shared — sibling worktree merges within the same wave (or a concurrent operator) can race for it. \`serialize_merge\` is THE integration-merge path: it holds an optimistic per-\`integrationRef\` single-writer lease, then composes \`merge_orchestrate\` unchanged to do the local \`git merge\` with a recorded recovery-point SHA — see \`@skills/merge-orchestrator/SKILL.md\`. Do **not** dispatch raw \`merge_orchestrate\` to land onto the integration branch — a live foreign lease makes it fail closed (\`MERGE_LEASE_HELD\`, naming \`serialize_merge\`). Raw \`merge_orchestrate\` is for a non-integration merge (a private / scratch branch no sibling will touch) or a crash-resumed caller re-presenting its original lease.
+**Land it through the harness.** The coordinator lands each settled worktree itself, with the git of its harness, one worktree at a time, in dependency order. The normal path makes no Exarchos call for a landing and appends no \`merge.executed\` event.
+
+- Land the accepted head commit of the settled claim, the commit that settlement accepted for the task. Do not land a branch name. If a step names the task branch, first check that \`git rev-parse <task branch>\` equals the accepted head, and stop on a difference: a fixer continues the earlier branch of its task, so the branch can move after the settlement.
+- Before each landing, check that the integration worktree is on the integration branch and that its \`git status --porcelain\` is empty. Then land from the integration worktree with \`git merge --ff-only <accepted head commit>\`.
+- Each landing is a fast-forward or a merge commit of the accepted head, so that head stays reachable. Never rebase or squash an accepted head: settle and the verifier need each blocker head as an ancestor of the fork of a dependent. When the fast-forward fails because the integration branch advanced, follow "When integration advances mid-wave" below.
+- Before a landing is tried again after a crash or a lost reply, run \`git merge-base --is-ancestor <accepted head> <integration-branch>\`. Exit 0 skips the worktree, because the branch holds it already. Exit 1 lands it. Any other exit stops the landing and reports.
 
 Each landing is a merge of the integration branch. It is not a phase of the workflow, so a landing after the move does not change the phase.
 
@@ -1910,129 +1917,126 @@ for the plane's own schemas — what \`prepare\` returns and what a claim may ca
 
 ## When integration advances mid-wave
 
-Runbook for recovering when a subagent worktree's branch has diverged from the
-integration branch. Triggered by the integration merge's ancestry preflight
-(run by the composed \`merge_orchestrate\` inside \`serialize_merge\`): the
-failure message links here verbatim and includes the manual \`git rebase\`
-command. Auto-rebase is **not** wired today — operators
-must drive recovery by hand.
+Runbook for a worktree whose fast-forward landing fails because the
+integration branch advanced. An earlier landing of the wave, or another
+writer, moved the integration branch while the worktree was in flight. The
+coordinator drives each step by hand. No step makes an Exarchos call.
 
 ### Symptom
 
-The merge-orchestrator reports an ancestry failure of the form:
+The fast-forward landing of Step 4 refuses:
 
 \`\`\`text
-source branch <feature-branch> is not a descendant of <integration-branch>.
-Rebase manually with: git rebase <integration-branch> (run from the <feature-branch> worktree).
-Runbook: content/delivery/skills/delegate/SKILL.md#when-integration-advances-mid-wave
+$ git merge --ff-only <accepted head commit>
+fatal: Not possible to fast-forward, aborting.
 \`\`\`
 
-This means the integration branch advanced (typically because an earlier
-worktree merge landed) while the failing worktree was still in flight.
-Fast-forward merge is no longer safe — the working branch must catch up
-first.
+The accepted head does not hold the new integration tip, so a fast-forward is
+no longer possible. The accepted head still lands unchanged, with a merge
+commit.
 
 ### Why this happens
 
 Each subagent worktree starts at the \`baseCommit\` of its task, the commit of
 the integration branch when \`prepare\` compiled the batch (the base step of the
-agent). When the orchestrator merges sibling worktrees serially, each merge
-moves the integration branch forward. A worktree that started at an older
-integration commit will fail the ancestry preflight when its turn comes.
+agent). Each landing moves the integration branch forward. A worktree that
+started at an older integration commit cannot fast-forward when its turn
+comes.
 
-This is expected behavior under the current single-writer merge contract —
-preflight is fail-only on purpose so the operator stays in control.
+The accepted head is the commit that settlement judged. A rebase or a squash
+makes a new commit that settlement never judged, and settle and the verifier
+need each blocker head as an ancestor of the fork of a dependent. So the
+runbook lands that head unchanged with a merge commit, and it never rebases
+it.
 
 
 ### Recovery procedure
 
-Before each step, verify you are in the **main worktree** (not the failing
-subagent worktree) and that \`git status\` is clean.
+Run each step from the **integration worktree**, never from the task worktree.
 
-1. **Capture the rollback SHA** before doing anything destructive:
+0. **Check whether the head landed already** with
+   \`git merge-base --is-ancestor <accepted head> <integration-branch>\`.
+   Exit 0 means that the integration branch holds the accepted head already,
+   for example after a crash that followed a landed merge commit. Skip the
+   worktree, and capture no rollback commit. Any exit other than 0 or 1 stops
+   the runbook and reports. On exit 1, check whether the plan already holds a
+   rework task whose rationale names this accepted head. If it does, go to
+   that rework (its dispatch, or its Step 4 landing), and do not merge again or
+   plan a second rework. Otherwise continue.
+
+1. **Check the integration worktree.** It is on the integration branch, and
+   \`git status --porcelain\` prints nothing. If not, stop and report.
+
+2. **Capture the integration rollback commit** before the merge:
 
    \`\`\`bash
-   git rev-parse <feature-branch> > /tmp/rollback.sha
+   git rev-parse <integration-branch> > /tmp/rollback.sha
    \`\`\`
 
-   Keep this until the merge has been verified. If anything goes wrong,
-   \`git reset --hard "$(cat /tmp/rollback.sha)"\` on the feature branch
-   restores the pre-rebase state. The filename is intentionally
-   branch-name-free so slash-delimited branches like \`feature/dr-6\`
-   don't break the path with embedded \`/\` characters.
+   The filename is intentionally branch-name-free, so slash-delimited branches
+   like \`feature/dr-6\` do not break the path with embedded \`/\` characters. The
+   path is local to the machine, so run every later step on the same machine.
 
-2. **Rebase the feature branch onto the current integration tip:**
+3. **Land the accepted head unchanged with a merge commit:**
 
    \`\`\`bash
-   cd <feature-worktree-path>
-   git fetch origin
-   git rebase <integration-branch>
+   git merge --no-ff <accepted head>
    \`\`\`
 
-   Resolve any conflicts that surface. The conflicts are real — they reflect
-   genuine drift between the two branches, not preflight noise. Do **not**
-   pass \`--strategy-option=theirs\` blindly; that drops the subagent's work.
+   Exit 0 is the landing: the merge commit holds the accepted head, so that
+   head stays reachable. The landing needs no \`merge.executed\` row. A conflict
+   goes to the rollback procedure below. Any other refusal (no merge in
+   progress, an unknown commit, a dirty tree) stops the runbook and reports,
+   with no abort.
 
-3. **Re-run the integration merge from the main worktree** — through
-   \`serialize_merge\`, which re-composes \`merge_orchestrate\`'s ancestry
-   preflight under the single-writer lease:
+   A clean merge that later fails the wave suite stays landed, and the defect
+   is repaired forward in a new task.
 
-   \`\`\`typescript
-   exarchos_orchestrate({
-     action: "serialize_merge",
-     featureId: "<featureId>",
-     integrationRef: "<integration-branch>",
-     sourceBranch: "<feature-branch>",
-     strategy: "squash",           // squash | rebase | merge
-     taskId: "<taskId>",
-     dryRun: false,                // REQUIRED to execute — the action DEFAULTS to dry-run
-   })
-   \`\`\`
-
-   \`serialize_merge\` **defaults to a dry-run** (preflight only, no lease
-   claimed): omit \`dryRun\` and it reports whether the merge *would* apply
-   without mutating anything. Pass \`dryRun: false\` to actually claim the
-   single-writer lease and perform the merge. The action is declared
-   **shared-mutating**, so a read-only caller (a session without write
-   capability) is denied even the apply path; in that case fall back to a
-   local-git merge from the main worktree (\`git merge --squash
-   <feature-branch>\` then commit) and record the equivalent merge
-   state/events yourself, since that merge sits outside the serialized lease.
-
-   The preflight should now pass. Proceed with the orchestrator's normal
-   merge flow. (Re-run raw \`merge_orchestrate\` directly only for a
-   non-integration merge, or as the crash-resumed caller re-presenting its
-   original \`leaseOperationId\`.)
+Then run \`check_integration_suite\` at the wave boundary, as Step 4 says.
 
 ### Rollback procedure
 
-If the rebase produces conflicts you cannot resolve safely, or the merge
-still fails after rebase:
+On a conflict, the merge of the accepted head stops with the integration
+worktree in a merge state. Resolve nothing in the integration worktree.
 
-1. **Reset the feature branch** to the captured rollback SHA:
+1. **Abort the merge** and check that the tree is clean:
 
    \`\`\`bash
-   cd <feature-worktree-path>
-   git rebase --abort   # if mid-rebase
-   git reset --hard "$(cat /tmp/rollback.sha)"
+   git merge --abort
+   git status --porcelain
    \`\`\`
 
-2. **Plan the rework as a new task.** The task was accepted before this merge. Under compiler 7 its completion row supplies standing; compiler 8 requires the authenticated accepted proof. Reusing that standing does not verify new edits. Do not present altered work as an unchanged accepted result. Add a new task for the rework to the plan, obtain approval for the edited bytes, compile a continuation, and
-   dispatch a fixer for the new task (see the Failure Recovery section
-   above). Do **not** delete the worktree — the fixer needs the original
-   branch state to diagnose the conflict.
+   The abort makes no commit, and it restores the integration branch to its
+   commit before the merge. If \`git status --porcelain\` prints anything, the
+   abort failed: stop and report.
 
-3. **Record the incident** by emitting a \`merge.aborted\` event with
-   \`reason: "ancestry-rebase-conflict"\` and the failing branch's pre-rebase
-   SHA so the convergence view captures the rollback.
+2. **Compare the integration branch with the captured commit:**
 
-### Why no auto-rebase yet
+   \`\`\`bash
+   test "$(git rev-parse <integration-branch>)" = "$(cat /tmp/rollback.sha)"
+   \`\`\`
 
-Auto-rebase is not yet wired. Today the orchestrator stops at
-the ancestry preflight on purpose: a botched auto-rebase across diverged
-worktrees risks silently dropping subagent work, and the recovery path
-above is short enough that operator-driven rebase is preferable to
-clever-but-fragile automation.
+   A non-zero exit means that another writer moved the integration branch.
+   Stop and report. The runbook has no reset step, and it never resets over a
+   commit that it did not make.
+
+3. **Keep the task worktree for diagnosis only.** Do not delete it, and do not
+   give it to the rework: settlement refuses a claim from that path, because
+   the completion row of the original task names it.
+
+4. **Plan the rework as a new task.** The task was accepted before this merge. Under compiler 7 its completion row supplies standing; compiler 8 requires the authenticated accepted proof. Reusing that standing does not verify new edits. Do not present altered work as an unchanged accepted result. Add a new task for the rework to the plan, obtain approval for the edited bytes, and compile a continuation:
+   - The rework task has no \`blockedBy\` on the unlanded task. It is a root of its continuation, so it gets its own harness worktree and the root base step.
+   - Its files are each path of \`git diff --name-only <rework baseCommit>...<accepted head>\` (the changes of the accepted head since the merge base), plus each conflict file. A file outside that list that the worker must edit to repair a semantic break goes in the list before the dispatch.
+   - Its plan rationale names the unlanded task, the accepted head and the captured rollback commit. It carries the acceptance and the test files of the unlanded task, so that the verifier judges the merged work.
+   - Its instructions name the accepted head and the steps of its worker. The worker branches at its \`baseCommit\` with \`git switch -c <own branch> <baseCommit>\`, runs \`git merge --no-ff <accepted head commit>\`, resolves the conflicts and commits the merge. Before the claim, \`git merge-base --is-ancestor <accepted head> HEAD\` exits 0, and any other exit stops the claim. The worker never rebases, squashes or cherry-picks the accepted head, so its head holds that head unchanged.
+   - The revision that adds the rework changes no term of the unlanded task or of its dependents, because a change to those terms invalidates their blocker standing.
+   - Do not dispatch the fix-mode fixer for the rework, because its base step rebases the earlier branch onto the new base.
+
+5. **Land the rework.** Before the Step 4 landing of the rework head, check that \`git merge-base --is-ancestor <accepted head> <rework head>\` exits 0, and land the rework head only then. Land no dependent of the unlanded task in the wave before that: each dependent head holds the unlanded accepted head, so its merge brings that head in again. The dependents wait for the rework landing, and then fork from a clean commit that holds the accepted head and the pinned base.
+
+6. **Report the wave coverage.** Until the rework lands, the accepted head is not an ancestor of the integration tip, so the wave-boundary suite does not cover the wave. Run \`check_integration_suite\` after the rework landing, or report the wave as uncovered. Do not report an earlier green run as coverage.
+
+The rollback appends no event, because no registered event type records an aborted landing. The rework task, its plan rationale and the captured rollback commit hold the incident record.
 
 ---
 
@@ -2506,7 +2510,7 @@ Check \`capsule.provenance.compilerVersion\` before dispatch. Compiler 7 compile
 | \`NOTHING_TO_PREPARE\` | Every planned task is complete | Transition to review |
 | \`NO_READY_TASKS\` | Tasks are pending, but each waits on a task that is not complete (the message names them) | Settle or fix the blocking tasks first; tasks that wait on each other are a cycle to break in the plan |
 | \`BASE_UNRESOLVED\` | No usable integration branch was supplied or recorded, or the supplied compile base conflicts with the recorded base | For bootstrap, supply the actual integration branch in \`intent.baseRef\`. For compile, use the recorded base. If the stream has no base, supply the integration branch in \`intent.baseRef\`. A legacy no-intent stream uses its recorded integration branch |
-| \`BASE_UNRESOLVED\` | The repository of the checkout holds no commit of the integration branch, or a completed blocker of a batch task landed on a commit that the base does not hold (both named in the message) | Create the branch, or pass a \`repoRoot\` that holds it. Land the blocker, then \`prepare\` again. A blocker that landed by a squash or a rebase outside \`serialize_merge\` needs a recorded \`merge.executed\` row (\`references/troubleshooting.md\`) |
+| \`BASE_UNRESOLVED\` | The repository of the checkout holds no commit of the integration branch, or a completed blocker of a batch task landed on a commit that the base does not hold (both named in the message) | Create the branch, or pass a \`repoRoot\` that holds it. Land the blocker through the harness landing (Step 4), then \`prepare\` again. A blocker that landed by a squash or a rebase instead needs a recorded \`merge.executed\` row with \`taskId\`, \`targetBranch\`, \`mergeSha\` (the commit that landed), \`sourceBranch\` and \`rollbackSha\` (\`references/troubleshooting.md\`). That row satisfies \`prepare\` only: \`settle\` still needs a \`forkCommit\` that holds the accepted blocker head |
 | \`SCOPE_UNRESOLVED\` | \`repoRoot\` is not in a git work tree or is in another repository than the latest capsule, the config of the checkout does not load, a registered catalog does not resolve, or the config does not make \`check_static_analysis\` blocking (named in the message) | Correct the cause that the message names, then \`prepare\` again (\`references/troubleshooting.md\`) |
 | \`UNKNOWN_DEPENDENCY\`, \`INVALID_TASK_ID\`, \`INVALID_TASK_STAMP\`, \`CAPSULE_UNSOUND\` | The plan cannot be expressed as a batch | Fix the plan, approve the edited bytes, and submit the appropriate intent |
 | \`DESIGN_APPROVAL_MISMATCH\`, \`PLAN_UNSOUND\` | The approved bytes differ from the file, or the typed plan is invalid | Correct the source, obtain approval for its exact bytes, and submit the appropriate typed intent |
@@ -2518,9 +2522,9 @@ A compile with unchanged inputs returns its recorded capsule. A valid compile wi
 
 ### Worktrees
 
-Each task works in a linked worktree of its own, materialized by the host under native isolation or laid out with \`setup_worktree\` (the canonical \`.worktrees/<taskId>-<taskName>\` path). A task never runs in the checkout that \`prepare\` read or in the primary worktree of the repository. \`settle\` and \`task_complete\` refuse both (\`the-checkout\`), because each task of a prepared workflow runs in its own linked worktree. Under native isolation, confirm each agent's working directory is under \`.worktrees/\` **before any agent edits files** (its first reported \`pwd\`); an agent in the shared checkout is stopped, given a worktree created by hand (\`git worktree add --detach .worktrees/<taskId>-<taskName> <baseCommit>\`, the task's \`baseCommit\` from the capsule), and only then allowed to edit. The hand-made worktree is detached, so the base step of the agent makes the branch of the task. The worktree path is what the task's claim will carry, and what settlement verifies against.
+Each task works in a linked worktree of its own, which comes from the harness: the host materializes it under native isolation, or the coordinator runs \`git worktree add --detach .worktrees/<taskId>-<taskName> <baseCommit>\` (the canonical path, with the task's \`baseCommit\` from the capsule). The normal path has no Exarchos call that makes a worktree. A task never runs in the checkout that \`prepare\` read or in the primary worktree of the repository. \`settle\` and \`task_complete\` refuse both (\`the-checkout\`), because each task of a prepared workflow runs in its own linked worktree. Under native isolation, confirm each agent's working directory is under \`.worktrees/\` **before any agent edits files** (its first reported \`pwd\`); an agent in the shared checkout is stopped, given a worktree created by hand with that \`git worktree add --detach\` command, and only then allowed to edit. The hand-made worktree is detached, so the base step of the agent makes the branch of the task. The worktree path is what the task's claim will carry, and what settlement verifies against.
 
-For a compiler-8 dependent, replace the root base step below with \`git switch -c <own branch> <forkCommit>\` at the selected clean blocker-containing commit. Do not reset that worktree back to the root base. For roots and compiler 7, the worker starts from \`<baseCommit>\`. After its entry checks and before any file change, an implementer or a scaffolder runs \`git switch -c <own branch> <baseCommit>\` (the base step of its agent definition), so its worktree holds the base on each runtime. \`<own branch>\` is a name that no branch holds yet. It is not the branch of the worktree that \`setup_worktree\` or \`git worktree add -b\` made, because git refuses \`git switch -c\` for a branch that exists. A fixer continues the earlier branch of its task (Fix Failed Tasks, below). Settlement refuses a worktree whose HEAD does not hold \`<baseCommit>\` (\`base-not-held\`) and a worktree on \`baseRef\` (\`on-the-base-branch\`). For compiler 7 the kill probe measures the task's diff from \`baseRef\`. For compiler 8, a root starts at its pinned \`baseCommit\`; a dependent starts at a clean full commit containing its direct blocker heads and the pinned base. Record that starting commit as \`forkCommit\` before editing and return it in the result fields when the contract requires it. Settlement binds the original input and measures the immutable fork-to-observed-head diff; do not substitute a moving branch name or a later HEAD. Leave each worktree clean: settlement refuses a worktree whose \`git status --porcelain\` is not empty (\`uncommitted-changes\`). A linked \`node_modules\` needs the ignore rule \`node_modules\`, without a trailing slash.
+For a compiler-8 dependent, replace the root base step below with \`git switch -c <own branch> <forkCommit>\` at the selected clean blocker-containing commit. Do not reset that worktree back to the root base. For roots and compiler 7, the worker starts from \`<baseCommit>\`. After its entry checks and before any file change, an implementer or a scaffolder runs \`git switch -c <own branch> <baseCommit>\` (the base step of its agent definition), so its worktree holds the base on each runtime. \`<own branch>\` is a name that no branch holds yet. It is not the branch of a worktree that \`git worktree add -b\` made, because git refuses \`git switch -c\` for a branch that exists. A fixer continues the earlier branch of its task (Fix Failed Tasks, below). Settlement refuses a worktree whose HEAD does not hold \`<baseCommit>\` (\`base-not-held\`) and a worktree on \`baseRef\` (\`on-the-base-branch\`). For compiler 7 the kill probe measures the task's diff from \`baseRef\`. For compiler 8, a root starts at its pinned \`baseCommit\`; a dependent starts at a clean full commit containing its direct blocker heads and the pinned base. Record that starting commit as \`forkCommit\` before editing and return it in the result fields when the contract requires it. Settlement binds the original input and measures the immutable fork-to-observed-head diff; do not substitute a moving branch name or a later HEAD. Leave each worktree clean: settlement refuses a worktree whose \`git status --porcelain\` is not empty (\`uncommitted-changes\`). A linked \`node_modules\` needs the ignore rule \`node_modules\`, without a trailing slash.
 
 ### Task Extraction
 
@@ -2938,8 +2942,8 @@ After the fix completes, claim the fixed task in a new batch on the same capsule
 
 When \`phaseMove\` is \`moved\`, the workflow is at the review step already (\`review\` for a feature). Land each worktree and run the integration suite after the move, before the review starts. The review reads the integration tip, so each landing comes first.
 
-1. **Land each worktree.** Land the worktree of each settled task through \`serialize_merge\` (see "Worktree-Bearing Tasks" below), one worktree at a time, in dependency order.
-2. **Wave backstop** — once, after every merge of the wave has landed, run the cumulative suite against the integration tip:
+1. **Land each worktree.** Land the accepted head commit of each settled task through the harness (see "Worktree-Bearing Tasks" below), one worktree at a time, in dependency order. The landing makes no Exarchos call and appends no \`merge.executed\` event.
+2. **Wave backstop** — once, after every merge of the wave has landed, run the cumulative suite against the integration tip. That suite covers the wave only when every accepted head of the wave is an ancestor of the integration tip:
 
 \`\`\`typescript
 exarchos_orchestrate({
@@ -3026,7 +3030,12 @@ For the full transition table, consult \`@skills/checkpoint/references/phase-tra
 
 A completion row that names a worktree does not move the workflow through \`merge-pending\`. The \`delegate\` → \`merge-pending\` edge reads event data that the fold does not hold, so the edge does not admit on the fold. The settle move goes from \`delegate\` to \`review\` directly, and the coordinator lands each worktree after the move (Step 4).
 
-**Land it through \`serialize_merge\`.** The integration branch is shared — sibling worktree merges within the same wave (or a concurrent operator) can race for it. \`serialize_merge\` is THE integration-merge path: it holds an optimistic per-\`integrationRef\` single-writer lease, then composes \`merge_orchestrate\` unchanged to do the local \`git merge\` with a recorded recovery-point SHA — see \`@skills/merge-orchestrator/SKILL.md\`. Do **not** dispatch raw \`merge_orchestrate\` to land onto the integration branch — a live foreign lease makes it fail closed (\`MERGE_LEASE_HELD\`, naming \`serialize_merge\`). Raw \`merge_orchestrate\` is for a non-integration merge (a private / scratch branch no sibling will touch) or a crash-resumed caller re-presenting its original lease.
+**Land it through the harness.** The coordinator lands each settled worktree itself, with the git of its harness, one worktree at a time, in dependency order. The normal path makes no Exarchos call for a landing and appends no \`merge.executed\` event.
+
+- Land the accepted head commit of the settled claim, the commit that settlement accepted for the task. Do not land a branch name. If a step names the task branch, first check that \`git rev-parse <task branch>\` equals the accepted head, and stop on a difference: a fixer continues the earlier branch of its task, so the branch can move after the settlement.
+- Before each landing, check that the integration worktree is on the integration branch and that its \`git status --porcelain\` is empty. Then land from the integration worktree with \`git merge --ff-only <accepted head commit>\`.
+- Each landing is a fast-forward or a merge commit of the accepted head, so that head stays reachable. Never rebase or squash an accepted head: settle and the verifier need each blocker head as an ancestor of the fork of a dependent. When the fast-forward fails because the integration branch advanced, follow "When integration advances mid-wave" below.
+- Before a landing is tried again after a crash or a lost reply, run \`git merge-base --is-ancestor <accepted head> <integration-branch>\`. Exit 0 skips the worktree, because the branch holds it already. Exit 1 lands it. Any other exit stops the landing and reports.
 
 Each landing is a merge of the integration branch. It is not a phase of the workflow, so a landing after the move does not change the phase.
 
@@ -3053,129 +3062,126 @@ for the plane's own schemas — what \`prepare\` returns and what a claim may ca
 
 ## When integration advances mid-wave
 
-Runbook for recovering when a subagent worktree's branch has diverged from the
-integration branch. Triggered by the integration merge's ancestry preflight
-(run by the composed \`merge_orchestrate\` inside \`serialize_merge\`): the
-failure message links here verbatim and includes the manual \`git rebase\`
-command. Auto-rebase is **not** wired today — operators
-must drive recovery by hand.
+Runbook for a worktree whose fast-forward landing fails because the
+integration branch advanced. An earlier landing of the wave, or another
+writer, moved the integration branch while the worktree was in flight. The
+coordinator drives each step by hand. No step makes an Exarchos call.
 
 ### Symptom
 
-The merge-orchestrator reports an ancestry failure of the form:
+The fast-forward landing of Step 4 refuses:
 
 \`\`\`text
-source branch <feature-branch> is not a descendant of <integration-branch>.
-Rebase manually with: git rebase <integration-branch> (run from the <feature-branch> worktree).
-Runbook: content/delivery/skills/delegate/SKILL.md#when-integration-advances-mid-wave
+$ git merge --ff-only <accepted head commit>
+fatal: Not possible to fast-forward, aborting.
 \`\`\`
 
-This means the integration branch advanced (typically because an earlier
-worktree merge landed) while the failing worktree was still in flight.
-Fast-forward merge is no longer safe — the working branch must catch up
-first.
+The accepted head does not hold the new integration tip, so a fast-forward is
+no longer possible. The accepted head still lands unchanged, with a merge
+commit.
 
 ### Why this happens
 
 Each subagent worktree starts at the \`baseCommit\` of its task, the commit of
 the integration branch when \`prepare\` compiled the batch (the base step of the
-agent). When the orchestrator merges sibling worktrees serially, each merge
-moves the integration branch forward. A worktree that started at an older
-integration commit will fail the ancestry preflight when its turn comes.
+agent). Each landing moves the integration branch forward. A worktree that
+started at an older integration commit cannot fast-forward when its turn
+comes.
 
-This is expected behavior under the current single-writer merge contract —
-preflight is fail-only on purpose so the operator stays in control.
+The accepted head is the commit that settlement judged. A rebase or a squash
+makes a new commit that settlement never judged, and settle and the verifier
+need each blocker head as an ancestor of the fork of a dependent. So the
+runbook lands that head unchanged with a merge commit, and it never rebases
+it.
 
 
 ### Recovery procedure
 
-Before each step, verify you are in the **main worktree** (not the failing
-subagent worktree) and that \`git status\` is clean.
+Run each step from the **integration worktree**, never from the task worktree.
 
-1. **Capture the rollback SHA** before doing anything destructive:
+0. **Check whether the head landed already** with
+   \`git merge-base --is-ancestor <accepted head> <integration-branch>\`.
+   Exit 0 means that the integration branch holds the accepted head already,
+   for example after a crash that followed a landed merge commit. Skip the
+   worktree, and capture no rollback commit. Any exit other than 0 or 1 stops
+   the runbook and reports. On exit 1, check whether the plan already holds a
+   rework task whose rationale names this accepted head. If it does, go to
+   that rework (its dispatch, or its Step 4 landing), and do not merge again or
+   plan a second rework. Otherwise continue.
+
+1. **Check the integration worktree.** It is on the integration branch, and
+   \`git status --porcelain\` prints nothing. If not, stop and report.
+
+2. **Capture the integration rollback commit** before the merge:
 
    \`\`\`bash
-   git rev-parse <feature-branch> > /tmp/rollback.sha
+   git rev-parse <integration-branch> > /tmp/rollback.sha
    \`\`\`
 
-   Keep this until the merge has been verified. If anything goes wrong,
-   \`git reset --hard "$(cat /tmp/rollback.sha)"\` on the feature branch
-   restores the pre-rebase state. The filename is intentionally
-   branch-name-free so slash-delimited branches like \`feature/dr-6\`
-   don't break the path with embedded \`/\` characters.
+   The filename is intentionally branch-name-free, so slash-delimited branches
+   like \`feature/dr-6\` do not break the path with embedded \`/\` characters. The
+   path is local to the machine, so run every later step on the same machine.
 
-2. **Rebase the feature branch onto the current integration tip:**
+3. **Land the accepted head unchanged with a merge commit:**
 
    \`\`\`bash
-   cd <feature-worktree-path>
-   git fetch origin
-   git rebase <integration-branch>
+   git merge --no-ff <accepted head>
    \`\`\`
 
-   Resolve any conflicts that surface. The conflicts are real — they reflect
-   genuine drift between the two branches, not preflight noise. Do **not**
-   pass \`--strategy-option=theirs\` blindly; that drops the subagent's work.
+   Exit 0 is the landing: the merge commit holds the accepted head, so that
+   head stays reachable. The landing needs no \`merge.executed\` row. A conflict
+   goes to the rollback procedure below. Any other refusal (no merge in
+   progress, an unknown commit, a dirty tree) stops the runbook and reports,
+   with no abort.
 
-3. **Re-run the integration merge from the main worktree** — through
-   \`serialize_merge\`, which re-composes \`merge_orchestrate\`'s ancestry
-   preflight under the single-writer lease:
+   A clean merge that later fails the wave suite stays landed, and the defect
+   is repaired forward in a new task.
 
-   \`\`\`typescript
-   exarchos_orchestrate({
-     action: "serialize_merge",
-     featureId: "<featureId>",
-     integrationRef: "<integration-branch>",
-     sourceBranch: "<feature-branch>",
-     strategy: "squash",           // squash | rebase | merge
-     taskId: "<taskId>",
-     dryRun: false,                // REQUIRED to execute — the action DEFAULTS to dry-run
-   })
-   \`\`\`
-
-   \`serialize_merge\` **defaults to a dry-run** (preflight only, no lease
-   claimed): omit \`dryRun\` and it reports whether the merge *would* apply
-   without mutating anything. Pass \`dryRun: false\` to actually claim the
-   single-writer lease and perform the merge. The action is declared
-   **shared-mutating**, so a read-only caller (a session without write
-   capability) is denied even the apply path; in that case fall back to a
-   local-git merge from the main worktree (\`git merge --squash
-   <feature-branch>\` then commit) and record the equivalent merge
-   state/events yourself, since that merge sits outside the serialized lease.
-
-   The preflight should now pass. Proceed with the orchestrator's normal
-   merge flow. (Re-run raw \`merge_orchestrate\` directly only for a
-   non-integration merge, or as the crash-resumed caller re-presenting its
-   original \`leaseOperationId\`.)
+Then run \`check_integration_suite\` at the wave boundary, as Step 4 says.
 
 ### Rollback procedure
 
-If the rebase produces conflicts you cannot resolve safely, or the merge
-still fails after rebase:
+On a conflict, the merge of the accepted head stops with the integration
+worktree in a merge state. Resolve nothing in the integration worktree.
 
-1. **Reset the feature branch** to the captured rollback SHA:
+1. **Abort the merge** and check that the tree is clean:
 
    \`\`\`bash
-   cd <feature-worktree-path>
-   git rebase --abort   # if mid-rebase
-   git reset --hard "$(cat /tmp/rollback.sha)"
+   git merge --abort
+   git status --porcelain
    \`\`\`
 
-2. **Plan the rework as a new task.** The task was accepted before this merge. Under compiler 7 its completion row supplies standing; compiler 8 requires the authenticated accepted proof. Reusing that standing does not verify new edits. Do not present altered work as an unchanged accepted result. Add a new task for the rework to the plan, obtain approval for the edited bytes, compile a continuation, and
-   dispatch a fixer for the new task (see the Failure Recovery section
-   above). Do **not** delete the worktree — the fixer needs the original
-   branch state to diagnose the conflict.
+   The abort makes no commit, and it restores the integration branch to its
+   commit before the merge. If \`git status --porcelain\` prints anything, the
+   abort failed: stop and report.
 
-3. **Record the incident** by emitting a \`merge.aborted\` event with
-   \`reason: "ancestry-rebase-conflict"\` and the failing branch's pre-rebase
-   SHA so the convergence view captures the rollback.
+2. **Compare the integration branch with the captured commit:**
 
-### Why no auto-rebase yet
+   \`\`\`bash
+   test "$(git rev-parse <integration-branch>)" = "$(cat /tmp/rollback.sha)"
+   \`\`\`
 
-Auto-rebase is not yet wired. Today the orchestrator stops at
-the ancestry preflight on purpose: a botched auto-rebase across diverged
-worktrees risks silently dropping subagent work, and the recovery path
-above is short enough that operator-driven rebase is preferable to
-clever-but-fragile automation.
+   A non-zero exit means that another writer moved the integration branch.
+   Stop and report. The runbook has no reset step, and it never resets over a
+   commit that it did not make.
+
+3. **Keep the task worktree for diagnosis only.** Do not delete it, and do not
+   give it to the rework: settlement refuses a claim from that path, because
+   the completion row of the original task names it.
+
+4. **Plan the rework as a new task.** The task was accepted before this merge. Under compiler 7 its completion row supplies standing; compiler 8 requires the authenticated accepted proof. Reusing that standing does not verify new edits. Do not present altered work as an unchanged accepted result. Add a new task for the rework to the plan, obtain approval for the edited bytes, and compile a continuation:
+   - The rework task has no \`blockedBy\` on the unlanded task. It is a root of its continuation, so it gets its own harness worktree and the root base step.
+   - Its files are each path of \`git diff --name-only <rework baseCommit>...<accepted head>\` (the changes of the accepted head since the merge base), plus each conflict file. A file outside that list that the worker must edit to repair a semantic break goes in the list before the dispatch.
+   - Its plan rationale names the unlanded task, the accepted head and the captured rollback commit. It carries the acceptance and the test files of the unlanded task, so that the verifier judges the merged work.
+   - Its instructions name the accepted head and the steps of its worker. The worker branches at its \`baseCommit\` with \`git switch -c <own branch> <baseCommit>\`, runs \`git merge --no-ff <accepted head commit>\`, resolves the conflicts and commits the merge. Before the claim, \`git merge-base --is-ancestor <accepted head> HEAD\` exits 0, and any other exit stops the claim. The worker never rebases, squashes or cherry-picks the accepted head, so its head holds that head unchanged.
+   - The revision that adds the rework changes no term of the unlanded task or of its dependents, because a change to those terms invalidates their blocker standing.
+   - Do not dispatch the fix-mode fixer for the rework, because its base step rebases the earlier branch onto the new base.
+
+5. **Land the rework.** Before the Step 4 landing of the rework head, check that \`git merge-base --is-ancestor <accepted head> <rework head>\` exits 0, and land the rework head only then. Land no dependent of the unlanded task in the wave before that: each dependent head holds the unlanded accepted head, so its merge brings that head in again. The dependents wait for the rework landing, and then fork from a clean commit that holds the accepted head and the pinned base.
+
+6. **Report the wave coverage.** Until the rework lands, the accepted head is not an ancestor of the integration tip, so the wave-boundary suite does not cover the wave. Run \`check_integration_suite\` after the rework landing, or report the wave as uncovered. Do not report an earlier green run as coverage.
+
+The rollback appends no event, because no registered event type records an aborted landing. The rework task, its plan rationale and the captured rollback commit hold the incident record.
 
 ---
 
@@ -3649,7 +3655,7 @@ Check \`capsule.provenance.compilerVersion\` before dispatch. Compiler 7 compile
 | \`NOTHING_TO_PREPARE\` | Every planned task is complete | Transition to review |
 | \`NO_READY_TASKS\` | Tasks are pending, but each waits on a task that is not complete (the message names them) | Settle or fix the blocking tasks first; tasks that wait on each other are a cycle to break in the plan |
 | \`BASE_UNRESOLVED\` | No usable integration branch was supplied or recorded, or the supplied compile base conflicts with the recorded base | For bootstrap, supply the actual integration branch in \`intent.baseRef\`. For compile, use the recorded base. If the stream has no base, supply the integration branch in \`intent.baseRef\`. A legacy no-intent stream uses its recorded integration branch |
-| \`BASE_UNRESOLVED\` | The repository of the checkout holds no commit of the integration branch, or a completed blocker of a batch task landed on a commit that the base does not hold (both named in the message) | Create the branch, or pass a \`repoRoot\` that holds it. Land the blocker, then \`prepare\` again. A blocker that landed by a squash or a rebase outside \`serialize_merge\` needs a recorded \`merge.executed\` row (\`references/troubleshooting.md\`) |
+| \`BASE_UNRESOLVED\` | The repository of the checkout holds no commit of the integration branch, or a completed blocker of a batch task landed on a commit that the base does not hold (both named in the message) | Create the branch, or pass a \`repoRoot\` that holds it. Land the blocker through the harness landing (Step 4), then \`prepare\` again. A blocker that landed by a squash or a rebase instead needs a recorded \`merge.executed\` row with \`taskId\`, \`targetBranch\`, \`mergeSha\` (the commit that landed), \`sourceBranch\` and \`rollbackSha\` (\`references/troubleshooting.md\`). That row satisfies \`prepare\` only: \`settle\` still needs a \`forkCommit\` that holds the accepted blocker head |
 | \`SCOPE_UNRESOLVED\` | \`repoRoot\` is not in a git work tree or is in another repository than the latest capsule, the config of the checkout does not load, a registered catalog does not resolve, or the config does not make \`check_static_analysis\` blocking (named in the message) | Correct the cause that the message names, then \`prepare\` again (\`references/troubleshooting.md\`) |
 | \`UNKNOWN_DEPENDENCY\`, \`INVALID_TASK_ID\`, \`INVALID_TASK_STAMP\`, \`CAPSULE_UNSOUND\` | The plan cannot be expressed as a batch | Fix the plan, approve the edited bytes, and submit the appropriate intent |
 | \`DESIGN_APPROVAL_MISMATCH\`, \`PLAN_UNSOUND\` | The approved bytes differ from the file, or the typed plan is invalid | Correct the source, obtain approval for its exact bytes, and submit the appropriate typed intent |
@@ -3661,9 +3667,9 @@ A compile with unchanged inputs returns its recorded capsule. A valid compile wi
 
 ### Worktrees
 
-Each task works in a linked worktree of its own, materialized by the host under native isolation or laid out with \`setup_worktree\` (the canonical \`.worktrees/<taskId>-<taskName>\` path). A task never runs in the checkout that \`prepare\` read or in the primary worktree of the repository. \`settle\` and \`task_complete\` refuse both (\`the-checkout\`), because each task of a prepared workflow runs in its own linked worktree. Under native isolation, confirm each agent's working directory is under \`.worktrees/\` **before any agent edits files** (its first reported \`pwd\`); an agent in the shared checkout is stopped, given a worktree created by hand (\`git worktree add --detach .worktrees/<taskId>-<taskName> <baseCommit>\`, the task's \`baseCommit\` from the capsule), and only then allowed to edit. The hand-made worktree is detached, so the base step of the agent makes the branch of the task. The worktree path is what the task's claim will carry, and what settlement verifies against.
+Each task works in a linked worktree of its own, which comes from the harness: the host materializes it under native isolation, or the coordinator runs \`git worktree add --detach .worktrees/<taskId>-<taskName> <baseCommit>\` (the canonical path, with the task's \`baseCommit\` from the capsule). The normal path has no Exarchos call that makes a worktree. A task never runs in the checkout that \`prepare\` read or in the primary worktree of the repository. \`settle\` and \`task_complete\` refuse both (\`the-checkout\`), because each task of a prepared workflow runs in its own linked worktree. Under native isolation, confirm each agent's working directory is under \`.worktrees/\` **before any agent edits files** (its first reported \`pwd\`); an agent in the shared checkout is stopped, given a worktree created by hand with that \`git worktree add --detach\` command, and only then allowed to edit. The hand-made worktree is detached, so the base step of the agent makes the branch of the task. The worktree path is what the task's claim will carry, and what settlement verifies against.
 
-For a compiler-8 dependent, replace the root base step below with \`git switch -c <own branch> <forkCommit>\` at the selected clean blocker-containing commit. Do not reset that worktree back to the root base. For roots and compiler 7, the worker starts from \`<baseCommit>\`. After its entry checks and before any file change, an implementer or a scaffolder runs \`git switch -c <own branch> <baseCommit>\` (the base step of its agent definition), so its worktree holds the base on each runtime. \`<own branch>\` is a name that no branch holds yet. It is not the branch of the worktree that \`setup_worktree\` or \`git worktree add -b\` made, because git refuses \`git switch -c\` for a branch that exists. A fixer continues the earlier branch of its task (Fix Failed Tasks, below). Settlement refuses a worktree whose HEAD does not hold \`<baseCommit>\` (\`base-not-held\`) and a worktree on \`baseRef\` (\`on-the-base-branch\`). For compiler 7 the kill probe measures the task's diff from \`baseRef\`. For compiler 8, a root starts at its pinned \`baseCommit\`; a dependent starts at a clean full commit containing its direct blocker heads and the pinned base. Record that starting commit as \`forkCommit\` before editing and return it in the result fields when the contract requires it. Settlement binds the original input and measures the immutable fork-to-observed-head diff; do not substitute a moving branch name or a later HEAD. Leave each worktree clean: settlement refuses a worktree whose \`git status --porcelain\` is not empty (\`uncommitted-changes\`). A linked \`node_modules\` needs the ignore rule \`node_modules\`, without a trailing slash.
+For a compiler-8 dependent, replace the root base step below with \`git switch -c <own branch> <forkCommit>\` at the selected clean blocker-containing commit. Do not reset that worktree back to the root base. For roots and compiler 7, the worker starts from \`<baseCommit>\`. After its entry checks and before any file change, an implementer or a scaffolder runs \`git switch -c <own branch> <baseCommit>\` (the base step of its agent definition), so its worktree holds the base on each runtime. \`<own branch>\` is a name that no branch holds yet. It is not the branch of a worktree that \`git worktree add -b\` made, because git refuses \`git switch -c\` for a branch that exists. A fixer continues the earlier branch of its task (Fix Failed Tasks, below). Settlement refuses a worktree whose HEAD does not hold \`<baseCommit>\` (\`base-not-held\`) and a worktree on \`baseRef\` (\`on-the-base-branch\`). For compiler 7 the kill probe measures the task's diff from \`baseRef\`. For compiler 8, a root starts at its pinned \`baseCommit\`; a dependent starts at a clean full commit containing its direct blocker heads and the pinned base. Record that starting commit as \`forkCommit\` before editing and return it in the result fields when the contract requires it. Settlement binds the original input and measures the immutable fork-to-observed-head diff; do not substitute a moving branch name or a later HEAD. Leave each worktree clean: settlement refuses a worktree whose \`git status --porcelain\` is not empty (\`uncommitted-changes\`). A linked \`node_modules\` needs the ignore rule \`node_modules\`, without a trailing slash.
 
 ### Task Extraction
 
@@ -4091,8 +4097,8 @@ After the fix completes, claim the fixed task in a new batch on the same capsule
 
 When \`phaseMove\` is \`moved\`, the workflow is at the review step already (\`review\` for a feature). Land each worktree and run the integration suite after the move, before the review starts. The review reads the integration tip, so each landing comes first.
 
-1. **Land each worktree.** Land the worktree of each settled task through \`serialize_merge\` (see "Worktree-Bearing Tasks" below), one worktree at a time, in dependency order.
-2. **Wave backstop** — once, after every merge of the wave has landed, run the cumulative suite against the integration tip:
+1. **Land each worktree.** Land the accepted head commit of each settled task through the harness (see "Worktree-Bearing Tasks" below), one worktree at a time, in dependency order. The landing makes no Exarchos call and appends no \`merge.executed\` event.
+2. **Wave backstop** — once, after every merge of the wave has landed, run the cumulative suite against the integration tip. That suite covers the wave only when every accepted head of the wave is an ancestor of the integration tip:
 
 \`\`\`typescript
 exarchos_orchestrate({
@@ -4179,7 +4185,12 @@ For the full transition table, consult \`@skills/checkpoint/references/phase-tra
 
 A completion row that names a worktree does not move the workflow through \`merge-pending\`. The \`delegate\` → \`merge-pending\` edge reads event data that the fold does not hold, so the edge does not admit on the fold. The settle move goes from \`delegate\` to \`review\` directly, and the coordinator lands each worktree after the move (Step 4).
 
-**Land it through \`serialize_merge\`.** The integration branch is shared — sibling worktree merges within the same wave (or a concurrent operator) can race for it. \`serialize_merge\` is THE integration-merge path: it holds an optimistic per-\`integrationRef\` single-writer lease, then composes \`merge_orchestrate\` unchanged to do the local \`git merge\` with a recorded recovery-point SHA — see \`@skills/merge-orchestrator/SKILL.md\`. Do **not** dispatch raw \`merge_orchestrate\` to land onto the integration branch — a live foreign lease makes it fail closed (\`MERGE_LEASE_HELD\`, naming \`serialize_merge\`). Raw \`merge_orchestrate\` is for a non-integration merge (a private / scratch branch no sibling will touch) or a crash-resumed caller re-presenting its original lease.
+**Land it through the harness.** The coordinator lands each settled worktree itself, with the git of its harness, one worktree at a time, in dependency order. The normal path makes no Exarchos call for a landing and appends no \`merge.executed\` event.
+
+- Land the accepted head commit of the settled claim, the commit that settlement accepted for the task. Do not land a branch name. If a step names the task branch, first check that \`git rev-parse <task branch>\` equals the accepted head, and stop on a difference: a fixer continues the earlier branch of its task, so the branch can move after the settlement.
+- Before each landing, check that the integration worktree is on the integration branch and that its \`git status --porcelain\` is empty. Then land from the integration worktree with \`git merge --ff-only <accepted head commit>\`.
+- Each landing is a fast-forward or a merge commit of the accepted head, so that head stays reachable. Never rebase or squash an accepted head: settle and the verifier need each blocker head as an ancestor of the fork of a dependent. When the fast-forward fails because the integration branch advanced, follow "When integration advances mid-wave" below.
+- Before a landing is tried again after a crash or a lost reply, run \`git merge-base --is-ancestor <accepted head> <integration-branch>\`. Exit 0 skips the worktree, because the branch holds it already. Exit 1 lands it. Any other exit stops the landing and reports.
 
 Each landing is a merge of the integration branch. It is not a phase of the workflow, so a landing after the move does not change the phase.
 
@@ -4206,129 +4217,126 @@ for the plane's own schemas — what \`prepare\` returns and what a claim may ca
 
 ## When integration advances mid-wave
 
-Runbook for recovering when a subagent worktree's branch has diverged from the
-integration branch. Triggered by the integration merge's ancestry preflight
-(run by the composed \`merge_orchestrate\` inside \`serialize_merge\`): the
-failure message links here verbatim and includes the manual \`git rebase\`
-command. Auto-rebase is **not** wired today — operators
-must drive recovery by hand.
+Runbook for a worktree whose fast-forward landing fails because the
+integration branch advanced. An earlier landing of the wave, or another
+writer, moved the integration branch while the worktree was in flight. The
+coordinator drives each step by hand. No step makes an Exarchos call.
 
 ### Symptom
 
-The merge-orchestrator reports an ancestry failure of the form:
+The fast-forward landing of Step 4 refuses:
 
 \`\`\`text
-source branch <feature-branch> is not a descendant of <integration-branch>.
-Rebase manually with: git rebase <integration-branch> (run from the <feature-branch> worktree).
-Runbook: content/delivery/skills/delegate/SKILL.md#when-integration-advances-mid-wave
+$ git merge --ff-only <accepted head commit>
+fatal: Not possible to fast-forward, aborting.
 \`\`\`
 
-This means the integration branch advanced (typically because an earlier
-worktree merge landed) while the failing worktree was still in flight.
-Fast-forward merge is no longer safe — the working branch must catch up
-first.
+The accepted head does not hold the new integration tip, so a fast-forward is
+no longer possible. The accepted head still lands unchanged, with a merge
+commit.
 
 ### Why this happens
 
 Each subagent worktree starts at the \`baseCommit\` of its task, the commit of
 the integration branch when \`prepare\` compiled the batch (the base step of the
-agent). When the orchestrator merges sibling worktrees serially, each merge
-moves the integration branch forward. A worktree that started at an older
-integration commit will fail the ancestry preflight when its turn comes.
+agent). Each landing moves the integration branch forward. A worktree that
+started at an older integration commit cannot fast-forward when its turn
+comes.
 
-This is expected behavior under the current single-writer merge contract —
-preflight is fail-only on purpose so the operator stays in control.
+The accepted head is the commit that settlement judged. A rebase or a squash
+makes a new commit that settlement never judged, and settle and the verifier
+need each blocker head as an ancestor of the fork of a dependent. So the
+runbook lands that head unchanged with a merge commit, and it never rebases
+it.
 
 
 ### Recovery procedure
 
-Before each step, verify you are in the **main worktree** (not the failing
-subagent worktree) and that \`git status\` is clean.
+Run each step from the **integration worktree**, never from the task worktree.
 
-1. **Capture the rollback SHA** before doing anything destructive:
+0. **Check whether the head landed already** with
+   \`git merge-base --is-ancestor <accepted head> <integration-branch>\`.
+   Exit 0 means that the integration branch holds the accepted head already,
+   for example after a crash that followed a landed merge commit. Skip the
+   worktree, and capture no rollback commit. Any exit other than 0 or 1 stops
+   the runbook and reports. On exit 1, check whether the plan already holds a
+   rework task whose rationale names this accepted head. If it does, go to
+   that rework (its dispatch, or its Step 4 landing), and do not merge again or
+   plan a second rework. Otherwise continue.
+
+1. **Check the integration worktree.** It is on the integration branch, and
+   \`git status --porcelain\` prints nothing. If not, stop and report.
+
+2. **Capture the integration rollback commit** before the merge:
 
    \`\`\`bash
-   git rev-parse <feature-branch> > /tmp/rollback.sha
+   git rev-parse <integration-branch> > /tmp/rollback.sha
    \`\`\`
 
-   Keep this until the merge has been verified. If anything goes wrong,
-   \`git reset --hard "$(cat /tmp/rollback.sha)"\` on the feature branch
-   restores the pre-rebase state. The filename is intentionally
-   branch-name-free so slash-delimited branches like \`feature/dr-6\`
-   don't break the path with embedded \`/\` characters.
+   The filename is intentionally branch-name-free, so slash-delimited branches
+   like \`feature/dr-6\` do not break the path with embedded \`/\` characters. The
+   path is local to the machine, so run every later step on the same machine.
 
-2. **Rebase the feature branch onto the current integration tip:**
+3. **Land the accepted head unchanged with a merge commit:**
 
    \`\`\`bash
-   cd <feature-worktree-path>
-   git fetch origin
-   git rebase <integration-branch>
+   git merge --no-ff <accepted head>
    \`\`\`
 
-   Resolve any conflicts that surface. The conflicts are real — they reflect
-   genuine drift between the two branches, not preflight noise. Do **not**
-   pass \`--strategy-option=theirs\` blindly; that drops the subagent's work.
+   Exit 0 is the landing: the merge commit holds the accepted head, so that
+   head stays reachable. The landing needs no \`merge.executed\` row. A conflict
+   goes to the rollback procedure below. Any other refusal (no merge in
+   progress, an unknown commit, a dirty tree) stops the runbook and reports,
+   with no abort.
 
-3. **Re-run the integration merge from the main worktree** — through
-   \`serialize_merge\`, which re-composes \`merge_orchestrate\`'s ancestry
-   preflight under the single-writer lease:
+   A clean merge that later fails the wave suite stays landed, and the defect
+   is repaired forward in a new task.
 
-   \`\`\`typescript
-   exarchos_orchestrate({
-     action: "serialize_merge",
-     featureId: "<featureId>",
-     integrationRef: "<integration-branch>",
-     sourceBranch: "<feature-branch>",
-     strategy: "squash",           // squash | rebase | merge
-     taskId: "<taskId>",
-     dryRun: false,                // REQUIRED to execute — the action DEFAULTS to dry-run
-   })
-   \`\`\`
-
-   \`serialize_merge\` **defaults to a dry-run** (preflight only, no lease
-   claimed): omit \`dryRun\` and it reports whether the merge *would* apply
-   without mutating anything. Pass \`dryRun: false\` to actually claim the
-   single-writer lease and perform the merge. The action is declared
-   **shared-mutating**, so a read-only caller (a session without write
-   capability) is denied even the apply path; in that case fall back to a
-   local-git merge from the main worktree (\`git merge --squash
-   <feature-branch>\` then commit) and record the equivalent merge
-   state/events yourself, since that merge sits outside the serialized lease.
-
-   The preflight should now pass. Proceed with the orchestrator's normal
-   merge flow. (Re-run raw \`merge_orchestrate\` directly only for a
-   non-integration merge, or as the crash-resumed caller re-presenting its
-   original \`leaseOperationId\`.)
+Then run \`check_integration_suite\` at the wave boundary, as Step 4 says.
 
 ### Rollback procedure
 
-If the rebase produces conflicts you cannot resolve safely, or the merge
-still fails after rebase:
+On a conflict, the merge of the accepted head stops with the integration
+worktree in a merge state. Resolve nothing in the integration worktree.
 
-1. **Reset the feature branch** to the captured rollback SHA:
+1. **Abort the merge** and check that the tree is clean:
 
    \`\`\`bash
-   cd <feature-worktree-path>
-   git rebase --abort   # if mid-rebase
-   git reset --hard "$(cat /tmp/rollback.sha)"
+   git merge --abort
+   git status --porcelain
    \`\`\`
 
-2. **Plan the rework as a new task.** The task was accepted before this merge. Under compiler 7 its completion row supplies standing; compiler 8 requires the authenticated accepted proof. Reusing that standing does not verify new edits. Do not present altered work as an unchanged accepted result. Add a new task for the rework to the plan, obtain approval for the edited bytes, compile a continuation, and
-   dispatch a fixer for the new task (see the Failure Recovery section
-   above). Do **not** delete the worktree — the fixer needs the original
-   branch state to diagnose the conflict.
+   The abort makes no commit, and it restores the integration branch to its
+   commit before the merge. If \`git status --porcelain\` prints anything, the
+   abort failed: stop and report.
 
-3. **Record the incident** by emitting a \`merge.aborted\` event with
-   \`reason: "ancestry-rebase-conflict"\` and the failing branch's pre-rebase
-   SHA so the convergence view captures the rollback.
+2. **Compare the integration branch with the captured commit:**
 
-### Why no auto-rebase yet
+   \`\`\`bash
+   test "$(git rev-parse <integration-branch>)" = "$(cat /tmp/rollback.sha)"
+   \`\`\`
 
-Auto-rebase is not yet wired. Today the orchestrator stops at
-the ancestry preflight on purpose: a botched auto-rebase across diverged
-worktrees risks silently dropping subagent work, and the recovery path
-above is short enough that operator-driven rebase is preferable to
-clever-but-fragile automation.
+   A non-zero exit means that another writer moved the integration branch.
+   Stop and report. The runbook has no reset step, and it never resets over a
+   commit that it did not make.
+
+3. **Keep the task worktree for diagnosis only.** Do not delete it, and do not
+   give it to the rework: settlement refuses a claim from that path, because
+   the completion row of the original task names it.
+
+4. **Plan the rework as a new task.** The task was accepted before this merge. Under compiler 7 its completion row supplies standing; compiler 8 requires the authenticated accepted proof. Reusing that standing does not verify new edits. Do not present altered work as an unchanged accepted result. Add a new task for the rework to the plan, obtain approval for the edited bytes, and compile a continuation:
+   - The rework task has no \`blockedBy\` on the unlanded task. It is a root of its continuation, so it gets its own harness worktree and the root base step.
+   - Its files are each path of \`git diff --name-only <rework baseCommit>...<accepted head>\` (the changes of the accepted head since the merge base), plus each conflict file. A file outside that list that the worker must edit to repair a semantic break goes in the list before the dispatch.
+   - Its plan rationale names the unlanded task, the accepted head and the captured rollback commit. It carries the acceptance and the test files of the unlanded task, so that the verifier judges the merged work.
+   - Its instructions name the accepted head and the steps of its worker. The worker branches at its \`baseCommit\` with \`git switch -c <own branch> <baseCommit>\`, runs \`git merge --no-ff <accepted head commit>\`, resolves the conflicts and commits the merge. Before the claim, \`git merge-base --is-ancestor <accepted head> HEAD\` exits 0, and any other exit stops the claim. The worker never rebases, squashes or cherry-picks the accepted head, so its head holds that head unchanged.
+   - The revision that adds the rework changes no term of the unlanded task or of its dependents, because a change to those terms invalidates their blocker standing.
+   - Do not dispatch the fix-mode fixer for the rework, because its base step rebases the earlier branch onto the new base.
+
+5. **Land the rework.** Before the Step 4 landing of the rework head, check that \`git merge-base --is-ancestor <accepted head> <rework head>\` exits 0, and land the rework head only then. Land no dependent of the unlanded task in the wave before that: each dependent head holds the unlanded accepted head, so its merge brings that head in again. The dependents wait for the rework landing, and then fork from a clean commit that holds the accepted head and the pinned base.
+
+6. **Report the wave coverage.** Until the rework lands, the accepted head is not an ancestor of the integration tip, so the wave-boundary suite does not cover the wave. Run \`check_integration_suite\` after the rework landing, or report the wave as uncovered. Do not report an earlier green run as coverage.
+
+The rollback appends no event, because no registered event type records an aborted landing. The rework task, its plan rationale and the captured rollback commit hold the incident record.
 
 ---
 
@@ -4802,7 +4810,7 @@ Check \`capsule.provenance.compilerVersion\` before dispatch. Compiler 7 compile
 | \`NOTHING_TO_PREPARE\` | Every planned task is complete | Transition to review |
 | \`NO_READY_TASKS\` | Tasks are pending, but each waits on a task that is not complete (the message names them) | Settle or fix the blocking tasks first; tasks that wait on each other are a cycle to break in the plan |
 | \`BASE_UNRESOLVED\` | No usable integration branch was supplied or recorded, or the supplied compile base conflicts with the recorded base | For bootstrap, supply the actual integration branch in \`intent.baseRef\`. For compile, use the recorded base. If the stream has no base, supply the integration branch in \`intent.baseRef\`. A legacy no-intent stream uses its recorded integration branch |
-| \`BASE_UNRESOLVED\` | The repository of the checkout holds no commit of the integration branch, or a completed blocker of a batch task landed on a commit that the base does not hold (both named in the message) | Create the branch, or pass a \`repoRoot\` that holds it. Land the blocker, then \`prepare\` again. A blocker that landed by a squash or a rebase outside \`serialize_merge\` needs a recorded \`merge.executed\` row (\`references/troubleshooting.md\`) |
+| \`BASE_UNRESOLVED\` | The repository of the checkout holds no commit of the integration branch, or a completed blocker of a batch task landed on a commit that the base does not hold (both named in the message) | Create the branch, or pass a \`repoRoot\` that holds it. Land the blocker through the harness landing (Step 4), then \`prepare\` again. A blocker that landed by a squash or a rebase instead needs a recorded \`merge.executed\` row with \`taskId\`, \`targetBranch\`, \`mergeSha\` (the commit that landed), \`sourceBranch\` and \`rollbackSha\` (\`references/troubleshooting.md\`). That row satisfies \`prepare\` only: \`settle\` still needs a \`forkCommit\` that holds the accepted blocker head |
 | \`SCOPE_UNRESOLVED\` | \`repoRoot\` is not in a git work tree or is in another repository than the latest capsule, the config of the checkout does not load, a registered catalog does not resolve, or the config does not make \`check_static_analysis\` blocking (named in the message) | Correct the cause that the message names, then \`prepare\` again (\`references/troubleshooting.md\`) |
 | \`UNKNOWN_DEPENDENCY\`, \`INVALID_TASK_ID\`, \`INVALID_TASK_STAMP\`, \`CAPSULE_UNSOUND\` | The plan cannot be expressed as a batch | Fix the plan, approve the edited bytes, and submit the appropriate intent |
 | \`DESIGN_APPROVAL_MISMATCH\`, \`PLAN_UNSOUND\` | The approved bytes differ from the file, or the typed plan is invalid | Correct the source, obtain approval for its exact bytes, and submit the appropriate typed intent |
@@ -4814,9 +4822,9 @@ A compile with unchanged inputs returns its recorded capsule. A valid compile wi
 
 ### Worktrees
 
-Each task works in a linked worktree of its own, materialized by the host under native isolation or laid out with \`setup_worktree\` (the canonical \`.worktrees/<taskId>-<taskName>\` path). A task never runs in the checkout that \`prepare\` read or in the primary worktree of the repository. \`settle\` and \`task_complete\` refuse both (\`the-checkout\`), because each task of a prepared workflow runs in its own linked worktree. Under native isolation, confirm each agent's working directory is under \`.worktrees/\` **before any agent edits files** (its first reported \`pwd\`); an agent in the shared checkout is stopped, given a worktree created by hand (\`git worktree add --detach .worktrees/<taskId>-<taskName> <baseCommit>\`, the task's \`baseCommit\` from the capsule), and only then allowed to edit. The hand-made worktree is detached, so the base step of the agent makes the branch of the task. The worktree path is what the task's claim will carry, and what settlement verifies against.
+Each task works in a linked worktree of its own, which comes from the harness: the host materializes it under native isolation, or the coordinator runs \`git worktree add --detach .worktrees/<taskId>-<taskName> <baseCommit>\` (the canonical path, with the task's \`baseCommit\` from the capsule). The normal path has no Exarchos call that makes a worktree. A task never runs in the checkout that \`prepare\` read or in the primary worktree of the repository. \`settle\` and \`task_complete\` refuse both (\`the-checkout\`), because each task of a prepared workflow runs in its own linked worktree. Under native isolation, confirm each agent's working directory is under \`.worktrees/\` **before any agent edits files** (its first reported \`pwd\`); an agent in the shared checkout is stopped, given a worktree created by hand with that \`git worktree add --detach\` command, and only then allowed to edit. The hand-made worktree is detached, so the base step of the agent makes the branch of the task. The worktree path is what the task's claim will carry, and what settlement verifies against.
 
-For a compiler-8 dependent, replace the root base step below with \`git switch -c <own branch> <forkCommit>\` at the selected clean blocker-containing commit. Do not reset that worktree back to the root base. For roots and compiler 7, the worker starts from \`<baseCommit>\`. After its entry checks and before any file change, an implementer or a scaffolder runs \`git switch -c <own branch> <baseCommit>\` (the base step of its agent definition), so its worktree holds the base on each runtime. \`<own branch>\` is a name that no branch holds yet. It is not the branch of the worktree that \`setup_worktree\` or \`git worktree add -b\` made, because git refuses \`git switch -c\` for a branch that exists. A fixer continues the earlier branch of its task (Fix Failed Tasks, below). Settlement refuses a worktree whose HEAD does not hold \`<baseCommit>\` (\`base-not-held\`) and a worktree on \`baseRef\` (\`on-the-base-branch\`). For compiler 7 the kill probe measures the task's diff from \`baseRef\`. For compiler 8, a root starts at its pinned \`baseCommit\`; a dependent starts at a clean full commit containing its direct blocker heads and the pinned base. Record that starting commit as \`forkCommit\` before editing and return it in the result fields when the contract requires it. Settlement binds the original input and measures the immutable fork-to-observed-head diff; do not substitute a moving branch name or a later HEAD. Leave each worktree clean: settlement refuses a worktree whose \`git status --porcelain\` is not empty (\`uncommitted-changes\`). A linked \`node_modules\` needs the ignore rule \`node_modules\`, without a trailing slash.
+For a compiler-8 dependent, replace the root base step below with \`git switch -c <own branch> <forkCommit>\` at the selected clean blocker-containing commit. Do not reset that worktree back to the root base. For roots and compiler 7, the worker starts from \`<baseCommit>\`. After its entry checks and before any file change, an implementer or a scaffolder runs \`git switch -c <own branch> <baseCommit>\` (the base step of its agent definition), so its worktree holds the base on each runtime. \`<own branch>\` is a name that no branch holds yet. It is not the branch of a worktree that \`git worktree add -b\` made, because git refuses \`git switch -c\` for a branch that exists. A fixer continues the earlier branch of its task (Fix Failed Tasks, below). Settlement refuses a worktree whose HEAD does not hold \`<baseCommit>\` (\`base-not-held\`) and a worktree on \`baseRef\` (\`on-the-base-branch\`). For compiler 7 the kill probe measures the task's diff from \`baseRef\`. For compiler 8, a root starts at its pinned \`baseCommit\`; a dependent starts at a clean full commit containing its direct blocker heads and the pinned base. Record that starting commit as \`forkCommit\` before editing and return it in the result fields when the contract requires it. Settlement binds the original input and measures the immutable fork-to-observed-head diff; do not substitute a moving branch name or a later HEAD. Leave each worktree clean: settlement refuses a worktree whose \`git status --porcelain\` is not empty (\`uncommitted-changes\`). A linked \`node_modules\` needs the ignore rule \`node_modules\`, without a trailing slash.
 
 ### Task Extraction
 
@@ -5215,8 +5223,8 @@ After the fix completes, claim the fixed task in a new batch on the same capsule
 
 When \`phaseMove\` is \`moved\`, the workflow is at the review step already (\`review\` for a feature). Land each worktree and run the integration suite after the move, before the review starts. The review reads the integration tip, so each landing comes first.
 
-1. **Land each worktree.** Land the worktree of each settled task through \`serialize_merge\` (see "Worktree-Bearing Tasks" below), one worktree at a time, in dependency order.
-2. **Wave backstop** — once, after every merge of the wave has landed, run the cumulative suite against the integration tip:
+1. **Land each worktree.** Land the accepted head commit of each settled task through the harness (see "Worktree-Bearing Tasks" below), one worktree at a time, in dependency order. The landing makes no Exarchos call and appends no \`merge.executed\` event.
+2. **Wave backstop** — once, after every merge of the wave has landed, run the cumulative suite against the integration tip. That suite covers the wave only when every accepted head of the wave is an ancestor of the integration tip:
 
 \`\`\`typescript
 exarchos_orchestrate({
@@ -5303,7 +5311,12 @@ For the full transition table, consult \`@skills/checkpoint/references/phase-tra
 
 A completion row that names a worktree does not move the workflow through \`merge-pending\`. The \`delegate\` → \`merge-pending\` edge reads event data that the fold does not hold, so the edge does not admit on the fold. The settle move goes from \`delegate\` to \`review\` directly, and the coordinator lands each worktree after the move (Step 4).
 
-**Land it through \`serialize_merge\`.** The integration branch is shared — sibling worktree merges within the same wave (or a concurrent operator) can race for it. \`serialize_merge\` is THE integration-merge path: it holds an optimistic per-\`integrationRef\` single-writer lease, then composes \`merge_orchestrate\` unchanged to do the local \`git merge\` with a recorded recovery-point SHA — see \`@skills/merge-orchestrator/SKILL.md\`. Do **not** dispatch raw \`merge_orchestrate\` to land onto the integration branch — a live foreign lease makes it fail closed (\`MERGE_LEASE_HELD\`, naming \`serialize_merge\`). Raw \`merge_orchestrate\` is for a non-integration merge (a private / scratch branch no sibling will touch) or a crash-resumed caller re-presenting its original lease.
+**Land it through the harness.** The coordinator lands each settled worktree itself, with the git of its harness, one worktree at a time, in dependency order. The normal path makes no Exarchos call for a landing and appends no \`merge.executed\` event.
+
+- Land the accepted head commit of the settled claim, the commit that settlement accepted for the task. Do not land a branch name. If a step names the task branch, first check that \`git rev-parse <task branch>\` equals the accepted head, and stop on a difference: a fixer continues the earlier branch of its task, so the branch can move after the settlement.
+- Before each landing, check that the integration worktree is on the integration branch and that its \`git status --porcelain\` is empty. Then land from the integration worktree with \`git merge --ff-only <accepted head commit>\`.
+- Each landing is a fast-forward or a merge commit of the accepted head, so that head stays reachable. Never rebase or squash an accepted head: settle and the verifier need each blocker head as an ancestor of the fork of a dependent. When the fast-forward fails because the integration branch advanced, follow "When integration advances mid-wave" below.
+- Before a landing is tried again after a crash or a lost reply, run \`git merge-base --is-ancestor <accepted head> <integration-branch>\`. Exit 0 skips the worktree, because the branch holds it already. Exit 1 lands it. Any other exit stops the landing and reports.
 
 Each landing is a merge of the integration branch. It is not a phase of the workflow, so a landing after the move does not change the phase.
 
@@ -5330,129 +5343,126 @@ for the plane's own schemas — what \`prepare\` returns and what a claim may ca
 
 ## When integration advances mid-wave
 
-Runbook for recovering when a subagent worktree's branch has diverged from the
-integration branch. Triggered by the integration merge's ancestry preflight
-(run by the composed \`merge_orchestrate\` inside \`serialize_merge\`): the
-failure message links here verbatim and includes the manual \`git rebase\`
-command. Auto-rebase is **not** wired today — operators
-must drive recovery by hand.
+Runbook for a worktree whose fast-forward landing fails because the
+integration branch advanced. An earlier landing of the wave, or another
+writer, moved the integration branch while the worktree was in flight. The
+coordinator drives each step by hand. No step makes an Exarchos call.
 
 ### Symptom
 
-The merge-orchestrator reports an ancestry failure of the form:
+The fast-forward landing of Step 4 refuses:
 
 \`\`\`text
-source branch <feature-branch> is not a descendant of <integration-branch>.
-Rebase manually with: git rebase <integration-branch> (run from the <feature-branch> worktree).
-Runbook: content/delivery/skills/delegate/SKILL.md#when-integration-advances-mid-wave
+$ git merge --ff-only <accepted head commit>
+fatal: Not possible to fast-forward, aborting.
 \`\`\`
 
-This means the integration branch advanced (typically because an earlier
-worktree merge landed) while the failing worktree was still in flight.
-Fast-forward merge is no longer safe — the working branch must catch up
-first.
+The accepted head does not hold the new integration tip, so a fast-forward is
+no longer possible. The accepted head still lands unchanged, with a merge
+commit.
 
 ### Why this happens
 
 Each subagent worktree starts at the \`baseCommit\` of its task, the commit of
 the integration branch when \`prepare\` compiled the batch (the base step of the
-agent). When the orchestrator merges sibling worktrees serially, each merge
-moves the integration branch forward. A worktree that started at an older
-integration commit will fail the ancestry preflight when its turn comes.
+agent). Each landing moves the integration branch forward. A worktree that
+started at an older integration commit cannot fast-forward when its turn
+comes.
 
-This is expected behavior under the current single-writer merge contract —
-preflight is fail-only on purpose so the operator stays in control.
+The accepted head is the commit that settlement judged. A rebase or a squash
+makes a new commit that settlement never judged, and settle and the verifier
+need each blocker head as an ancestor of the fork of a dependent. So the
+runbook lands that head unchanged with a merge commit, and it never rebases
+it.
 
 
 ### Recovery procedure
 
-Before each step, verify you are in the **main worktree** (not the failing
-subagent worktree) and that \`git status\` is clean.
+Run each step from the **integration worktree**, never from the task worktree.
 
-1. **Capture the rollback SHA** before doing anything destructive:
+0. **Check whether the head landed already** with
+   \`git merge-base --is-ancestor <accepted head> <integration-branch>\`.
+   Exit 0 means that the integration branch holds the accepted head already,
+   for example after a crash that followed a landed merge commit. Skip the
+   worktree, and capture no rollback commit. Any exit other than 0 or 1 stops
+   the runbook and reports. On exit 1, check whether the plan already holds a
+   rework task whose rationale names this accepted head. If it does, go to
+   that rework (its dispatch, or its Step 4 landing), and do not merge again or
+   plan a second rework. Otherwise continue.
+
+1. **Check the integration worktree.** It is on the integration branch, and
+   \`git status --porcelain\` prints nothing. If not, stop and report.
+
+2. **Capture the integration rollback commit** before the merge:
 
    \`\`\`bash
-   git rev-parse <feature-branch> > /tmp/rollback.sha
+   git rev-parse <integration-branch> > /tmp/rollback.sha
    \`\`\`
 
-   Keep this until the merge has been verified. If anything goes wrong,
-   \`git reset --hard "$(cat /tmp/rollback.sha)"\` on the feature branch
-   restores the pre-rebase state. The filename is intentionally
-   branch-name-free so slash-delimited branches like \`feature/dr-6\`
-   don't break the path with embedded \`/\` characters.
+   The filename is intentionally branch-name-free, so slash-delimited branches
+   like \`feature/dr-6\` do not break the path with embedded \`/\` characters. The
+   path is local to the machine, so run every later step on the same machine.
 
-2. **Rebase the feature branch onto the current integration tip:**
+3. **Land the accepted head unchanged with a merge commit:**
 
    \`\`\`bash
-   cd <feature-worktree-path>
-   git fetch origin
-   git rebase <integration-branch>
+   git merge --no-ff <accepted head>
    \`\`\`
 
-   Resolve any conflicts that surface. The conflicts are real — they reflect
-   genuine drift between the two branches, not preflight noise. Do **not**
-   pass \`--strategy-option=theirs\` blindly; that drops the subagent's work.
+   Exit 0 is the landing: the merge commit holds the accepted head, so that
+   head stays reachable. The landing needs no \`merge.executed\` row. A conflict
+   goes to the rollback procedure below. Any other refusal (no merge in
+   progress, an unknown commit, a dirty tree) stops the runbook and reports,
+   with no abort.
 
-3. **Re-run the integration merge from the main worktree** — through
-   \`serialize_merge\`, which re-composes \`merge_orchestrate\`'s ancestry
-   preflight under the single-writer lease:
+   A clean merge that later fails the wave suite stays landed, and the defect
+   is repaired forward in a new task.
 
-   \`\`\`typescript
-   exarchos_orchestrate({
-     action: "serialize_merge",
-     featureId: "<featureId>",
-     integrationRef: "<integration-branch>",
-     sourceBranch: "<feature-branch>",
-     strategy: "squash",           // squash | rebase | merge
-     taskId: "<taskId>",
-     dryRun: false,                // REQUIRED to execute — the action DEFAULTS to dry-run
-   })
-   \`\`\`
-
-   \`serialize_merge\` **defaults to a dry-run** (preflight only, no lease
-   claimed): omit \`dryRun\` and it reports whether the merge *would* apply
-   without mutating anything. Pass \`dryRun: false\` to actually claim the
-   single-writer lease and perform the merge. The action is declared
-   **shared-mutating**, so a read-only caller (a session without write
-   capability) is denied even the apply path; in that case fall back to a
-   local-git merge from the main worktree (\`git merge --squash
-   <feature-branch>\` then commit) and record the equivalent merge
-   state/events yourself, since that merge sits outside the serialized lease.
-
-   The preflight should now pass. Proceed with the orchestrator's normal
-   merge flow. (Re-run raw \`merge_orchestrate\` directly only for a
-   non-integration merge, or as the crash-resumed caller re-presenting its
-   original \`leaseOperationId\`.)
+Then run \`check_integration_suite\` at the wave boundary, as Step 4 says.
 
 ### Rollback procedure
 
-If the rebase produces conflicts you cannot resolve safely, or the merge
-still fails after rebase:
+On a conflict, the merge of the accepted head stops with the integration
+worktree in a merge state. Resolve nothing in the integration worktree.
 
-1. **Reset the feature branch** to the captured rollback SHA:
+1. **Abort the merge** and check that the tree is clean:
 
    \`\`\`bash
-   cd <feature-worktree-path>
-   git rebase --abort   # if mid-rebase
-   git reset --hard "$(cat /tmp/rollback.sha)"
+   git merge --abort
+   git status --porcelain
    \`\`\`
 
-2. **Plan the rework as a new task.** The task was accepted before this merge. Under compiler 7 its completion row supplies standing; compiler 8 requires the authenticated accepted proof. Reusing that standing does not verify new edits. Do not present altered work as an unchanged accepted result. Add a new task for the rework to the plan, obtain approval for the edited bytes, compile a continuation, and
-   dispatch a fixer for the new task (see the Failure Recovery section
-   above). Do **not** delete the worktree — the fixer needs the original
-   branch state to diagnose the conflict.
+   The abort makes no commit, and it restores the integration branch to its
+   commit before the merge. If \`git status --porcelain\` prints anything, the
+   abort failed: stop and report.
 
-3. **Record the incident** by emitting a \`merge.aborted\` event with
-   \`reason: "ancestry-rebase-conflict"\` and the failing branch's pre-rebase
-   SHA so the convergence view captures the rollback.
+2. **Compare the integration branch with the captured commit:**
 
-### Why no auto-rebase yet
+   \`\`\`bash
+   test "$(git rev-parse <integration-branch>)" = "$(cat /tmp/rollback.sha)"
+   \`\`\`
 
-Auto-rebase is not yet wired. Today the orchestrator stops at
-the ancestry preflight on purpose: a botched auto-rebase across diverged
-worktrees risks silently dropping subagent work, and the recovery path
-above is short enough that operator-driven rebase is preferable to
-clever-but-fragile automation.
+   A non-zero exit means that another writer moved the integration branch.
+   Stop and report. The runbook has no reset step, and it never resets over a
+   commit that it did not make.
+
+3. **Keep the task worktree for diagnosis only.** Do not delete it, and do not
+   give it to the rework: settlement refuses a claim from that path, because
+   the completion row of the original task names it.
+
+4. **Plan the rework as a new task.** The task was accepted before this merge. Under compiler 7 its completion row supplies standing; compiler 8 requires the authenticated accepted proof. Reusing that standing does not verify new edits. Do not present altered work as an unchanged accepted result. Add a new task for the rework to the plan, obtain approval for the edited bytes, and compile a continuation:
+   - The rework task has no \`blockedBy\` on the unlanded task. It is a root of its continuation, so it gets its own harness worktree and the root base step.
+   - Its files are each path of \`git diff --name-only <rework baseCommit>...<accepted head>\` (the changes of the accepted head since the merge base), plus each conflict file. A file outside that list that the worker must edit to repair a semantic break goes in the list before the dispatch.
+   - Its plan rationale names the unlanded task, the accepted head and the captured rollback commit. It carries the acceptance and the test files of the unlanded task, so that the verifier judges the merged work.
+   - Its instructions name the accepted head and the steps of its worker. The worker branches at its \`baseCommit\` with \`git switch -c <own branch> <baseCommit>\`, runs \`git merge --no-ff <accepted head commit>\`, resolves the conflicts and commits the merge. Before the claim, \`git merge-base --is-ancestor <accepted head> HEAD\` exits 0, and any other exit stops the claim. The worker never rebases, squashes or cherry-picks the accepted head, so its head holds that head unchanged.
+   - The revision that adds the rework changes no term of the unlanded task or of its dependents, because a change to those terms invalidates their blocker standing.
+   - Do not dispatch the fix-mode fixer for the rework, because its base step rebases the earlier branch onto the new base.
+
+5. **Land the rework.** Before the Step 4 landing of the rework head, check that \`git merge-base --is-ancestor <accepted head> <rework head>\` exits 0, and land the rework head only then. Land no dependent of the unlanded task in the wave before that: each dependent head holds the unlanded accepted head, so its merge brings that head in again. The dependents wait for the rework landing, and then fork from a clean commit that holds the accepted head and the pinned base.
+
+6. **Report the wave coverage.** Until the rework lands, the accepted head is not an ancestor of the integration tip, so the wave-boundary suite does not cover the wave. Run \`check_integration_suite\` after the rework landing, or report the wave as uncovered. Do not report an earlier green run as coverage.
+
+The rollback appends no event, because no registered event type records an aborted landing. The rework task, its plan rationale and the captured rollback commit hold the incident record.
 
 ---
 
@@ -5926,7 +5936,7 @@ Check \`capsule.provenance.compilerVersion\` before dispatch. Compiler 7 compile
 | \`NOTHING_TO_PREPARE\` | Every planned task is complete | Transition to review |
 | \`NO_READY_TASKS\` | Tasks are pending, but each waits on a task that is not complete (the message names them) | Settle or fix the blocking tasks first; tasks that wait on each other are a cycle to break in the plan |
 | \`BASE_UNRESOLVED\` | No usable integration branch was supplied or recorded, or the supplied compile base conflicts with the recorded base | For bootstrap, supply the actual integration branch in \`intent.baseRef\`. For compile, use the recorded base. If the stream has no base, supply the integration branch in \`intent.baseRef\`. A legacy no-intent stream uses its recorded integration branch |
-| \`BASE_UNRESOLVED\` | The repository of the checkout holds no commit of the integration branch, or a completed blocker of a batch task landed on a commit that the base does not hold (both named in the message) | Create the branch, or pass a \`repoRoot\` that holds it. Land the blocker, then \`prepare\` again. A blocker that landed by a squash or a rebase outside \`serialize_merge\` needs a recorded \`merge.executed\` row (\`references/troubleshooting.md\`) |
+| \`BASE_UNRESOLVED\` | The repository of the checkout holds no commit of the integration branch, or a completed blocker of a batch task landed on a commit that the base does not hold (both named in the message) | Create the branch, or pass a \`repoRoot\` that holds it. Land the blocker through the harness landing (Step 4), then \`prepare\` again. A blocker that landed by a squash or a rebase instead needs a recorded \`merge.executed\` row with \`taskId\`, \`targetBranch\`, \`mergeSha\` (the commit that landed), \`sourceBranch\` and \`rollbackSha\` (\`references/troubleshooting.md\`). That row satisfies \`prepare\` only: \`settle\` still needs a \`forkCommit\` that holds the accepted blocker head |
 | \`SCOPE_UNRESOLVED\` | \`repoRoot\` is not in a git work tree or is in another repository than the latest capsule, the config of the checkout does not load, a registered catalog does not resolve, or the config does not make \`check_static_analysis\` blocking (named in the message) | Correct the cause that the message names, then \`prepare\` again (\`references/troubleshooting.md\`) |
 | \`UNKNOWN_DEPENDENCY\`, \`INVALID_TASK_ID\`, \`INVALID_TASK_STAMP\`, \`CAPSULE_UNSOUND\` | The plan cannot be expressed as a batch | Fix the plan, approve the edited bytes, and submit the appropriate intent |
 | \`DESIGN_APPROVAL_MISMATCH\`, \`PLAN_UNSOUND\` | The approved bytes differ from the file, or the typed plan is invalid | Correct the source, obtain approval for its exact bytes, and submit the appropriate typed intent |
@@ -5938,9 +5948,9 @@ A compile with unchanged inputs returns its recorded capsule. A valid compile wi
 
 ### Worktrees
 
-Each task works in a linked worktree of its own, materialized by the host under native isolation or laid out with \`setup_worktree\` (the canonical \`.worktrees/<taskId>-<taskName>\` path). A task never runs in the checkout that \`prepare\` read or in the primary worktree of the repository. \`settle\` and \`task_complete\` refuse both (\`the-checkout\`), because each task of a prepared workflow runs in its own linked worktree. Under native isolation, confirm each agent's working directory is under \`.worktrees/\` **before any agent edits files** (its first reported \`pwd\`); an agent in the shared checkout is stopped, given a worktree created by hand (\`git worktree add --detach .worktrees/<taskId>-<taskName> <baseCommit>\`, the task's \`baseCommit\` from the capsule), and only then allowed to edit. The hand-made worktree is detached, so the base step of the agent makes the branch of the task. The worktree path is what the task's claim will carry, and what settlement verifies against.
+Each task works in a linked worktree of its own, which comes from the harness: the host materializes it under native isolation, or the coordinator runs \`git worktree add --detach .worktrees/<taskId>-<taskName> <baseCommit>\` (the canonical path, with the task's \`baseCommit\` from the capsule). The normal path has no Exarchos call that makes a worktree. A task never runs in the checkout that \`prepare\` read or in the primary worktree of the repository. \`settle\` and \`task_complete\` refuse both (\`the-checkout\`), because each task of a prepared workflow runs in its own linked worktree. Under native isolation, confirm each agent's working directory is under \`.worktrees/\` **before any agent edits files** (its first reported \`pwd\`); an agent in the shared checkout is stopped, given a worktree created by hand with that \`git worktree add --detach\` command, and only then allowed to edit. The hand-made worktree is detached, so the base step of the agent makes the branch of the task. The worktree path is what the task's claim will carry, and what settlement verifies against.
 
-For a compiler-8 dependent, replace the root base step below with \`git switch -c <own branch> <forkCommit>\` at the selected clean blocker-containing commit. Do not reset that worktree back to the root base. For roots and compiler 7, the worker starts from \`<baseCommit>\`. After its entry checks and before any file change, an implementer or a scaffolder runs \`git switch -c <own branch> <baseCommit>\` (the base step of its agent definition), so its worktree holds the base on each runtime. \`<own branch>\` is a name that no branch holds yet. It is not the branch of the worktree that \`setup_worktree\` or \`git worktree add -b\` made, because git refuses \`git switch -c\` for a branch that exists. A fixer continues the earlier branch of its task (Fix Failed Tasks, below). Settlement refuses a worktree whose HEAD does not hold \`<baseCommit>\` (\`base-not-held\`) and a worktree on \`baseRef\` (\`on-the-base-branch\`). For compiler 7 the kill probe measures the task's diff from \`baseRef\`. For compiler 8, a root starts at its pinned \`baseCommit\`; a dependent starts at a clean full commit containing its direct blocker heads and the pinned base. Record that starting commit as \`forkCommit\` before editing and return it in the result fields when the contract requires it. Settlement binds the original input and measures the immutable fork-to-observed-head diff; do not substitute a moving branch name or a later HEAD. Leave each worktree clean: settlement refuses a worktree whose \`git status --porcelain\` is not empty (\`uncommitted-changes\`). A linked \`node_modules\` needs the ignore rule \`node_modules\`, without a trailing slash.
+For a compiler-8 dependent, replace the root base step below with \`git switch -c <own branch> <forkCommit>\` at the selected clean blocker-containing commit. Do not reset that worktree back to the root base. For roots and compiler 7, the worker starts from \`<baseCommit>\`. After its entry checks and before any file change, an implementer or a scaffolder runs \`git switch -c <own branch> <baseCommit>\` (the base step of its agent definition), so its worktree holds the base on each runtime. \`<own branch>\` is a name that no branch holds yet. It is not the branch of a worktree that \`git worktree add -b\` made, because git refuses \`git switch -c\` for a branch that exists. A fixer continues the earlier branch of its task (Fix Failed Tasks, below). Settlement refuses a worktree whose HEAD does not hold \`<baseCommit>\` (\`base-not-held\`) and a worktree on \`baseRef\` (\`on-the-base-branch\`). For compiler 7 the kill probe measures the task's diff from \`baseRef\`. For compiler 8, a root starts at its pinned \`baseCommit\`; a dependent starts at a clean full commit containing its direct blocker heads and the pinned base. Record that starting commit as \`forkCommit\` before editing and return it in the result fields when the contract requires it. Settlement binds the original input and measures the immutable fork-to-observed-head diff; do not substitute a moving branch name or a later HEAD. Leave each worktree clean: settlement refuses a worktree whose \`git status --porcelain\` is not empty (\`uncommitted-changes\`). A linked \`node_modules\` needs the ignore rule \`node_modules\`, without a trailing slash.
 
 ### Task Extraction
 
@@ -6366,8 +6376,8 @@ After the fix completes, claim the fixed task in a new batch on the same capsule
 
 When \`phaseMove\` is \`moved\`, the workflow is at the review step already (\`review\` for a feature). Land each worktree and run the integration suite after the move, before the review starts. The review reads the integration tip, so each landing comes first.
 
-1. **Land each worktree.** Land the worktree of each settled task through \`serialize_merge\` (see "Worktree-Bearing Tasks" below), one worktree at a time, in dependency order.
-2. **Wave backstop** — once, after every merge of the wave has landed, run the cumulative suite against the integration tip:
+1. **Land each worktree.** Land the accepted head commit of each settled task through the harness (see "Worktree-Bearing Tasks" below), one worktree at a time, in dependency order. The landing makes no Exarchos call and appends no \`merge.executed\` event.
+2. **Wave backstop** — once, after every merge of the wave has landed, run the cumulative suite against the integration tip. That suite covers the wave only when every accepted head of the wave is an ancestor of the integration tip:
 
 \`\`\`typescript
 exarchos_orchestrate({
@@ -6454,7 +6464,12 @@ For the full transition table, consult \`@skills/checkpoint/references/phase-tra
 
 A completion row that names a worktree does not move the workflow through \`merge-pending\`. The \`delegate\` → \`merge-pending\` edge reads event data that the fold does not hold, so the edge does not admit on the fold. The settle move goes from \`delegate\` to \`review\` directly, and the coordinator lands each worktree after the move (Step 4).
 
-**Land it through \`serialize_merge\`.** The integration branch is shared — sibling worktree merges within the same wave (or a concurrent operator) can race for it. \`serialize_merge\` is THE integration-merge path: it holds an optimistic per-\`integrationRef\` single-writer lease, then composes \`merge_orchestrate\` unchanged to do the local \`git merge\` with a recorded recovery-point SHA — see \`@skills/merge-orchestrator/SKILL.md\`. Do **not** dispatch raw \`merge_orchestrate\` to land onto the integration branch — a live foreign lease makes it fail closed (\`MERGE_LEASE_HELD\`, naming \`serialize_merge\`). Raw \`merge_orchestrate\` is for a non-integration merge (a private / scratch branch no sibling will touch) or a crash-resumed caller re-presenting its original lease.
+**Land it through the harness.** The coordinator lands each settled worktree itself, with the git of its harness, one worktree at a time, in dependency order. The normal path makes no Exarchos call for a landing and appends no \`merge.executed\` event.
+
+- Land the accepted head commit of the settled claim, the commit that settlement accepted for the task. Do not land a branch name. If a step names the task branch, first check that \`git rev-parse <task branch>\` equals the accepted head, and stop on a difference: a fixer continues the earlier branch of its task, so the branch can move after the settlement.
+- Before each landing, check that the integration worktree is on the integration branch and that its \`git status --porcelain\` is empty. Then land from the integration worktree with \`git merge --ff-only <accepted head commit>\`.
+- Each landing is a fast-forward or a merge commit of the accepted head, so that head stays reachable. Never rebase or squash an accepted head: settle and the verifier need each blocker head as an ancestor of the fork of a dependent. When the fast-forward fails because the integration branch advanced, follow "When integration advances mid-wave" below.
+- Before a landing is tried again after a crash or a lost reply, run \`git merge-base --is-ancestor <accepted head> <integration-branch>\`. Exit 0 skips the worktree, because the branch holds it already. Exit 1 lands it. Any other exit stops the landing and reports.
 
 Each landing is a merge of the integration branch. It is not a phase of the workflow, so a landing after the move does not change the phase.
 
@@ -6481,129 +6496,126 @@ for the plane's own schemas — what \`prepare\` returns and what a claim may ca
 
 ## When integration advances mid-wave
 
-Runbook for recovering when a subagent worktree's branch has diverged from the
-integration branch. Triggered by the integration merge's ancestry preflight
-(run by the composed \`merge_orchestrate\` inside \`serialize_merge\`): the
-failure message links here verbatim and includes the manual \`git rebase\`
-command. Auto-rebase is **not** wired today — operators
-must drive recovery by hand.
+Runbook for a worktree whose fast-forward landing fails because the
+integration branch advanced. An earlier landing of the wave, or another
+writer, moved the integration branch while the worktree was in flight. The
+coordinator drives each step by hand. No step makes an Exarchos call.
 
 ### Symptom
 
-The merge-orchestrator reports an ancestry failure of the form:
+The fast-forward landing of Step 4 refuses:
 
 \`\`\`text
-source branch <feature-branch> is not a descendant of <integration-branch>.
-Rebase manually with: git rebase <integration-branch> (run from the <feature-branch> worktree).
-Runbook: content/delivery/skills/delegate/SKILL.md#when-integration-advances-mid-wave
+$ git merge --ff-only <accepted head commit>
+fatal: Not possible to fast-forward, aborting.
 \`\`\`
 
-This means the integration branch advanced (typically because an earlier
-worktree merge landed) while the failing worktree was still in flight.
-Fast-forward merge is no longer safe — the working branch must catch up
-first.
+The accepted head does not hold the new integration tip, so a fast-forward is
+no longer possible. The accepted head still lands unchanged, with a merge
+commit.
 
 ### Why this happens
 
 Each subagent worktree starts at the \`baseCommit\` of its task, the commit of
 the integration branch when \`prepare\` compiled the batch (the base step of the
-agent). When the orchestrator merges sibling worktrees serially, each merge
-moves the integration branch forward. A worktree that started at an older
-integration commit will fail the ancestry preflight when its turn comes.
+agent). Each landing moves the integration branch forward. A worktree that
+started at an older integration commit cannot fast-forward when its turn
+comes.
 
-This is expected behavior under the current single-writer merge contract —
-preflight is fail-only on purpose so the operator stays in control.
+The accepted head is the commit that settlement judged. A rebase or a squash
+makes a new commit that settlement never judged, and settle and the verifier
+need each blocker head as an ancestor of the fork of a dependent. So the
+runbook lands that head unchanged with a merge commit, and it never rebases
+it.
 
 
 ### Recovery procedure
 
-Before each step, verify you are in the **main worktree** (not the failing
-subagent worktree) and that \`git status\` is clean.
+Run each step from the **integration worktree**, never from the task worktree.
 
-1. **Capture the rollback SHA** before doing anything destructive:
+0. **Check whether the head landed already** with
+   \`git merge-base --is-ancestor <accepted head> <integration-branch>\`.
+   Exit 0 means that the integration branch holds the accepted head already,
+   for example after a crash that followed a landed merge commit. Skip the
+   worktree, and capture no rollback commit. Any exit other than 0 or 1 stops
+   the runbook and reports. On exit 1, check whether the plan already holds a
+   rework task whose rationale names this accepted head. If it does, go to
+   that rework (its dispatch, or its Step 4 landing), and do not merge again or
+   plan a second rework. Otherwise continue.
+
+1. **Check the integration worktree.** It is on the integration branch, and
+   \`git status --porcelain\` prints nothing. If not, stop and report.
+
+2. **Capture the integration rollback commit** before the merge:
 
    \`\`\`bash
-   git rev-parse <feature-branch> > /tmp/rollback.sha
+   git rev-parse <integration-branch> > /tmp/rollback.sha
    \`\`\`
 
-   Keep this until the merge has been verified. If anything goes wrong,
-   \`git reset --hard "$(cat /tmp/rollback.sha)"\` on the feature branch
-   restores the pre-rebase state. The filename is intentionally
-   branch-name-free so slash-delimited branches like \`feature/dr-6\`
-   don't break the path with embedded \`/\` characters.
+   The filename is intentionally branch-name-free, so slash-delimited branches
+   like \`feature/dr-6\` do not break the path with embedded \`/\` characters. The
+   path is local to the machine, so run every later step on the same machine.
 
-2. **Rebase the feature branch onto the current integration tip:**
+3. **Land the accepted head unchanged with a merge commit:**
 
    \`\`\`bash
-   cd <feature-worktree-path>
-   git fetch origin
-   git rebase <integration-branch>
+   git merge --no-ff <accepted head>
    \`\`\`
 
-   Resolve any conflicts that surface. The conflicts are real — they reflect
-   genuine drift between the two branches, not preflight noise. Do **not**
-   pass \`--strategy-option=theirs\` blindly; that drops the subagent's work.
+   Exit 0 is the landing: the merge commit holds the accepted head, so that
+   head stays reachable. The landing needs no \`merge.executed\` row. A conflict
+   goes to the rollback procedure below. Any other refusal (no merge in
+   progress, an unknown commit, a dirty tree) stops the runbook and reports,
+   with no abort.
 
-3. **Re-run the integration merge from the main worktree** — through
-   \`serialize_merge\`, which re-composes \`merge_orchestrate\`'s ancestry
-   preflight under the single-writer lease:
+   A clean merge that later fails the wave suite stays landed, and the defect
+   is repaired forward in a new task.
 
-   \`\`\`typescript
-   exarchos_orchestrate({
-     action: "serialize_merge",
-     featureId: "<featureId>",
-     integrationRef: "<integration-branch>",
-     sourceBranch: "<feature-branch>",
-     strategy: "squash",           // squash | rebase | merge
-     taskId: "<taskId>",
-     dryRun: false,                // REQUIRED to execute — the action DEFAULTS to dry-run
-   })
-   \`\`\`
-
-   \`serialize_merge\` **defaults to a dry-run** (preflight only, no lease
-   claimed): omit \`dryRun\` and it reports whether the merge *would* apply
-   without mutating anything. Pass \`dryRun: false\` to actually claim the
-   single-writer lease and perform the merge. The action is declared
-   **shared-mutating**, so a read-only caller (a session without write
-   capability) is denied even the apply path; in that case fall back to a
-   local-git merge from the main worktree (\`git merge --squash
-   <feature-branch>\` then commit) and record the equivalent merge
-   state/events yourself, since that merge sits outside the serialized lease.
-
-   The preflight should now pass. Proceed with the orchestrator's normal
-   merge flow. (Re-run raw \`merge_orchestrate\` directly only for a
-   non-integration merge, or as the crash-resumed caller re-presenting its
-   original \`leaseOperationId\`.)
+Then run \`check_integration_suite\` at the wave boundary, as Step 4 says.
 
 ### Rollback procedure
 
-If the rebase produces conflicts you cannot resolve safely, or the merge
-still fails after rebase:
+On a conflict, the merge of the accepted head stops with the integration
+worktree in a merge state. Resolve nothing in the integration worktree.
 
-1. **Reset the feature branch** to the captured rollback SHA:
+1. **Abort the merge** and check that the tree is clean:
 
    \`\`\`bash
-   cd <feature-worktree-path>
-   git rebase --abort   # if mid-rebase
-   git reset --hard "$(cat /tmp/rollback.sha)"
+   git merge --abort
+   git status --porcelain
    \`\`\`
 
-2. **Plan the rework as a new task.** The task was accepted before this merge. Under compiler 7 its completion row supplies standing; compiler 8 requires the authenticated accepted proof. Reusing that standing does not verify new edits. Do not present altered work as an unchanged accepted result. Add a new task for the rework to the plan, obtain approval for the edited bytes, compile a continuation, and
-   dispatch a fixer for the new task (see the Failure Recovery section
-   above). Do **not** delete the worktree — the fixer needs the original
-   branch state to diagnose the conflict.
+   The abort makes no commit, and it restores the integration branch to its
+   commit before the merge. If \`git status --porcelain\` prints anything, the
+   abort failed: stop and report.
 
-3. **Record the incident** by emitting a \`merge.aborted\` event with
-   \`reason: "ancestry-rebase-conflict"\` and the failing branch's pre-rebase
-   SHA so the convergence view captures the rollback.
+2. **Compare the integration branch with the captured commit:**
 
-### Why no auto-rebase yet
+   \`\`\`bash
+   test "$(git rev-parse <integration-branch>)" = "$(cat /tmp/rollback.sha)"
+   \`\`\`
 
-Auto-rebase is not yet wired. Today the orchestrator stops at
-the ancestry preflight on purpose: a botched auto-rebase across diverged
-worktrees risks silently dropping subagent work, and the recovery path
-above is short enough that operator-driven rebase is preferable to
-clever-but-fragile automation.
+   A non-zero exit means that another writer moved the integration branch.
+   Stop and report. The runbook has no reset step, and it never resets over a
+   commit that it did not make.
+
+3. **Keep the task worktree for diagnosis only.** Do not delete it, and do not
+   give it to the rework: settlement refuses a claim from that path, because
+   the completion row of the original task names it.
+
+4. **Plan the rework as a new task.** The task was accepted before this merge. Under compiler 7 its completion row supplies standing; compiler 8 requires the authenticated accepted proof. Reusing that standing does not verify new edits. Do not present altered work as an unchanged accepted result. Add a new task for the rework to the plan, obtain approval for the edited bytes, and compile a continuation:
+   - The rework task has no \`blockedBy\` on the unlanded task. It is a root of its continuation, so it gets its own harness worktree and the root base step.
+   - Its files are each path of \`git diff --name-only <rework baseCommit>...<accepted head>\` (the changes of the accepted head since the merge base), plus each conflict file. A file outside that list that the worker must edit to repair a semantic break goes in the list before the dispatch.
+   - Its plan rationale names the unlanded task, the accepted head and the captured rollback commit. It carries the acceptance and the test files of the unlanded task, so that the verifier judges the merged work.
+   - Its instructions name the accepted head and the steps of its worker. The worker branches at its \`baseCommit\` with \`git switch -c <own branch> <baseCommit>\`, runs \`git merge --no-ff <accepted head commit>\`, resolves the conflicts and commits the merge. Before the claim, \`git merge-base --is-ancestor <accepted head> HEAD\` exits 0, and any other exit stops the claim. The worker never rebases, squashes or cherry-picks the accepted head, so its head holds that head unchanged.
+   - The revision that adds the rework changes no term of the unlanded task or of its dependents, because a change to those terms invalidates their blocker standing.
+   - Do not dispatch the fix-mode fixer for the rework, because its base step rebases the earlier branch onto the new base.
+
+5. **Land the rework.** Before the Step 4 landing of the rework head, check that \`git merge-base --is-ancestor <accepted head> <rework head>\` exits 0, and land the rework head only then. Land no dependent of the unlanded task in the wave before that: each dependent head holds the unlanded accepted head, so its merge brings that head in again. The dependents wait for the rework landing, and then fork from a clean commit that holds the accepted head and the pinned base.
+
+6. **Report the wave coverage.** Until the rework lands, the accepted head is not an ancestor of the integration tip, so the wave-boundary suite does not cover the wave. Run \`check_integration_suite\` after the rework landing, or report the wave as uncovered. Do not report an earlier green run as coverage.
+
+The rollback appends no event, because no registered event type records an aborted landing. The rework task, its plan rationale and the captured rollback commit hold the incident record.
 
 ---
 
