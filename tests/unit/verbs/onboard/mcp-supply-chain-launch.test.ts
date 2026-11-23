@@ -128,6 +128,11 @@ function hasIntegrityPin(args: readonly string[]): boolean {
   return false;
 }
 
+/** The local `exarchos mcp` launch, read-only or with the orchestrator `--operator` flag. */
+function isLocalMcpLaunch(argv: readonly string[]): boolean {
+  return argv[0] === 'mcp' && argv.length <= 2 && argv.slice(1).every((arg) => arg === '--operator');
+}
+
 /**
  * A launch is safe when it is the local exarchos binary, or a package runner
  * whose positional specs are exact versions, with an integrity pin and without
@@ -137,7 +142,7 @@ function isPinnedEditorLaunch(command: unknown, args: unknown): boolean {
   if (typeof command !== 'string' || !Array.isArray(args)) return false;
   if (args.some((arg) => typeof arg !== 'string')) return false;
   const argv = args as string[];
-  if (command === 'exarchos' && argv.length === 1 && argv[0] === 'mcp') return true;
+  if (command === 'exarchos' && isLocalMcpLaunch(argv)) return true;
   if (argv.some(isAutomaticYes)) return false;
   const blob = [command, ...argv].join(' ');
   if (command !== 'npx' && command !== 'npm') {
