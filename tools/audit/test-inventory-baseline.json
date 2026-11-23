@@ -4,11 +4,11 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1469,
-    "parsedFiles": 1425,
+    "testFiles": 1466,
+    "parsedFiles": 1422,
     "shellFiles": 44,
-    "cases": 16489,
-    "dynamicTitles": 327,
+    "cases": 16452,
+    "dynamicTitles": 321,
     "unparseableFiles": 0
   },
   "unparseable": [],
@@ -8799,7 +8799,7 @@
         },
         {
           "suite": "Effect families through the compiled binary (P05-02)",
-          "name": "Process_ListPrsSpawnsAChildProcess",
+          "name": "Process_ReviewDiffSpawnsGit",
           "dynamic": false
         },
         {
@@ -46357,11 +46357,6 @@
         },
         {
           "suite": "Task 022 — registry schema batch (DR-1/DR-3/DR-8) > registrySchemas_EconomyParams_ValidateAndCoerce",
-          "name": "get_pr_comments declares and coerces limit/offset/fields",
-          "dynamic": false
-        },
-        {
-          "suite": "Task 022 — registry schema batch (DR-1/DR-3/DR-8) > registrySchemas_EconomyParams_ValidateAndCoerce",
           "name": "assess_stack declares comment paging and coerces prNumbers as an int array",
           "dynamic": false
         },
@@ -53283,21 +53278,6 @@
       "runner": "vitest:root",
       "cases": [
         {
-          "suite": "GitHub pull request id injection > action schemas",
-          "name": "%s rejects a non-numeric prId before a handler runs",
-          "dynamic": false
-        },
-        {
-          "suite": "GitHub pull request id injection > action schemas",
-          "name": "<dynamic-case-1>",
-          "dynamic": true
-        },
-        {
-          "suite": "GitHub pull request id injection > action schemas",
-          "name": "add_pr_comment rejects a non-numeric threadId",
-          "dynamic": false
-        },
-        {
           "suite": "GitHub pull request id injection > GitHubProvider argument vector",
           "name": "mergePr passes a numeric id after -- and keeps the strategy flag before it",
           "dynamic": false
@@ -53309,7 +53289,7 @@
         },
         {
           "suite": "GitHub pull request id injection > GitHubProvider argument vector",
-          "name": "<dynamic-case-2>",
+          "name": "<dynamic-case-1>",
           "dynamic": true
         },
         {
@@ -53324,7 +53304,7 @@
         },
         {
           "suite": "GitHub pull request id injection > GitHubProvider argument vector",
-          "name": "<dynamic-case-3>",
+          "name": "<dynamic-case-2>",
           "dynamic": true
         },
         {
@@ -53339,7 +53319,7 @@
         },
         {
           "suite": "GitHub pull request id injection > GitHubProvider argument vector",
-          "name": "<dynamic-case-4>",
+          "name": "<dynamic-case-3>",
           "dynamic": true
         },
         {
@@ -53354,7 +53334,7 @@
         },
         {
           "suite": "GitHub pull request id injection > GitHubProvider argument vector",
-          "name": "<dynamic-case-5>",
+          "name": "<dynamic-case-4>",
           "dynamic": true
         },
         {
@@ -53369,7 +53349,7 @@
         },
         {
           "suite": "GitHub pull request id injection > GitHubProvider argument vector",
-          "name": "<dynamic-case-6>",
+          "name": "<dynamic-case-5>",
           "dynamic": true
         },
         {
@@ -53384,7 +53364,7 @@
         },
         {
           "suite": "GitHub pull request id injection > GitHubProvider argument vector",
-          "name": "<dynamic-case-7>",
+          "name": "<dynamic-case-6>",
           "dynamic": true
         },
         {
@@ -53394,7 +53374,7 @@
         },
         {
           "suite": "GitHub pull request id injection > GitHubProvider argument vector",
-          "name": "<dynamic-case-8>",
+          "name": "<dynamic-case-7>",
           "dynamic": true
         },
         {
@@ -53409,57 +53389,7 @@
         },
         {
           "suite": "GitHub pull request id injection > GitHubProvider argument vector",
-          "name": "<dynamic-case-9>",
-          "dynamic": true
-        },
-        {
-          "suite": "GitHub pull request id injection > orchestrate handlers",
-          "name": "merge_pr refuses %j before gh runs and records no pr.merged event",
-          "dynamic": false
-        },
-        {
-          "suite": "GitHub pull request id injection > orchestrate handlers",
-          "name": "<dynamic-case-10>",
-          "dynamic": true
-        },
-        {
-          "suite": "GitHub pull request id injection > orchestrate handlers",
-          "name": "check_ci refuses %j before gh runs",
-          "dynamic": false
-        },
-        {
-          "suite": "GitHub pull request id injection > orchestrate handlers",
-          "name": "<dynamic-case-11>",
-          "dynamic": true
-        },
-        {
-          "suite": "GitHub pull request id injection > orchestrate handlers",
-          "name": "get_pr_comments refuses %j before gh runs",
-          "dynamic": false
-        },
-        {
-          "suite": "GitHub pull request id injection > orchestrate handlers",
-          "name": "<dynamic-case-12>",
-          "dynamic": true
-        },
-        {
-          "suite": "GitHub pull request id injection > orchestrate handlers",
-          "name": "add_pr_comment refuses prId %j before gh runs and writes no event",
-          "dynamic": false
-        },
-        {
-          "suite": "GitHub pull request id injection > orchestrate handlers",
-          "name": "<dynamic-case-13>",
-          "dynamic": true
-        },
-        {
-          "suite": "GitHub pull request id injection > orchestrate handlers",
-          "name": "add_pr_comment refuses threadId %j before gh runs and writes no event",
-          "dynamic": false
-        },
-        {
-          "suite": "GitHub pull request id injection > orchestrate handlers",
-          "name": "<dynamic-case-14>",
+          "name": "<dynamic-case-8>",
           "dynamic": true
         }
       ]
@@ -54292,22 +54222,7 @@
         },
         {
           "suite": "handleOrchestrate > VCS actions",
-          "name": "OrchestrateComposite_CheckCi_RoutesToHandler",
-          "dynamic": false
-        },
-        {
-          "suite": "handleOrchestrate > VCS actions",
-          "name": "OrchestrateComposite_ListPrs_RoutesToHandler",
-          "dynamic": false
-        },
-        {
-          "suite": "handleOrchestrate > VCS actions",
-          "name": "OrchestrateComposite_GetPrComments_RoutesToHandler",
-          "dynamic": false
-        },
-        {
-          "suite": "handleOrchestrate > VCS actions",
-          "name": "OrchestrateRegistry_ActionList_IncludesVcsActions",
+          "name": "OrchestrateRegistry_ActionList_ExcludesRetiredVcsActions",
           "dynamic": false
         },
         {
@@ -69743,37 +69658,6 @@
         }
       ]
     },
-    "tests/unit/verbs/vcs/check-ci.test.ts": {
-      "file": "tests/unit/verbs/vcs/check-ci.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "handleCheckCi",
-          "name": "handleCheckCi_ValidPrId_CallsProviderCheckCi",
-          "dynamic": false
-        },
-        {
-          "suite": "handleCheckCi",
-          "name": "handleCheckCi_Pass_ReturnsSuccessWithStatus",
-          "dynamic": false
-        },
-        {
-          "suite": "handleCheckCi",
-          "name": "handleCheckCi_ReadOnly_DoesNotEmitEvent",
-          "dynamic": false
-        },
-        {
-          "suite": "handleCheckCi",
-          "name": "handleCheckCi_Pending_ReturnsSuccessWithPendingStatus",
-          "dynamic": false
-        },
-        {
-          "suite": "handleCheckCi",
-          "name": "handleCheckCi_ProviderError_ReturnsFailure",
-          "dynamic": false
-        }
-      ]
-    },
     "tests/unit/verbs/vcs/check-coderabbit.test.ts": {
       "file": "tests/unit/verbs/vcs/check-coderabbit.test.ts",
       "runner": "vitest:root",
@@ -69876,42 +69760,6 @@
         }
       ]
     },
-    "tests/unit/verbs/vcs/get-pr-comments.test.ts": {
-      "file": "tests/unit/verbs/vcs/get-pr-comments.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "handleGetPrComments",
-          "name": "handleGetPrComments_ValidPrId_CallsProviderGetPrComments",
-          "dynamic": false
-        },
-        {
-          "suite": "handleGetPrComments",
-          "name": "handleGetPrComments_ValidPrId_ReturnsSuccessWithComments",
-          "dynamic": false
-        },
-        {
-          "suite": "handleGetPrComments",
-          "name": "handleGetPrComments_ThreadsWindowOpts_ToProvider",
-          "dynamic": false
-        },
-        {
-          "suite": "handleGetPrComments",
-          "name": "handleGetPrComments_NoFields_OmitsFieldsFromContinuation",
-          "dynamic": false
-        },
-        {
-          "suite": "handleGetPrComments",
-          "name": "handleGetPrComments_ReadOnly_DoesNotEmitEvent",
-          "dynamic": false
-        },
-        {
-          "suite": "handleGetPrComments",
-          "name": "handleGetPrComments_ProviderError_ReturnsFailure",
-          "dynamic": false
-        }
-      ]
-    },
     "tests/unit/verbs/vcs/git-exec-default.test.ts": {
       "file": "tests/unit/verbs/vcs/git-exec-default.test.ts",
       "runner": "vitest:root",
@@ -69934,42 +69782,6 @@
         {
           "suite": "git-exec-default — DR-1 index.lock retry composition",
           "name": "DefaultGitExecComposition_PersistentLock_ReturnsContentionResultNotSilentFailure",
-          "dynamic": false
-        }
-      ]
-    },
-    "tests/unit/verbs/vcs/list-prs.test.ts": {
-      "file": "tests/unit/verbs/vcs/list-prs.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "handleListPrs",
-          "name": "handleListPrs_NoFilter_CallsProviderListPrs",
-          "dynamic": false
-        },
-        {
-          "suite": "handleListPrs",
-          "name": "handleListPrs_NoFilter_ReturnsSuccessWithData",
-          "dynamic": false
-        },
-        {
-          "suite": "handleListPrs",
-          "name": "listPrs_NoLimit_ReturnsDefaultWindow",
-          "dynamic": false
-        },
-        {
-          "suite": "handleListPrs",
-          "name": "handleListPrs_WithFilter_PassesFilterToProvider",
-          "dynamic": false
-        },
-        {
-          "suite": "handleListPrs",
-          "name": "handleListPrs_ReadOnly_DoesNotEmitEvent",
-          "dynamic": false
-        },
-        {
-          "suite": "handleListPrs",
-          "name": "handleListPrs_ProviderError_ReturnsFailure",
           "dynamic": false
         }
       ]
@@ -70066,32 +69878,17 @@
       "cases": [
         {
           "suite": "VCS action routing registration",
-          "name": "VcsActions_AllRegisteredInCompositeHandlerSource",
-          "dynamic": false
-        },
-        {
-          "suite": "VCS action routing registration",
-          "name": "VcsActions_AllRegisteredInToolRegistry",
-          "dynamic": false
-        },
-        {
-          "suite": "VCS action routing registration",
-          "name": "VcsActions_SchemasAreValid",
-          "dynamic": false
-        },
-        {
-          "suite": "VCS action routing registration",
           "name": "VcsActions_RetiredWriters_AreAbsentAndRefused",
           "dynamic": false
         },
         {
           "suite": "VCS action routing registration",
-          "name": "VcsActions_ReadOnlyActionsNoAutoEmits",
+          "name": "VcsActions_RetiredReads_AreAbsentAndRefused",
           "dynamic": false
         },
         {
           "suite": "VCS action routing registration",
-          "name": "VcsActions_CompositeImportsAllHandlers",
+          "name": "VcsActions_CompositeImportsNoRetiredReadHandler",
           "dynamic": false
         }
       ]

@@ -77,9 +77,6 @@ import { handleRequestSynthesize } from './team/request-synthesize.js';
 import { handleFinalizeOneshot } from './tasks/finalize-oneshot.js';
 import { handleDoctor } from './doctor/index.js';
 import { handleOnboard } from './onboard/index.js';
-import { handleCheckCi } from './vcs/check-ci.js';
-import { handleListPrs } from './vcs/list-prs.js';
-import { handleGetPrComments } from './vcs/get-pr-comments.js';
 import { handleMergeOrchestrate } from './merge/merge-orchestrate.js';
 import { handleStackPlace } from './stack/tools.js';
 import {
@@ -502,10 +499,6 @@ export const ACTION_HANDLERS: Readonly<Record<string, ActionHandler>> = {
   prune_stale_workflows: handlePruneStaleWorkflows as ActionHandler,
   request_synthesize: adaptArgsWithStateDirAndEventStore(handleRequestSynthesize),
   finalize_oneshot: adaptArgsWithStateDirAndEventStore(handleFinalizeOneshot),
-  /** VCS read action, routed through the `VcsProvider` abstraction. */
-  check_ci: adaptCtx(handleCheckCi),
-  list_prs: adaptCtx(handleListPrs),
-  get_pr_comments: adaptCtx(handleGetPrComments),
   /** Merge orchestrator. It composes the preflight and the executor under one public action. The internal `handleExecuteMerge` is not in this table. */
   merge_orchestrate: adaptCtx(handleMergeOrchestrate),
   /**

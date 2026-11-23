@@ -21,6 +21,13 @@ const PROVIDER_WRITE_RETIRED = 'PROVIDER_WRITE_RETIRED';
 const PROVIDER_WRITE_MESSAGE =
   'Exarchos retires pull request and issue writes. The harness opens, merges and comments on pull requests and opens issues with its own tools.';
 
+/** The one code of a retired provider read. */
+const PROVIDER_READ_RETIRED = 'PROVIDER_READ_RETIRED';
+
+/** The one message of a retired provider read. It names the harness as the owner of the read. */
+const PROVIDER_READ_MESSAGE =
+  'Exarchos retires pull request, CI and review comment reads. The harness reads pull requests, CI checks and review comments with its own tools.';
+
 /** The closed table. Each row names one pair of tool and action, and no registered action is in it. */
 export const RETIRED_ACTIONS: readonly RetiredAction[] = Object.freeze([
   Object.freeze({
@@ -43,6 +50,12 @@ export const RETIRED_ACTIONS: readonly RetiredAction[] = Object.freeze([
     action,
     code: PROVIDER_WRITE_RETIRED,
     message: PROVIDER_WRITE_MESSAGE,
+  })),
+  ...['check_ci', 'list_prs', 'get_pr_comments'].map((action) => Object.freeze({
+    tool: 'exarchos_orchestrate',
+    action,
+    code: PROVIDER_READ_RETIRED,
+    message: PROVIDER_READ_MESSAGE,
   })),
 ]);
 

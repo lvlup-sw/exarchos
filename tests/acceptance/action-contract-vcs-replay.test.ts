@@ -6,11 +6,10 @@ import {
   type ActionContract,
 } from '../../src/registry/action-contract.js';
 import { mergeActions } from '../../src/registry/actions/orchestrate/merge.js';
-import { vcsActions } from '../../src/registry/actions/orchestrate/vcs.js';
 import { worktreeActions } from '../../src/registry/actions/orchestrate/worktree.js';
 import { TOOL_REGISTRY, type ToolAction } from '../../src/registry.js';
 
-const FAMILY_ACTIONS: readonly ToolAction[] = [...mergeActions, ...vcsActions, ...worktreeActions];
+const FAMILY_ACTIONS: readonly ToolAction[] = [...mergeActions, ...worktreeActions];
 const FAMILY_NAMES = new Set(FAMILY_ACTIONS.map((action) => action.name));
 
 function readContract(action: ToolAction): ActionContract {
@@ -72,22 +71,15 @@ describe('merge VCS worktree action contracts', () => {
   it('Registry_MergeVcsWorktreeActions_HaveCompleteContracts', () => {
     expect(FAMILY_ACTIONS.map((action) => action.name)).toEqual([
       'merge_orchestrate',
-      'check_ci',
-      'list_prs',
-      'get_pr_comments',
       'acquire_worktree',
       'release_worktree',
       'prune_worktrees',
       'reconcile_worktrees',
       'serialize_merge',
     ]);
-    const retainedObservers = ['check_ci', 'list_prs', 'get_pr_comments'];
     const ledgerCoordination = ['acquire_worktree', 'release_worktree', 'reconcile_worktrees'];
     const retiringEffects = ['serialize_merge', 'merge_orchestrate', 'prune_worktrees'];
-    expect([...retainedObservers, ...ledgerCoordination, ...retiringEffects].sort()).toEqual([...FAMILY_NAMES].sort());
-    for (const name of retainedObservers) {
-      expect(FAMILY_ACTIONS.find(action => action.name === name)?.annotations.readOnly).toBe(true);
-    }
+    expect([...ledgerCoordination, ...retiringEffects].sort()).toEqual([...FAMILY_NAMES].sort());
     const live = liveFamilyActions();
     expect(live.map((action) => action.name)).toEqual(FAMILY_ACTIONS.map((action) => action.name));
     for (const action of live) {

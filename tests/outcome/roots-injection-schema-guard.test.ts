@@ -79,14 +79,14 @@ describe('Roots featureId inference is gated on the receiving schema (#1838)', (
   it('RootsInference_ActionOmittingFeatureId_IsNeverEligibleForInjection', () => {
     const { declaring, omitting } = partitionRegistry();
 
-    expect(omitting.length).toBeGreaterThanOrEqual(59);
+    expect(omitting.length).toBeGreaterThanOrEqual(56);
     expect(declaring.length).toBeGreaterThanOrEqual(55);
     expect(omitting.length + declaring.length).toBe(
       TOOL_REGISTRY.reduce((n, t) => n + t.actions.length, 0),
     );
 
     const exposed = omitting.filter((r) => !LATENCY_SKIP.has(r.action));
-    expect(exposed.length).toBeGreaterThanOrEqual(53);
+    expect(exposed.length).toBeGreaterThanOrEqual(50);
 
     for (const ref of exposed) {
       const tool = TOOL_REGISTRY.find((t) => t.name === ref.tool);

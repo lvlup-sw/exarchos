@@ -675,7 +675,7 @@ describe('TOOL_REGISTRY', () => {
     it('should have 71 actions for task management, review triage, gate checks, validation handlers, runbooks, agent spec, oneshot/pruning, onboard (DR-2 task 011), doctor, VCS, classify_review_items (#1159), merge_orchestrate (DR-MO-1), check_integration_suite (#1329), check_invariant_conformance (DR-3), invariants_scaffold/invariants_add (invariants-catalog-wizard P2), check_contract_drift + check_mock_boundary (verification-ladder slice 1), and composite actions', () => {
       const composite = findComposite('exarchos_orchestrate');
       expect(composite).toBeDefined();
-      expect(composite!.actions).toHaveLength(80);
+      expect(composite!.actions).toHaveLength(77);
 
       const actionNames = composite!.actions.map((a) => a.name);
       expect(actionNames).toEqual(
@@ -731,9 +731,6 @@ describe('TOOL_REGISTRY', () => {
           'prune_stale_workflows',
           'request_synthesize',
           'finalize_oneshot',
-          'check_ci',
-          'list_prs',
-          'get_pr_comments',
           'onboard',
           'merge_orchestrate',
           'check_integration_suite',
@@ -1741,7 +1738,7 @@ describe('AutoEmits Drift Tests', () => {
     }
 
     expect(populatedCount, 'declared autoEmits population dropped below the floor').toBeGreaterThan(
-      56,
+      55,
     );
     expect(violations, `AutoEmits drift:\n${violations.join('\n')}`).toEqual([]);
   });
@@ -2746,9 +2743,6 @@ const EXPECTED_EFFECTIVE_BUDGETS: Readonly<Record<string, number>> = {
   'exarchos_orchestrate.runbook': 4000,
   'exarchos_orchestrate.agent_spec': 2000,
   'exarchos_orchestrate.doctor': 2000,
-  'exarchos_orchestrate.check_ci': 2000,
-  'exarchos_orchestrate.list_prs': 2000,
-  'exarchos_orchestrate.get_pr_comments': 2000,
   'exarchos_orchestrate.onboard': 2000,
   'exarchos_orchestrate.invariants_scaffold': 2000,
   'exarchos_orchestrate.invariants_add': 2000,
@@ -3242,23 +3236,6 @@ describe('Task 022 — registry schema batch (DR-1/DR-3/DR-8)', () => {
   }
 
   describe('registrySchemas_EconomyParams_ValidateAndCoerce', () => {
-    /** `limit` and `offset` arrive as numeric strings, and `fields` arrives as a JSON array string. */
-    it('get_pr_comments declares and coerces limit/offset/fields', () => {
-      const schema = findAction('exarchos_orchestrate', 'get_pr_comments').schema;
-      const parsed = schema.safeParse({
-        prId: '42',
-        limit: '20',
-        offset: '5',
-        fields: '["body","author"]',
-      });
-      expect(parsed.success).toBe(true);
-      if (!parsed.success) return;
-      const data = parsed.data as Record<string, unknown>;
-      expect(data.limit).toBe(20);
-      expect(data.offset).toBe(5);
-      expect(data.fields).toEqual(['body', 'author']);
-    });
-
     /**
      * `prNumbers` must coerce from a JSON array string, from an array of numeric strings and from a bare CSV string.
      * `coerceFlags` gives the CSV form for an array flag, and a direct MCP caller can also send it.
@@ -3862,8 +3839,12 @@ describe('the closed retired-action table', () => {
       'exarchos_orchestrate.merge_pr',
       'exarchos_orchestrate.add_pr_comment',
       'exarchos_orchestrate.create_issue',
+      'exarchos_orchestrate.check_ci',
+      'exarchos_orchestrate.list_prs',
+      'exarchos_orchestrate.get_pr_comments',
     ]);
-    expect(new Set(RETIRED_ACTIONS.filter((entry) => entry.action !== 'mutation-adequacy' && entry.action !== 'check_test_adequacy').map((entry) => entry.code))).toEqual(new Set(['PROVIDER_WRITE_RETIRED']));
+    expect(new Set(RETIRED_ACTIONS.filter((entry) => entry.action !== 'mutation-adequacy' && entry.action !== 'check_test_adequacy').map((entry) => entry.code))).toEqual(new Set(['PROVIDER_WRITE_RETIRED', 'PROVIDER_READ_RETIRED']));
+    expect(RETIRED_ACTIONS.filter((entry) => entry.code === 'PROVIDER_READ_RETIRED').map((entry) => entry.action)).toEqual(['check_ci', 'list_prs', 'get_pr_comments']);
     for (const entry of RETIRED_ACTIONS) {
       const tool = TOOL_REGISTRY.find((candidate) => candidate.name === entry.tool);
       expect(tool, entry.tool).toBeDefined();

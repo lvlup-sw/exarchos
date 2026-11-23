@@ -290,12 +290,15 @@ describe('DR-4: outputSchema vacuity is unconstructible', () => {
       'exarchos_event.describe',
       'exarchos_event.query',
       'exarchos_orchestrate.add_pr_comment',
+      'exarchos_orchestrate.check_ci',
       'exarchos_orchestrate.check_invariant_conformance',
       'exarchos_orchestrate.check_test_adequacy',
       'exarchos_orchestrate.create_issue',
       'exarchos_orchestrate.create_pr',
       'exarchos_orchestrate.cutover_decide',
       'exarchos_orchestrate.cutover_readiness',
+      'exarchos_orchestrate.get_pr_comments',
+      'exarchos_orchestrate.list_prs',
       'exarchos_orchestrate.merge_pr',
       'exarchos_orchestrate.mutation-adequacy',
       'exarchos_sync.now',
@@ -329,9 +332,12 @@ describe('DR-4: outputSchema vacuity is unconstructible', () => {
     }
     expect([...deletedIds].filter((id) => retiredIds.includes(id)).sort()).toEqual([
       'exarchos_orchestrate.add_pr_comment',
+      'exarchos_orchestrate.check_ci',
       'exarchos_orchestrate.check_test_adequacy',
       'exarchos_orchestrate.create_issue',
       'exarchos_orchestrate.create_pr',
+      'exarchos_orchestrate.get_pr_comments',
+      'exarchos_orchestrate.list_prs',
       'exarchos_orchestrate.merge_pr',
       'exarchos_orchestrate.mutation-adequacy',
     ]);

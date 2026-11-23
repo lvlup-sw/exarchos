@@ -41,6 +41,22 @@ const PROVIDER_WRITERS: readonly { readonly action: string; readonly cli: readon
   { action: 'create_issue', cli: ['--title', 't', '--body', 'b'], mcp: { title: 't', body: 'b' } },
 ];
 
+/** The refusal of a retired provider read. One closed code and one message name the harness for all three reads. */
+const PROVIDER_READ_REFUSAL = {
+  success: false,
+  error: {
+    code: 'PROVIDER_READ_RETIRED',
+    message: 'Exarchos retires pull request, CI and review comment reads. The harness reads pull requests, CI checks and review comments with its own tools.',
+  },
+};
+
+/** Each retired provider read with arguments that its old schema accepted. */
+const PROVIDER_READS: readonly { readonly action: string; readonly cli: readonly string[]; readonly mcp: Record<string, unknown> }[] = [
+  { action: 'check_ci', cli: ['--pr-id', '42'], mcp: { prId: '42' } },
+  { action: 'list_prs', cli: ['--state', 'open'], mcp: { state: 'open' } },
+  { action: 'get_pr_comments', cli: ['--pr-id', '42', '--limit', '5'], mcp: { prId: '42', limit: 5 } },
+];
+
 /** Resolve one executable from the PATH of the test process, before any shim directory goes first. */
 async function onPath(name: string): Promise<string> {
   for (const directory of (process.env.PATH ?? '').split(delimiter)) {
@@ -109,6 +125,18 @@ it.runIf(process.platform === 'linux')('RetiredAction_PackagedCli_RefusesBeforeS
       expect(bare.stdout).toBe('');
       expect(bare.stderr).toContain(`Error [PROVIDER_WRITE_RETIRED]: ${PROVIDER_WRITE_REFUSAL.error.message}`);
     }
+    for (const read of PROVIDER_READS) {
+      for (const group of ['orch', 'orchestrate']) {
+        const refused = await f.cli([group, read.action, ...read.cli, '--json']);
+        expect(refused.exitCode, `${read.action} ${refused.stderr}`).toBe(2);
+        expect(JSON.parse(refused.stdout)).toMatchObject(PROVIDER_READ_REFUSAL);
+        expect(refused.stderr).not.toContain('executable-configuration-retired');
+      }
+      const bare = await f.cli(['orch', read.action, '--unknown-flag']);
+      expect(bare.exitCode, read.action).toBe(2);
+      expect(bare.stdout).toBe('');
+      expect(bare.stderr).toContain(`Error [PROVIDER_READ_RETIRED]: ${PROVIDER_READ_REFUSAL.error.message}`);
+    }
     expect(await readdir(f.stateDir)).toEqual([]);
     expect(await f.gitCalls()).toEqual([]);
     expect(await exists(f.marker('config'))).toBe(false);
@@ -117,6 +145,7 @@ it.runIf(process.platform === 'linux')('RetiredAction_PackagedCli_RefusesBeforeS
     const live = await f.cli(['orch', 'task_claim', '--json']);
     expect(JSON.parse(live.stdout)).not.toMatchObject({ error: { code: 'MUTATION_TESTING_RETIRED' } });
     expect(JSON.parse(live.stdout)).not.toMatchObject({ error: { code: 'PROVIDER_WRITE_RETIRED' } });
+    expect(JSON.parse(live.stdout)).not.toMatchObject({ error: { code: 'PROVIDER_READ_RETIRED' } });
   } finally {
     await f.close();
   }
@@ -138,6 +167,14 @@ it.runIf(process.platform === 'linux')('RetiredAction_PackagedMcp_RefusesBeforeS
         }, { timeout: 35_000 })));
         expect(writeRefused).toMatchObject(PROVIDER_WRITE_REFUSAL);
       }
+      for (const read of PROVIDER_READS) {
+        expect(JSON.stringify(listed)).not.toContain(read.action);
+        const readRefused = record(extractEnvelope(await client.client.callTool({
+          name: 'exarchos_orchestrate',
+          arguments: { action: read.action, ...read.mcp, featureId: 'retired-mutation', notARegisteredField: true },
+        }, { timeout: 35_000 })));
+        expect(readRefused).toMatchObject(PROVIDER_READ_REFUSAL);
+      }
       const refused = record(extractEnvelope(await client.client.callTool({
         name: 'exarchos_orchestrate',
         arguments: { action: 'mutation-adequacy', featureId: 'retired-mutation', base: 'main', notARegisteredField: true },
@@ -149,6 +186,7 @@ it.runIf(process.platform === 'linux')('RetiredAction_PackagedMcp_RefusesBeforeS
       }, { timeout: 35_000 });
       expect(JSON.stringify(unknown)).not.toContain('MUTATION_TESTING_RETIRED');
       expect(JSON.stringify(unknown)).not.toContain('PROVIDER_WRITE_RETIRED');
+      expect(JSON.stringify(unknown)).not.toContain('PROVIDER_READ_RETIRED');
     } finally {
       await client.terminate();
     }

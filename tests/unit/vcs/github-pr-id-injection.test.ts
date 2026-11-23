@@ -1,41 +1,25 @@
 /**
  * Spec for unsanitized pull request ids on the GitHub provider.
  *
- * `check_ci` and `get_pr_comments` declare `prId` as any non-empty string.
- * `GitHubProvider` then places that string in the `gh` argument vector with no
- * end-of-options marker, and interpolates it into `gh api` paths. These tests fail until a numeric id is required and every positional id
- * is passed after `--`, with flags before that marker. An API path holds only
- * the decimal id as one segment.
- *
- * `getPrDiff` has no orchestrate action. The provider method is covered here
- * because it shares the positional-id call. The `create_pr` title, body, base,
- * and head are flag values. A leading dash there is the value of the preceding
- * flag, so it is not part of this spec.
+ * A caller can put any string in a pull request id or a thread id.
+ * `GitHubProvider` must refuse an id that is not a positive decimal integer before `gh` runs.
+ * It must pass each positional id after `--`, with flags before that marker.
+ * An API path holds only the decimal id as one segment.
+ * The `create_pr` title, body, base, and head are flag values, so they are not part of this spec.
  *
  * @oracle-sources: the GitHub REST routes for issue comments, review comments and reviews, written by hand from the GitHub API documentation
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import type { EventStore } from '../../../src/events/store.js';
-import type { DispatchContext } from '../../../src/dispatch/core/dispatch.js';
 import { GitHubProvider } from '../../../src/vcs/github.js';
-import { vcsActions } from '../../../src/registry/actions/orchestrate/vcs.js';
-import { handleCheckCi } from '../../../src/verbs/vcs/check-ci.js';
-import { handleGetPrComments } from '../../../src/verbs/vcs/get-pr-comments.js';
 
 vi.mock('../../../src/vcs/shell.js', () => ({
   exec: vi.fn(),
 }));
 
-vi.mock('../../../src/vcs/factory.js', () => ({
-  createVcsProvider: vi.fn(),
-}));
-
 import { exec } from '../../../src/vcs/shell.js';
-import { createVcsProvider } from '../../../src/vcs/factory.js';
 
 const mockExec = vi.mocked(exec);
-const mockCreateVcsProvider = vi.mocked(createVcsProvider);
 
 /**
  * Strings a caller can put in `prId` or `threadId`. Each one is a single
@@ -62,24 +46,6 @@ const MALICIOUS_IDS = [
 const SAFE_PR = '42';
 const SAFE_THREAD = '7';
 
-function ctx(): DispatchContext {
-  return {
-    stateDir: '/tmp/pr-id-injection',
-    eventStore: {
-      append: vi.fn().mockResolvedValue({ sequence: 1 }),
-    } as unknown as EventStore,
-    enableTelemetry: false,
-  };
-}
-
-function actionSchema(name: string): { safeParse: (value: unknown) => { success: boolean } } {
-  const action = vcsActions.find((entry) => entry.name === name);
-  if (action === undefined) {
-    throw new Error(`missing action ${name}`);
-  }
-  return action.schema;
-}
-
 /** Flags stay before `--`, and the id is the only positional after it. */
 function expectPositionalId(args: readonly string[], id: string): void {
   const end = args.indexOf('--');
@@ -103,21 +69,6 @@ describe('GitHub pull request id injection', () => {
     vi.clearAllMocks();
     provider = new GitHubProvider({});
     mockExec.mockResolvedValue('{}');
-    mockCreateVcsProvider.mockResolvedValue(provider);
-  });
-
-  describe('action schemas', () => {
-    it.each(['check_ci', 'get_pr_comments'] as const)(
-      '%s rejects a non-numeric prId before a handler runs',
-      (name) => {
-        const schema = actionSchema(name);
-        expect(schema.safeParse({ prId: SAFE_PR, strategy: 'squash', body: 'note' }).success).toBe(true);
-        for (const prId of MALICIOUS_IDS) {
-          const parsed = schema.safeParse({ prId, strategy: 'squash', body: 'note' });
-          expect(parsed.success, prId).toBe(false);
-        }
-      },
-    );
   });
 
   describe('GitHubProvider argument vector', () => {
@@ -266,19 +217,5 @@ describe('GitHub pull request id injection', () => {
         expect(mockExec).not.toHaveBeenCalled();
       },
     );
-  });
-
-  describe('orchestrate handlers', () => {
-    it.each(MALICIOUS_IDS)('check_ci refuses %j before gh runs', async (prId) => {
-      const result = await handleCheckCi({ prId }, ctx());
-      expect(mockExec).not.toHaveBeenCalled();
-      expect(result.success).toBe(false);
-    });
-
-    it.each(MALICIOUS_IDS)('get_pr_comments refuses %j before gh runs', async (prId) => {
-      const result = await handleGetPrComments({ prId }, ctx());
-      expect(mockExec).not.toHaveBeenCalled();
-      expect(result.success).toBe(false);
-    });
   });
 });

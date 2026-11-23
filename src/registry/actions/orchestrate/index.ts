@@ -13,7 +13,6 @@ import { mergeActions } from './merge.js';
 import { verificationActions } from './verification.js';
 import { reviewOpsActions } from './review-ops.js';
 import { lifecycleOpsActions } from './lifecycle-ops.js';
-import { vcsActions } from './vcs.js';
 import { onboardingActions } from './onboarding.js';
 import { invariantActions } from './invariants.js';
 import { worktreeActions } from './worktree.js';
@@ -30,7 +29,6 @@ export const orchestrateActions: readonly BuiltinToolAction[] = [
   ...verificationActions,
   ...reviewOpsActions,
   ...lifecycleOpsActions,
-  ...vcsActions,
   ...onboardingActions,
   ...invariantActions,
   ...worktreeActions,

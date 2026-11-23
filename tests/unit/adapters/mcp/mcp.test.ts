@@ -334,9 +334,6 @@ describe('createMcpServer', () => {
         'describe',
         'runbook',
         'agent_spec',
-        'list_prs',
-        'get_pr_comments',
-        'check_ci',
       ]),
     );
     expect(orch).not.toContain('task_complete');
@@ -344,6 +341,9 @@ describe('createMcpServer', () => {
     expect(orch).not.toContain('add_pr_comment');
     expect(orch).not.toContain('merge_pr');
     expect(orch).not.toContain('create_pr');
+    expect(orch).not.toContain('check_ci');
+    expect(orch).not.toContain('list_prs');
+    expect(orch).not.toContain('get_pr_comments');
     expect(orch).not.toContain('merge_orchestrate');
     expect(orch).not.toContain('doctor');
     expect(orch).not.toContain('check_convergence');

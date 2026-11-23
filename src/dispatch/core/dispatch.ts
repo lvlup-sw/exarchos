@@ -300,7 +300,6 @@ export const READ_ONLY_ACTIONS = {
     'check_coderabbit',
     'check_polish_scope',
     'check_coverage_thresholds',
-    'check_ci',
     'extract_task',
     'review_diff',
     'verify_worktree',
@@ -318,8 +317,6 @@ export const READ_ONLY_ACTIONS = {
     'generate_traceability',
     'classify_review_items',
     'prepare_review',
-    'list_prs',
-    'get_pr_comments',
   ],
   exarchos_view: '*',
 } as const;

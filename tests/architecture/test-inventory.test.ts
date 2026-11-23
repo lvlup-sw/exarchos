@@ -185,10 +185,13 @@ const RETIRED_TEST_FILES: ReadonlyArray<{ path: string; subject: string }> = [
   { path: 'tests/unit/runtime/launcher/wlm-compose.test.ts', subject: 'src/runtime/launcher/wlm-compose.ts' },
   { path: 'tests/unit/verbs/vcs/add-pr-comment.parity.test.ts', subject: 'src/verbs/vcs/add-pr-comment.ts' },
   { path: 'tests/unit/verbs/vcs/add-pr-comment.test.ts', subject: 'src/verbs/vcs/add-pr-comment.ts' },
+  { path: 'tests/unit/verbs/vcs/check-ci.test.ts', subject: 'src/verbs/vcs/check-ci.ts' },
   { path: 'tests/unit/verbs/vcs/create-issue.parity.test.ts', subject: 'src/verbs/vcs/create-issue.ts' },
   { path: 'tests/unit/verbs/vcs/create-issue.test.ts', subject: 'src/verbs/vcs/create-issue.ts' },
   { path: 'tests/unit/verbs/vcs/create-pr.parity.test.ts', subject: 'src/verbs/vcs/create-pr.ts' },
   { path: 'tests/unit/verbs/vcs/create-pr.test.ts', subject: 'src/verbs/vcs/create-pr.ts' },
+  { path: 'tests/unit/verbs/vcs/get-pr-comments.test.ts', subject: 'src/verbs/vcs/get-pr-comments.ts' },
+  { path: 'tests/unit/verbs/vcs/list-prs.test.ts', subject: 'src/verbs/vcs/list-prs.ts' },
   { path: 'tests/unit/verbs/vcs/merge-pr.test.ts', subject: 'src/verbs/vcs/merge-pr.ts' },
 ];
 

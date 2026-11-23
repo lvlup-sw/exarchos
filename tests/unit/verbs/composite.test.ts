@@ -59,18 +59,6 @@ vi.mock('../../../src/verbs/doctor/index.js', () => ({
   handleDoctor: vi.fn(),
 }));
 
-vi.mock('../../../src/verbs/vcs/check-ci.js', () => ({
-  handleCheckCi: vi.fn(),
-}));
-
-vi.mock('../../../src/verbs/vcs/list-prs.js', () => ({
-  handleListPrs: vi.fn(),
-}));
-
-vi.mock('../../../src/verbs/vcs/get-pr-comments.js', () => ({
-  handleGetPrComments: vi.fn(),
-}));
-
 vi.mock('../../../src/vcs/factory.js', () => ({
   createVcsProvider: vi.fn().mockResolvedValue({
     searchIssuesByMarker: vi.fn().mockResolvedValue([]),
@@ -116,9 +104,6 @@ import { handlePruneStaleWorkflows } from '../../../src/verbs/team/prune-stale-w
 import { handleRequestSynthesize } from '../../../src/verbs/team/request-synthesize.js';
 import { handleFinalizeOneshot } from '../../../src/verbs/tasks/finalize-oneshot.js';
 import { handleDoctor } from '../../../src/verbs/doctor/index.js';
-import { handleCheckCi } from '../../../src/verbs/vcs/check-ci.js';
-import { handleListPrs } from '../../../src/verbs/vcs/list-prs.js';
-import { handleGetPrComments } from '../../../src/verbs/vcs/get-pr-comments.js';
 import { handleMergeOrchestrate } from '../../../src/verbs/merge/merge-orchestrate.js';
 import { handleScaffold } from '../../../src/verbs/invariants/scaffold.js';
 import { handleAdd } from '../../../src/verbs/invariants/add.js';
@@ -633,59 +618,14 @@ describe('handleOrchestrate', () => {
   });
 
   describe('VCS actions', () => {
-    it('OrchestrateComposite_CheckCi_RoutesToHandler', async () => {
-      const expected = successResult({ status: 'pass', checks: [] });
-      vi.mocked(handleCheckCi).mockResolvedValue(expected);
-      const args = { action: 'check_ci', prId: '42' };
-
-      const result = await handleOrchestrate(args, CTX);
-
-      expectEnvelopedSuccess(result, expected);
-      expect(handleCheckCi).toHaveBeenCalledTimes(1);
-      const call = vi.mocked(handleCheckCi).mock.calls[0];
-      expect(call[0]).toEqual({ prId: '42' });
-      expect(call[1]).toBe(CTX);
-    });
-
-    it('OrchestrateComposite_ListPrs_RoutesToHandler', async () => {
-      const expected = successResult([]);
-      vi.mocked(handleListPrs).mockResolvedValue(expected);
-      const args = { action: 'list_prs', state: 'open' };
-
-      const result = await handleOrchestrate(args, CTX);
-
-      expectEnvelopedSuccess(result, expected);
-      expect(handleListPrs).toHaveBeenCalledTimes(1);
-      const call = vi.mocked(handleListPrs).mock.calls[0];
-      expect(call[0]).toEqual({ state: 'open' });
-      expect(call[1]).toBe(CTX);
-    });
-
-    it('OrchestrateComposite_GetPrComments_RoutesToHandler', async () => {
-      const expected = successResult([]);
-      vi.mocked(handleGetPrComments).mockResolvedValue(expected);
-      const args = { action: 'get_pr_comments', prId: '42' };
-
-      const result = await handleOrchestrate(args, CTX);
-
-      expectEnvelopedSuccess(result, expected);
-      expect(handleGetPrComments).toHaveBeenCalledTimes(1);
-      const call = vi.mocked(handleGetPrComments).mock.calls[0];
-      expect(call[0]).toEqual({ prId: '42' });
-      expect(call[1]).toBe(CTX);
-    });
-
-    it('OrchestrateRegistry_ActionList_IncludesVcsActions', () => {
+    /** The provider reads and writes are retired, so the orchestrate registry and the router hold none of them. */
+    it('OrchestrateRegistry_ActionList_ExcludesRetiredVcsActions', () => {
       const orchestrate = TOOL_REGISTRY.find((t) => t.name === 'exarchos_orchestrate');
       expect(orchestrate).toBeDefined();
-      const actionNames = orchestrate!.actions.map((a) => a.name);
-      expect(actionNames).toContain('check_ci');
-      expect(actionNames).toContain('list_prs');
-      expect(actionNames).toContain('get_pr_comments');
-      expect(actionNames).not.toContain('create_pr');
-      expect(actionNames).not.toContain('merge_pr');
-      expect(actionNames).not.toContain('add_pr_comment');
-      expect(actionNames).not.toContain('create_issue');
+      const actionNames = orchestrate?.actions.map((a) => a.name) ?? [];
+      for (const retired of ['check_ci', 'list_prs', 'get_pr_comments', 'create_pr', 'merge_pr', 'add_pr_comment', 'create_issue']) {
+        expect(actionNames).not.toContain(retired);
+      }
     });
   });
 

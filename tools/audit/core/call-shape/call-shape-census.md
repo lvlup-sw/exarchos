@@ -159,8 +159,8 @@ Exception `readiness-fails`: the readiness check fails, so synthesis returns to 
 
 ## Pins
 
-- Registry: 122 actions over 5 tools (4 visible), action ids sha256 `e0dcdc4e9f237a474c4f6f8c5f91bf5fd6d67c3f5c9d326610861d25583c2240` from `tools/audit/registered-actions-snapshot.json`.
-- Contract authority `action-id-registry` digest `sha256:e0dcdc4e9f237a474c4f6f8c5f91bf5fd6d67c3f5c9d326610861d25583c2240` from `src/contract/contract-authority.lock.json`.
+- Registry: 119 actions over 5 tools (4 visible), action ids sha256 `8517b95c1eb689182aa9d56ae6417e1105cb36c67ead1175baa635ea8970c6ee` from `tools/audit/registered-actions-snapshot.json`.
+- Contract authority `action-id-registry` digest `sha256:8517b95c1eb689182aa9d56ae6417e1105cb36c67ead1175baa635ea8970c6ee` from `src/contract/contract-authority.lock.json`.
 - `content/delivery/skills/delegate/SKILL.md` sha256 `0d6c5565ed2f8ce56378d7a7cd649938acd5effc39f55067d6af9fe546ea8c95`
 - `content/design/skills/plan/SKILL.md` sha256 `6d7b658968132f43ebe1e174c8187d9223177c1312c5bf435323968a5e02674a`
 - `content/review/skills/review/SKILL.md` sha256 `4cd725350933698f5491d7aff5ccc726a36d05f8b4fcf7e289fa83dd3365907c`
