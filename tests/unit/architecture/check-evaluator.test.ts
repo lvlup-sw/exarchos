@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import fc from 'fast-check';
 import { evaluateLeaf, evaluateTree } from '../../../src/architecture/check-evaluator.js';
-import { MatchBudgetExceededError } from '../../../src/architecture/check-pattern.js';
+import { MatchBudgetExceededError, UnsafeCheckPatternError } from '../../../src/architecture/check-pattern.js';
 import type { CheckLeaf, CheckNode } from '../../../src/architecture/invariant-schema.js';
 
 const grep = (pattern: string, extra: Partial<CheckLeaf> = {}): CheckLeaf => ({
@@ -11,6 +11,12 @@ const grep = (pattern: string, extra: Partial<CheckLeaf> = {}): CheckLeaf => ({
 });
 
 describe('evaluateLeaf', () => {
+  /** A named backreference has no RE2 form, so the leaf throws and never matches the literal text `k<x>`. */
+  it('EvaluateLeaf_NamedBackreference_ThrowsUnsafePattern', () => {
+    expect(() => evaluateLeaf(grep('(?<x>a)\\k<x>'), '+ aa\n')).toThrow(UnsafeCheckPatternError);
+    expect(() => evaluateLeaf(grep('\\k<x>'), '+ k<x>\n')).toThrow(UnsafeCheckPatternError);
+  });
+
   /** A `grep` leaf gives exactly one finding when the pattern matches the diff, and `[]` when it does not. */
   it('EvaluateLeaf_GrepKind_DelegatesToCheckCatalogExecution', () => {
     const diff = '+ const x = 1; // TODO: refactor\n+ const y = 2;\n';

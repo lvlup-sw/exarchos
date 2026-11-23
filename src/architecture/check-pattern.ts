@@ -144,11 +144,38 @@ function instructionCount(re: RE2JS): number {
   return count;
 }
 
+/**
+ * True when `source` has a `\k` escape outside a character class. In a JavaScript pattern that escape
+ * is a named backreference. `RE2JS.translateRegExp` turns it into the literal `k`, so the compile
+ * succeeds and the check matches other text. A `]` closes a class as in JavaScript, also directly
+ * after the `[`.
+ */
+function hasNamedBackreference(source: string): boolean {
+  let inClass = false;
+  for (let i = 0; i < source.length; i++) {
+    const ch = source[i];
+    if (ch === '\\') {
+      if (!inClass && source[i + 1] === 'k') return true;
+      i++;
+    } else if (ch === '[') {
+      inClass = true;
+    } else if (ch === ']') {
+      inClass = false;
+    }
+  }
+  return false;
+}
+
 /** Parses and compiles `source` with RE2 and applies the size limits. */
 function compileProgram(source: string): RE2JS {
   if (source.length > MAX_CHECK_PATTERN_LENGTH) {
     throw new UnsafeCheckPatternError(
       `pattern has ${source.length} characters. The maximum is ${MAX_CHECK_PATTERN_LENGTH}.`,
+    );
+  }
+  if (hasNamedBackreference(source)) {
+    throw new UnsafeCheckPatternError(
+      `pattern /${source}/ is not valid RE2 syntax (no lookaround and no backreference): \\k is a named backreference.`,
     );
   }
   let re: RE2JS;
