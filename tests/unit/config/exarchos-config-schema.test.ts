@@ -9,6 +9,7 @@ import {
   collectConfigDeprecations,
   DEV_CATALOG_PATH,
   DEV_CATALOG_DEPRECATION_CODE,
+  MUTATION_COMMAND_RETIRED_CODE,
 } from '../../../src/config/exarchos-config-schema.js';
 import { resolveCatalogSources } from '../../../src/architecture/catalog-sources.js';
 
@@ -230,6 +231,56 @@ describe('ExarchosConfigSchema', () => {
       cli: { followPollIntervalMS: 100 },
     });
     expect(result.success).toBe(false);
+  });
+});
+
+/**
+ * The top-level `mutation` key and the `commands.mutation` key of a toolchain are retired. The schema still
+ * accepts both, so an existing file keeps loading. The parse removes both, and `collectConfigDeprecations`
+ * reports one migration finding for each key.
+ */
+describe('ExarchosConfigSchema — retired mutation command keys', () => {
+  it('RetiredMutationKeys_StillParse_AreRemoved_AndEachGetsAMigrationFinding', () => {
+    const document = {
+      mutation: 'npx stryker run',
+      toolchains: [
+        { id: 'rust', markers: ['Cargo.toml'], commands: { test: 'cargo test', mutation: 'cargo mutants' } },
+        { id: 'zig', markers: ['build.zig'], commands: { test: 'zig build test' } },
+      ],
+    };
+
+    const result = ExarchosConfigSchema.safeParse(document);
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect('mutation' in result.data).toBe(false);
+      expect(result.data.toolchains?.map((t) => 'mutation' in t.commands)).toEqual([false, false]);
+      expect(result.data.toolchains?.[0]?.commands.test).toBe('cargo test');
+    }
+    expect(collectConfigDeprecations(document)).toEqual([
+      {
+        code: MUTATION_COMMAND_RETIRED_CODE,
+        key: 'mutation',
+        replacement: null,
+        message: expect.stringContaining('Delete the key'),
+      },
+      {
+        code: MUTATION_COMMAND_RETIRED_CODE,
+        key: 'toolchains[0].commands.mutation',
+        replacement: null,
+        message: expect.stringContaining('Delete the key'),
+      },
+    ]);
+  });
+
+  /** The retired keys keep the safe-command check, so a key with shell metacharacters still fails the load. */
+  it('RetiredMutationKeys_StillRejectAnUnsafeCommand', () => {
+    expect(ExarchosConfigSchema.safeParse({ mutation: 'rm -rf / ; echo pwned' }).success).toBe(false);
+    expect(
+      ExarchosConfigSchema.safeParse({
+        toolchains: [{ id: 'x', markers: ['x.toml'], commands: { mutation: 'a | b' } }],
+      }).success,
+    ).toBe(false);
   });
 });
 

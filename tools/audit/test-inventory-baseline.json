@@ -4,10 +4,10 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1511,
-    "parsedFiles": 1467,
+    "testFiles": 1510,
+    "parsedFiles": 1466,
     "shellFiles": 44,
-    "cases": 16779,
+    "cases": 16774,
     "dynamicTitles": 344,
     "unparseableFiles": 0
   },
@@ -20456,6 +20456,16 @@
           "dynamic": false
         },
         {
+          "suite": "ExarchosConfigSchema — retired mutation command keys",
+          "name": "RetiredMutationKeys_StillParse_AreRemoved_AndEachGetsAMigrationFinding",
+          "dynamic": false
+        },
+        {
+          "suite": "ExarchosConfigSchema — retired mutation command keys",
+          "name": "RetiredMutationKeys_StillRejectAnUnsafeCommand",
+          "dynamic": false
+        },
+        {
           "suite": "ExarchosConfigSchema — invariants.devCatalog retirement (DR-31 / T-43)",
           "name": "ExarchosConfig_DevCatalogRemoved_EffectiveCatalogUnchanged",
           "dynamic": false
@@ -20629,47 +20639,6 @@
         {
           "suite": "loadExarchosConfig",
           "name": "loadConfigOutcome_FileThatCannotBeRead_IsInvalidWithTheReadError",
-          "dynamic": false
-        }
-      ]
-    },
-    "tests/unit/config/mutation-diff-scope.test.ts": {
-      "file": "tests/unit/config/mutation-diff-scope.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "resolveMutationDiffScope (per-runner diff-scope table)",
-          "name": "ResolveMutationDiffScope_NodeStryker_AppendsSinceFlag",
-          "dynamic": false
-        },
-        {
-          "suite": "resolveMutationDiffScope (per-runner diff-scope table)",
-          "name": "ResolveMutationDiffScope_DotnetStryker_AppendsSinceFlag",
-          "dynamic": false
-        },
-        {
-          "suite": "resolveMutationDiffScope (per-runner diff-scope table)",
-          "name": "ResolveMutationDiffScope_RustCargoMutants_AlreadyDiffNative",
-          "dynamic": false
-        },
-        {
-          "suite": "resolveMutationDiffScope (per-runner diff-scope table)",
-          "name": "ResolveMutationDiffScope_PythonMutmut_RestrictsToChangedPaths",
-          "dynamic": false
-        },
-        {
-          "suite": "resolveMutationDiffScope (per-runner diff-scope table)",
-          "name": "ResolveMutationDiffScope_JavaPit_AppendsTargetClasses",
-          "dynamic": false
-        },
-        {
-          "suite": "resolveMutationDiffScope (per-runner diff-scope table)",
-          "name": "ResolveMutationDiffScope_UnknownToolchain_SignalsUnscopedWarning",
-          "dynamic": false
-        },
-        {
-          "suite": "resolveMutationDiffScope (per-runner diff-scope table)",
-          "name": "ResolveMutationDiffScope_ToolchainWithNoMutationRunner_SignalsUnscopedWarning",
           "dynamic": false
         }
       ]
@@ -21348,7 +21317,7 @@
         },
         {
           "suite": "resolveVerificationRuntime",
-          "name": "ResolveVerificationRuntime_MutationField_HonorsLayeredPrecedence",
+          "name": "ResolveVerificationRuntime_RetiredMutationKeys_ResolveNoMutationCommand",
           "dynamic": false
         },
         {
@@ -21382,13 +21351,13 @@
           "dynamic": false
         },
         {
-          "suite": "top-level mutation config shape (WFQ-013 / DOC-5)",
-          "name": "committed root .exarchos.yml loads clean and exposes a top-level `mutation`",
+          "suite": "retired top-level mutation key (WFQ-013 / DOC-5)",
+          "name": "committed root .exarchos.yml loads with no mutation key and no migration finding",
           "dynamic": false
         },
         {
-          "suite": "top-level mutation config shape (WFQ-013 / DOC-5)",
-          "name": "resolveVerificationRuntime honors a top-level `mutation` via the config-direct tier",
+          "suite": "retired top-level mutation key (WFQ-013 / DOC-5)",
+          "name": "a top-level `mutation` key loads, and the loader removes it and reports a migration finding",
           "dynamic": false
         },
         {
@@ -21705,27 +21674,27 @@
         },
         {
           "suite": "BUILTIN_TOOLCHAINS — verification command seeds (task 016)",
-          "name": "BuiltinToolchains_Node_SeedsStrykerMutation",
+          "name": "BuiltinToolchains_Node_SeedsNoMutationCommand",
           "dynamic": false
         },
         {
           "suite": "BUILTIN_TOOLCHAINS — verification command seeds (task 016)",
-          "name": "BuiltinToolchains_Dotnet_SeedsDotnetStryker",
+          "name": "BuiltinToolchains_Dotnet_SeedsNoMutationCommand",
           "dynamic": false
         },
         {
           "suite": "BUILTIN_TOOLCHAINS — verification command seeds (task 016)",
-          "name": "BuiltinToolchains_Rust_SeedsCargoMutants",
+          "name": "BuiltinToolchains_Rust_SeedsNoMutationCommand",
           "dynamic": false
         },
         {
           "suite": "BUILTIN_TOOLCHAINS — verification command seeds (task 016)",
-          "name": "BuiltinToolchains_Python_SeedsMutmut",
+          "name": "BuiltinToolchains_Python_SeedsNoMutationCommand",
           "dynamic": false
         },
         {
           "suite": "BUILTIN_TOOLCHAINS — verification command seeds (task 016)",
-          "name": "BuiltinToolchains_JavaMaven_SeedsPitest",
+          "name": "BuiltinToolchains_JavaMaven_SeedsNoMutationCommand",
           "dynamic": false
         },
         {
@@ -26452,12 +26421,12 @@
         },
         {
           "suite": "apply",
-          "name": "Apply_MutationConfigStep_SeedsExarchosYml",
+          "name": "Apply_LintConfigStep_SeedsExarchosYml",
           "dynamic": false
         },
         {
           "suite": "apply",
-          "name": "Apply_MutationConfigStep_ExistingConfig_ResidualNotSilentlySkipped",
+          "name": "Apply_LintConfigStep_ExistingConfig_ResidualNotSilentlySkipped",
           "dynamic": false
         },
         {
@@ -26483,7 +26452,7 @@
       "cases": [
         {
           "suite": "reconcile characterization (T0 baseline) > ResolvedCommandsSchema_WidenedFields_Pinned",
-          "name": "accepts exactly {test?, typecheck?, install?, mutation?, lint?} and silently strips unknown keys",
+          "name": "accepts exactly {test?, typecheck?, install?, lint?} and silently strips unknown keys",
           "dynamic": false
         },
         {
@@ -26514,12 +26483,12 @@
         },
         {
           "suite": "DetectDesiredState_DerivesCommands_FromLayeredResolver",
-          "name": "DetectDesiredState_NodeFixtureWithStryker_ResolvesMutationCommand",
+          "name": "DetectDesiredState_NodeFixtureWithMutationKey_ResolvesNoMutationCommand",
           "dynamic": false
         },
         {
           "suite": "DetectDesiredState_DerivesCommands_FromLayeredResolver",
-          "name": "DetectDesiredState_UnresolvableMutation_LeavesFieldAbsent",
+          "name": "DetectDesiredState_NoMarker_LeavesLintAbsent",
           "dynamic": false
         },
         {
@@ -26555,12 +26524,12 @@
         },
         {
           "suite": "diff > verification-command seeding (§4.5-seed)",
-          "name": "Diff_ResolvedMutationMissingFromConfig_EmitsConfigStep",
+          "name": "Diff_ResolvedLintMissingFromConfig_EmitsConfigStep",
           "dynamic": false
         },
         {
           "suite": "diff > verification-command seeding (§4.5-seed)",
-          "name": "Diff_ResolvedMutationAlreadyDeclared_NoStep_Idempotent",
+          "name": "Diff_ResolvedLintAlreadyDeclared_NoStep_Idempotent",
           "dynamic": false
         },
         {
@@ -26647,7 +26616,7 @@
         },
         {
           "suite": "ReconcileTypes_PlanStepSurface_TaggedCliOnly",
-          "name": "ResolvedCommandsSchema_MutationAndLint_Optional",
+          "name": "ResolvedCommandsSchema_LintOptional_RetiredMutationStripped",
           "dynamic": false
         },
         {
@@ -55825,7 +55794,7 @@
         },
         {
           "suite": "verificationToolchain",
-          "name": "VerificationToolchain_MutationUnresolved_WarningWithBothRemedies",
+          "name": "VerificationToolchain_TypecheckUnresolved_WarningWithBothRemedies",
           "dynamic": false
         },
         {
@@ -61446,7 +61415,7 @@
         },
         {
           "suite": "seedExarchosConfig",
-          "name": "seed_NoExistingConfig_VerificationCommandsResolved_WritesMutationAndLint",
+          "name": "seed_NoExistingConfig_VerificationCommandResolved_WritesLintAndNoMutation",
           "dynamic": false
         },
         {
@@ -68861,7 +68830,7 @@
         },
         {
           "suite": "HandleOrchestrate_PrepareDelegation_PersistsWorkflowRiskTier (DR-2)",
-          "name": "persists state.riskTier=high for a high-tier wave and arms the mutation-adequacy backstop",
+          "name": "persists state.riskTier=high for a high-tier wave, and the high-tier roster requires only review",
           "dynamic": false
         },
         {
@@ -79951,7 +79920,7 @@
         },
         {
           "suite": "review-contract resolver (DR-9)",
-          "name": "ResolveGateSet_ReviewKindFeatureHighTier_AppendsMutationAdequacy",
+          "name": "ResolveGateSet_ReviewKindFeatureHighTier_ReturnsOnlyTheReviewDimension",
           "dynamic": false
         },
         {
@@ -81346,48 +81315,48 @@
       "runner": "vitest:root",
       "cases": [
         {
-          "suite": "review contract — tier-aware mutation-adequacy dimension (R5) > ReviewContract_MutationAdequacy_RequiredForHighTierOnly",
-          "name": "feature workflow at the HIGH tier includes mutation-adequacy",
+          "suite": "review contract — live roster",
+          "name": "ReviewContract_FreshHighTierWorkflow_RequiresOnlyTheReviewDimension",
           "dynamic": false
         },
         {
-          "suite": "review contract — tier-aware mutation-adequacy dimension (R5) > ReviewContract_MutationAdequacy_AbsentForMediumLow",
-          "name": "medium tier does NOT include mutation-adequacy",
+          "suite": "review contract — live roster",
+          "name": "ReviewContract_EveryTier_ReproducesTheNoTierRoster",
           "dynamic": false
         },
         {
-          "suite": "review contract — tier-aware mutation-adequacy dimension (R5) > ReviewContract_MutationAdequacy_AbsentForMediumLow",
-          "name": "low tier does NOT include mutation-adequacy",
+          "suite": "review contract — live roster",
+          "name": "ReviewContract_HighTierPrerequisite_NamesOnlyTheReviewDimension",
           "dynamic": false
         },
         {
-          "suite": "review contract — tier-aware mutation-adequacy dimension (R5) > ReviewContract_MutationAdequacy_AbsentForMediumLow",
-          "name": "the no-tier legacy call does NOT include mutation-adequacy (backward-compat)",
+          "suite": "review contract — tier escalation on an injected contract",
+          "name": "ReviewContract_InjectedHighTier_AddsItsDimension",
           "dynamic": false
         },
         {
-          "suite": "review contract — tier-aware mutation-adequacy dimension (R5) > ReviewContract_MutationAdequacy_AbsentForMediumLow",
-          "name": "medium and low tiers reproduce the no-tier roster exactly",
+          "suite": "review contract — tier escalation on an injected contract",
+          "name": "ReviewContract_InjectedMediumLowAndNoTier_AddNoDimension",
           "dynamic": false
         },
         {
-          "suite": "review contract — tier-aware mutation-adequacy dimension (R5) > MutationAdequacyDimension_ResolvesOnNonNativeWorktreePath",
-          "name": "high-tier dimension resolves identically regardless of cwd / worktree context",
+          "suite": "review contract — tier escalation on an injected contract",
+          "name": "ReviewContract_UnknownTierName_AddsNoDimension",
           "dynamic": false
         },
         {
-          "suite": "review contract — tier-aware mutation-adequacy dimension (R5) > MutationAdequacyDimension_ResolvesOnNonNativeWorktreePath",
-          "name": "repeated calls are referentially stable (no per-call side effects)",
+          "suite": "review contract — tier escalation on an injected contract",
+          "name": "ReviewContract_InjectedHighTierPrerequisite_NamesItsDimension",
           "dynamic": false
         },
         {
-          "suite": "review contract — tier-aware mutation-adequacy dimension (R5) > getRequiredReviewsPrerequisite is tier-aware",
-          "name": "high tier prerequisite names mutation-adequacy",
+          "suite": "review contract — tier escalation on an injected contract",
+          "name": "ReviewContract_HighTierRoster_ResolvesTheSameFromAnyWorkingDirectory",
           "dynamic": false
         },
         {
-          "suite": "review contract — tier-aware mutation-adequacy dimension (R5) > getRequiredReviewsPrerequisite is tier-aware",
-          "name": "no-tier prerequisite is unchanged (backward-compat)",
+          "suite": "review contract — tier escalation on an injected contract",
+          "name": "ReviewContract_RepeatedCalls_GiveEqualRosters",
           "dynamic": false
         }
       ]
@@ -84940,12 +84909,12 @@
         },
         {
           "suite": "review-contract wiring through handleSet",
-          "name": "HandleSet_HighTierStampedInSameTransition_RequiresMutationAdequacy",
+          "name": "HandleSet_HighTierStampedInSameTransition_RequiresOnlyTheReviewDimension",
           "dynamic": false
         },
         {
           "suite": "review-contract wiring through handleSet",
-          "name": "HandleSet_HighTierWithMutationAdequacyPassing_AdvancesPastGuard",
+          "name": "HandleSet_HighTierWithAStoredMutationAdequacyEntry_AdvancesPastGuard",
           "dynamic": false
         }
       ]
@@ -95312,17 +95281,17 @@
         },
         {
           "suite": "field patch ownership on retry",
+          "name": "HandleSet_AnIdenticalPatchClaim_ReplaysWithoutDuplicate",
+          "dynamic": false
+        },
+        {
+          "suite": "field patch ownership on retry",
           "name": "HandleSet_ConcurrentSameFieldWithDifferentValues_PersistsBothPatches",
           "dynamic": false
         },
         {
           "suite": "field patch ownership on retry",
           "name": "HandleSet_AnOwnPatchBeforeALaterWriter_RetriesWithoutReplacingTheLaterValue",
-          "dynamic": false
-        },
-        {
-          "suite": "field patch ownership on retry",
-          "name": "HandleSet_AnIdenticalPatchClaim_ReplaysWithoutDuplicate",
           "dynamic": false
         },
         {

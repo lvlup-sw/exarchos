@@ -100,17 +100,17 @@ describe('the guard config of a phase transition', () => {
 
   /**
    * With no list of required reviews, the config takes the review gates of the type and the tier.
-   * The high tier adds `mutation-adequacy`, and an absent tier adds nothing. A call with no options gives the same gates.
+   * No tier adds a review gate, so each tier of a type gets the roster of the type. A call with no options gives the same gates.
    * A type with no review roster, a state with no type and a type that is not a string get no field.
    */
   it('InjectGuardConfig_NoRequiredReviews_TakesTheReviewGatesOfTheTierAndTheType', () => {
     const cases: readonly { readonly fields: Record<string, unknown>; readonly expected: readonly string[] | undefined }[] = [
       { fields: { workflowType: 'feature', riskTier: 'low' }, expected: ['review'] },
       { fields: { workflowType: 'feature', riskTier: 'medium' }, expected: ['review'] },
-      { fields: { workflowType: 'feature', riskTier: 'high' }, expected: ['review', 'mutation-adequacy'] },
-      { fields: { workflowType: 'feature', riskTier: 'high', boundaryTouching: true }, expected: ['review', 'mutation-adequacy'] },
+      { fields: { workflowType: 'feature', riskTier: 'high' }, expected: ['review'] },
+      { fields: { workflowType: 'feature', riskTier: 'high', boundaryTouching: true }, expected: ['review'] },
       { fields: { workflowType: 'feature' }, expected: ['review'] },
-      { fields: { workflowType: 'oneshot', riskTier: 'high' }, expected: ['mutation-adequacy'] },
+      { fields: { workflowType: 'oneshot', riskTier: 'high' }, expected: undefined },
       { fields: { workflowType: 'debug', riskTier: 'medium' }, expected: undefined },
       { fields: { riskTier: 'medium' }, expected: undefined },
       { fields: { workflowType: 7, riskTier: 'medium' }, expected: undefined },
@@ -133,7 +133,7 @@ describe('the guard config of a phase transition', () => {
     const state = inject({ workflowType: 'feature', riskTier: 'high' }, MUTATION_OPTIONS);
 
     expect(state).toMatchObject({
-      _requiredReviews: ['review', 'mutation-adequacy'],
+      _requiredReviews: ['review'],
       _mutationEnforcement: 'block',
       _mutationThreshold: 80,
       _maxNoCoverage: 2,

@@ -264,11 +264,11 @@ describe('the guard fold and the document side', () => {
     const side = documentGuardInput(document, rows, { config: MUTATION_OPTIONS });
     const noConfig = foldGuardInput(rows);
 
-    expect(highReviews).toEqual(['review', 'mutation-adequacy']);
+    expect(highReviews).toEqual(['review']);
     expect(fold).toMatchObject({
       riskTier: 'high',
       boundaryTouching: true,
-      _requiredReviews: ['review', 'mutation-adequacy'],
+      _requiredReviews: highReviews,
       _mutationEnforcement: 'block',
       _mutationThreshold: 80,
       _maxNoCoverage: 2,

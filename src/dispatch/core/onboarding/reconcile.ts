@@ -59,13 +59,12 @@ export interface DetectOptions {
   readonly vcs?: string;
   /**
    * Command overrides for the override tier of the layered resolver. The resolver also resolves
-   * `mutation` and `lint`, so this type accepts overrides for them too.
+   * `lint`, so this type accepts an override for it too.
    */
   readonly commandOverride?: {
     readonly test?: string;
     readonly typecheck?: string;
     readonly install?: string;
-    readonly mutation?: string;
     readonly lint?: string;
   };
   /**
@@ -92,14 +91,13 @@ function deriveCommands(
   if (resolved.test !== null) commands.test = resolved.test;
   if (resolved.typecheck !== null) commands.typecheck = resolved.typecheck;
   if (resolved.install !== null) commands.install = resolved.install;
-  if (resolved.mutation !== null) commands.mutation = resolved.mutation;
   if (resolved.lint !== null) commands.lint = resolved.lint;
   return commands;
 }
 
 /**
- * Reads the `mutation` and `lint` commands that `.exarchos.yml` declares at top level. A command
- * that the resolver derived from detection does not count as declared.
+ * Reads the `lint` command that `.exarchos.yml` declares at top level. A command that the
+ * resolver derived from detection does not count as declared.
  *
  * A missing config gives `{}`. A loader error also gives `{}`, so a broken config cannot stop the
  * reconcile. The doctor checks report config validity.
@@ -114,7 +112,6 @@ function declaredVerificationCommands(repoRoot: string): ResolvedCommands {
   if (!config) return {};
 
   const declared: ResolvedCommands = {};
-  if (config.mutation !== undefined) declared.mutation = config.mutation;
   if (config.lint !== undefined) declared.lint = config.lint;
   return declared;
 }
@@ -274,7 +271,7 @@ function toPlanStep(check: CheckResult): PlanStep {
  * declare them. `test`, `typecheck` and `install` are not here, because the doctor-check config
  * step and the fresh-create seeder already seed them.
  */
-const SEEDABLE_VERIFICATION_FIELDS = ['mutation', 'lint'] as const;
+const SEEDABLE_VERIFICATION_FIELDS = ['lint'] as const;
 type SeedableVerificationField = (typeof SEEDABLE_VERIFICATION_FIELDS)[number];
 
 /**

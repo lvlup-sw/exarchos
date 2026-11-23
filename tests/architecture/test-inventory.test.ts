@@ -150,6 +150,7 @@ const RETIRED_TEST_FILES: ReadonlyArray<{ path: string; subject: string }> = [
   { path: 'tests/unit/verbs/gates/mutation-adequacy.test.ts', subject: 'src/verbs/gates/mutation-adequacy.ts' },
   { path: 'tests/unit/verbs/gates/mutation-adequacy.report.test.ts', subject: 'src/verbs/gates/mutation-adequacy.ts' },
   { path: 'tests/unit/verbs/gates/mutation-adequacy.characterization.test.ts', subject: 'src/verbs/gates/mutation-adequacy.ts' },
+  { path: 'tests/unit/config/mutation-diff-scope.test.ts', subject: 'src/config/mutation-diff-scope.ts' },
 ];
 
 describe('test inventory', () => {

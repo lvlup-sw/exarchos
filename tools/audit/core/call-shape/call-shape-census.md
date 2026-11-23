@@ -167,6 +167,6 @@ Exception `readiness-fails`: the readiness check fails, so synthesis returns to 
 - Contract authority `action-id-registry` digest `sha256:92506fd6392c994165e6aa97fe047f9ea39d3bfe61bdff7927cbed1c316d6d73` from `src/contract/contract-authority.lock.json`.
 - `content/delivery/skills/delegate/SKILL.md` sha256 `864d162409b95bdb12c405ef040d72fc8738bf13c70295263fd1ab0b08e70782`
 - `content/design/skills/plan/SKILL.md` sha256 `6d7b658968132f43ebe1e174c8187d9223177c1312c5bf435323968a5e02674a`
-- `content/review/skills/review/SKILL.md` sha256 `ee200bb8fc1e5251a76d21f9de0526d8d0187a0ab109353e069b7091545a7078`
+- `content/review/skills/review/SKILL.md` sha256 `68b92dccd4495fedf4b95305e91e8f6caefe06eeb5ff3363ad4bc7ca47dee018`
 - `content/synthesis/skills/synthesize/SKILL.md` sha256 `7d3615135412050a17582d34bd05c92e0f0305f1031a1121aea136ba8441b465`
 - `src/runbooks/definitions.ts` sha256 `e873e609e5094e84b506804936bfb45c8cb1e7ecffc69310d587a77e69006d02`

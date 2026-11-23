@@ -1016,43 +1016,30 @@ describe('resolveVerificationRuntime', () => {
   });
 
   /**
-   * The test has four cases on a Rust repository. Detection seeds `cargo mutants --in-diff`.
-   * A user toolchain beats detection, and a direct config value beats detection.
-   * An override beats the config value.
+   * Exarchos runs no mutation testing. Rust detection, a user toolchain with a `commands.mutation` key and a
+   * top-level `mutation` key all give a runtime with no `mutation` field.
    */
-  it('ResolveVerificationRuntime_MutationField_HonorsLayeredPrecedence', async () => {
+  it('ResolveVerificationRuntime_RetiredMutationKeys_ResolveNoMutationCommand', async () => {
     const rust = makeTmpDir();
     writeFileSync(join(rust, 'Cargo.toml'), '[package]');
-    expect((await isolatedSync(() => resolveVerificationRuntime(rust))).mutation).toBe('cargo mutants --in-diff');
+    expect('mutation' in (await isolatedSync(() => resolveVerificationRuntime(rust)))).toBe(false);
 
-    const userTc = makeTmpDir();
-    writeFileSync(join(userTc, 'Cargo.toml'), '[package]');
-    const tc3 = resolveVerificationRuntime(userTc, {
-      loadConfig: () => ({
-        config: {
-          toolchains: [
-            { id: 'rust-custom', markers: ['Cargo.toml'], commands: { test: 'cargo test', mutation: 'cargo mutants --workspace' } },
-          ],
-        },
-        source: '/x/.exarchos.yml',
-      }),
-    });
-    expect(tc3.mutation).toBe('cargo mutants --workspace');
-
-    const cfg = makeTmpDir();
-    writeFileSync(join(cfg, 'Cargo.toml'), '[package]');
-    const tc2 = resolveVerificationRuntime(cfg, {
-      loadConfig: () => ({ config: { mutation: 'config-mutation' }, source: '/x/.exarchos.yml' }),
-    });
-    expect(tc2.mutation).toBe('config-mutation');
-
-    const ovr = makeTmpDir();
-    writeFileSync(join(ovr, 'Cargo.toml'), '[package]');
-    const tc1 = resolveVerificationRuntime(ovr, {
-      override: { mutation: 'override-mutation' },
-      loadConfig: () => ({ config: { mutation: 'config-mutation' }, source: '/x/.exarchos.yml' }),
-    });
-    expect(tc1.mutation).toBe('override-mutation');
+    const declared = makeTmpDir();
+    writeFileSync(join(declared, 'Cargo.toml'), '[package]');
+    writeFileSync(
+      join(declared, '.exarchos.yml'),
+      [
+        'mutation: config-mutation',
+        'toolchains:',
+        '  - id: rust-custom',
+        '    markers: [Cargo.toml]',
+        '    commands: { test: cargo test, mutation: cargo mutants --workspace }',
+        '',
+      ].join('\n'),
+    );
+    const result = await isolatedSync(() => resolveVerificationRuntime(declared));
+    expect('mutation' in result).toBe(false);
+    expect(result.test).toBe('cargo test');
   });
 
   /** Go detection seeds `go vet ./...`. A direct config value beats detection, and an override beats the config value. */
@@ -1143,7 +1130,7 @@ describe('resolveVerificationRuntime', () => {
    */
   it('property_PerFieldIndependence_AndFirstNonNullLayerWins', () => {
     const cmd = fc.constantFrom('alpha', 'beta', 'gamma', 'delta');
-    const field = fc.constantFrom('test', 'typecheck', 'install', 'mutation', 'lint');
+    const field = fc.constantFrom('test', 'typecheck', 'install', 'lint');
     fc.assert(
       fc.property(
         field,
@@ -1254,7 +1241,7 @@ describe('supported-workspace test-runtime consistency (WFQ-015 / exit-proof c)'
   });
 });
 
-describe('top-level mutation config shape (WFQ-013 / DOC-5)', () => {
+describe('retired top-level mutation key (WFQ-013 / DOC-5)', () => {
   const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
   const tmpDirs: string[] = [];
   function makeTmpDir(): string {
@@ -1267,18 +1254,19 @@ describe('top-level mutation config shape (WFQ-013 / DOC-5)', () => {
     tmpDirs.length = 0;
   });
 
-  /**
-   * `mutation` is a valid top-level key, and the committed root config declares it. The load must not
-   * throw, and the value must reach `config.mutation`. The schema is strict, so a schema that does not
-   * know the key rejects the committed file.
-   */
-  it('committed root .exarchos.yml loads clean and exposes a top-level `mutation`', async () => {
+  /** The committed root config holds no `mutation` key, so it loads with no migration finding. */
+  it('committed root .exarchos.yml loads with no mutation key and no migration finding', async () => {
     const result = await isolatedSync(() => loadExarchosConfig(REPO_ROOT));
     expect(result).not.toBeNull();
-    expect(result!.config.mutation).toBe('node tools/audit/core/stryker-adapter.mjs');
+    expect(result === null ? undefined : 'mutation' in result.config).toBe(false);
+    expect(result?.deprecations).toEqual([]);
   });
 
-  it('resolveVerificationRuntime honors a top-level `mutation` via the config-direct tier', async () => {
+  /**
+   * A config with a top-level `mutation` key still loads. The loader removes the key, reports one migration
+   * finding, and the resolver gives no `mutation` field.
+   */
+  it('a top-level `mutation` key loads, and the loader removes it and reports a migration finding', async () => {
     const dir = makeTmpDir();
     writeFileSync(
       join(dir, 'package.json'),
@@ -1286,9 +1274,12 @@ describe('top-level mutation config shape (WFQ-013 / DOC-5)', () => {
     );
     writeFileSync(join(dir, '.exarchos.yml'), 'mutation: echo mutate\n');
 
-    const result = await isolatedSync(() => resolveVerificationRuntime(dir));
+    const loaded = await isolatedSync(() => loadExarchosConfig(dir));
+    expect(loaded === null ? undefined : 'mutation' in loaded.config).toBe(false);
+    expect(loaded?.deprecations.map((d) => [d.code, d.key])).toEqual([['RETIRED_MUTATION_COMMAND', 'mutation']]);
 
-    expect(result.mutation).toBe('echo mutate');
+    const result = await isolatedSync(() => resolveVerificationRuntime(dir));
+    expect('mutation' in result).toBe(false);
   });
 });
 

@@ -75,9 +75,9 @@ const RISK_TIER_RANK: Readonly<Record<RiskTier, number>> = Object.freeze({
 });
 
 /**
- * The workflow risk tier: the highest tier of the decomposed tasks. A `high`
- * workflow tier turns on the `mutation-adequacy` review at `/review`. A task with
- * no tier counts as `low`. An empty task list gives `low`.
+ * The workflow risk tier: the highest tier of the decomposed tasks. The review
+ * contract reads it to select the tier-coupled review dimensions at `/review`. A
+ * task with no tier counts as `low`. An empty task list gives `low`.
  */
 export function deriveWorkflowRiskTier(
   tasks: readonly { readonly riskTier?: RiskTier }[],

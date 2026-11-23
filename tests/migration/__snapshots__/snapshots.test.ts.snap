@@ -9913,7 +9913,7 @@ exarchos_workflow({ action: "update", featureId: "<id>", updates: {
 \`\`\`
 Then invoke \`delegate --fixes\`.
 
-> **Guard:** \`review → synthesize\` requires \`all-reviews-passed\` — every required dimension's \`reviews.{name}.status\` must be a passing value (\`pass | passed | approved | fixes-applied\`, case-insensitive). The feature roster is \`review\` (+ \`mutation-adequacy\` at HIGH tier). \`review → delegate\` fires on \`any-review-failed\`.
+> **Guard:** \`review → synthesize\` requires \`all-reviews-passed\` — every required dimension's \`reviews.{name}.status\` must be a passing value (\`pass | passed | approved | fixes-applied\`, case-insensitive). The feature roster is \`review\`. \`review → delegate\` fires on \`any-review-failed\`.
 
 All transitions are automatic — this is not a human checkpoint. See \`references/auto-transition.md\`.
 

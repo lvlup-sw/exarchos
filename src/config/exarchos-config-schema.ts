@@ -70,10 +70,13 @@ export const DEV_CATALOG_PATH = '.exarchos/invariants.md';
 /** Stable machine-readable code for the retired `invariants.devCatalog` key. */
 export const DEV_CATALOG_DEPRECATION_CODE = 'DEPRECATED_INVARIANTS_DEV_CATALOG';
 
+/** Stable machine-readable code for a retired mutation command key. */
+export const MUTATION_COMMAND_RETIRED_CODE = 'RETIRED_MUTATION_COMMAND';
+
 /**
  * A typed `.exarchos.yml` deprecation. A consumer can branch on `code` and show `replacement` as an edit, with no match on prose.
  */
-export interface ConfigDeprecation {
+export interface DevCatalogDeprecation {
   /** Stable identifier for the deprecation. A consumer can branch on it. */
   readonly code: typeof DEV_CATALOG_DEPRECATION_CODE;
   /** Dotted path of the deprecated key as it appears in `.exarchos.yml`. */
@@ -85,19 +88,77 @@ export interface ConfigDeprecation {
 }
 
 /**
+ * A migration finding for a mutation command key. Exarchos runs no mutation testing, so the loader removes the key and has no replacement for it.
+ */
+export interface MutationCommandDeprecation {
+  readonly code: typeof MUTATION_COMMAND_RETIRED_CODE;
+  /** The top-level `mutation` key, or the `commands.mutation` key of one `toolchains:` entry. */
+  readonly key: 'mutation' | `toolchains[${number}].commands.mutation`;
+  readonly replacement: null;
+  readonly message: string;
+}
+
+/** One typed `.exarchos.yml` deprecation. The loader reports it and removes the key from the parsed config. */
+export type ConfigDeprecation = DevCatalogDeprecation | MutationCommandDeprecation;
+
+/** True when `value` is a plain object, not null and not an array. */
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/** The migration finding for one mutation command key. */
+function mutationCommandFinding(key: MutationCommandDeprecation['key']): MutationCommandDeprecation {
+  return {
+    code: MUTATION_COMMAND_RETIRED_CODE,
+    key,
+    replacement: null,
+    message:
+      `\`${key}\` is retired. Exarchos runs no mutation testing, so the loader ignores the key. ` +
+      'Delete the key from .exarchos.yml.',
+  };
+}
+
+/** Collects one finding for the top-level `mutation` key and one for each `toolchains:` entry with a `commands.mutation` key. */
+function collectMutationCommandFindings(document: Record<string, unknown>): MutationCommandDeprecation[] {
+  const findings: MutationCommandDeprecation[] = [];
+  if ('mutation' in document) findings.push(mutationCommandFinding('mutation'));
+  const toolchains = document.toolchains;
+  if (!Array.isArray(toolchains)) return findings;
+  toolchains.forEach((entry: unknown, index) => {
+    if (!isPlainRecord(entry)) return;
+    const commands = entry.commands;
+    if (isPlainRecord(commands) && 'mutation' in commands) {
+      findings.push(mutationCommandFinding(`toolchains[${index}].commands.mutation`));
+    }
+  });
+  return findings;
+}
+
+/**
+ * Removes the retired `mutation` key from a parsed block. The schema still accepts the key, so an existing `.exarchos.yml` keeps loading.
+ */
+export function withoutRetiredMutationCommand<T extends { readonly mutation?: unknown }>(
+  block: T,
+): Omit<T, 'mutation'> {
+  const { mutation, ...rest } = block;
+  return rest;
+}
+
+/**
  * Collects typed deprecations from a raw `.exarchos.yml` document.
- * It must run before the parse, because `InvariantsConfigSchema` removes `devCatalog`.
+ * It must run before the parse, because the schema removes `invariants.devCatalog` and each `mutation` key.
  * It is a diagnostic, not a validator. It returns `[]` for malformed input and for a document with no deprecated key.
  */
 export function collectConfigDeprecations(document: unknown): ConfigDeprecation[] {
-  if (typeof document !== 'object' || document === null || Array.isArray(document)) {
-    return [];
-  }
-  const invariants = (document as { invariants?: unknown }).invariants;
-  if (typeof invariants !== 'object' || invariants === null || Array.isArray(invariants)) {
-    return [];
-  }
-  const devCatalog = (invariants as { devCatalog?: unknown }).devCatalog;
+  if (!isPlainRecord(document)) return [];
+  return [...collectDevCatalogFindings(document), ...collectMutationCommandFindings(document)];
+}
+
+/** Collects the finding for the retired `invariants.devCatalog` key, if the document holds it. */
+function collectDevCatalogFindings(document: Record<string, unknown>): DevCatalogDeprecation[] {
+  const invariants = document.invariants;
+  if (!isPlainRecord(invariants)) return [];
+  const devCatalog = invariants.devCatalog;
   if (devCatalog !== 'enabled' && devCatalog !== 'disabled') return [];
 
   const replacement =
@@ -205,10 +266,12 @@ const ToolchainCommandsConfigSchema = z
     test: safeCommand.optional(),
     typecheck: safeCommand.optional(),
     install: safeCommand.optional(),
+    /** Retired. The schema accepts the key, and the transform removes it. `collectConfigDeprecations` reports it. */
     mutation: safeCommand.optional(),
     lint: safeCommand.optional(),
   })
-  .strict();
+  .strict()
+  .transform(withoutRetiredMutationCommand);
 
 const ToolchainConfigSchema = z
   .object({
@@ -297,11 +360,16 @@ export const FeedbackConfigSchema = z
   })
   .strict();
 
-export const ExarchosConfigSchema = z
+/**
+ * The keys of `.exarchos.yml` that the test runtime reads, before the transform removes the retired `mutation` key.
+ * `FullExarchosConfigSchema` merges this object, so it stays a plain object schema.
+ */
+export const ExarchosConfigBaseSchema = z
   .object({
     test: safeCommand.optional(),
     typecheck: safeCommand.optional(),
     install: safeCommand.optional(),
+    /** Retired. The schema accepts the key, and the transform removes it. `collectConfigDeprecations` reports it. */
     mutation: safeCommand.optional(),
     lint: safeCommand.optional(),
     contract: ContractCommandConfigSchema.optional(),
@@ -317,6 +385,9 @@ export const ExarchosConfigSchema = z
     feedback: FeedbackConfigSchema.optional(),
   })
   .strict();
+
+/** The test-runtime keys of `.exarchos.yml`. The parse removes the retired `mutation` key. */
+export const ExarchosConfigSchema = ExarchosConfigBaseSchema.transform(withoutRetiredMutationCommand);
 
 export type ExarchosConfig = z.infer<typeof ExarchosConfigSchema>;
 

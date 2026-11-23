@@ -3,6 +3,8 @@
  * Each case seeds a SQLite store with `configureStateStoreBackend`, so the state document is the `workflow_state` row.
  * A seed writes the rows and the document through the handlers, and a forge then changes the document only.
  * The fold decides each move, a move commits its rows once, and a denial appends one `workflow.guard-failed` row.
+ * The live review contract adds no dimension at the high tier. The tier escalation examples inject a
+ * review contract whose high tier adds `tier-probe`, so a weakened transition still shows.
  *
  * @oracle-sources: ../../../src/workflow/phase-attempt-id.ts, hand-seeded stream rows
  */
@@ -40,6 +42,22 @@ import { configureStateStoreBackend, readStateFile, writeStateFile } from '../..
 import { handleInit, handleSet, handleTransition } from '../../../src/workflow/tools.js';
 import { transitionAdmissionCorpus } from './__fixtures__/transition-admission-corpus.js';
 import { makeTempDir, rmrfAsync } from '../../../tools/test-helpers/temp-dir.js';
+import type { ReviewContract } from '../../../src/workflow/review-contract.js';
+
+vi.mock('../../../src/workflow/review-contract.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../../src/workflow/review-contract.js')>();
+  const escalating: ReviewContract = {
+    byWorkflowType: actual.REQUIRED_REVIEWS_BY_WORKFLOW_TYPE,
+    byTier: { low: [], medium: [], high: ['tier-probe'] },
+  };
+  return {
+    ...actual,
+    getRequiredReviews: (workflowType: string, riskTier?: string) =>
+      actual.getRequiredReviews(workflowType, riskTier, escalating),
+    getRequiredReviewsPrerequisite: (workflowType: string, riskTier?: string) =>
+      actual.getRequiredReviewsPrerequisite(workflowType, riskTier, escalating),
+  };
+});
 
 /** One store of a case: the state directory, the SQLite backend of the state store and the event store. */
 interface DecideStore {
@@ -476,7 +494,7 @@ describe('the transition handler decides on the ledger fold', () => {
 
     expect(result.success).toBe(true);
     const rows = await rowsOf(store, FEATURE_ID);
-    expect(enteredGatesOf(rows, 'review')).toContain('mutation-adequacy');
+    expect(enteredGatesOf(rows, 'review')).toContain('tier-probe');
     expect(lastDataOf(rows, 'phase.entered').riskTier).toBe('high');
   });
 
@@ -621,7 +639,7 @@ describe('the transition handler decides on the ledger fold', () => {
     const result = await handleSet({ featureId: FEATURE_ID, phase: 'review' }, store.stateDir, store.eventStore);
 
     expect(result.success).toBe(true);
-    expect(frozen).toContain('mutation-adequacy');
+    expect(frozen).toContain('tier-probe');
     const reentered = enteredGatesOf(await rowsOf(store, FEATURE_ID), 'review');
     for (const gate of frozen) expect(reentered, gate).toContain(gate);
   });

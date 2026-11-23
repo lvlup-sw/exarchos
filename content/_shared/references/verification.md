@@ -8,7 +8,7 @@ Verification depth matches a task's **blast radius**. Pick the cheapest rung tha
 |-----------|----------------------------------------|----------------|
 | **low** | Static analysis only (typecheck + lint) | Docs/config/rename-only edits have near-zero blast radius. A test ceremony is pure overhead here. |
 | **medium** | Scoped tests + the `check_test_adequacy` kill-probe | The kill-probe recaptures test-first's one real guarantee — that a test can actually fail — at lower cost, judged test-after instead of mandating a failing test first on every commit. |
-| **high** | The integration suite (and mutation-adequacy at the boundary) on top of medium | Schema/type/API/shared-contract surfaces span the codebase. Cover them with adequacy-judged tests plus real-collaborator integration coverage across the seam. |
+| **high** | The integration suite on top of medium | Schema/type/API/shared-contract surfaces span the codebase. Cover them with adequacy-judged tests plus real-collaborator integration coverage across the seam. |
 
 `boundaryTouching` is an orthogonal flag: a boundary-crossing task (I/O adapter, client, schema artifact) adds contract-drift verification, and at medium/high also mock-boundary verification, regardless of its tier.
 

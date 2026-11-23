@@ -119,8 +119,8 @@ function makeCtx(fx: Fixture, overrides?: Partial<ApplyCtx>): ApplyCtx {
  * hooks.
  *
  * The tests with `createPythonFixture` cover the seed of the verification commands. For a
- * `pyproject.toml`, the registry resolves `mutation` (`mutmut run`) and `lint` (`ruff check`).
- * The node registry has no `lint` command, so the node fixture seeds only `mutation`.
+ * `pyproject.toml`, the registry resolves `lint` (`ruff check`). No registry row has a `mutation`
+ * command, so no fixture seeds one.
  */
 describe('apply', () => {
   it('Apply_EmptyPlan_IsNoOp', async () => {
@@ -517,37 +517,34 @@ describe('apply', () => {
   }
 
   /**
-   * Nothing is declared, so `diff` emits the config steps for the two commands. The proof goes
-   * through the real resolver and the real `.exarchos.yml` loader, not through the YAML text. The
-   * resolver reports the source `config`, and the loader shows both commands as top-level keys.
+   * Nothing is declared, so `diff` emits the config step for `lint`, and no step for a `mutation`
+   * command. The proof goes through the real resolver and the real `.exarchos.yml` loader, not
+   * through the YAML text. The resolver reports the source `config`, and the loader shows `lint` as
+   * a top-level key.
    */
-  it('Apply_MutationConfigStep_SeedsExarchosYml', async () => {
+  it('Apply_LintConfigStep_SeedsExarchosYml', async () => {
     const fx = await createPythonFixture();
     try {
       const desired = await detectDesiredState(fx.repoRoot, { detectRuntimes: async () => [] });
-      expect(desired.commands.mutation).toBe('mutmut run');
+      expect('mutation' in desired.commands).toBe(false);
       expect(desired.commands.lint).toBe('ruff check');
 
       const plan = diff(desired, ALL_PASS, {});
-      expect(plan.steps.map((s) => s.key)).toEqual(
-        expect.arrayContaining(['verification-command-mutation', 'verification-command-lint']),
-      );
+      expect(plan.steps.map((s) => s.key)).toContain('verification-command-lint');
+      expect(plan.steps.map((s) => s.key)).not.toContain('verification-command-mutation');
 
       const ctx = makeCtx(fx);
       const result = await apply(plan, ctx);
 
-      expect(result.applied.map((s) => s.key)).toEqual(
-        expect.arrayContaining(['verification-command-mutation', 'verification-command-lint']),
-      );
+      expect(result.applied.map((s) => s.key)).toContain('verification-command-lint');
 
       const resolved = await isolatedSync(() => resolveVerificationRuntime(fx.repoRoot));
-      expect(resolved.mutation).toBe('mutmut run');
       expect(resolved.lint).toBe('ruff check');
       expect(resolved.source).toBe('config');
 
       const loaded = await isolatedSync(() => loadExarchosConfig(fx.repoRoot));
       expect(loaded).not.toBeNull();
-      expect(loaded!.config.mutation).toBe('mutmut run');
+      expect(loaded === null ? undefined : 'mutation' in loaded.config).toBe(false);
       expect(loaded!.config.lint).toBe('ruff check');
     } finally {
       await cleanup(fx);
@@ -555,38 +552,31 @@ describe('apply', () => {
   });
 
   /**
-   * The existing `.exarchos.yml` declares neither command, and the create-only seeder cannot add a
-   * key to it. Each step must be `residual` with an advisory. It must not be `skipped`, which
+   * The existing `.exarchos.yml` declares no `lint`, and the create-only seeder cannot add a key to
+   * it. The step must be `residual` with an advisory. It must not be `skipped`, which
    * reads as a kept hand edit, and it must not be `applied`. The file stays unchanged.
    */
-  it('Apply_MutationConfigStep_ExistingConfig_ResidualNotSilentlySkipped', async () => {
+  it('Apply_LintConfigStep_ExistingConfig_ResidualNotSilentlySkipped', async () => {
     const fx = await createPythonFixture();
     try {
       await writeFile(path.join(fx.repoRoot, CONFIG_FILE), 'test: pytest\n', 'utf8');
 
       const desired = await detectDesiredState(fx.repoRoot, { detectRuntimes: async () => [] });
       const declared = ((await isolatedSync(() => loadExarchosConfig(fx.repoRoot)))?.config ?? {}) as {
-        mutation?: string;
         lint?: string;
       };
       const plan = diff(desired, ALL_PASS, declared);
-      expect(plan.steps.map((s) => s.key)).toEqual(
-        expect.arrayContaining(['verification-command-mutation', 'verification-command-lint']),
-      );
+      expect(plan.steps.map((s) => s.key)).toContain('verification-command-lint');
 
       const result = await apply(plan, makeCtx(fx));
 
-      expect(result.residual.map((s) => s.key)).toEqual(
-        expect.arrayContaining(['verification-command-mutation', 'verification-command-lint']),
-      );
-      expect(result.skipped.map((s) => s.key)).not.toContain('verification-command-mutation');
+      expect(result.residual.map((s) => s.key)).toContain('verification-command-lint');
       expect(result.skipped.map((s) => s.key)).not.toContain('verification-command-lint');
-      expect(result.applied.map((s) => s.key)).not.toContain('verification-command-mutation');
-      expect(result.advisories.length).toBeGreaterThanOrEqual(2);
+      expect(result.applied.map((s) => s.key)).not.toContain('verification-command-lint');
+      expect(result.advisories.length).toBeGreaterThanOrEqual(1);
 
       const loaded = await isolatedSync(() => loadExarchosConfig(fx.repoRoot));
       expect(loaded).not.toBeNull();
-      expect(loaded!.config.mutation).toBeUndefined();
       expect(loaded!.config.lint).toBeUndefined();
     } finally {
       await cleanup(fx);
@@ -602,7 +592,6 @@ describe('apply', () => {
     try {
       const desired1 = await detectDesiredState(fx.repoRoot, { detectRuntimes: async () => [] });
       const declared1 = ((await isolatedSync(() => loadExarchosConfig(fx.repoRoot)))?.config ?? {}) as {
-        mutation?: string;
         lint?: string;
       };
       const plan1 = diff(desired1, ALL_PASS, declared1);
@@ -611,7 +600,6 @@ describe('apply', () => {
 
       const desired2 = await detectDesiredState(fx.repoRoot, { detectRuntimes: async () => [] });
       const declared2 = ((await isolatedSync(() => loadExarchosConfig(fx.repoRoot)))?.config ?? {}) as {
-        mutation?: string;
         lint?: string;
       };
       const plan2 = diff(desired2, ALL_PASS, declared2);

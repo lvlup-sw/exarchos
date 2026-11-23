@@ -296,8 +296,8 @@ function deriveVocabulary(
   for (const toolchain of toolchains) {
     identities.add(toolchain.id);
     identities.add(toolchain.projectType);
-    const { test, typecheck, install, mutation, lint, contract } = toolchain.commands;
-    for (const command of [test, typecheck, install, mutation, lint, contract?.codegen ?? null, contract?.diff ?? null]) {
+    const { test, typecheck, install, lint, contract } = toolchain.commands;
+    for (const command of [test, typecheck, install, lint, contract?.codegen ?? null, contract?.diff ?? null]) {
       if (command === null) continue;
       commands.add(command);
       const program = command.trim().split(/\s+/)[0];
@@ -907,7 +907,7 @@ describe('gates carry no language code', () => {
       id: 'zig',
       projectType: 'Zig',
       markers: ['build.zig', '*.zon'],
-      commands: { test: 'zig build test', typecheck: null, install: null, mutation: null, lint: null, contract: null },
+      commands: { test: 'zig build test', typecheck: null, install: null, lint: null, contract: null },
     };
     const plantedGlobs = (id: string): readonly string[] | null => (id === 'zig' ? ['**/*_test.zig'] : testGlobsForToolchain(id));
     const extended = deriveVocabulary([...BUILTIN_TOOLCHAINS, planted], Object.values(LOCKS), taskRunnerIds(), plantedGlobs);

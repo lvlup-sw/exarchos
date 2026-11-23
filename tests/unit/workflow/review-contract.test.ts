@@ -1,83 +1,84 @@
-// The review contract is tier-aware. At the `/review` boundary, only the high
-// risk tier requires the `mutation-adequacy` dimension. The medium and low
-// tiers, and a call with no tier, return the roster of the workflow type.
-// The roster resolves from data alone, so the working directory does not
-// change it.
+/**
+ * The review contract. The live contract requires only the `review` dimension at every risk tier.
+ * The tier table stays, so an injected contract proves that a tier can add a dimension.
+ * The roster resolves from data alone, so the working directory does not change it.
+ */
 
 import { describe, it, expect } from 'vitest';
 
 import {
   getRequiredReviews,
   getRequiredReviewsPrerequisite,
+  type ReviewContract,
 } from '../../../src/workflow/review-contract.js';
 
-describe('review contract — tier-aware mutation-adequacy dimension (R5)', () => {
-  describe('ReviewContract_MutationAdequacy_RequiredForHighTierOnly', () => {
-    it('feature workflow at the HIGH tier includes mutation-adequacy', () => {
-      const dims = getRequiredReviews('feature', 'high');
-      expect(dims).toContain('mutation-adequacy');
-      expect(dims).toContain('review');
-    });
+/** An injected contract whose high tier adds one dimension. Only the tier mechanics are under test. */
+const ESCALATING_CONTRACT: ReviewContract = {
+  byWorkflowType: { feature: ['review'] },
+  byTier: { low: [], medium: [], high: ['tier-probe'] },
+};
+
+describe('review contract — live roster', () => {
+  it('ReviewContract_FreshHighTierWorkflow_RequiresOnlyTheReviewDimension', () => {
+    expect(getRequiredReviews('feature', 'high')).toEqual(['review']);
+    expect(getRequiredReviews('feature', 'high')).not.toContain('mutation-adequacy');
   });
 
-  describe('ReviewContract_MutationAdequacy_AbsentForMediumLow', () => {
-    it('medium tier does NOT include mutation-adequacy', () => {
-      expect(getRequiredReviews('feature', 'medium')).not.toContain('mutation-adequacy');
-    });
-
-    it('low tier does NOT include mutation-adequacy', () => {
-      expect(getRequiredReviews('feature', 'low')).not.toContain('mutation-adequacy');
-    });
-
-    it('the no-tier legacy call does NOT include mutation-adequacy (backward-compat)', () => {
-      expect(getRequiredReviews('feature')).not.toContain('mutation-adequacy');
-      expect(getRequiredReviews('feature')).toEqual(['review']);
-    });
-
-    it('medium and low tiers reproduce the no-tier roster exactly', () => {
-      const noTier = getRequiredReviews('feature');
-      expect(getRequiredReviews('feature', 'medium')).toEqual(noTier);
-      expect(getRequiredReviews('feature', 'low')).toEqual(noTier);
-    });
+  it('ReviewContract_EveryTier_ReproducesTheNoTierRoster', () => {
+    const noTier = getRequiredReviews('feature');
+    expect(noTier).toEqual(['review']);
+    for (const tier of ['low', 'medium', 'high']) {
+      expect(getRequiredReviews('feature', tier)).toEqual(noTier);
+    }
   });
 
-  describe('MutationAdequacyDimension_ResolvesOnNonNativeWorktreePath', () => {
-    /** A change of `process.cwd()` stands in for a managed worktree path, and it must not change the roster. */
-    it('high-tier dimension resolves identically regardless of cwd / worktree context', () => {
-      const baseline = getRequiredReviews('feature', 'high');
+  it('ReviewContract_HighTierPrerequisite_NamesOnlyTheReviewDimension', () => {
+    const prerequisite = getRequiredReviewsPrerequisite('feature', 'high');
+    expect(prerequisite).toContain('reviews.review.status');
+    expect(prerequisite).not.toContain('mutation-adequacy');
+    expect(prerequisite).toBe(getRequiredReviewsPrerequisite('feature'));
+  });
+});
 
-      const originalCwd = process.cwd();
-      try {
-        process.chdir('/');
-        const fromOtherCwd = getRequiredReviews('feature', 'high');
-        expect(fromOtherCwd).toEqual(baseline);
-        expect(fromOtherCwd).toContain('mutation-adequacy');
-      } finally {
-        process.chdir(originalCwd);
-      }
-    });
-
-    it('repeated calls are referentially stable (no per-call side effects)', () => {
-      const a = getRequiredReviews('feature', 'high');
-      const b = getRequiredReviews('feature', 'high');
-      expect(a).toEqual(b);
-    });
+describe('review contract — tier escalation on an injected contract', () => {
+  it('ReviewContract_InjectedHighTier_AddsItsDimension', () => {
+    expect(getRequiredReviews('feature', 'high', ESCALATING_CONTRACT)).toEqual(['review', 'tier-probe']);
   });
 
-  describe('getRequiredReviewsPrerequisite is tier-aware', () => {
-    it('high tier prerequisite names mutation-adequacy', () => {
-      expect(getRequiredReviewsPrerequisite('feature', 'high')).toContain(
-        'reviews.mutation-adequacy.status',
-      );
-    });
+  it('ReviewContract_InjectedMediumLowAndNoTier_AddNoDimension', () => {
+    expect(getRequiredReviews('feature', undefined, ESCALATING_CONTRACT)).toEqual(['review']);
+    expect(getRequiredReviews('feature', 'medium', ESCALATING_CONTRACT)).toEqual(['review']);
+    expect(getRequiredReviews('feature', 'low', ESCALATING_CONTRACT)).toEqual(['review']);
+  });
 
-    it('no-tier prerequisite is unchanged (backward-compat)', () => {
-      expect(getRequiredReviewsPrerequisite('feature')).not.toContain(
-        'mutation-adequacy',
-      );
-      expect(getRequiredReviewsPrerequisite('feature', 'medium')).not.toContain(
-        'mutation-adequacy',
-      );
-    });
+  /** A tier name outside the table adds no dimension. */
+  it('ReviewContract_UnknownTierName_AddsNoDimension', () => {
+    expect(getRequiredReviews('feature', 'critical', ESCALATING_CONTRACT)).toEqual(['review']);
+  });
+
+  it('ReviewContract_InjectedHighTierPrerequisite_NamesItsDimension', () => {
+    expect(getRequiredReviewsPrerequisite('feature', 'high', ESCALATING_CONTRACT)).toContain(
+      'reviews.tier-probe.status',
+    );
+    expect(getRequiredReviewsPrerequisite('feature', 'medium', ESCALATING_CONTRACT)).not.toContain('tier-probe');
+  });
+
+  /** A change of `process.cwd()` stands in for a managed worktree path, and it must not change the roster. */
+  it('ReviewContract_HighTierRoster_ResolvesTheSameFromAnyWorkingDirectory', () => {
+    const baseline = getRequiredReviews('feature', 'high', ESCALATING_CONTRACT);
+
+    const originalCwd = process.cwd();
+    try {
+      process.chdir('/');
+      expect(getRequiredReviews('feature', 'high', ESCALATING_CONTRACT)).toEqual(baseline);
+    } finally {
+      process.chdir(originalCwd);
+    }
+  });
+
+  it('ReviewContract_RepeatedCalls_GiveEqualRosters', () => {
+    const a = getRequiredReviews('feature', 'high', ESCALATING_CONTRACT);
+    const b = getRequiredReviews('feature', 'high', ESCALATING_CONTRACT);
+    expect(a).toEqual(b);
   });
 });

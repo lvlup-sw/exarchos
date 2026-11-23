@@ -87,35 +87,34 @@ describe('DetectDesiredState_DerivesCommands_FromLayeredResolver', () => {
   });
 
   /**
-   * The built-in registry gives a node repo the mutation command `npx stryker run`. The
-   * `package.json` marker is the only trigger: the fixture holds no Stryker config.
+   * No toolchain seeds a mutation command, and the loader removes a declared `mutation` key.
+   * A node repo with that key gets no `mutation` command in its desired state.
    */
-  it('DetectDesiredState_NodeFixtureWithStryker_ResolvesMutationCommand', async () => {
+  it('DetectDesiredState_NodeFixtureWithMutationKey_ResolvesNoMutationCommand', async () => {
     writeFileSync(
       join(dir, 'package.json'),
       JSON.stringify({ scripts: { 'test:run': 'vitest run', typecheck: 'tsc --noEmit' } }),
     );
+    writeFileSync(join(dir, '.exarchos.yml'), 'mutation: npx stryker run\n');
 
     const resolved = await isolatedSync(() => resolveVerificationRuntime(dir));
-    expect(resolved.mutation).toBe('npx stryker run');
-
-    const desired = await detectDesiredState(dir, { detectRuntimes: async () => [] });
-
-    expect(desired.commands.mutation).toBe(resolved.mutation ?? undefined);
-    expect(desired.commands.mutation).toBe('npx stryker run');
-
-    expect(DesiredStateSchema.safeParse(desired).success).toBe(true);
-  });
-
-  /** A directory with no toolchain marker leaves `mutation` and `lint` unresolved. */
-  it('DetectDesiredState_UnresolvableMutation_LeavesFieldAbsent', async () => {
-    const resolved = await isolatedSync(() => resolveVerificationRuntime(dir));
-    expect(resolved.mutation).toBeNull();
+    expect('mutation' in resolved).toBe(false);
+    expect(resolved.test).toBe('npm run test:run');
 
     const desired = await detectDesiredState(dir, { detectRuntimes: async () => [] });
 
     expect('mutation' in desired.commands).toBe(false);
-    expect(desired.commands.mutation).toBeUndefined();
+    expect(desired.commands.test).toBe('npm run test:run');
+
+    expect(DesiredStateSchema.safeParse(desired).success).toBe(true);
+  });
+
+  /** A directory with no toolchain marker leaves `lint` unresolved. */
+  it('DetectDesiredState_NoMarker_LeavesLintAbsent', async () => {
+    const resolved = await isolatedSync(() => resolveVerificationRuntime(dir));
+    expect(resolved.lint).toBeNull();
+
+    const desired = await detectDesiredState(dir, { detectRuntimes: async () => [] });
 
     expect('lint' in desired.commands).toBe(false);
     expect(desired.commands.lint).toBeUndefined();

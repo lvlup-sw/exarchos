@@ -31,12 +31,11 @@ describe('reconcile characterization (T0 baseline)', () => {
      * Every field is optional. The schema is a non-strict `z.object`, so it strips an unknown key
      * and does not reject the input.
      */
-    it('accepts exactly {test?, typecheck?, install?, mutation?, lint?} and silently strips unknown keys', () => {
+    it('accepts exactly {test?, typecheck?, install?, lint?} and silently strips unknown keys', () => {
       const known = ResolvedCommandsSchema.safeParse({
         test: 'npm run test:run',
         typecheck: 'npm run typecheck',
         install: 'npm install',
-        mutation: 'npx stryker run',
         lint: 'eslint .',
       });
       expect(known.success).toBe(true);
@@ -45,7 +44,6 @@ describe('reconcile characterization (T0 baseline)', () => {
           test: 'npm run test:run',
           typecheck: 'npm run typecheck',
           install: 'npm install',
-          mutation: 'npx stryker run',
           lint: 'eslint .',
         });
       }
@@ -77,7 +75,6 @@ describe('reconcile characterization (T0 baseline)', () => {
       expect(Object.keys(allFields).sort()).toEqual([
         'install',
         'lint',
-        'mutation',
         'test',
         'typecheck',
       ]);
@@ -103,9 +100,8 @@ describe('reconcile characterization (T0 baseline)', () => {
     });
 
     /**
-     * The node toolchain seeds `mutation` even when the repo has no Stryker config, so this bare
-     * fixture carries a `mutation` command. Node seeds no `lint` command, so detection omits that
-     * key.
+     * The node toolchain seeds no `lint` command, so detection omits that key. No toolchain seeds a
+     * `mutation` command, so detection omits that key too.
      *
      * Each command must also equal the resolver output for the same directory. This check proves
      * that the pinned shape is the resolver shape and not a transcription.
@@ -123,7 +119,6 @@ describe('reconcile characterization (T0 baseline)', () => {
           test: 'npm run test:run',
           typecheck: 'npm run typecheck',
           install: 'npm install',
-          mutation: 'npx stryker run',
         },
       };
       expect(desired).toEqual(expected);
@@ -134,8 +129,9 @@ describe('reconcile characterization (T0 baseline)', () => {
       expect(desired.commands.install).toBe(resolved.install ?? undefined);
 
       const verification = await isolatedSync(() => resolveVerificationRuntime(dir));
-      expect(desired.commands.mutation).toBe(verification.mutation ?? undefined);
+      expect(verification.lint).toBeNull();
       expect('lint' in desired.commands).toBe(false);
+      expect('mutation' in desired.commands).toBe(false);
 
       expect(Object.keys(desired).sort()).toEqual(['commands', 'runtimes', 'vcs']);
     });

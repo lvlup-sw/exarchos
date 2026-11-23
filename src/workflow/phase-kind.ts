@@ -124,7 +124,7 @@ const GATE_RESOLVERS: Readonly<
     resolvePlanDepthPolicy(ctx.designDepth ?? 'standard', ctx.config).sequence.map(
       (gate): ResolvedGate => ({ family: 'plan', gate }),
     ),
-  /** An `'unknown'` tier becomes no tier claim and does not escalate, so an unstamped workflow does not get `mutation-adequacy`. */
+  /** An `'unknown'` tier becomes no tier claim and does not escalate, so an unstamped workflow gets no high-tier dimension. */
   'review-contract': (ctx) =>
     getRequiredReviews(ctx.workflowType ?? '', reviewRosterTier(ctx.riskTier)).map(
       (gate): ResolvedGate => ({ family: 'review', gate }),

@@ -1,11 +1,12 @@
 import { z } from 'zod';
 import {
   InvariantsConfigSchema,
-  ExarchosConfigSchema,
+  ExarchosConfigBaseSchema,
   StorageConfigSchema,
   SynthesisConfigSchema,
   EscalationConfigSchema,
   safeCommand,
+  withoutRetiredMutationCommand,
 } from './exarchos-config-schema.js';
 import { VERIFICATION_GATE_NAMES } from '../workflow/verification-policy.js';
 import {
@@ -373,12 +374,13 @@ export const ProjectConfigSchema = z.object({
 export type ProjectConfig = z.infer<typeof ProjectConfigSchema>;
 
 /**
- * The full `.exarchos.yml` schema: the merge of `ExarchosConfigSchema` and `ProjectConfigSchema`.
+ * The full `.exarchos.yml` schema: the merge of `ExarchosConfigBaseSchema` and `ProjectConfigSchema`.
  * It accepts a key that is valid in either schema and rejects a key that is valid in neither.
  * The config loaders and the invariants loader use it, so they reach the same verdict on a file.
+ * The parse removes the retired `mutation` key, and the loader reports it as a migration finding.
  */
-export const FullExarchosConfigSchema = ExarchosConfigSchema.merge(
-  ProjectConfigSchema,
-).strict();
+export const FullExarchosConfigSchema = ExarchosConfigBaseSchema.merge(ProjectConfigSchema)
+  .strict()
+  .transform(withoutRetiredMutationCommand);
 
 export type FullExarchosConfig = z.infer<typeof FullExarchosConfigSchema>;

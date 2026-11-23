@@ -720,7 +720,7 @@ async function emitAuditEvent(
 
 /**
  * Writes the workflow `riskTier` to `state.riskTier` through a best-effort `state.patched` event.
- * The required-reviews contract of `/review` reads that field, so a high tier adds the `mutation-adequacy` review.
+ * The required-reviews contract of `/review` reads that field to select the tier-coupled review dimensions.
  * The event has no idempotency key on the tier value, because such a key drops a tier that rises again after a fall.
  * The fold is last-write-wins, so a repeated patch with the same value has no effect.
  */

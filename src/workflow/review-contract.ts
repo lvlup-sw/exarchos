@@ -26,28 +26,44 @@ export type ReviewRiskTier = 'low' | 'medium' | 'high';
 
 /**
  * The extra required review dimensions for each risk tier. This table is policy data.
- * Only the high tier adds a dimension, `mutation-adequacy`. Each name must equal a skill folder name.
+ * No tier adds a dimension now. Each name in it must equal a skill folder name.
  */
 export const REQUIRED_REVIEWS_BY_TIER: Readonly<Record<ReviewRiskTier, readonly string[]>> = {
   low: [],
   medium: [],
-  high: ['mutation-adequacy'],
+  high: [],
 };
+
+/** The two tables that decide the required review dimensions. A test can pass its own tables to prove tier escalation. */
+export interface ReviewContract {
+  readonly byWorkflowType: Readonly<Record<string, readonly string[]>>;
+  readonly byTier: Readonly<Record<ReviewRiskTier, readonly string[]>>;
+}
+
+/** The live review contract. */
+export const DEFAULT_REVIEW_CONTRACT: ReviewContract = {
+  byWorkflowType: REQUIRED_REVIEWS_BY_WORKFLOW_TYPE,
+  byTier: REQUIRED_REVIEWS_BY_TIER,
+};
+
+/** True when `tier` names a row of the tier table. */
+function isReviewRiskTier(tier: string): tier is ReviewRiskTier {
+  return tier === 'low' || tier === 'medium' || tier === 'high';
+}
 
 /**
  * Returns the required review dimensions for a workflow type, or an empty array.
- * A known `riskTier` appends its dimensions from {@link REQUIRED_REVIEWS_BY_TIER} without duplicates.
+ * A known `riskTier` appends its dimensions from the tier table of `contract` without duplicates.
  * The result is a new array, so a caller cannot change the tables.
  */
 export function getRequiredReviews(
   workflowType: string,
   riskTier?: string,
+  contract: ReviewContract = DEFAULT_REVIEW_CONTRACT,
 ): readonly string[] {
-  const base = REQUIRED_REVIEWS_BY_WORKFLOW_TYPE[workflowType] ?? [];
+  const base = contract.byWorkflowType[workflowType] ?? [];
   const tierDimensions =
-    riskTier !== undefined
-      ? REQUIRED_REVIEWS_BY_TIER[riskTier as ReviewRiskTier] ?? []
-      : [];
+    riskTier !== undefined && isReviewRiskTier(riskTier) ? contract.byTier[riskTier] : [];
   if (tierDimensions.length === 0) return [...base];
   const seen = new Set(base);
   return [...base, ...tierDimensions.filter((d) => !seen.has(d))];
@@ -56,13 +72,14 @@ export function getRequiredReviews(
 /**
  * Renders the review contract as the `guardPrerequisites` text of the phase playbook.
  * Consumers must generate this text here and must not write it by hand.
- * `riskTier` goes to {@link getRequiredReviews}, so the high tier adds `mutation-adequacy`.
+ * `riskTier` and `contract` go to {@link getRequiredReviews}.
  */
 export function getRequiredReviewsPrerequisite(
   workflowType: string,
   riskTier?: string,
+  contract: ReviewContract = DEFAULT_REVIEW_CONTRACT,
 ): string {
-  const dimensions = getRequiredReviews(workflowType, riskTier);
+  const dimensions = getRequiredReviews(workflowType, riskTier, contract);
   if (dimensions.length === 0) return 'no required reviews';
   const clauses = dimensions.map((d) => `reviews.${d}.status`);
   return `${clauses.join(' AND ')} must be a passing value (pass|passed|approved|fixes-applied, case-insensitive)`;

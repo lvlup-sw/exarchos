@@ -18,8 +18,8 @@ const CONFIG_FILENAME = '.exarchos.yml';
 const HEADER = `# .exarchos.yml — Exarchos project configuration.
 #
 # This file declares the commands Exarchos uses for gates and worktree setup —
-# test, typecheck, install, plus the verification-ladder commands mutation and
-# lint (each seeded only when detection resolved one). Auto-seeded from detection
+# test, typecheck, install, plus the verification-ladder command lint (seeded
+# only when detection resolved one). Auto-seeded from detection
 # at workflow init time. Edit freely; subsequent inits will not overwrite it.
 #
 # Set any field to override detection. Unset fields fall back to detection.
@@ -66,8 +66,8 @@ export interface SeedOptions {
 }
 
 /**
- * Seeds `.exarchos.yml` from `resolveVerificationRuntime`, which resolves `test`, `typecheck`, `install`, `mutation`, and `lint`.
- * The no-op check includes `mutation` and `lint`, because they can resolve when the other three do not.
+ * Seeds `.exarchos.yml` from `resolveVerificationRuntime`, which resolves `test`, `typecheck`, `install` and `lint`.
+ * The no-op check includes `lint`, because it can resolve when the other three do not.
  * The YAML holds only the resolved commands, in that order, as top-level keys that override detection.
  * It never writes a `verification:` policy block, because that block freezes the current builtin policy into consumer config.
  */
@@ -91,7 +91,6 @@ export function seedExarchosConfig(
     result.test === null &&
     result.typecheck === null &&
     result.install === null &&
-    result.mutation === null &&
     result.lint === null
   ) {
     return { wrote: false, path: target, reason: 'unresolved-no-fields' };
@@ -101,7 +100,6 @@ export function seedExarchosConfig(
   if (result.test !== null) body.test = result.test;
   if (result.typecheck !== null) body.typecheck = result.typecheck;
   if (result.install !== null) body.install = result.install;
-  if (result.mutation !== null) body.mutation = result.mutation;
   if (result.lint !== null) body.lint = result.lint;
 
   const yamlBody = stringifyYaml(body);

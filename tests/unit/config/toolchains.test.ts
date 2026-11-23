@@ -98,7 +98,7 @@ describe('detectToolchain — user extra entries (tier 3 override)', () => {
     id: 'zig',
     projectType: 'Zig',
     markers: ['build.zig'],
-    commands: { test: 'zig build test', typecheck: null, install: null, mutation: null, lint: null, contract: null },
+    commands: { test: 'zig build test', typecheck: null, install: null, lint: null, contract: null },
   };
 
   it('detects a user-declared toolchain with zero built-in support', () => {
@@ -112,7 +112,7 @@ describe('detectToolchain — user extra entries (tier 3 override)', () => {
       id: 'node-custom',
       projectType: 'Node.js',
       markers: ['package.json'],
-      commands: { test: 'just test', typecheck: null, install: null, mutation: null, lint: null, contract: null },
+      commands: { test: 'just test', typecheck: null, install: null, lint: null, contract: null },
     };
     expect(detectToolchain(dir, [customNode])?.id).toBe('node-custom');
   });
@@ -133,7 +133,6 @@ describe('toolchainFromConfig — .exarchos.yml toolchains: → registry', () =>
         test: 'zig build test',
         typecheck: null,
         install: null,
-        mutation: null,
         lint: null,
         contract: null,
       },
@@ -152,7 +151,6 @@ describe('toolchainFromConfig — .exarchos.yml toolchains: → registry', () =>
       test: 'cabal test',
       typecheck: null,
       install: 'cabal build',
-      mutation: null,
       lint: null,
       contract: null,
     });
@@ -258,26 +256,25 @@ describe('BUILTIN_TOOLCHAINS — verification command seeds (task 016)', () => {
     return tc.commands;
   }
 
-  it('BuiltinToolchains_Node_SeedsStrykerMutation', () => {
-    expect(commandsFor('node').mutation).toBe('npx stryker run');
+  /** Exarchos runs no mutation testing, so no built-in row carries a mutation command. */
+  it('BuiltinToolchains_Node_SeedsNoMutationCommand', () => {
+    expect('mutation' in commandsFor('node')).toBe(false);
   });
 
-  it('BuiltinToolchains_Dotnet_SeedsDotnetStryker', () => {
-    expect(commandsFor('dotnet').mutation).toBe('dotnet stryker');
+  it('BuiltinToolchains_Dotnet_SeedsNoMutationCommand', () => {
+    expect('mutation' in commandsFor('dotnet')).toBe(false);
   });
 
-  it('BuiltinToolchains_Rust_SeedsCargoMutants', () => {
-    expect(commandsFor('rust').mutation).toBe('cargo mutants --in-diff');
+  it('BuiltinToolchains_Rust_SeedsNoMutationCommand', () => {
+    expect('mutation' in commandsFor('rust')).toBe(false);
   });
 
-  it('BuiltinToolchains_Python_SeedsMutmut', () => {
-    expect(commandsFor('python').mutation).toBe('mutmut run');
+  it('BuiltinToolchains_Python_SeedsNoMutationCommand', () => {
+    expect('mutation' in commandsFor('python')).toBe(false);
   });
 
-  it('BuiltinToolchains_JavaMaven_SeedsPitest', () => {
-    expect(commandsFor('java-maven').mutation).toBe(
-      'mvn org.pitest:pitest-maven:mutationCoverage',
-    );
+  it('BuiltinToolchains_JavaMaven_SeedsNoMutationCommand', () => {
+    expect('mutation' in commandsFor('java-maven')).toBe(false);
   });
 
   /**
@@ -311,7 +308,7 @@ describe('BUILTIN_TOOLCHAINS — verification command seeds (task 016)', () => {
 
   it('every toolchain exposes the widened readonly null-able command fields', () => {
     for (const tc of BUILTIN_TOOLCHAINS) {
-      expect('mutation' in tc.commands).toBe(true);
+      expect('mutation' in tc.commands, tc.id).toBe(false);
       expect('lint' in tc.commands).toBe(true);
       expect('contract' in tc.commands).toBe(true);
     }
