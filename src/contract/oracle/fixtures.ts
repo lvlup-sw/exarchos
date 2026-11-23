@@ -936,7 +936,6 @@ const GATE_ACTIONS: readonly string[] = [
   'check_task_decomposition',
   'check_event_emissions',
   'check_invariant_conformance',
-  'mutation-adequacy',
   'post_delegation_check',
   'pre_synthesis_check',
 ];

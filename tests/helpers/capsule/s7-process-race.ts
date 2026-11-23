@@ -62,7 +62,7 @@ export async function withS7Repository(work: (f: S7Fixture) => Promise<void>, id
     expect(record(prepared.capsule).provenance).toMatchObject({ compilerVersion: 'exarchos-prepare-8-vcs' });
     const trees = new Map<string, string>();
     for (const id of ids) trees.set(id, await fixture.repository.worktreeFor(id, changedFiles(id)));
-    for (const id of ids) await fixture.git(['merge', '-q', '--no-edit', `task/${id}`]);
+    for (const id of ids) await fixture.repository.land(id);
     const claims = ids.map(id => ({ taskId: id, fields: { worktreePath: trees.get(id), files: [`src/${id}.cjs`] }, evidence: [] }));
     const args = settleArgs(prepared.capsuleVersion, claims, 's7-process');
     await work({ ...fixture, journal, env, prepared, trees, args });

@@ -166,4 +166,28 @@ describe('scopedRepository', () => {
     expect(listed).toHaveLength(2);
     await expect(repository.worktreeFor('task-a', { 'src/a.js': '' })).rejects.toThrow('Use commitIn');
   }, CASE_TIMEOUT_MS);
+
+  /**
+   * A land merges the task branch into the integration branch in the tree that holds it. After the base moves to a linked
+   * worktree, a land merges there and the checkout stays on `main`. A land of a task with no worktree is refused.
+   */
+  it('ScopedRepository_Land_MergesTheTaskBranchIntoTheTreeOfTheIntegrationBranch', async () => {
+    const repository = await makeRepository();
+    await repository.worktreeFor('task-a', { 'src/a.js': 'export const a = 2;\n' });
+
+    await repository.land('task-a');
+
+    expect(await git(repository.checkout, ['rev-parse', INTEGRATION_BRANCH])).toBe(await git(repository.checkout, ['rev-parse', 'task/task-a']));
+    expect(await readFile(path.join(repository.checkout, 'src', 'a.js'), 'utf8')).toBe('export const a = 2;\n');
+    await expect(repository.land('task-z')).rejects.toThrow('has no worktree');
+
+    const { linked } = await repository.baseInLinkedWorktree();
+    await repository.worktreeFor('task-b', { 'src/b.js': 'export const b = 1;\n' });
+    await repository.land('task-b');
+
+    expect(await git(linked, ['show', `${INTEGRATION_BRANCH}:src/b.js`])).toBe('export const b = 1;');
+    expect(await readFile(path.join(linked, 'src', 'b.js'), 'utf8')).toBe('export const b = 1;\n');
+    expect(await git(repository.checkout, ['symbolic-ref', '--short', 'HEAD'])).toBe('main');
+    expect(await git(repository.checkout, ['rev-parse', 'HEAD'])).toBe(repository.baseCommit);
+  }, CASE_TIMEOUT_MS);
 });

@@ -7,7 +7,7 @@
  *
  * Each task gets a linked worktree on the branch `task/<taskId>`, at the tip of the integration
  * branch. The checkout and each worktree are sibling directories of one temp tree. So no worktree
- * shows in the status of the checkout.
+ * shows in the status of the checkout. A test can merge a task branch into the integration branch.
  *
  * Each path that the helper returns is canonical: the real path in POSIX form. That is the form
  * that `git rev-parse --show-toplevel` prints, also for the 8.3 temp path of a Windows runner.
@@ -53,6 +53,11 @@ export interface ScopedRepository {
   worktreeFor(taskId: string, files?: FixtureFiles): Promise<string>;
   /** Commits `files` in the existing worktree of the task, on the branch that the worktree holds. */
   commitIn(taskId: string, files: FixtureFiles): Promise<void>;
+  /**
+   * Merges the branch `task/<taskId>` into the integration branch, as a harness lands a task. The merge
+   * runs in the tree that holds the integration branch: the checkout, or the linked worktree of the base.
+   */
+  land(taskId: string): Promise<void>;
   /**
    * Switches the checkout to `main`, which holds the base commit, and adds a linked worktree outside the checkout that holds
    * the integration branch. It returns the canonical path of the checkout, which is the primary worktree, and of the linked worktree.
@@ -135,6 +140,7 @@ export async function scopedRepository(options: ScopedRepositoryOptions): Promis
   const baseCommit = await git(checkout, ['rev-parse', 'HEAD']);
 
   const worktrees = new Map<string, Promise<string>>();
+  let integrationTree = checkout;
   let queue: Promise<unknown> = Promise.resolve();
   const serially = <T>(step: () => Promise<T>): Promise<T> => {
     const next = queue.then(step, step);
@@ -172,12 +178,19 @@ export async function scopedRepository(options: ScopedRepositoryOptions): Promis
       const tree = await existing;
       await serially(() => commitFiles(tree, files, `${taskId}: a correction`));
     },
+    async land(taskId) {
+      const existing = worktrees.get(taskId);
+      if (existing === undefined) throw new Error(`task ${JSON.stringify(taskId)} has no worktree. Call worktreeFor first.`);
+      await existing;
+      await serially(() => git(integrationTree, ['merge', '-q', '--no-edit', `task/${taskId}`]));
+    },
     baseInLinkedWorktree() {
       return serially(async () => {
         await git(checkout, ['switch', '-q', 'main']);
         const dir = path.join(root, 'base-worktree');
         await git(checkout, ['worktree', 'add', '-q', dir, options.integrationBranch]);
-        return { primary: checkout, linked: canonicalPath(dir) };
+        integrationTree = canonicalPath(dir);
+        return { primary: checkout, linked: integrationTree };
       });
     },
   };

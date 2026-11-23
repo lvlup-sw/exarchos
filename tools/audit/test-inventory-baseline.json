@@ -7,7 +7,7 @@
     "testFiles": 1507,
     "parsedFiles": 1463,
     "shellFiles": 44,
-    "cases": 16749,
+    "cases": 16750,
     "dynamicTitles": 337,
     "unparseableFiles": 0
   },
@@ -10219,6 +10219,11 @@
         {
           "suite": "scopedRepository",
           "name": "ScopedRepository_ASecondCallForOneTask_ReturnsTheSameWorktree",
+          "dynamic": false
+        },
+        {
+          "suite": "scopedRepository",
+          "name": "ScopedRepository_Land_MergesTheTaskBranchIntoTheTreeOfTheIntegrationBranch",
           "dynamic": false
         }
       ]
