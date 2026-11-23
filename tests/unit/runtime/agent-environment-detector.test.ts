@@ -421,7 +421,7 @@ describe('detectAgentEnvironments — cursor/codex/copilot/opencode', () => {
     const cwd = '/tmp/proj-cursor';
     const mcpJson = `${cwd}/.cursor/mcp.json`;
     const body = JSON.stringify({
-      mcpServers: { exarchos: { command: 'node' } },
+      mcpServers: { exarchos: { command: 'node' }, 'exarchos-readonly': { command: 'node' } },
     });
 
     const result = await detectAgentEnvironments({
@@ -462,7 +462,12 @@ describe('detectAgentEnvironments — cursor/codex/copilot/opencode', () => {
   /** The rule matches only the legacy registry package. An `npx` entry for another package is a hand edit, and it counts as registered. */
   it('DetectAgentEnvironments_CursorNpxEntryForAnotherPackage_ReturnsMcpRegisteredTrue', async () => {
     const cwd = '/tmp/proj-cursor-hand-edit';
-    const body = JSON.stringify({ mcpServers: { exarchos: { command: 'npx', args: ['my-exarchos-wrapper@2.0.0'] } } });
+    const body = JSON.stringify({
+      mcpServers: {
+        exarchos: { command: 'npx', args: ['my-exarchos-wrapper@2.0.0'] },
+        'exarchos-readonly': { command: 'exarchos', args: ['mcp'] },
+      },
+    });
 
     const result = await detectAgentEnvironments({
       fs: mapFs({ [`${cwd}/.cursor/mcp.json`]: body }),
@@ -494,10 +499,15 @@ describe('detectAgentEnvironments — cursor/codex/copilot/opencode', () => {
     expect(copilot.mcpRegistered).toBe(false);
   });
 
-  /** A `.vscode/mcp.json` with the `exarchos mcp` entry does not make copilot present. Only the instruction files do. */
+  /** A `.vscode/mcp.json` with both local `exarchos mcp` entries does not make copilot present. Only the instruction files do. */
   it('DetectAgentEnvironments_VscodeMcpJsonLocalBinaryEntry_LeavesCopilotAbsent', async () => {
     const cwd = '/tmp/proj-vscode-local';
-    const body = JSON.stringify({ mcpServers: { exarchos: { command: 'exarchos', args: ['mcp'], type: 'stdio' } } });
+    const body = JSON.stringify({
+      mcpServers: {
+        exarchos: { command: 'exarchos', args: ['mcp', '--operator'], type: 'stdio' },
+        'exarchos-readonly': { command: 'exarchos', args: ['mcp'], type: 'stdio' },
+      },
+    });
 
     const result = await detectAgentEnvironments({
       fs: mapFs({ [`${cwd}/.vscode/mcp.json`]: body }),
@@ -506,6 +516,44 @@ describe('detectAgentEnvironments — cursor/codex/copilot/opencode', () => {
     });
 
     expect(result.find((r) => r.name === 'copilot')!.configPresent).toBe(false);
+  });
+
+  /**
+   * An older onboard wrote only the `exarchos` entry. The reviewer names `exarchos-readonly`, so the
+   * file needs the writer. Cursor reports not registered, and the doctor check warns.
+   */
+  it('DetectAgentEnvironments_CursorWithoutReadOnlyEntry_ReturnsMcpRegisteredFalse', async () => {
+    const cwd = '/tmp/proj-cursor-no-readonly';
+    const body = JSON.stringify({ mcpServers: { exarchos: { command: 'exarchos', args: ['mcp', '--operator'], type: 'stdio' } } });
+
+    const result = await detectAgentEnvironments({
+      fs: mapFs({ [`${cwd}/.cursor/mcp.json`]: body }),
+      home: () => '/tmp/home',
+      cwd: () => cwd,
+    });
+
+    const cursor = result.find((r) => r.name === 'cursor');
+    expect(cursor?.configPresent).toBe(true);
+    expect(cursor?.mcpRegistered).toBe(false);
+  });
+
+  /** A `.vscode/mcp.json` with only the `exarchos` entry makes copilot present and not registered, also without an instruction file. */
+  it('DetectAgentEnvironments_VscodeMcpJsonWithoutReadOnlyEntry_ReturnsCopilotPresentAndNotRegistered', async () => {
+    const cwd = '/tmp/proj-vscode-no-readonly';
+    const vscodeMcp = `${cwd}/.vscode/mcp.json`;
+    const body = JSON.stringify({ mcpServers: { exarchos: { command: 'exarchos', args: ['mcp', '--operator'], type: 'stdio' } } });
+
+    const result = await detectAgentEnvironments({
+      fs: mapFs({ [vscodeMcp]: body }),
+      home: () => '/tmp/home',
+      cwd: () => cwd,
+    });
+
+    const copilot = result.find((r) => r.name === 'copilot');
+    expect(copilot?.configPath).toBe(vscodeMcp);
+    expect(copilot?.configPresent).toBe(true);
+    expect(copilot?.configValid).toBe(true);
+    expect(copilot?.mcpRegistered).toBe(false);
   });
 
   /** The codex probe checks only that `.codex/` exists, so `configValid` equals `configPresent`. */

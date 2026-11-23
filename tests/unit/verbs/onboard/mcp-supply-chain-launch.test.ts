@@ -27,6 +27,8 @@ import { checkBlockDrift } from '../../../../src/verbs/onboard/block-drift.js';
 import { handleOnboard } from '../../../../src/verbs/onboard/index.js';
 import { handleDoctorWithChecks } from '../../../../src/verbs/doctor/index.js';
 import { makeStubProbes } from '../../../../src/verbs/doctor/checks/__shared__/make-stub-probes.js';
+import { agentMcpRegistered } from '../../../../src/verbs/doctor/checks/agent-mcp-registered.js';
+import { detectAgentEnvironments } from '../../../../src/runtime/agent-environment-detector.js';
 import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
 
 interface Fixture {
@@ -239,6 +241,103 @@ describe('editor MCP launch written by generate', () => {
       };
       expect(data.postFix?.plan?.steps.some((step) => step.kind === 'generate' && step.key === 'onramp-block-drift')).toBe(true);
       await assertPinnedProjectLaunches(fx.repoRoot);
+    } finally {
+      fx.eventStore.close();
+      await rmrfAsync(fx.base);
+    }
+  });
+});
+
+/** The `exarchos` entry that an onboard before the read-only server wrote, with no `exarchos-readonly` entry. */
+const ORCHESTRATOR_ONLY = JSON.stringify({
+  mcpServers: { exarchos: { command: 'exarchos', args: ['mcp', '--operator'], type: 'stdio' } },
+});
+
+/** Writes the orchestrator-only file to both editor configs of the fixture. */
+async function seedOrchestratorOnlyConfigs(repoRoot: string): Promise<void> {
+  for (const dir of ['.cursor', '.vscode']) {
+    await mkdir(path.join(repoRoot, dir), { recursive: true });
+    await writeFile(path.join(repoRoot, dir, 'mcp.json'), ORCHESTRATOR_ONLY, 'utf8');
+  }
+}
+
+/** The real registration check, with the real detector confined to the fixture. */
+function registrationCheck(fx: Fixture): Promise<CheckResult> {
+  const probes = makeStubProbes({
+    detector: (signal) => detectAgentEnvironments({ cwd: () => fx.repoRoot, home: () => fx.homeDir }, signal),
+  });
+  return agentMcpRegistered(probes, new AbortController().signal);
+}
+
+/** Both editor configs hold the orchestrator entry and the read-only entry after the upgrade. */
+async function assertReadOnlyServerRegistered(repoRoot: string): Promise<void> {
+  for (const dir of ['.cursor', '.vscode']) {
+    const parsed: unknown = JSON.parse(await readFile(path.join(repoRoot, dir, 'mcp.json'), 'utf8'));
+    expect(parsed, dir).toMatchObject({
+      mcpServers: {
+        exarchos: { command: 'exarchos', args: ['mcp', '--operator'] },
+        'exarchos-readonly': { command: 'exarchos', args: ['mcp'] },
+      },
+    });
+  }
+}
+
+describe('editor MCP upgrade adds the read-only server', () => {
+  /**
+   * A project onboarded before the read-only server has only `exarchos` in `.cursor/mcp.json` and
+   * `.vscode/mcp.json`. The registration check alone must route onboard to the writers.
+   */
+  it('Onboard_OrchestratorOnlyEditorConfigs_AddsReadOnlyServer', async () => {
+    const fx = await createFixture('onboard-mcp-readonly-');
+    try {
+      await seedOrchestratorOnlyConfigs(fx.repoRoot);
+      const before = await registrationCheck(fx);
+      expect(before.status).toBe('Warning');
+
+      const result = await handleOnboard(
+        { surface: 'cli', format: 'json' },
+        fx.ctx,
+        {
+          repoRoot: fx.repoRoot,
+          writerDeps: fixtureWriterDeps(fx),
+          writers: getAllWriters(),
+          runDoctorChecks: async () => [await registrationCheck(fx)],
+          detectOptions: { detectRuntimes: async () => [], vcs: 'none' },
+        },
+      );
+
+      const data = result.data as { plan?: { steps: { kind: string; key: string }[] } };
+      expect(data.plan?.steps.some((step) => step.kind === 'generate' && step.key === 'agent-mcp-registered')).toBe(true);
+      await assertReadOnlyServerRegistered(fx.repoRoot);
+      expect((await registrationCheck(fx)).status).toBe('Pass');
+    } finally {
+      fx.eventStore.close();
+      await rmrfAsync(fx.base);
+    }
+  });
+
+  /** `doctor --fix` reconciles the same orchestrator-only configs through the same check. */
+  it('DoctorFix_OrchestratorOnlyEditorConfigs_AddsReadOnlyServer', async () => {
+    const fx = await createFixture('doctor-mcp-readonly-');
+    try {
+      await seedOrchestratorOnlyConfigs(fx.repoRoot);
+
+      await handleDoctorWithChecks(
+        { fix: true, format: 'json' },
+        fx.ctx,
+        [],
+        () => makeStubProbes(),
+        {
+          repoRoot: fx.repoRoot,
+          writerDeps: fixtureWriterDeps(fx),
+          writers: getAllWriters(),
+          runDoctorChecks: async () => [await registrationCheck(fx)],
+          detectOptions: { detectRuntimes: async () => [], vcs: 'none' },
+        },
+      );
+
+      await assertReadOnlyServerRegistered(fx.repoRoot);
+      expect((await registrationCheck(fx)).status).toBe('Pass');
     } finally {
       fx.eventStore.close();
       await rmrfAsync(fx.base);
