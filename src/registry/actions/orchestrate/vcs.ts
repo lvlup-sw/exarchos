@@ -170,7 +170,8 @@ export const vcsActions: readonly BuiltinToolAction[] = [
       name: 'get_pr_comments',
       description: 'Get comments on a pull/merge request via the VCS provider abstraction. Read-only, no events emitted.',
       schema: z.object({
-        prId: z.string().min(1),
+        /** The provider puts this number into an API path, so the schema accepts only a positive decimal integer. */
+        prId: z.string().regex(/^[1-9][0-9]*$/, 'prId must be a positive integer'),
         /** The window and projection inputs. The schema declares them, so the CLI derives their flags. */
         limit: coercedPositiveInt().optional(),
         offset: coercedNonnegativeInt().optional(),
