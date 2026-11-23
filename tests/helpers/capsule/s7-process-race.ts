@@ -93,17 +93,22 @@ async function gitOnPath() {
   throw new Error('Git missing from process fixture PATH');
 }
 
-/** Holds the exact immutable status read after a real pair or prior segment has committed. */
+/**
+ * Holds the first constrained read of the barrier tree after a real pair or prior segment has committed.
+ * The packaged binary finds the wrapper with its one PATH search. The constrained reader passes a closed environment with no PATH and no fixture value.
+ * So the wrapper names the absolute Node executable and carries its barrier settings in its own text.
+ */
 export async function barrierFor(f: S7Fixture, taskId: string, mode: 'adequacy' | 'standing') {
   const realGit = await gitOnPath();
   const barrier = await makeBarrier(f.controls, `${mode}-barrier`);
   const bin = path.join(f.controls, 'bin'); await mkdir(bin);
   const wrapper = path.join(bin, 'git');
-  await writeFile(wrapper, `#!/usr/bin/env node\nimport(${JSON.stringify(new URL('./s7-race-driver.mjs', import.meta.url).href)});\n`);
-  await chmod(wrapper, 0o755);
   const tree = f.trees.get(taskId); if (tree === undefined) throw new Error('Missing barrier tree');
-  return { ...barrier, env: { ...f.env, PATH: `${bin}${path.delimiter}${process.env.PATH ?? ''}`, S7_REAL_GIT: realGit,
-    S7_TREE: tree, S7_TASK: taskId, S7_DATABASE: f.database, S7_STREAM: STREAM, S7_MODE: mode, S7_BARRIER: barrier.directory } };
+  const settings = { realGit, tree, task: taskId, database: f.database, stream: STREAM, mode, barrier: barrier.directory };
+  const driver = new URL('./s7-race-driver.mjs', import.meta.url).href;
+  await writeFile(wrapper, `#!${process.execPath}\nimport(${JSON.stringify(driver)}).then(module => module.drive(${JSON.stringify(settings)}));\n`);
+  await chmod(wrapper, 0o755);
+  return { ...barrier, env: { ...f.env, PATH: `${bin}${path.delimiter}${process.env.PATH ?? ''}` } };
 }
 
 /** Starts one detached group so an interrupt stops every owned gate and Git child before retry. */

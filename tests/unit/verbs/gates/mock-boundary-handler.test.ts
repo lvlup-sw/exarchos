@@ -12,7 +12,7 @@ import type { DispatchContext } from '../../../../src/dispatch/core/dispatch.js'
 import { handleOrchestrate } from '../../../../src/verbs/composite.js';
 import { TOOL_REGISTRY } from '../../../../src/registry.js';
 import { steerForFinding } from '../../../../src/verbs/gates/mock-boundary-handler.js';
-import type { GitExec } from '../../../../src/verbs/pure/execute-merge.js';
+import type { ConstrainedDiffRead } from '../../../../src/verbs/gates/gate-utils.js';
 import { rmrf } from '../../../../tools/test-helpers/temp-dir.js';
 
 vi.mock('../../../../src/verbs/gates/durable-gate-producer.js', async (importOriginal) => {
@@ -23,13 +23,16 @@ vi.mock('../../../../src/verbs/gates/durable-gate-producer.js', async (importOri
   };
 });
 
+vi.mock('../../../../src/verbs/gates/gate-utils.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../../../src/verbs/gates/gate-utils.js')>();
+  return { ...actual, readConstrainedDiff: async (): Promise<ConstrainedDiffRead> => EMPTY_DIFF };
+});
+
 /**
- * A git seam that returns an empty diff for any `git diff …` call, so the
- * routing test exercises the dispatch arm without a real repo. An empty diff
- * means zero findings → a clean advisory pass.
+ * The constrained read gives an empty diff, so the routing test exercises the dispatch arm without a real repo.
+ * An empty diff means zero findings, so the advisory gate passes.
  */
-const gitEmptyDiff: GitExec = (_repoRoot, args) =>
-  args[0] === 'diff' ? { stdout: '', exitCode: 0 } : { stdout: '', exitCode: 0 };
+const EMPTY_DIFF: ConstrainedDiffRead = { kind: 'diff', diff: '', head: 'a'.repeat(40) };
 
 interface Arm {
   stateDir: string;
@@ -79,8 +82,7 @@ describe('check_mock_boundary registration + dispatch + steer', () => {
         branch: 'feature/x',
         baseBranch: 'main',
         repoRoot: '/fake/repo',
-        gitExec: gitEmptyDiff,
-      } as unknown as Record<string, unknown>,
+      },
       arm.ctx,
     );
 

@@ -1,14 +1,10 @@
 import { describe, it, expect, vi } from 'vitest';
-import * as fs from 'node:fs';
-import * as os from 'node:os';
-import * as path from 'node:path';
 import {
   emitGateEvent,
   resolveRepoRoot,
   AUTO_REPO_ROOT,
   resolvePolicySkip,
   resolvePhaseMode,
-  getDiff,
   normalizeGateVerdict,
   readGateCompletenessDescriptor,
   readGateRowMarks,
@@ -26,8 +22,6 @@ import {
   type RiskTier,
 } from '../../../../src/workflow/verification-policy.js';
 import { classifyTask } from '../../../../src/verbs/team/prepare-delegation.js';
-import { execFileAsync, isolatedSync } from '../../../../tools/test-helpers/spawn.js';
-import { rmrf } from '../../../../tools/test-helpers/temp-dir.js';
 
 describe('emitGateEvent', () => {
   it('emitGateEvent_ValidInput_AppendsGateExecutedEvent', async () => {
@@ -493,58 +487,5 @@ describe('resolvePhaseMode', () => {
   /** GATHER has no gates. The default is enforce, so an unexpected kind cannot downgrade a gate. */
   it('gatherKind_NoGates_DefaultsEnforce', () => {
     expect(resolvePhaseMode('GATHER', 'feature')).toBe('enforce');
-  });
-});
-
-/**
- * `repoWithDiffOfAtLeast` builds a throwaway repo whose `main...HEAD` diff exceeds `approxBytes`.
- * The new file holds only added lines, so each of its bytes is in the unified diff body.
- */
-describe('getDiff', () => {
-  async function repoWithDiffOfAtLeast(approxBytes: number): Promise<string> {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'gate-utils-diff-'));
-    const git = async (...args: string[]): Promise<void> => {
-      await execFileAsync('git', args, { cwd: root });
-    };
-    await git('init', '-b', 'main');
-    await git('config', 'user.email', 'test@example.com');
-    await git('config', 'user.name', 'test');
-    fs.writeFileSync(path.join(root, 'seed.txt'), 'seed\n');
-    await git('add', '.');
-    await git('commit', '-m', 'seed');
-
-    await git('checkout', '-b', 'feature');
-    const line = `${'x'.repeat(99)}\n`;
-    fs.writeFileSync(path.join(root, 'big.txt'), line.repeat(Math.ceil(approxBytes / line.length)));
-    await git('add', '.');
-    await git('commit', '-m', 'big');
-    return root;
-  }
-
-  /**
-   * The default `maxBuffer` of `execFileSync` is 1 MiB, and a larger output raises `ENOBUFS`.
-   * A null diff makes the three callers report `DIFF_ERROR`.
-   * Two MiB is above the Node default and far below the `getDiff` ceiling.
-   */
-  it('getDiff_DiffLargerThanNodeDefaultMaxBuffer_ReturnsTheDiff', async () => {
-    const root = await repoWithDiffOfAtLeast(2 * 1024 * 1024);
-    try {
-      const diff = await isolatedSync(() => getDiff(root, 'main'));
-      expect(diff).not.toBeNull();
-      expect(diff!.length).toBeGreaterThan(1024 * 1024);
-      expect(diff).toContain('big.txt');
-    } finally {
-      rmrf(root);
-    }
-  });
-
-  /** The negative control: a `getDiff` that never returns null fails this test. */
-  it('getDiff_UnresolvableBaseRef_ReturnsNull', async () => {
-    const root = await repoWithDiffOfAtLeast(1024);
-    try {
-      expect(await isolatedSync(() => getDiff(root, 'no-such-base-ref'))).toBeNull();
-    } finally {
-      rmrf(root);
-    }
   });
 });

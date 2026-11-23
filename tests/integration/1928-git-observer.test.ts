@@ -291,27 +291,7 @@ describe('closed reads of the current checkout', () => {
    */
   it('PopulatedSubmoduleExternalDiff_ReachableButFullDiffRunsNone', async ({ skip }) => {
     if (process.platform !== 'linux') return skip();
-    const root = await mkdtemp(join(tmpdir(), '1928-observer-sub-')); roots.push(root);
-    const { program, marker } = await markerProgram(root);
-    const child = join(root, 'child'); const superproject = join(root, 'super');
-    await mkdir(child); await git(child, 'init', '-q', '-b', 'main');
-    await writeFile(join(child, 'f.txt'), 'one\n'); await git(child, 'add', '.'); await git(child, 'commit', '-q', '-m', 'one');
-    const first = await git(child, 'rev-parse', 'HEAD');
-    await writeFile(join(child, 'f.txt'), 'two\n'); await git(child, 'commit', '-q', '-am', 'two');
-    const second = await git(child, 'rev-parse', 'HEAD');
-    await mkdir(superproject); await git(superproject, 'init', '-q', '-b', 'main');
-    await writeFile(join(superproject, 'top.txt'), 'top\n'); await git(superproject, 'add', 'top.txt');
-    await git(superproject, '-c', 'protocol.file.allow=always', 'submodule', 'add', '-q', child, 'sub');
-    await git(join(superproject, 'sub'), 'checkout', '-q', first);
-    await git(superproject, 'add', 'sub'); await git(superproject, 'commit', '-q', '-m', 'A');
-    const before = await git(superproject, 'rev-parse', 'HEAD');
-    await git(join(superproject, 'sub'), 'checkout', '-q', second);
-    await git(superproject, 'add', 'sub'); await git(superproject, 'commit', '-q', '-m', 'B');
-    const after = await git(superproject, 'rev-parse', 'HEAD');
-    await git(superproject, 'config', 'diff.submodule', 'diff');
-    await git(join(superproject, 'sub'), 'config', 'diff.external', program);
-
-    await git(superproject, 'diff', before, after); await expectMarkerRan(marker);
+    const { superproject, before, after, marker } = await populatedSubmoduleFixture();
 
     const observer = await createGitObserver(gitExecutable);
     const selected = await observer.current(superproject);
@@ -322,7 +302,52 @@ describe('closed reads of the current checkout', () => {
     expect((await observer.reads.nameOnly(gitDir, checkout, before, after)).trim()).toBe('sub');
     await expect(readFile(marker)).rejects.toMatchObject({ code: 'ENOENT' });
   });
+
+  /**
+   * The governed `diff` operation also passes `--submodule=short`. The closed read and the registered-checkout form both show the gitlink as a short subproject line.
+   * The submodule `diff.external` marker never runs.
+   */
+  it('PopulatedSubmoduleExternalDiff_GovernedDiffOperationRunsNone', async ({ skip }) => {
+    if (process.platform !== 'linux') return skip();
+    const { superproject, before, after, marker } = await populatedSubmoduleFixture();
+
+    const observer = await createGitObserver(gitExecutable);
+    const selected = await observer.current(superproject);
+    if (selected.kind !== 'observed') throw new Error(selected.reason);
+    const { gitDir, checkout, repository, branch } = selected.value;
+    expect(await observer.reads.diff(gitDir, checkout, before, after)).toContain('Subproject commit');
+    expect(await observer.diff({ checkout, repository, branch }, before, after)).toMatchObject({ kind: 'observed', value: expect.stringContaining('Subproject commit') });
+    await expect(readFile(marker)).rejects.toMatchObject({ code: 'ENOENT' });
+  });
 });
+
+/**
+ * A superproject with `diff.submodule=diff` and a populated submodule whose own config sets `diff.external` to a marker program.
+ * Two commits change the gitlink. A plain `git diff` of the two commits runs the marker, which proves that the callback is reachable.
+ */
+async function populatedSubmoduleFixture(): Promise<{ readonly superproject: string; readonly before: string; readonly after: string; readonly marker: string }> {
+  const root = await mkdtemp(join(tmpdir(), '1928-observer-sub-')); roots.push(root);
+  const { program, marker } = await markerProgram(root);
+  const child = join(root, 'child'); const superproject = join(root, 'super');
+  await mkdir(child); await git(child, 'init', '-q', '-b', 'main');
+  await writeFile(join(child, 'f.txt'), 'one\n'); await git(child, 'add', '.'); await git(child, 'commit', '-q', '-m', 'one');
+  const first = await git(child, 'rev-parse', 'HEAD');
+  await writeFile(join(child, 'f.txt'), 'two\n'); await git(child, 'commit', '-q', '-am', 'two');
+  const second = await git(child, 'rev-parse', 'HEAD');
+  await mkdir(superproject); await git(superproject, 'init', '-q', '-b', 'main');
+  await writeFile(join(superproject, 'top.txt'), 'top\n'); await git(superproject, 'add', 'top.txt');
+  await git(superproject, '-c', 'protocol.file.allow=always', 'submodule', 'add', '-q', child, 'sub');
+  await git(join(superproject, 'sub'), 'checkout', '-q', first);
+  await git(superproject, 'add', 'sub'); await git(superproject, 'commit', '-q', '-m', 'A');
+  const before = await git(superproject, 'rev-parse', 'HEAD');
+  await git(join(superproject, 'sub'), 'checkout', '-q', second);
+  await git(superproject, 'add', 'sub'); await git(superproject, 'commit', '-q', '-m', 'B');
+  const after = await git(superproject, 'rev-parse', 'HEAD');
+  await git(superproject, 'config', 'diff.submodule', 'diff');
+  await git(join(superproject, 'sub'), 'config', 'diff.external', program);
+  await git(superproject, 'diff', before, after); await expectMarkerRan(marker);
+  return { superproject, before, after, marker };
+}
 
 /** The located checkout of an observation, or a thrown failure with its reason. */
 function locatedOf(observation: Observation): ObservationalCheckout {
@@ -568,5 +593,39 @@ describe('the closed observational operations', () => {
     await expect(async () => reads.upstream(gitDir, checkout, 'refs/heads/*')).rejects.toThrow();
     await expect(async () => reads.diffStat(gitDir, checkout, `${f.base}..${f.head}`, f.head)).rejects.toThrow();
     await expect(async () => reads.diffStat(gitDir, checkout, f.base, '--output=/tmp/x')).rejects.toThrow();
+  });
+});
+
+/** The two query kinds of the decision helper. */
+const RELATION_KINDS: readonly ('ancestry' | 'merge-base')[] = ['ancestry', 'merge-base'];
+
+/** A Git exit failure with `code`, as `execFile` rejects. */
+function exitFailure(code: number | string | null): Error {
+  return Object.assign(new Error(`git failed with ${String(code)}`), { code });
+}
+
+describe('the decision helper exit rule', () => {
+  /**
+   * Only exit code 1 is a negative answer. With no shallow boundary, it gives `unrelated` for both query kinds.
+   * Exit codes 128, 129 and 2, a null code and ETIMEDOUT are failed reads, so they give `unreadable` and never `unrelated`.
+   */
+  it('DecideRelation_OnlyExitOneIsANegativeAnswer', async () => {
+    const f = await fixture();
+    const located = locatedOf(await locate(f.main));
+    expect(located.shallow).toEqual([]);
+    for (const code of [1, 128, 129, 2, null, 'ETIMEDOUT']) {
+      const failing: ObservationalCheckout = {
+        ...located,
+        reads: {
+          ...located.reads,
+          ancestry: async () => { throw exitFailure(code); },
+          mergeBase: async () => { throw exitFailure(code); },
+        },
+      };
+      for (const kind of RELATION_KINDS) {
+        const relation = await decideRelation(failing, kind, f.base, f.head);
+        expect(relation.kind, `${kind} ${String(code)}`).toBe(code === 1 ? 'unrelated' : 'unreadable');
+      }
+    }
   });
 });

@@ -2,6 +2,7 @@
  * @oracle-sources: SQLite original claim arrays, immutable bundle bytes, real Node assertion probes and Git argv.
  */
 import Database from 'better-sqlite3';
+import { devNull } from 'node:os';
 import { describe, expect, it } from 'vitest';
 import { RunBundleStore } from '../../src/events/bundle/run-bundle-store.js';
 import { ContentDigestV1Schema } from '../../src/workflow/admission/types.js';
@@ -23,7 +24,10 @@ describe('packaged S7 DAG races', () => {
       let ready: Record<string, unknown>;
       try { ready = await barrier.wait(); } finally { await process.stop(); }
       const tree = string(f.trees.get('T-01'));
-      expect(ready.argv).toEqual(['--no-optional-locks', '-c', 'core.fsmonitor=false', '-C', tree, 'status', '--porcelain', '--untracked-files=all']);
+      const gitDir = await f.git(['-C', tree, 'rev-parse', '--absolute-git-dir']);
+      expect(ready.argv).toEqual(['--no-lazy-fetch', '--no-replace-objects', '--no-optional-locks', '--no-pager',
+        '-c', 'core.fsmonitor=false', '-c', `core.hooksPath=${devNull}`, '-c', 'gc.auto=0', '-c', 'maintenance.auto=false',
+        '-c', 'core.commitGraph=false', '-c', 'protocol.allow=never', `--git-dir=${gitDir}`, `--work-tree=${tree}`, 'symbolic-ref', '--quiet', 'HEAD']);
       expect(ready.rows).toMatchObject([{ type: 'admission.evidence-recorded', data: { evidence: { verdict: 'pass' } } },
         { type: 'gate.executed', data: { passed: true, details: { taskId: 'T-01', worktree: tree, verdict: 'pass' } } }]);
       expect(ready.bindings).toHaveLength(1);

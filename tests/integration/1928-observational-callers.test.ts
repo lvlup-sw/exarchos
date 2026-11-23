@@ -508,7 +508,10 @@ describe('the mock-boundary diff and the prepare-synthesis changed files', () =>
     expect((await shimCalls()).filter((line) => /\bdiff\b/.test(line))).toHaveLength(0);
   });
 
-  /** A coordinate call reads only its two exact commits. An unusable connector and a detached checkout keep TASK_COORDINATE_REFUSED from the diff read. */
+  /**
+   * A coordinate call reads only its two exact commits. An unusable connector keeps TASK_COORDINATE_REFUSED from the diff read.
+   * A detached checkout refuses first in the selected checkout check, with TASK_COORDINATE_REFUSED.
+   */
   it('MockBoundary_CoordinateDiff_ExactCommitsAndRefusals', async () => {
     const root = await tempRoot('observational-coordinate-');
     const { main, base } = await repository(root, { 'package.json': '{}' });
@@ -531,9 +534,8 @@ describe('the mock-boundary diff and the prepare-synthesis changed files', () =>
 
     expect(exact.success, JSON.stringify(exact.error)).toBe(true);
     expect(mockTargets(exact)).toEqual(['axios']);
-    for (const refused of [unusable, detached]) {
-      expect(refused.error).toMatchObject({ code: 'TASK_COORDINATE_REFUSED', message: 'The immutable mock-boundary diff could not be read.' });
-    }
+    expect(unusable.error).toMatchObject({ code: 'TASK_COORDINATE_REFUSED', message: 'The immutable mock-boundary diff could not be read.' });
+    expect(detached.error).toMatchObject({ code: 'TASK_COORDINATE_REFUSED', message: 'The selected checkout is unavailable, changed or dirty.' });
   });
 
   /** A DIFF_ERROR through real dispatch keeps its code. */
@@ -550,6 +552,167 @@ describe('the mock-boundary diff and the prepare-synthesis changed files', () =>
     const result = await dispatch('exarchos_orchestrate', { action: 'check_mock_boundary', featureId: FEATURE, taskId: 'task', repoRoot: main, baseBranch: 'main' }, ctx);
 
     expect(result.error?.code, JSON.stringify(result.error)).toBe('DIFF_ERROR');
+  });
+});
+
+/** The safe flags that start each constrained read, before the explicit directories. */
+const SAFE_FLAGS = [
+  '--no-lazy-fetch', '--no-replace-objects', '--no-optional-locks', '--no-pager',
+  '-c', 'core.fsmonitor=false', '-c', `core.hooksPath=${devNull}`, '-c', 'gc.auto=0',
+  '-c', 'maintenance.auto=false', '-c', 'core.commitGraph=false', '-c', 'protocol.allow=never',
+];
+
+/** The capability probe of the constrained reader. */
+const VERSION_PROBE = ['--no-lazy-fetch', '--no-replace-objects', '--no-optional-locks', '--no-pager', '--version'].join(' ');
+
+/** The subcommands that the converted callers can run through the constrained reader. */
+const CONSTRAINED_SUBCOMMANDS = new Set(['merge-base', 'diff', 'rev-parse', 'symbolic-ref', 'worktree', 'cat-file', 'ls-tree', 'ls-files']);
+
+/** A recording Git executable at an absolute path. It logs each argument vector and runs the real Git. */
+async function recordingGit(root: string, name: string): Promise<{ readonly path: string; readonly calls: () => Promise<string[]> }> {
+  const log = join(root, `${name}.log`);
+  const path = join(root, name);
+  await writeFile(path, `#!/bin/sh\nprintf '%s\\n' "$*" >> '${log}'\nexec '${GIT}' "$@"\n`);
+  await chmod(path, 0o755);
+  return { path, calls: async () => { try { return (await readFile(log, 'utf8')).split('\n').filter(Boolean); } catch { return []; } } };
+}
+
+/** Assert that each recorded line is the capability probe or a constrained read with only the safe flags, and give the subcommands. */
+function constrainedSubcommands(lines: readonly string[]): string[] {
+  const subcommands: string[] = [];
+  for (const line of lines) {
+    if (line === VERSION_PROBE) continue;
+    const words = line.split(' ');
+    expect(words.slice(0, SAFE_FLAGS.length), line).toEqual(SAFE_FLAGS);
+    expect(words[SAFE_FLAGS.length], line).toMatch(/^--git-dir=\//);
+    expect(words[SAFE_FLAGS.length + 1], line).toMatch(/^--work-tree=\//);
+    const subcommand = words[SAFE_FLAGS.length + 2] ?? '';
+    expect(CONSTRAINED_SUBCOMMANDS.has(subcommand), line).toBe(true);
+    if (subcommand === 'diff') expect(words, line).toEqual(expect.arrayContaining(['--no-ext-diff', '--no-textconv']));
+    subcommands.push(subcommand);
+  }
+  return subcommands;
+}
+
+/** The three diff gates and the unprovisioned or provisioned mock-boundary call of one task checkout. */
+const CONVERTED_ACTIONS = ['check_context_economy', 'check_operational_resilience', 'check_workflow_determinism', 'check_mock_boundary'];
+
+/** A main checkout with a task branch that adds one test file with an unowned mock. */
+async function convertedFixture(root: string): Promise<string> {
+  const { main } = await repository(root, { 'package.json': '{}' });
+  await git(main, 'checkout', '-q', '-b', 'task');
+  await commitIn(main, 'task mock', { 'src/t.test.ts': "vi.mock('axios');\ntest('t', () => {});\n" });
+  return main;
+}
+
+describe('converted observational callers: the recording Git path', () => {
+  /**
+   * On a provisioned route, the three diff gates and the mock-boundary diff read through the connector Git path.
+   * The producer observes its directory through the process-wide path. No PATH Git starts, and each recorded read holds only the safe flags.
+   */
+  it('ConvertedCallers_ConnectorGitPath_EveryReadIsAConstrainedRecordedRead', async ({ skip }) => {
+    if (process.platform === 'win32') return skip();
+    const root = await tempRoot('observational-converted-connector-');
+    const main = await convertedFixture(root);
+    const connectorGit = await recordingGit(root, 'connector-git');
+    const processGit = await recordingGit(root, 'process-git');
+    cleanups.push(async () => { primeObservationalGitPath(GIT); });
+    primeObservationalGitPath(processGit.path);
+    const { stateDir, store } = await storeWith(FEATURE, 'review');
+    const shimCalls = await pathShim(root);
+
+    for (const action of CONVERTED_ACTIONS) {
+      const result = await orchestrate(stateDir, store, { action, featureId: FEATURE, taskId: 'task', repoRoot: main, baseBranch: 'main' }, { verificationHost: connector(connectorGit.path) });
+      expect(result.success, `${action} ${JSON.stringify(result.error)}`).toBe(true);
+    }
+
+    const connectorSubcommands = constrainedSubcommands(await connectorGit.calls());
+    expect(connectorSubcommands.filter((subcommand) => subcommand === 'merge-base')).toHaveLength(CONVERTED_ACTIONS.length);
+    expect(connectorSubcommands.filter((subcommand) => subcommand === 'diff')).toHaveLength(CONVERTED_ACTIONS.length);
+    const processSubcommands = constrainedSubcommands(await processGit.calls());
+    expect(processSubcommands).toContain('worktree');
+    expect(processSubcommands).not.toContain('diff');
+    expect(await shimCalls()).toHaveLength(0);
+  });
+
+  /**
+   * With no connector, the three diff gates, the mock-boundary diff and the producer read through the process-wide path that startup primed.
+   * No PATH Git starts, and each recorded read holds only the safe flags. No read runs status.
+   */
+  it('ConvertedCallers_NoConnector_ReadThroughTheProcessWidePath', async ({ skip }) => {
+    if (process.platform === 'win32') return skip();
+    const root = await tempRoot('observational-converted-process-');
+    const main = await convertedFixture(root);
+    const processGit = await recordingGit(root, 'process-git');
+    cleanups.push(async () => { primeObservationalGitPath(GIT); });
+    primeObservationalGitPath(processGit.path);
+    const { stateDir, store } = await storeWith(FEATURE, 'review');
+    const shimCalls = await pathShim(root);
+
+    for (const action of CONVERTED_ACTIONS) {
+      const result = await orchestrate(stateDir, store, { action, featureId: FEATURE, taskId: 'task', repoRoot: main, baseBranch: 'main' });
+      expect(result.success, `${action} ${JSON.stringify(result.error)}`).toBe(true);
+    }
+    const mock = await orchestrate(stateDir, store, { action: 'check_mock_boundary', featureId: FEATURE, taskId: 'task-two', repoRoot: main, baseBranch: 'main' });
+    expect(mockTargets(mock)).toEqual(['axios']);
+
+    const subcommands = constrainedSubcommands(await processGit.calls());
+    expect(subcommands.filter((subcommand) => subcommand === 'diff')).toHaveLength(CONVERTED_ACTIONS.length + 1);
+    expect(subcommands).toContain('worktree');
+    expect(await shimCalls()).toHaveLength(0);
+  });
+
+  /**
+   * With no connector, a failed mock-boundary read gives DIFF_ERROR and never zero findings.
+   * A base named `HEAD`, a base that no ref names and a directory that no checkout holds refuse. The control with base `main` reports the task mock.
+   */
+  it('ConvertedCallers_NoConnector_FailedMockBoundaryReadGivesDiffError', async () => {
+    const root = await tempRoot('observational-converted-refused-');
+    const main = await convertedFixture(root);
+    const outside = join(root, 'outside');
+    await mkdir(outside);
+    const { stateDir, store } = await storeWith(FEATURE, 'review');
+    const call = (repoRoot: string, baseBranch: string) =>
+      orchestrate(stateDir, store, { action: 'check_mock_boundary', featureId: FEATURE, taskId: 'task', repoRoot, baseBranch });
+
+    const control = await call(main, 'main');
+    const refused = [await call(main, 'HEAD'), await call(main, 'no-such-branch'), await call(outside, 'main')];
+
+    expect(mockTargets(control)).toEqual(['axios']);
+    for (const result of refused) {
+      expect(result.success, JSON.stringify(result)).toBe(false);
+      expect(result.error?.code).toBe('DIFF_ERROR');
+    }
+  });
+
+  /**
+   * With an unusable connector, the three diff gates read through the process-wide path, because their Git path selector maps an empty path to none.
+   * Mock boundary keeps the empty connector path, so it refuses with DIFF_ERROR and reads no diff through the process-wide path.
+   */
+  it('ConvertedCallers_UnusableConnector_DiffGatesUseTheProcessPathAndMockBoundaryRefuses', async ({ skip }) => {
+    if (process.platform === 'win32') return skip();
+    const root = await tempRoot('observational-converted-unusable-');
+    const main = await convertedFixture(root);
+    const processGit = await recordingGit(root, 'process-git');
+    cleanups.push(async () => { primeObservationalGitPath(GIT); });
+    primeObservationalGitPath(processGit.path);
+    const { stateDir, store } = await storeWith(FEATURE, 'review');
+    const shimCalls = await pathShim(root);
+
+    for (const action of CONVERTED_ACTIONS.slice(0, 3)) {
+      const result = await orchestrate(stateDir, store, { action, featureId: FEATURE, repoRoot: main, baseBranch: 'main' }, { verificationHost: connector('') });
+      expect(result.success, `${action} ${JSON.stringify(result.error)}`).toBe(true);
+    }
+    const gateDiffs = constrainedSubcommands(await processGit.calls()).filter((subcommand) => subcommand === 'diff');
+    expect(gateDiffs).toHaveLength(3);
+
+    const mock = await orchestrate(stateDir, store, { action: 'check_mock_boundary', featureId: FEATURE, taskId: 'task', repoRoot: main, baseBranch: 'main' }, { verificationHost: connector('') });
+
+    expect(mock.error?.code).toBe('DIFF_ERROR');
+    const after = constrainedSubcommands(await processGit.calls());
+    expect(after.filter((subcommand) => subcommand === 'diff')).toHaveLength(3);
+    expect(after.filter((subcommand) => subcommand === 'merge-base')).toHaveLength(3);
+    expect(await shimCalls()).toHaveLength(0);
   });
 });
 

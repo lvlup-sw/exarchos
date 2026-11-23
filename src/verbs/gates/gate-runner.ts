@@ -970,6 +970,18 @@ async function uncommittedTreeRefusal(reads: ObserverReads, gitDir: string, chec
 }
 
 /**
+ * True when the closed listings show a clean tree at the exact head of one observed checkout. It runs no status and no checkout filter.
+ * The durable gate producer uses it for a selected coordinate checkout. A failed listing, an unsupported entry or a tree beyond the bounds gives false.
+ */
+export async function closedListingCleanTree(reads: ObserverReads, gitDir: string, checkout: string, head: string): Promise<boolean> {
+  try {
+    return await uncommittedTreeRefusal(reads, gitDir, checkout, head) === undefined;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Run one lifecycle check in the verifier under the operator identity of its checkout and approved command.
  * The request binds the operation, the checkout subject, the resource, the observed head and the command digest, so the same head reads the original.
  * Admission reuses the exchange helpers, and the signed resource must name the path, device and inode of the judged checkout.
@@ -1069,7 +1081,7 @@ export function hostedPendingResult(error: unknown): ToolResult {
  * The verifier host of the standalone test verb. It runs the test command as a lifecycle check with no stream.
  * An uncommitted tree refuses before any exchange, so a stored original of the same head never stands in for the edited tree.
  * A dirty checkout, a host refusal and a key conflict refuse. A busy, incomplete or pending verifier and a leg with no verdict are unavailable.
- * Without a connector it gives no host, and the verb keeps its legacy route.
+ * Without a connector it gives no host, and an actual run of the verb then runs nothing and exits 78.
  */
 export function standaloneTestHost(connector?: VerificationHostConnector): RunTestsHost | undefined {
   if (connector === undefined) return undefined;

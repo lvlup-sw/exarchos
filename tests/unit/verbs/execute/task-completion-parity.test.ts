@@ -6,11 +6,31 @@
 // with the same seed. The test compares event types, order, streams, and payloads.
 //
 // The test covers two of the five leaves. Three leaves call git and the project toolchain, so
-// their verdicts depend on the machine. The two kept leaves, `check_mock_boundary` and
-// `task_complete`, decide in the process on a bare fixture workspace. Their steps come unchanged
-// from the shipped runbook. On both paths, the advisory gate passes and the terminal leaf refuses.
+// their verdicts depend on the machine. The two kept leaves are `check_mock_boundary` and `task_complete`.
+// Their steps come unchanged from the shipped runbook. On both paths, the advisory gate passes and the terminal leaf refuses.
+//
+// `check_mock_boundary` reads a constrained diff. The test replaces that read with an empty diff, so the leaf decides in the process.
+// `task_complete` decides in the process on a bare fixture workspace.
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
+import type { ConstrainedDiffRange, ConstrainedDiffRead } from '../../../../src/verbs/gates/gate-utils.js';
+
+/** The ranges that the replaced constrained diff read saw, in call order, on both paths. */
+const { diffReads } = vi.hoisted(() => {
+  const reads: ConstrainedDiffRange[] = [];
+  return { diffReads: reads };
+});
+
+vi.mock('../../../../src/verbs/gates/gate-utils.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../../../src/verbs/gates/gate-utils.js')>();
+  return {
+    ...actual,
+    readConstrainedDiff: async (_gitPath: string | undefined, _repoRoot: string, range: ConstrainedDiffRange): Promise<ConstrainedDiffRead> => {
+      diffReads.push(range);
+      return { kind: 'diff', diff: '', head: 'a'.repeat(40) };
+    },
+  };
+});
 import * as path from 'node:path';
 import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -139,6 +159,7 @@ async function seed(store: EventStore): Promise<void> {
 }
 
 beforeEach(async () => {
+  diffReads.length = 0;
   baselineDir = await mkdtemp(path.join(tmpdir(), 'execute-intent-parity-base-'));
   executorDir = await mkdtemp(path.join(tmpdir(), 'execute-intent-parity-exec-'));
   baselineStore = new EventStore(baselineDir);
@@ -197,6 +218,7 @@ describe('task-completion over the no-shell leaf subset', () => {
     const baseline = await runWithDispatchContext(correlation, () =>
       runPrimitiveBaseline(fixtureWiring(baselineDir, baselineStore)),
     );
+    const baselineReads = diffReads.splice(0);
 
     const executed = await runWithDispatchContext(correlation, () =>
       handleExecuteIntent(
@@ -216,6 +238,8 @@ describe('task-completion over the no-shell leaf subset', () => {
     const executorEvents = await executorStore.query(STREAM);
 
     expect(leafFacts(executorEvents)).toEqual(leafFacts(baselineEvents));
+    expect(baselineReads).toEqual([{ kind: 'base', base: INTENT_ARGS.baseRef }]);
+    expect(diffReads).toEqual(baselineReads);
 
     const types = baselineEvents.map((event) => event.type);
     expect(types).toEqual([

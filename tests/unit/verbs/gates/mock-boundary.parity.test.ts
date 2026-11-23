@@ -5,13 +5,20 @@
  * `ToolResult`, except for wall-clock fields.
  *
  * The composite stub forwards the action to the real `handleMockBoundary`. A
- * mock of `detectMockFindings` keeps the gate deterministic and away from git.
+ * mock of `detectMockFindings` keeps the gate deterministic. A mock of the
+ * constrained diff read gives an empty diff, so the gate reads no Git.
  */
 
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
+import type { ConstrainedDiffRead } from '../../../../src/verbs/gates/gate-utils.js';
+
+vi.mock('../../../../src/verbs/gates/gate-utils.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../../../src/verbs/gates/gate-utils.js')>();
+  return { ...actual, readConstrainedDiff: async (): Promise<ConstrainedDiffRead> => ({ kind: 'diff', diff: '', head: 'a'.repeat(40) }) };
+});
 
 /** Both arms read this mock, so they compute the same result. */
 const mockDetectMockFindings = vi.fn();

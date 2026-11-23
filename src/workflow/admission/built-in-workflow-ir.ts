@@ -9,7 +9,7 @@
  * Route conditions and presence probes use one fact vocabulary, {@link FACT_DECLARATION}.
  * The `legacy-state-translation` module projects legacy state into it. Nothing here reads state.
  *
- * This module has no import path to a legacy guard module: `guards.ts`, `hsm-definitions.ts`, `config/guards.ts` or `config/register.ts`.
+ * This module has no import path to a legacy guard module: `guards.ts`, `hsm-definitions.ts` or `config/register.ts`.
  * `built-in-workflow-ir.structure.test.ts` proves this.
  */
 

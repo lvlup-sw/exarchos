@@ -150,7 +150,7 @@ export function vacuityWaiver(
 
 /**
  * The escape for actions outside the built-in registry, which have no census id: `.exarchos.yml`
- * custom tools (`config/register.ts`) and the oracle registration probe
+ * custom tools (`registry/custom-tools.ts`) and the oracle registration probe
  * (`contract/oracle/fixtures.ts`). Their names come from config or a fixture, so no literal union
  * can cover them.
  *

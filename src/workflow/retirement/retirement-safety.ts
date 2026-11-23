@@ -318,15 +318,14 @@ export const LEGACY_AUTHORITIES: readonly LegacyAuthority[] = Object.freeze([
     kind: 'legacy-guard',
     summary:
       'The legacy HSM transition-guard registry — guard predicates (guards.ts), ' +
-      'composite guards (hsm-definitions.ts), the guard executor (hsm-transition-guard.ts) and ' +
-      'the config guard bridge (config/guards.ts). The edge conditions of the definitions decide each built-in ' +
+      'composite guards (hsm-definitions.ts) and the guard executor (hsm-transition-guard.ts). ' +
+      'The edge conditions of the definitions decide each built-in ' +
       'transition. The registry still decides the custom types of the workflows config key, and it gives the ' +
       'denial text and feeds the admission live shadow until cutover.',
     modules: [
       'workflow/guards.ts',
       'workflow/hsm-definitions.ts',
       'workflow/hsm-transition-guard.ts',
-      'config/guards.ts',
     ],
     liveBehaviorTests: ['workflow/guards.test.ts', 'workflow/hsm-transition-guard.test.ts'],
     cutoverGated: true,

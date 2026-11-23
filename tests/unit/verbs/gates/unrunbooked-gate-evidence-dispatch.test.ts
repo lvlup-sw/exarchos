@@ -262,8 +262,8 @@ describe('gates that declare durable evidence pay it on dispatch', () => {
     await expectsEvidence(stream, {
       action: 'check_context_economy',
       featureId: stream,
-      repoRoot: process.cwd(),
-      baseBranch: 'HEAD',
+      repoRoot: await fixtureCheckout(),
+      baseBranch: 'main',
     });
   });
 
@@ -273,8 +273,8 @@ describe('gates that declare durable evidence pay it on dispatch', () => {
     await expectsEvidence(stream, {
       action: 'check_operational_resilience',
       featureId: stream,
-      repoRoot: process.cwd(),
-      baseBranch: 'HEAD',
+      repoRoot: await fixtureCheckout(),
+      baseBranch: 'main',
     });
   });
 
@@ -284,8 +284,8 @@ describe('gates that declare durable evidence pay it on dispatch', () => {
     await expectsEvidence(stream, {
       action: 'check_workflow_determinism',
       featureId: stream,
-      repoRoot: process.cwd(),
-      baseBranch: 'HEAD',
+      repoRoot: await fixtureCheckout(),
+      baseBranch: 'main',
     });
   });
 

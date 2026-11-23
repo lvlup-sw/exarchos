@@ -102,6 +102,14 @@ vi.mock('../../../src/verbs/gates/mock-boundary.js', async (importActual) => {
   };
 });
 
+vi.mock('../../../src/verbs/gates/gate-utils.js', async (importActual) => {
+  const actual = await importActual<typeof import('../../../src/verbs/gates/gate-utils.js')>();
+  return {
+    ...actual,
+    readConstrainedDiff: async () => ({ kind: 'diff', diff: '', head: 'a'.repeat(40) }),
+  };
+});
+
 vi.mock('../../../src/verbs/gates/gate-severity.js', () => ({
   resolveGateSeverity: () => controls.mockSeverity,
 }));
@@ -292,7 +300,6 @@ describe('migrated ladder gate durable evidence', () => {
         case 'mock-boundary':
           return handleMockBoundary({
             ...common,
-            gitExec: () => ({ stdout: '', exitCode: 0 }),
             loadConfig: () => controls.mockConfig,
           }, root, eventStore);
       }

@@ -266,9 +266,8 @@ import type { WorkflowDefinition, GuardDefinition } from '../config/define.js';
 export type { WorkflowDefinition };
 
 /**
- * Creates a pass-through Guard from a config guard definition. The HSM `evaluate` is synchronous, but a custom guard runs an external command.
- * Thus `hsm-transition-guard.ts` runs `executeGuard` from `config/guards.ts` before the transition, and blocks it when the guard fails.
- * Built-in guards in `workflow/guards.ts` evaluate inline and synchronously. Only custom guards need `executeGuard`.
+ * Creates a pass-through Guard from a config guard definition. The guard always passes, because no module runs a custom guard command at a transition.
+ * Built-in guards in `workflow/guards.ts` evaluate inline and synchronously.
  */
 function createGuardFromDefinition(guardId: string, guardDef: GuardDefinition): Guard {
   return {

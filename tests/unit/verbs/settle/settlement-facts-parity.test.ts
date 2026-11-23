@@ -9,8 +9,27 @@
 //
 // Parity covers two of the five leaves: `check_mock_boundary` and `task_complete`. The other three run git and the project toolchain.
 // Both stores hold the `static-analysis` gate result that `task_complete` requires, so the two streams differ only by the path that completed the tasks.
+// `check_mock_boundary` reads a constrained diff. The test replaces that read with an empty diff, so the leaf decides in the process on both paths.
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
+import type { ConstrainedDiffRange, ConstrainedDiffRead } from '../../../../src/verbs/gates/gate-utils.js';
+
+/** The ranges that the replaced constrained diff read saw, in call order, on both paths. */
+const { diffReads } = vi.hoisted(() => {
+  const reads: ConstrainedDiffRange[] = [];
+  return { diffReads: reads };
+});
+
+vi.mock('../../../../src/verbs/gates/gate-utils.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../../../src/verbs/gates/gate-utils.js')>();
+  return {
+    ...actual,
+    readConstrainedDiff: async (_gitPath: string | undefined, _repoRoot: string, range: ConstrainedDiffRange): Promise<ConstrainedDiffRead> => {
+      diffReads.push(range);
+      return { kind: 'diff', diff: '', head: 'a'.repeat(40) };
+    },
+  };
+});
 import * as path from 'node:path';
 import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -182,6 +201,7 @@ async function seed(dir: string, store: EventStore): Promise<void> {
 }
 
 beforeEach(async () => {
+  diffReads.length = 0;
   baselineDir = await mkdtemp(path.join(tmpdir(), 'settlement-parity-base-'));
   settleDir = await mkdtemp(path.join(tmpdir(), 'settlement-parity-settle-'));
   baselineStore = new EventStore(baselineDir);
@@ -311,7 +331,10 @@ describe('settlement composition — parity with completing each task by hand', 
    */
   it('SettlementParity_ASettledBatch_LeavesTheSameLeafFacts', async () => {
     await completeByHand();
+    const byHandReads = diffReads.splice(0);
     await settleTheBatch();
+    expect(byHandReads).toEqual(TASK_IDS.map(() => ({ kind: 'base', base: INTEGRATION_BRANCH })));
+    expect(diffReads).toEqual(byHandReads);
 
     const baseline = leafFacts(await baselineStore.query(STREAM));
     const settled = leafFacts(await settleStore.query(STREAM));

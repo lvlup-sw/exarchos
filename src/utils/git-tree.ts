@@ -409,7 +409,7 @@ export async function createConstrainedGitReads(executable: string) {
     commit: (gitDir: string, checkout: string, branch: string) => run(gitDir, checkout, ['rev-parse', '--verify', '--end-of-options', `${constrainedBranchRef(branch)}^{commit}`]),
     requireCommit: (gitDir: string, checkout: string, id: string) => run(gitDir, checkout, ['cat-file', '-e', `${constrainedCommitId(id)}^{commit}`]),
     ancestry: (gitDir: string, checkout: string, ancestor: string, descendant: string) => run(gitDir, checkout, ['merge-base', '--is-ancestor', constrainedCommitId(ancestor), constrainedCommitId(descendant)]),
-    diff: (gitDir: string, checkout: string, base: string, head: string) => run(gitDir, checkout, ['diff', '--no-ext-diff', '--no-textconv', '--no-renames', constrainedCommitId(base), constrainedCommitId(head), '--']),
+    diff: (gitDir: string, checkout: string, base: string, head: string) => run(gitDir, checkout, ['diff', '--no-ext-diff', '--no-textconv', '--no-renames', '--submodule=short', constrainedCommitId(base), constrainedCommitId(head), '--']),
     nameStatus: (gitDir: string, checkout: string, base: string, head: string) => run(gitDir, checkout, [
       'diff', '--name-status', '-z', '--no-ext-diff', '--no-textconv', '--no-renames',
       constrainedCommitId(base), constrainedCommitId(head), '--',
@@ -464,6 +464,15 @@ function searchPathForGit(): string | undefined {
  */
 export function primeObservationalGitPath(gitPath?: string): void {
   observationalGitPath = { path: gitPath !== undefined && gitPath !== '' ? gitPath : searchPathForGit() };
+}
+
+/**
+ * The process-wide Git path of the observational reads. It gives the primed path.
+ * An unprimed process sets the path with one PATH search and starts no process. No Git on PATH gives no path, and the function never gives a bare `git` name.
+ */
+export function processObservationalGitPath(): string | undefined {
+  observationalGitPath ??= { path: searchPathForGit() };
+  return observationalGitPath.path;
 }
 
 /**

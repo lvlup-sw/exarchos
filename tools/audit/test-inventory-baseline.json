@@ -7,8 +7,8 @@
     "testFiles": 1510,
     "parsedFiles": 1466,
     "shellFiles": 44,
-    "cases": 16805,
-    "dynamicTitles": 336,
+    "cases": 16831,
+    "dynamicTitles": 339,
     "unparseableFiles": 0
   },
   "unparseable": [],
@@ -10309,6 +10309,11 @@
           "dynamic": false
         },
         {
+          "suite": "closed reads of the current checkout",
+          "name": "PopulatedSubmoduleExternalDiff_GovernedDiffOperationRunsNone",
+          "dynamic": false
+        },
+        {
           "suite": "the observational located form and its storage policy",
           "name": "LocatedAndHeadForms_SubdirectoryLinkedDetachedAndUnborn",
           "dynamic": false
@@ -10356,6 +10361,11 @@
         {
           "suite": "the closed observational operations",
           "name": "ObservationalOperations_RefuseRevisionExpressionsAndOptions",
+          "dynamic": false
+        },
+        {
+          "suite": "the decision helper exit rule",
+          "name": "DecideRelation_OnlyExitOneIsANegativeAnswer",
           "dynamic": false
         }
       ]
@@ -10550,6 +10560,26 @@
         {
           "suite": "the mock-boundary diff and the prepare-synthesis changed files",
           "name": "MockBoundary_DiffErrorThroughRealDispatch_KeepsItsCode",
+          "dynamic": false
+        },
+        {
+          "suite": "converted observational callers: the recording Git path",
+          "name": "ConvertedCallers_ConnectorGitPath_EveryReadIsAConstrainedRecordedRead",
+          "dynamic": false
+        },
+        {
+          "suite": "converted observational callers: the recording Git path",
+          "name": "ConvertedCallers_NoConnector_ReadThroughTheProcessWidePath",
+          "dynamic": false
+        },
+        {
+          "suite": "converted observational callers: the recording Git path",
+          "name": "ConvertedCallers_NoConnector_FailedMockBoundaryReadGivesDiffError",
+          "dynamic": false
+        },
+        {
+          "suite": "converted observational callers: the recording Git path",
+          "name": "ConvertedCallers_UnusableConnector_DiffGatesUseTheProcessPathAndMockBoundaryRefuses",
           "dynamic": false
         },
         {
@@ -11714,6 +11744,16 @@
           "suite": "",
           "name": "<dynamic-case-5>",
           "dynamic": true
+        },
+        {
+          "suite": "",
+          "name": "DataOnly_Startup_StartsNoGitWithProvisioningAbsentUnusableOrUsable",
+          "dynamic": false
+        },
+        {
+          "suite": "",
+          "name": "<dynamic-case-6>",
+          "dynamic": true
         }
       ]
     },
@@ -11963,6 +12003,26 @@
         {
           "suite": "",
           "name": "<dynamic-case-5>",
+          "dynamic": true
+        },
+        {
+          "suite": "",
+          "name": "ObservationalReads_ConvertedCallers_PathShimRunsOnlyConstrainedReads",
+          "dynamic": false
+        },
+        {
+          "suite": "",
+          "name": "<dynamic-case-6>",
+          "dynamic": true
+        },
+        {
+          "suite": "",
+          "name": "ObservationalReads_ConvertedCallers_ProvisionedRecordingGitPathRunsOnlyConstrainedReads",
+          "dynamic": false
+        },
+        {
+          "suite": "",
+          "name": "<dynamic-case-7>",
           "dynamic": true
         }
       ]
@@ -56875,7 +56935,7 @@
         },
         {
           "suite": "task-completion leaf that returns a stored completion row",
-          "name": "StoredCompletionAndAStaleStateDocument_HaltsOnTheRowsOfTheLeafAndAppendsNoRow",
+          "name": "StoredCompletionAndAStaleStateDocument_PassesOnTheStoredRowAndAppendsNoRow",
           "dynamic": false
         }
       ]
@@ -57522,6 +57582,21 @@
           "suite": "handleContextEconomy > gate event append failure",
           "name": "ContextEconomy_GateEventAppendFails_WithholdsTheSuccessCarrier",
           "dynamic": false
+        },
+        {
+          "suite": "handleContextEconomy constrained base diff",
+          "name": "ContextEconomy_NoMergeBase_GivesDiffErrorAndNoFindings",
+          "dynamic": false
+        },
+        {
+          "suite": "handleContextEconomy constrained base diff",
+          "name": "ContextEconomy_HeadBase_GivesDiffErrorAndNoFindings",
+          "dynamic": false
+        },
+        {
+          "suite": "handleContextEconomy constrained base diff",
+          "name": "ContextEconomy_NoGitPath_GivesDiffErrorAndNoFindings",
+          "dynamic": false
         }
       ]
     },
@@ -57764,6 +57839,41 @@
         {
           "suite": "readGateEvidenceRecords",
           "name": "ReadGateEvidenceRecords_SupersededAndFailingRecords_StayInTheMap",
+          "dynamic": false
+        },
+        {
+          "suite": "runDurableGateProducer — the selected coordinate checkout",
+          "name": "SelectedCheckout_CleanFilterMarker_NeverRunsAndTheCleanCheckoutPasses",
+          "dynamic": false
+        },
+        {
+          "suite": "runDurableGateProducer — the selected coordinate checkout",
+          "name": "SelectedCheckout_DirtyCheckout_Refuses",
+          "dynamic": false
+        },
+        {
+          "suite": "runDurableGateProducer — the selected coordinate checkout",
+          "name": "SelectedCheckout_WrongRepository_Refuses",
+          "dynamic": false
+        },
+        {
+          "suite": "runDurableGateProducer — the selected coordinate checkout",
+          "name": "SelectedCheckout_MovedHead_Refuses",
+          "dynamic": false
+        },
+        {
+          "suite": "runDurableGateProducer — the selected coordinate checkout",
+          "name": "SelectedCheckout_UnheldBase_Refuses",
+          "dynamic": false
+        },
+        {
+          "suite": "runDurableGateProducer — the scanned tree and the subject head",
+          "name": "ScannedTree_BranchUnbornDetachedAndOutsideCheckout_StampByTheConstrainedRule",
+          "dynamic": false
+        },
+        {
+          "suite": "runDurableGateProducer — the scanned tree and the subject head",
+          "name": "NoTaskRun_ObservedHead_CommitSubjectOnABranchAndArtifactWhenDetached",
           "dynamic": false
         }
       ]
@@ -58403,16 +58513,6 @@
         {
           "suite": "resolvePhaseMode",
           "name": "gatherKind_NoGates_DefaultsEnforce",
-          "dynamic": false
-        },
-        {
-          "suite": "getDiff",
-          "name": "getDiff_DiffLargerThanNodeDefaultMaxBuffer_ReturnsTheDiff",
-          "dynamic": false
-        },
-        {
-          "suite": "getDiff",
-          "name": "getDiff_UnresolvableBaseRef_ReturnsNull",
           "dynamic": false
         }
       ]
@@ -59148,6 +59248,21 @@
         {
           "suite": "handleOperationalResilience > gate event append failure",
           "name": "OperationalResilience_GateEventAppendFails_WithholdsTheSuccessCarrier",
+          "dynamic": false
+        },
+        {
+          "suite": "handleOperationalResilience constrained base diff",
+          "name": "OperationalResilience_NoMergeBase_GivesDiffErrorAndNoFindings",
+          "dynamic": false
+        },
+        {
+          "suite": "handleOperationalResilience constrained base diff",
+          "name": "OperationalResilience_HeadBase_GivesDiffErrorAndNoFindings",
+          "dynamic": false
+        },
+        {
+          "suite": "handleOperationalResilience constrained base diff",
+          "name": "OperationalResilience_NoGitPath_GivesDiffErrorAndNoFindings",
           "dynamic": false
         }
       ]
@@ -61343,6 +61458,21 @@
         {
           "suite": "handleWorkflowDeterminism > gate event append failure",
           "name": "WorkflowDeterminism_GateEventAppendFails_WithholdsTheSuccessCarrier",
+          "dynamic": false
+        },
+        {
+          "suite": "handleWorkflowDeterminism constrained base diff",
+          "name": "WorkflowDeterminism_NoMergeBase_GivesDiffErrorAndNoFindings",
+          "dynamic": false
+        },
+        {
+          "suite": "handleWorkflowDeterminism constrained base diff",
+          "name": "WorkflowDeterminism_HeadBase_GivesDiffErrorAndNoFindings",
+          "dynamic": false
+        },
+        {
+          "suite": "handleWorkflowDeterminism constrained base diff",
+          "name": "WorkflowDeterminism_NoGitPath_GivesDiffErrorAndNoFindings",
           "dynamic": false
         }
       ]

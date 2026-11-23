@@ -5,6 +5,9 @@
  * An unprovisioned process resolves Git once from PATH and never runs a Git from an empty or relative PATH entry.
  * A usable provisioning makes the connector Git path win, and each read runs with the constrained flags.
  * The startup prime gives that path to a provider detection that gets no Git path from its caller.
+ *
+ * The three diff gates, the mock-boundary diff and the gate producer read only through the constrained reader.
+ * This holds under the PATH shim and with a provisioned Git path.
  * Each Git shim gets the minimal environment of the reader and prints a real version line for the probe.
  */
 import { execFile } from 'node:child_process';
@@ -218,6 +221,75 @@ it.runIf(process.platform === 'linux')('ObservationalReads_UsableProvisioning_Pr
 
     const connector = await lines(f.logs.connector);
     expect(connector.some(line => / remote get-url origin$/.exec(line) !== null), comments.stdout + comments.stderr).toBe(true);
+    expect(await lines(f.logs.first)).toEqual([]);
+    expect(await lines(f.logs.second)).toEqual([]);
+  } finally { await f.close(); }
+}, 240000);
+
+/** The four converted callers that read a base diff of the task checkout, with their CLI arguments. */
+const CONVERTED_CALLERS: readonly (readonly string[])[] = [
+  ['check_context_economy'],
+  ['check_operational_resilience'],
+  ['check_workflow_determinism'],
+  ['check_mock_boundary', '--task-id', 'task'],
+];
+
+/** The safe flags that start each constrained read of the fixture repository, after the shim label. */
+const SAFE_READ_PREFIX = '--no-lazy-fetch --no-replace-objects --no-optional-locks --no-pager -c core.fsmonitor=false -c core.hooksPath=/dev/null '
+  + '-c gc.auto=0 -c maintenance.auto=false -c core.commitGraph=false -c protocol.allow=never ';
+
+/** Run the converted callers through the packaged CLI in a workflow of the fixture, and give each envelope. */
+async function runConvertedCallers(f: Awaited<ReturnType<typeof fixture>>, path: string): Promise<Record<string, unknown>[]> {
+  const init = await f.cli(['workflow', 'init', '--feature-id', 'converted', '--workflow-type', 'feature', '--json'], f.repo, path);
+  expect(envelope(init.stdout), init.stderr).toMatchObject({ success: true });
+  const results: Record<string, unknown>[] = [];
+  for (const [action, ...extra] of CONVERTED_CALLERS) {
+    const result = await f.cli(['orchestrate', action ?? '', '--feature-id', 'converted', '--repo-root', f.repo, '--base-branch', 'main', ...extra, '--json'], f.repo, path);
+    results.push(envelope(result.stdout));
+  }
+  return results;
+}
+
+/** Assert that each logged line of `label` is the capability probe or a constrained read of the repository, and give the full diff reads. */
+async function constrainedDiffReads(log: string, label: string, repo: string): Promise<string[]> {
+  const calls = await lines(log);
+  const reads = calls.filter(line => !line.endsWith(' --version'));
+  expect(calls.length - reads.length).toBeGreaterThan(0);
+  for (const read of reads) {
+    expect(read.startsWith(`${label} ${SAFE_READ_PREFIX}--git-dir=${repo}/.git --work-tree=${repo} `), read).toBe(true);
+    expect(read).not.toMatch(/ status /);
+  }
+  return reads.filter(read => / diff --no-ext-diff --no-textconv --submodule=short [0-9a-f]{40} [0-9a-f]{40} --$/.exec(read) !== null);
+}
+
+it.runIf(process.platform === 'linux')('ObservationalReads_ConvertedCallers_PathShimRunsOnlyConstrainedReads', async () => {
+  const f = await fixture();
+  try {
+    const path = [f.first, f.second, f.rest].join(delimiter);
+
+    const results = await runConvertedCallers(f, path);
+
+    for (const result of results) expect(result).toMatchObject({ success: true });
+    const repo = await realpath(f.repo);
+    expect(await constrainedDiffReads(f.logs.first, 'first', repo)).toHaveLength(CONVERTED_CALLERS.length);
+    expect((await lines(f.logs.first)).some(line => / worktree list --porcelain -z$/.exec(line) !== null)).toBe(true);
+    expect(await lines(f.logs.second)).toEqual([]);
+    expect(await lines(f.logs.connector)).toEqual([]);
+  } finally { await f.close(); }
+}, 240000);
+
+it.runIf(process.platform === 'linux')('ObservationalReads_ConvertedCallers_ProvisionedRecordingGitPathRunsOnlyConstrainedReads', async () => {
+  const f = await fixture();
+  try {
+    await f.provision();
+    const path = [f.first, f.second, f.rest].join(delimiter);
+
+    const results = await runConvertedCallers(f, path);
+
+    for (const result of results) expect(result).toMatchObject({ success: true });
+    const repo = await realpath(f.repo);
+    expect(await constrainedDiffReads(f.logs.connector, 'connector', repo)).toHaveLength(CONVERTED_CALLERS.length);
+    expect((await lines(f.logs.connector)).some(line => / worktree list --porcelain -z$/.exec(line) !== null)).toBe(true);
     expect(await lines(f.logs.first)).toEqual([]);
     expect(await lines(f.logs.second)).toEqual([]);
   } finally { await f.close(); }

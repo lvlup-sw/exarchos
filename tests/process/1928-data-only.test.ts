@@ -3,6 +3,7 @@
  * Prove through the packaged binary that governed startup and callbacks are data-only.
  * Each binary run gets a scratch HOME, so the verifier provisioning of the real machine cannot change a verdict.
  * A PATH Git shim records each call, and marker files show that no configuration, hook or test command ran locally.
+ * Startup starts no Git with the provisioning absent, unusable or usable, and packaged workflow init starts none.
  */
 import { createHash, generateKeyPairSync } from 'node:crypto';
 import { execFile, spawn, type ChildProcess } from 'node:child_process';
@@ -152,8 +153,9 @@ it.runIf(process.platform === 'linux')('DataOnly_OldTerminalWorkflow_ReadsWithNo
   const repo = await scopedRepository({ integrationBranch: 'integration', files: { 'README.md': 'fixture\n' } });
   try {
     const plain = { PATH: process.env.PATH ?? '' };
-    const init = await f.cli(['workflow', 'init', '--feature-id', 'old-terminal', '--workflow-type', 'feature', '--json'], repo.checkout, { env: plain });
+    const init = await f.cli(['workflow', 'init', '--feature-id', 'old-terminal', '--workflow-type', 'feature', '--json'], repo.checkout);
     expect(init.exitCode, init.stderr).toBe(0);
+    expect(await f.gitCalls()).toEqual([]);
     const cancel = await f.cli(['workflow', 'cancel', '--feature-id', 'old-terminal', '--reason', 'fixture', '--json'], repo.checkout, { env: plain });
     expect(record(JSON.parse(cancel.stdout)), cancel.stderr).toMatchObject({ success: true });
     const elsewhere = join(f.root, 'no-checkout');
@@ -306,4 +308,45 @@ it.runIf(process.platform === 'linux')('DataOnly_FormerExecutableConfigurationTy
     expect(refused.stderr.split('executable-configuration-retired').length - 1).toBe(1);
     expect(await exists(marker)).toBe(false);
   });
+}, 240000);
+
+/**
+ * Startup starts no Git with the provisioning absent, unusable or usable. The checkout config sets no `vcs.provider`, so the default provider applies.
+ * The usable provisioning names a recording wrapper as its client Git path, and neither that wrapper nor the PATH shim records a start.
+ */
+it.runIf(process.platform === 'linux')('DataOnly_Startup_StartsNoGitWithProvisioningAbsentUnusableOrUsable', async () => {
+  const f = await dataOnlyFixture();
+  const repo = await scopedRepository({ integrationBranch: 'integration', files: { 'README.md': 'fixture\n' } });
+  try {
+    const recordingLog = join(f.root, 'client-git.log');
+    const clientGit = join(f.root, 'client-git');
+    await writeFile(clientGit, `#!/bin/sh\necho "$@" >> ${JSON.stringify(recordingLog)}\nexec ${JSON.stringify(await onPath('git'))} "$@"\n`, { mode: 0o700 });
+    const startups = async (label: string) => {
+      const queried = await f.json(['event', 'query', '--stream', `startup-${label}`], repo.checkout);
+      expect(queried.envelope, `${label} ${queried.stderr}`).toMatchObject({ success: true });
+      const mcp = await f.mcp('exarchos_event', { action: 'query', stream: `startup-mcp-${label}` });
+      expect(mcp, label).toMatchObject({ success: true });
+    };
+
+    await startups('absent');
+    expect(await f.gitCalls()).toEqual([]);
+
+    await provision(f.home, { version: 1 }, 0o700);
+    await startups('unusable');
+    expect(await f.gitCalls()).toEqual([]);
+
+    const control = join(f.root, 'control');
+    await mkdir(control, { mode: 0o700 });
+    const tokenPath = join(control, 'token');
+    await writeFile(tokenPath, 'disposable-data-only-startup-token', { mode: 0o600 });
+    const publicKey = generateKeyPairSync('ed25519').publicKey.export({ format: 'pem', type: 'spki' }).toString();
+    await rmrfAsync(join(f.home, '.exarchos'));
+    await provision(f.home, { version: 1, socketPath: join(control, 's'), tokenPath, publicKey, gitPath: clientGit, resourceId: 'unused', profileId: 'unused' }, 0o700);
+    await startups('usable');
+    const init = await f.json(['workflow', 'init', '--feature-id', 'startup-usable', '--workflow-type', 'feature'], repo.checkout);
+    expect(init.envelope, init.stderr).toMatchObject({ success: true });
+
+    expect(await f.gitCalls()).toEqual([]);
+    expect(await exists(recordingLog)).toBe(false);
+  } finally { await f.close(); await rmrfAsync(repo.root); }
 }, 240000);
