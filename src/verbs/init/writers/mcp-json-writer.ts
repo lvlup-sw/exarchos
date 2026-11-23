@@ -12,6 +12,7 @@ import { promises as nodeFs } from 'node:fs';
 import { toPosix } from '../../../utils/paths.js';
 import type { ConfigWriteResult } from '../schema.js';
 import type { AgentRuntimeName } from '../../../runtime/agent-environment-detector.js';
+import { OPERATOR_MCP_ARGS } from '../../../runtime/agents/mcp-server-binding.js';
 import type { RuntimeConfigWriter, WriteOptions } from './writer.js';
 import type { WriterDeps } from '../probes.js';
 import {
@@ -54,13 +55,13 @@ export interface McpJsonWriterDeps {
 }
 
 /**
- * The project entry starts the `exarchos` binary on PATH with the `mcp` subcommand, as `.claude-plugin/plugin.json` does.
+ * The project entry starts the `exarchos` binary on PATH as the orchestrator server, with the same arguments as `.claude-plugin/plugin.json`.
  * The editor runs this command when it loads the project, and the file is often committed.
  * Thus the entry must not fetch a registry package, and it holds no path from the home directory of this host.
  */
 const EXARCHOS_MCP_ENTRY = {
   command: 'exarchos',
-  args: ['mcp'],
+  args: [...OPERATOR_MCP_ARGS],
   type: 'stdio',
 } as const;
 

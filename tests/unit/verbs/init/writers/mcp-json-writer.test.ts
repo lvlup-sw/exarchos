@@ -640,7 +640,7 @@ describe('DR-18 config promotion — existing merge semantics are unchanged', ()
     expect(parsed.mcpServers['other-server']).toEqual({ command: 'node', args: ['server.js'], type: 'stdio' });
     expect(parsed.mcpServers.exarchos).toEqual({
       command: 'exarchos',
-      args: ['mcp'],
+      args: ['mcp', '--operator'],
       type: 'stdio',
     });
     expect(fs.readFileSync(configPath, 'utf8').endsWith('}\n')).toBe(true);

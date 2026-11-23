@@ -80,7 +80,7 @@ describe('CopilotWriter', () => {
     const parsed = JSON.parse(written!);
     expect(parsed.mcpServers.exarchos).toBeDefined();
     expect(parsed.mcpServers.exarchos.command).toBe('exarchos');
-    expect(parsed.mcpServers.exarchos.args).toEqual(['mcp']);
+    expect(parsed.mcpServers.exarchos.args).toEqual(['mcp', '--operator']);
     expect(parsed.mcpServers.exarchos.type).toBe('stdio');
   });
 
