@@ -380,16 +380,17 @@ function persistenceFailure(error: unknown): ToolResult {
 /**
  * The carrier of a stored evidence record whose provider run had no stored local observation. No process starts for it.
  * It states the stored verdict and the stored report artifact. The skip and completeness marks come from the same-operation `gate.executed` row, when one exists.
+ * It reads the rows of the operation, as the passing replay does, and it appends nothing.
  */
 async function storedEvidenceCarrier(
   eventStore: Pick<EventStore, 'query'>, streamId: string, operationId: string, record: AdmissionEvidenceRecorded,
 ): Promise<ToolResult> {
   const { evidence } = record;
   const verdict = evidence.kind === 'gate' ? evidence.verdict : 'indeterminate';
-  const rows = await eventStore.query(streamId, { type: 'gate.executed' });
+  const rows = await eventStore.query(streamId, { operationId });
   const details = rows.flatMap((row) => {
-    const signal = GateExecutedData.safeParse(row.data);
-    return signal.success && row.operationId === operationId && signal.data.details?.evidenceId === evidence.evidenceId ? [signal.data.details] : [];
+    const signal = row.type === 'gate.executed' ? GateExecutedData.safeParse(row.data) : undefined;
+    return signal?.success === true && signal.data.details?.evidenceId === evidence.evidenceId ? [signal.data.details] : [];
   })[0];
   const marks = readGateRowMarks(details);
   const report = evidence.artifactRefs?.[0];

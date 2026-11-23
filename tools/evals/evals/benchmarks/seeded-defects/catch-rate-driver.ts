@@ -18,6 +18,7 @@ import { fileURLToPath } from 'node:url';
 import { performance } from 'node:perf_hooks';
 
 import { EventStore } from '../../../../../src/events/store.js';
+import { deriveRepoKey } from '../../../../../src/utils/paths.js';
 import type { ToolResult } from '../../../../../src/format.js';
 import { handleTestAdequacy } from '../../../../../src/verbs/gates/test-adequacy-handler.js';
 import { handleStaticAnalysis } from '../../../../../src/verbs/gates/static-analysis.js';
@@ -206,6 +207,8 @@ export type GateDispatch = (
  * Calls the real handler, and supplies what a transport supplies: a caller authorization in the dispatch
  * scope and an active phase attempt. Without both, every cell fails closed as `invalid`. The phase-attempt
  * id replaces each `/` of the fixture id with `-`, because the identity schema rejects `/`.
+ * The workflow start names the fixture repository as `repoRoot`, as init does for its working directory.
+ * A local check then accepts the fixture checkout as a worktree of the workflow repository.
  */
 const defaultDispatch: GateDispatch = async (fixture, args, stateDir, eventStore) => {
   const handler = GATE_HANDLERS[fixture.gateClass];
@@ -230,6 +233,7 @@ const defaultDispatch: GateDispatch = async (fixture, args, stateDir, eventStore
           workflowType: 'feature',
           phase: 'delegate',
           phaseAttemptId: `phase-attempt:${featureId.replace(/\//g, '-')}`,
+          repoRoot: deriveRepoKey(args.repoRoot),
         },
       });
     }
