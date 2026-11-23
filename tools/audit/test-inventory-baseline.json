@@ -7,7 +7,7 @@
     "testFiles": 1495,
     "parsedFiles": 1450,
     "shellFiles": 45,
-    "cases": 16564,
+    "cases": 16552,
     "dynamicTitles": 288,
     "unparseableFiles": 0
   },
@@ -5771,12 +5771,12 @@
         },
         {
           "suite": "ManifestSet_EveryTrackedPackageJson_IsClassifiedRetainedOrRetired",
-          "name": "a retired package leaves no CI paths-filter behind",
+          "name": "a retired package leaves no CI path glob behind",
           "dynamic": false
         },
         {
           "suite": "ManifestSet_EveryTrackedPackageJson_IsClassifiedRetainedOrRetired",
-          "name": "evals-pkg is retained, and the CI filter that depends on it still exists",
+          "name": "evals-pkg is retained, and the eval lane that depends on it still runs",
           "dynamic": false
         },
         {
@@ -12640,12 +12640,7 @@
       "cases": [
         {
           "suite": "CI path-filter & guard coverage (DR-22)",
-          "name": "Filters_RootFilter_IncludesProjectionRootGlobs",
-          "dynamic": false
-        },
-        {
-          "suite": "CI path-filter & guard coverage (DR-22)",
-          "name": "Filters_EveryGlob_MatchesAtLeastOneTrackedFile",
+          "name": "GatedJobs_RunUnfiltered",
           "dynamic": false
         },
         {
@@ -12665,12 +12660,12 @@
         },
         {
           "suite": "CI path-filter & guard coverage (DR-22)",
-          "name": "Guards_HooksGuardRunsInCI_AndIsRootFiltered",
+          "name": "Guards_HooksGuardRunsInCI_AndIsUnfiltered",
           "dynamic": false
         },
         {
           "suite": "CI path-filter & guard coverage (DR-22)",
-          "name": "Guards_SkillsGuardCoversCommandAliasesAndAgents_RunsInCI_AndIsRootFiltered",
+          "name": "Guards_SkillsGuardCoversCommandAliasesAndAgents_RunsInCI_AndIsUnfiltered",
           "dynamic": false
         },
         {
@@ -12685,77 +12680,22 @@
         },
         {
           "suite": "CI-gate execution policy (DR-10)",
-          "name": "Aggregator_EvaluateScript_TakesEveryGitHubValueThroughEnv",
+          "name": "Aggregator_IsAnInlineAllSuccessVerdict",
           "dynamic": false
         },
         {
           "suite": "CI-gate execution policy (DR-10)",
-          "name": "Aggregator_LaneList_IsTheNeedsContextItself",
+          "name": "Aggregator_NeedsTheGatedJobs",
           "dynamic": false
         },
         {
           "suite": "CI-gate execution policy (DR-10)",
-          "name": "Aggregator_LicensedSkips_RestateThePathFiltersExactly",
+          "name": "Workflow_UsesNoActionFromThePrivateOrgRepository",
           "dynamic": false
         },
         {
           "suite": "CI-gate execution policy (DR-10)",
-          "name": "Aggregator_LaneGainsAPathFilterWithoutALicence_Reddens",
-          "dynamic": false
-        },
-        {
-          "suite": "CI-gate execution policy (DR-10)",
-          "name": "Aggregator_AllLanesSucceed_Passes",
-          "dynamic": false
-        },
-        {
-          "suite": "CI-gate execution policy (DR-10)",
-          "name": "Aggregator_AnyLaneFailingOrCancelled_Reddens",
-          "dynamic": false
-        },
-        {
-          "suite": "CI-gate execution policy (DR-10)",
-          "name": "Aggregator_UnlicensedLaneSkipped_Reddens",
-          "dynamic": false
-        },
-        {
-          "suite": "CI-gate execution policy (DR-10)",
-          "name": "Aggregator_GrepGatesSkipped_Reddens",
-          "dynamic": false
-        },
-        {
-          "suite": "CI-gate execution policy (DR-10)",
-          "name": "Aggregator_LaneAddedToNeedsWithoutPolicyEdit_Reddens",
-          "dynamic": false
-        },
-        {
-          "suite": "CI-gate execution policy (DR-10)",
-          "name": "Aggregator_LicensedLaneSkippedUnderItsFilter_Passes",
-          "dynamic": false
-        },
-        {
-          "suite": "CI-gate execution policy (DR-10)",
-          "name": "Aggregator_LicenceKeyNotDeclaredByChanges_Reddens",
-          "dynamic": false
-        },
-        {
-          "suite": "CI-gate execution policy (DR-10)",
-          "name": "Aggregator_LicensedLaneSkippedDespiteItsFilterFiring_Reddens",
-          "dynamic": false
-        },
-        {
-          "suite": "CI-gate execution policy (DR-10)",
-          "name": "Aggregator_LicensedSkipWhileChangeDetectionDidNotSucceed_Reddens",
-          "dynamic": false
-        },
-        {
-          "suite": "CI-gate execution policy (DR-10)",
-          "name": "Aggregator_UnrecognisedLaneResult_Reddens",
-          "dynamic": false
-        },
-        {
-          "suite": "CI-gate execution policy (DR-10)",
-          "name": "Aggregator_UnreadableNeedsContext_Reddens",
+          "name": "Aggregator_LaneGainsANarrowingFilter_IsDetected",
           "dynamic": false
         }
       ]
@@ -13316,7 +13256,7 @@
         },
         {
           "suite": "Derivations the inventory rests on",
-          "name": "LanePaths_LiveManifest_GivesGlobsForEachLane",
+          "name": "LanePaths_ManifestReader_ParsesLanesAndTheLiveTreeHasNone",
           "dynamic": false
         },
         {

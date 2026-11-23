@@ -2,26 +2,20 @@
  * Conformance tests for the CI topology in `.github/workflows/ci.yml`. They parse
  * the workflow with `js-yaml`.
  *
- *   1. Path filters and hosts. The lane globs in `.github/ci-lanes.toml` must cover
- *      the projection roots, and `ci-gate` dependencies must run the `core` and
- *      `unit` projects.
- *   2. Completeness. Each top-level job is in `ci-gate.needs` or in the
- *      non-blocking allowlist. A job outside `ci-gate.needs` can never fail a PR.
- *   3. Execution policy. `ci-gate` is the verdict job of the org `ci-lanes` action.
- *      The manifest and the `if:` text of each job hold the skip licences.
+ *   1. Hosts. The `ci-gate` dependencies must run the `core` and `unit` projects.
+ *      No gated job carries a path filter. The workflow runs only on a push to main and on dispatch.
+ *   2. Completeness. Each top-level job is in `ci-gate.needs` or in the non-blocking allowlist.
+ *   3. Execution policy. `ci-gate` is an inline verdict that fails unless every needed job succeeded.
  *
- * The `check` mode of the action proves on each PR that the manifest and the
- * workflow agree, so these tests pin only the wiring.
- * The guard inventory supplies the glob and lane readers, so both read the same way.
- * The `grep-gates` job is on lane `always`, so a PR outside lane `root` still runs this file.
+ * The workflow uses no action from `lvlup-sw/.github`. That repository is private, and a public
+ * repository cannot resolve its actions. Pull request validation runs on Buildkite.
  */
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import yaml from 'js-yaml';
-import { globMatches, pathFilterGlobs, pathFilterKeys } from '../../tools/audit/gates/guard-inventory.js';
-import { execFileAsync } from '../../tools/test-helpers/spawn.js';
+import { pathFilterKeys } from '../../tools/audit/gates/guard-inventory.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -36,10 +30,10 @@ const FIXTURES_DIR = join(__dirname, '__fixtures__', 'ci-topology');
 
 /** The aggregator job. The completeness scan skips it, because it cannot be in its own `needs:` list. */
 const AGGREGATOR_JOB = 'ci-gate';
-/** The job that computes the lanes. Each targeted job needs it. */
-const PLANNER_JOB = 'plan';
-/** The org action that plans the lanes, gives the verdict and checks the manifest. */
-const CI_LANES_ACTION = 'lvlup-sw/.github/actions/ci-lanes@v1';
+/** The prefix of an action in the private org repository. A public repository cannot resolve it. */
+const PRIVATE_ORG_ACTION_PREFIX = 'lvlup-sw/.github/';
+/** The jobs that `ci-gate` needs. */
+const GATED_JOBS = ['test-root', 'test-mcp', 'test-windows-root', 'grep-gates', 'outcome-tests', 'e2e-process', 'testgen'];
 
 interface WorkflowStep {
   readonly name?: string;
@@ -89,11 +83,6 @@ const NON_BLOCKING_ALLOWLIST: Record<string, AllowlistEntry> = {
     rationale:
       'The Windows core suite takes about 15 minutes. It runs on pushes to main, on dispatch, on a PR with the ci:windows label, and each night in windows-nightly.yml.',
   },
-  'lanes-check': {
-    rationale:
-      'Org ci-lanes contract check (mode: check). Failure fails the workflow run; it is not part of the required CI Gate aggregator because the gate may only cover jobs that need the planner.',
-    issue: '#1921',
-  },
 };
 
 function loadWorkflow(filePath: string): Workflow {
@@ -132,31 +121,6 @@ function checkCompleteness(workflow: Workflow): CheckResult {
   }
   return { pass: violations.length === 0, violations };
 }
-
-/**
- * The globs that lane `root` must hold. Without one of them, a PR that changes
- * only that path does not set lane `root`. Then `test-root` and the drift guards
- * that it hosts do not run.
- */
-const REQUIRED_ROOT_PROJECTION_GLOBS = [
-  /** The generated tree that holds the agents, command aliases, commands, rules and skills. */
-  'rendered/**',
-  'hooks/**',
-  '.claude-plugin/**',
-  'AGENTS.md',
-  /** The agent generator sources. The drift guard must run on the PR that changes a generator. */
-  'src/runtime/agents/**',
-  /** `tests/scripts/release-workflow.test.ts`, in the root suite, parses this workflow. */
-  '.github/workflows/release.yml',
-  /**
-   * This file and the next three entries are registers that the architecture
-   * liveness tests read. A PR that changes only one of them must still set `root`.
-   */
-  '.github/CODEOWNERS',
-  'knip.json',
-  '.exarchos/**',
-  'manifest.json',
-] as const;
 
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -232,57 +196,16 @@ function isUnitProjectScript(scripts: Record<string, string>, name: string, hops
   return alias !== null && hops < 1 && isUnitProjectScript(scripts, alias[1] ?? '', hops + 1);
 }
 
-/**
- * Returns whether the job checks out the repository before it runs the verdict
- * step of the `ci-lanes` action. The verdict reads the manifest from the checkout.
- */
-function verdictFollowsCheckout(job: WorkflowJob | undefined): boolean {
-  const steps = job?.steps ?? [];
-  const verdict = steps.findIndex((s) => s.uses === CI_LANES_ACTION && s.with?.mode === 'verdict');
-  const checkout = steps.findIndex(
-    (s) => typeof s.uses === 'string' && s.uses.startsWith('actions/checkout@'),
-  );
-  return checkout >= 0 && verdict > checkout;
-}
-
 describe('CI path-filter & guard coverage (DR-22)', () => {
-  it('Filters_RootFilter_IncludesProjectionRootGlobs', () => {
+  /** The workflow runs only on a push to main and on dispatch. A gated job that skips reads as passed. */
+  it('GatedJobs_RunUnfiltered', () => {
     const workflow = loadWorkflow(CI_WORKFLOW_PATH);
-    const filters = pathFilterGlobs(workflow);
-    const rootGlobs = filters.root ?? [];
-
-    const missing = REQUIRED_ROOT_PROJECTION_GLOBS.filter((glob) => !rootGlobs.includes(glob));
-    expect(missing, `lane root missing required glob(s): ${missing.join(', ')}`).toEqual(
-      [],
-    );
-  });
-
-  /**
-   * Membership is not protection. After a directory rename, a glob stays in the
-   * filter and selects nothing. The gated job then does not run on the PRs that it polices.
-   * A skipped required job reads as passed.
-   * A negation selects by exclusion and can match nothing, so the test skips each
-   * glob that starts with `!`.
-   */
-  it('Filters_EveryGlob_MatchesAtLeastOneTrackedFile', async () => {
-    const workflow = loadWorkflow(CI_WORKFLOW_PATH);
-    const filters = pathFilterGlobs(workflow);
-    const tracked = (await execFileAsync('git', ['ls-files'], { cwd: REPO_ROOT }))
-      .split('\n')
-      .filter(Boolean);
-
-    const dead: string[] = [];
-    let checked = 0;
-    for (const [name, globs] of Object.entries(filters)) {
-      for (const glob of globs) {
-        if (glob.startsWith('!')) continue;
-        checked += 1;
-        if (!tracked.some((f) => globMatches(glob, f))) dead.push(`${name}: ${glob}`);
-      }
+    for (const jobName of GATED_JOBS) {
+      const job = workflow.jobs[jobName];
+      expect(job, `${jobName} missing`).toBeDefined();
+      expect(pathFilterKeys(job), `${jobName} carries a path filter`).toEqual([]);
+      expect(String(job?.if ?? '').trim(), `${jobName} condition`).toBe('${{ !cancelled() }}');
     }
-
-    expect(checked, 'no path-filter globs were examined').toBeGreaterThan(0);
-    expect(dead, 'path-filter globs matching no tracked file').toEqual([]);
   });
 
   /**
@@ -433,12 +356,8 @@ describe('CI path-filter & guard coverage (DR-22)', () => {
     expect(isUnitProjectScript(scripts, 'test:absent')).toBe(false);
   });
 
-  /**
-   * `hooks:guard` is an alias of `render:guard`. A CI job must run
-   * `npm run render:guard`, and each such job must gate on lane `root`. Lane `root`
-   * holds the projection roots, so the guard then runs on a PR that changes one of them.
-   */
-  it('Guards_HooksGuardRunsInCI_AndIsRootFiltered', () => {
+  /** `hooks:guard` is an alias of `render:guard`. A CI job must run `npm run render:guard`, with no path filter. */
+  it('Guards_HooksGuardRunsInCI_AndIsUnfiltered', () => {
     const workflow = loadWorkflow(CI_WORKFLOW_PATH);
     const jobNamesWithHooksGuard = Object.entries(workflow.jobs)
       .filter(([, job]) => jobRunsNpmScript(job, 'render:guard'))
@@ -448,15 +367,12 @@ describe('CI path-filter & guard coverage (DR-22)', () => {
     );
 
     for (const jobName of jobNamesWithHooksGuard) {
-      const keys = pathFilterKeys(workflow.jobs[jobName]);
-      expect(keys, `job "${jobName}" running render:guard is not gated on any changes.outputs key`).toContain(
-        'root',
-      );
+      expect(pathFilterKeys(workflow.jobs[jobName]), `job "${jobName}" running render:guard is filtered`).toEqual([]);
     }
   });
 
   /** `skills:guard` is an alias of `render:guard`, so this test makes the same two checks as the test above. */
-  it('Guards_SkillsGuardCoversCommandAliasesAndAgents_RunsInCI_AndIsRootFiltered', () => {
+  it('Guards_SkillsGuardCoversCommandAliasesAndAgents_RunsInCI_AndIsUnfiltered', () => {
     const workflow = loadWorkflow(CI_WORKFLOW_PATH);
     const jobNamesWithSkillsGuard = Object.entries(workflow.jobs)
       .filter(([, job]) => jobRunsNpmScript(job, 'render:guard'))
@@ -467,11 +383,7 @@ describe('CI path-filter & guard coverage (DR-22)', () => {
     ).toBeGreaterThan(0);
 
     for (const jobName of jobNamesWithSkillsGuard) {
-      const keys = pathFilterKeys(workflow.jobs[jobName]);
-      expect(
-        keys,
-        `job "${jobName}" running skills:guard is not gated on any changes.outputs key`,
-      ).toContain('root');
+      expect(pathFilterKeys(workflow.jobs[jobName]), `job "${jobName}" running skills:guard is filtered`).toEqual([]);
     }
   });
 });
@@ -494,103 +406,43 @@ describe('CI-topology conformance (DR-2)', () => {
 });
 
 describe('CI-gate execution policy (DR-10)', () => {
-  it('Aggregator_IsTheOrgCiLanesVerdict', () => {
+  /** The verdict is inline, so it needs no org action. It fails unless every needed job succeeded. */
+  it('Aggregator_IsAnInlineAllSuccessVerdict', () => {
     const workflow = loadWorkflow(CI_WORKFLOW_PATH);
     const gate = workflow.jobs[AGGREGATOR_JOB];
     expect(gate, 'ci-gate job missing').toBeDefined();
     expect(String(gate?.if ?? '').trim()).toMatch(/^(?:\$\{\{\s*)?!cancelled\(\)(?:\s*\}\})?$/);
-
-    const step = (gate?.steps ?? []).find(
-      (s) => typeof s.uses === 'string' && s.uses === CI_LANES_ACTION,
-    );
-    expect(step, 'ci-gate must run ci-lanes@v1').toBeDefined();
-    expect(step?.with?.mode).toBe('verdict');
-    expect(step?.with?.gate).toBe(AGGREGATOR_JOB);
-    expect(String(step?.with?.needs ?? '').trim()).toBe('${{ toJSON(needs) }}');
-    expect(step?.['continue-on-error']).toBeUndefined();
+    const steps = gate?.steps ?? [];
+    expect(steps.some((step) => typeof step.uses === 'string'), 'ci-gate runs an action').toBe(false);
+    const verdict = steps.find((step) => typeof step.run === 'string' && step.run.includes('"success"'));
+    expect(verdict, 'ci-gate has no all-success verdict step').toBeDefined();
+    expect(String(verdict?.env?.['NEEDS'] ?? '').trim()).toBe('${{ toJSON(needs) }}');
+    expect(verdict?.['continue-on-error']).toBeUndefined();
   });
 
-  /**
-   * The verdict reads the manifest from the checkout. Without a checkout before it,
-   * the action cannot read the manifest and the required check fails on each PR.
-   * The `check` mode of the action does not test this, so the decoys prove the matcher.
-   */
-  it('Aggregator_ChecksOutTheRepositoryBeforeTheVerdict', () => {
+  it('Aggregator_NeedsTheGatedJobs', () => {
     const workflow = loadWorkflow(CI_WORKFLOW_PATH);
-    expect(
-      verdictFollowsCheckout(workflow.jobs[AGGREGATOR_JOB]),
-      'ci-gate must check out the repository before the verdict step',
-    ).toBe(true);
+    expect([...needsList(workflow.jobs[AGGREGATOR_JOB])].sort()).toEqual([...GATED_JOBS].sort());
+  });
 
-    const verdictStep: WorkflowStep = {
-      uses: CI_LANES_ACTION,
-      with: { mode: 'verdict', gate: AGGREGATOR_JOB },
+  /** A public repository cannot resolve an action from the private org repository, so such a job fails before its first step. */
+  it('Workflow_UsesNoActionFromThePrivateOrgRepository', () => {
+    const privateActions = (workflow: Workflow): string[] =>
+      Object.entries(workflow.jobs).flatMap(([name, job]) =>
+        (job.steps ?? [])
+          .filter((step) => typeof step.uses === 'string' && step.uses.startsWith(PRIVATE_ORG_ACTION_PREFIX))
+          .map((step) => `${name}: ${step.uses}`),
+      );
+    const workflow = loadWorkflow(CI_WORKFLOW_PATH);
+    expect(privateActions(workflow)).toEqual([]);
+    const seeded: Workflow = {
+      ...workflow,
+      jobs: { ...workflow.jobs, seeded: { steps: [{ uses: `${PRIVATE_ORG_ACTION_PREFIX}actions/ci-lanes@v1` }] } },
     };
-    const checkoutStep: WorkflowStep = { uses: 'actions/checkout@v4' };
-    expect(verdictFollowsCheckout({ steps: [verdictStep] })).toBe(false);
-    expect(verdictFollowsCheckout({ steps: [verdictStep, checkoutStep] })).toBe(false);
-    expect(verdictFollowsCheckout({ steps: [checkoutStep, verdictStep] })).toBe(true);
+    expect(privateActions(seeded)).toEqual([`seeded: ${PRIVATE_ORG_ACTION_PREFIX}actions/ci-lanes@v1`]);
   });
 
-  it('Aggregator_NeedsPlannerPlusMappedJobs', () => {
-    const workflow = loadWorkflow(CI_WORKFLOW_PATH);
-    const needs = needsList(workflow.jobs[AGGREGATOR_JOB]);
-    expect(needs).toEqual(
-      expect.arrayContaining([
-        PLANNER_JOB,
-        'test-root',
-        'test-mcp',
-        'test-windows-root',
-        'grep-gates',
-        'outcome-tests',
-        'e2e-process',
-        'testgen',
-      ]),
-    );
-    expect(needs).toHaveLength(8);
-  });
-
-  it('Planner_IsUnconditionalFullHistoryPlan', () => {
-    const workflow = loadWorkflow(CI_WORKFLOW_PATH);
-    const plan = workflow.jobs[PLANNER_JOB];
-    expect(plan, 'planner job missing').toBeDefined();
-    expect(plan?.if, 'planner must not be conditional').toBeUndefined();
-    const checkout = (plan?.steps ?? []).find(
-      (s) => typeof s.uses === 'string' && s.uses.startsWith('actions/checkout@'),
-    );
-    expect(checkout?.with?.['fetch-depth']).toBe(0);
-    const lanes = plan?.outputs?.lanes;
-    expect(String(lanes ?? '').trim()).toBe('${{ steps.plan.outputs.lanes }}');
-  });
-
-  /**
-   * Each targeted job carries the canonical skip, which starts with `!cancelled()`.
-   * GitHub starts an `always()` job after its run is cancelled, so a superseded PR run started every pending job.
-   */
-  it('TargetedJobs_CarryTheCanonicalSkip', () => {
-    const workflow = loadWorkflow(CI_WORKFLOW_PATH);
-    const expected = (lane: string): string =>
-      `\${{ !cancelled() && (needs.${PLANNER_JOB}.result != 'success' || fromJSON(needs.${PLANNER_JOB}.outputs.lanes).${lane} != 'false') }}`;
-    const mapped: Record<string, string> = {
-      'test-root': 'root',
-      'test-windows-root': 'root',
-      'test-mcp': 'mcp',
-      'grep-gates': 'always',
-      'outcome-tests': 'always',
-      'e2e-process': 'always',
-    };
-    for (const [jobName, lane] of Object.entries(mapped)) {
-      const job = workflow.jobs[jobName];
-      expect(needsList(job), `${jobName} must need ${PLANNER_JOB}`).toContain(PLANNER_JOB);
-      expect(String(job?.if ?? '').trim(), `${jobName} skip expression`).toBe(expected(lane));
-    }
-  });
-
-  /**
-   * `grep-gates` is on lane `always`, which `pathFilterKeys` reads as unfiltered.
-   * A narrowing `root` key on that job must show in its keys. Without that, the host
-   * of the enforcement gates can skip on the PRs that it polices, and the skip reads as passed.
-   */
+  /** A narrowing lane key on `grep-gates` must show in its keys, so the host of the enforcement gates cannot skip unseen. */
   it('Aggregator_LaneGainsANarrowingFilter_IsDetected', () => {
     const workflow = loadWorkflow(CI_WORKFLOW_PATH);
     const grepGates = workflow.jobs['grep-gates'];

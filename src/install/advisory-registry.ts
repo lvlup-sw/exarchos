@@ -168,7 +168,7 @@ export interface AdvisoryRatchetResult {
  * manifest. That manifest covers only `check-*` and `lint-*` primaries, so it cannot name
  * `eval-capability-layer`, whose control is `run-evals-cli.ts`. That entry is softened twice: by `continue-on-error: true` in
  * `eval-gate.yml`, and by an exit-0 rule for the `capability` layer in `run-evals-cli.ts`. Two of the
- * four entries run on filtered CI lanes, and each `ciPathFiltered` claim records that.
+ * four entries have a filtered CI path, and each `ciPathFiltered` claim records that.
  */
 export const ADVISORY_REGISTRY: readonly AdvisoryEntry[] = [
   {
@@ -190,12 +190,11 @@ export const ADVISORY_REGISTRY: readonly AdvisoryEntry[] = [
     ciStepMatch: 'npm run skills:guard',
     ciPathFiltered: true,
     ciFilterRationale:
-      'Reaches CI only through `npm run skills:guard` in ci.yml\'s `test-root` job, ' +
-      'which is gated by lane `root` via ci-lanes (`fromJSON(needs.plan.outputs.lanes).root`) ' +
-      'path filter. A PR touching only servers/** therefore never runs this lint at all. ' +
-      'The pre-DR-15 registry claimed this ciPath was UNFILTERED; that claim was false and ' +
-      'was only ever checked for filename shape. Moving it to the unfiltered grep-gates ' +
-      'host is a prerequisite of its promotion threshold.',
+      'ci.yml runs `npm run render:guard`, not `npm run skills:guard`, so no ci.yml step ' +
+      'matches this claim and the analyzer counts the path as filtered. The lint reaches CI ' +
+      'inside `render:guard` behind `|| true`, on the push-to-main run and in the Buildkite ' +
+      'pull request lane. Moving it to an unfiltered grep-gates step that can fail is a ' +
+      'prerequisite of its promotion threshold.',
     softening: [
       { file: 'package.json', kind: 'or-true', target: 'tools/audit/gates/lint-inv6.mjs' },
     ],
@@ -248,8 +247,7 @@ export const ADVISORY_REGISTRY: readonly AdvisoryEntry[] = [
     ciStepMatch: 'tools/audit/gates/check-mutation-gate.mjs',
     ciPathFiltered: true,
     ciFilterRationale:
-      'Hosted by ci.yml\'s `test-mcp` job, gated by lane `mcp` via ci-lanes ' +
-      '(`fromJSON(needs.plan.outputs.lanes).mcp`) AND by a step-level ' +
+      'Hosted by ci.yml\'s `test-mcp` job behind a step-level ' +
       '`if: github.event_name == \'workflow_dispatch\'`. A push to main never runs it. ' +
       'Compounding that, `--observe` collapses every failing verdict to exit 0 ' +
       '(the gate\'s own self-test, direction 9, `NoCoverageFailure_ObserveNeverBlocks`), so ' +

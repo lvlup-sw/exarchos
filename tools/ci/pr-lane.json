@@ -102,6 +102,7 @@
     }
   },
   "postMerge": {
+    "ci-gate: Require every gated job to succeed": "The push-run verdict. On a pull request, the Buildkite aggregate status plays this role.",
     "test-mcp: npm run test:coverage": "The coverage run stays on the push-to-main run of ci.yml.",
     "test-mcp: node tools/audit/gates/check-coverage-ratchet.mjs": "The coverage ratchet reads the coverage run, so it runs after merge.",
     "test-mcp: vitest run tools/evals/evals/harness.test.ts tools/evals/evals/graders/llm-rubric.test.ts": "The eval lane needs model credentials.",
