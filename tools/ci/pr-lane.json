@@ -48,7 +48,6 @@
       { "id": "cli-vocab-guard", "run": "npm run -s cli:vocab-guard" },
       { "id": "lint-comments", "run": "node tools/audit/gates/lint-comments.mjs --base {base}", "exclusive": true },
       { "id": "cycle-gate", "run": "npx --no-install tsx tools/audit/cycle-gate.ts", "exclusive": true },
-      { "id": "validate-no-legacy", "run": "bash tools/audit/gates/validate-no-legacy.sh", "exclusive": true },
       { "id": "conformance", "run": "npx --no-install vitest run --project conformance --reporter=dot --maxWorkers={workers}", "exclusive": true },
       { "id": "architecture", "run": "npx --no-install vitest run --project unit tests/architecture --reporter=dot --maxWorkers={workers}", "exclusive": true }
     ],
@@ -78,6 +77,9 @@
     ]
   },
   "tests": {
+    "gates": [
+      { "id": "validate-no-legacy", "run": "bash tools/audit/gates/validate-no-legacy.sh", "why": "knip parses with oxc raw transfer, which reserves a buffer of several GiB. The 4 GiB agent of the static suite refuses it." }
+    ],
     "acceptanceFullGlobs": ["content/**", "rendered/**", "hooks/**", "binding/**", "manifest.json", "settings.json", "tests/acceptance/**"],
     "binaryTierGlobs": ["src/**", "tests/process/**", "tests/outcome/**", "tools/release/**", "hooks/**", "binding/**"],
     "forcedCore": [
@@ -195,7 +197,7 @@
     "grep-gates: vitest run tools/conformance/src/report-coupling-census.test.ts --project conformance": "static:conformance",
     "grep-gates: vitest run tests/unit/architecture/effect-ledger.test.ts": "tests:core-forced",
     "grep-gates: vitest run --project core tests/unit/architecture/audit-delivery-closure.test.ts": "tests:core-forced",
-    "grep-gates: bash tools/audit/gates/validate-no-legacy.sh": "static:validate-no-legacy",
+    "grep-gates: bash tools/audit/gates/validate-no-legacy.sh": "tests:validate-no-legacy",
     "e2e-process: bash tools/release/npm-ci-retry.sh": "install",
     "e2e-process: bun run tools/release/build-binary.ts --target linux-x64": "tests:binary",
     "e2e-process: sudo ln -s $PWD/dist/bin/exarchos-linux-x64 /usr/local/bin/exarchos": "tests:binary",

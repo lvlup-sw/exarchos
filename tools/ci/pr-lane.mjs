@@ -308,6 +308,7 @@ export function testsPlan(manifest, context) {
       id: 'binary',
       run: `bun run tools/release/build-binary.ts --target ${target} && mkdir -p '${context.binDir}' && ln -sf "$PWD/dist/bin/exarchos-${target}" '${context.binDir}/exarchos' && exarchos --version`,
     },
+    ...(manifest.tests.gates ?? []).map((gate) => ({ id: gate.id, run: gate.run })),
     { id: 'unit', run: vitest(`run --project unit ${quoted(context.unitFiles ?? [])}`.trimEnd(), unitWorkers) },
   ];
   const tests = manifest.tests;
