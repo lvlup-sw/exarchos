@@ -100,11 +100,42 @@ describe('checkPostMerge', () => {
     expect(result.status).toBe('pass');
     expect(result.passCount).toBe(2);
     expect(result.failCount).toBe(0);
-    expect(provider.checkCi).toHaveBeenCalledWith('42');
+    expect(provider.checkCi).toHaveBeenCalledWith('42', {
+      repository: { host: 'github.com', path: 'org/repo' },
+    });
   });
 
-  /** Only the number from the URL path reaches the provider. Text with no such number fails the check with no provider call. */
-  it.each(['--admin', 'https://github.com/org/repo/pull/-1', 'https://github.com/org/repo/issues/42/comments'])(
+  /**
+   * The CI query reads the repository that `prUrl` names, not the current checkout.
+   * A bare number and an Azure DevOps URL name no repository, so the provider resolves the number itself.
+   */
+  it.each([
+    ['https://github.example.com/org/repo/pull/7/', { host: 'github.example.com', path: 'org/repo' }],
+    ['https://gitlab.com/group/sub/project/-/merge_requests/7', { host: 'gitlab.com', path: 'group/sub/project' }],
+    ['7', undefined],
+    ['https://dev.azure.com/org/project/_git/repo/pullrequest/7', undefined],
+  ])('prUrl %s binds the CI query to its repository', async (prUrl, repository) => {
+    const provider = createMockProvider({ checkCi: { status: 'pass', checks: [] } });
+    await checkPostMerge({
+      prUrl,
+      mergeSha: 'abc1234',
+      repoRoot: nodeRepo,
+      runCommand: createCommandRunner({
+        'npm run test:run': { exitCode: 0, stdout: 'All tests passed', stderr: '' },
+      }),
+      provider,
+    });
+    expect(provider.checkCi).toHaveBeenCalledWith('7', { repository });
+  });
+
+  /** Only the number and a safe repository from the URL path reach the provider. Other text fails the check with no provider call. */
+  it.each([
+    '--admin',
+    'https://github.com/org/repo/pull/-1',
+    'https://github.com/org/repo/issues/42/comments',
+    'https://github.com/-R/repo/pull/42',
+    'https://github.com/org/%2E%2E/pull/42',
+  ])(
     'prUrl %s with no pull request number fails the CI check without a provider call',
     async (prUrl) => {
       const provider = createMockProvider({});

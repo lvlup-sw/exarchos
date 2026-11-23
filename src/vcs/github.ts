@@ -19,8 +19,10 @@ import type {
   ReplyResult,
   GetPrCommentsOptions,
   PrCommentsPage,
+  CheckCiOptions,
+  PrRepository,
 } from './provider.js';
-import { windowPrComments, computeOverallCiStatus, requireNumericId } from './provider.js';
+import { windowPrComments, computeOverallCiStatus, requireNumericId, requireRepository } from './provider.js';
 import { exec } from './shell.js';
 
 /**
@@ -119,6 +121,12 @@ function mapState(state: string): CiCheck['status'] {
   }
 }
 
+/** The `[HOST/]OWNER/REPO` form of `gh --repo`. */
+function repositoryRef(repository: PrRepository): string {
+  const { host, path } = requireRepository(repository);
+  return `${host}/${path}`;
+}
+
 /** The merge strategies of `gh pr merge`. The strategy becomes a flag, so `gh` must get no other value. */
 const MERGE_STRATEGIES: ReadonlySet<string> = new Set(['squash', 'rebase', 'merge']);
 
@@ -197,13 +205,16 @@ export class GitHubProvider implements VcsProvider {
     return { url: parsed.url, number: parsed.number };
   }
 
-  async checkCi(prId: string): Promise<CiStatus> {
+  /** With `options.repository`, `gh` queries `HOST/OWNER/REPO` and not the repository of the current checkout. */
+  async checkCi(prId: string, options: CheckCiOptions = {}): Promise<CiStatus> {
     const pr = requireNumericId(prId, 'prId');
+    const repoArgs = options.repository === undefined ? [] : [`--repo=${repositoryRef(options.repository)}`];
     const output = await exec('gh', [
       'pr',
       'checks',
       '--json',
       'name,state,link',
+      ...repoArgs,
       '--',
       pr,
     ]);

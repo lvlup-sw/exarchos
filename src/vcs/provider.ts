@@ -280,10 +280,47 @@ export function requireNumericId(value: string, label: string): string {
   return value;
 }
 
+/** The repository of a pull request URL: the host and the path of the repository on that host. */
+export interface PrRepository {
+  readonly host: string;
+  readonly path: string;
+}
+
+/** Options of {@link VcsProvider.checkCi}. */
+export interface CheckCiOptions {
+  /** The repository of the pull request. Without it, the CLI resolves the id against the current checkout. */
+  readonly repository?: PrRepository | undefined;
+}
+
+/** A host name with an optional port. */
+const REPOSITORY_HOST = /^[A-Za-z0-9][A-Za-z0-9.-]*(?::\d+)?$/;
+
+/** One segment of a repository path. It cannot start with a dash, and it holds no percent escape. */
+const REPOSITORY_SEGMENT = /^[A-Za-z0-9_.][A-Za-z0-9_.-]*$/;
+
+/**
+ * Returns `repository` when its host and each path segment have a safe form, and throws for all other values.
+ * The path has two or more segments, and no segment is `.` or `..`.
+ */
+export function requireRepository(repository: PrRepository): PrRepository {
+  const segments = repository.path.split('/');
+  const valid = REPOSITORY_HOST.test(repository.host)
+    && segments.length >= 2
+    && segments.every((segment) => REPOSITORY_SEGMENT.test(segment) && segment !== '.' && segment !== '..');
+  if (!valid) {
+    throw new Error(`repository must be a host and an owner/name path, got ${JSON.stringify(repository)}`);
+  }
+  return repository;
+}
+
 export interface VcsProvider {
   readonly name: 'github' | 'gitlab' | 'azure-devops';
   createPr(opts: CreatePrOpts): Promise<PrResult>;
-  checkCi(prId: string): Promise<CiStatus>;
+  /**
+   * Reads the CI checks of a pull request. With `options.repository`, the GitHub and GitLab providers query that repository.
+   * The Azure DevOps provider has no repository form and always uses the current checkout.
+   */
+  checkCi(prId: string, options?: CheckCiOptions): Promise<CiStatus>;
   mergePr(prId: string, strategy: string): Promise<MergeResult>;
   addComment(prId: string, body: string): Promise<void>;
   /**

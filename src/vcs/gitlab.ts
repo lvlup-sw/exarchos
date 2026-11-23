@@ -20,8 +20,9 @@ import type {
   IssueSearchSummary,
   RepoInfo,
   ReplyResult,
+  CheckCiOptions,
 } from './provider.js';
-import { UnsupportedOperationError, computeOverallCiStatus, requireNumericId } from './provider.js';
+import { UnsupportedOperationError, computeOverallCiStatus, requireNumericId, requireRepository } from './provider.js';
 import { exec } from './shell.js';
 
 interface GlabPipelineJob {
@@ -139,13 +140,20 @@ export class GitLabProvider implements VcsProvider {
     return { url: parsed.webUrl, number: parsed.iid };
   }
 
-  async checkCi(prId: string): Promise<CiStatus> {
+  /** With `options.repository`, `glab` queries the repository at that URL and not the repository of the current checkout. */
+  async checkCi(prId: string, options: CheckCiOptions = {}): Promise<CiStatus> {
     const mr = requireNumericId(prId, 'prId');
+    const repoArgs: string[] = [];
+    if (options.repository !== undefined) {
+      const { host, path } = requireRepository(options.repository);
+      repoArgs.push(`--repo=https://${host}/${path}`);
+    }
     const output = await exec('glab', [
       'mr',
       'view',
       '--json',
       'pipeline',
+      ...repoArgs,
       '--',
       mr,
     ]);

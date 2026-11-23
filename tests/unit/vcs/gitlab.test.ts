@@ -278,6 +278,31 @@ describe('GitLabProvider', () => {
     expect(result.checks).toHaveLength(0);
   });
 
+  /** A repository option names the project by its URL, so `glab` does not read the MR of the current checkout. */
+  it('GitLabProvider_CheckCi_WithRepository_PassesRepoUrl', async () => {
+    mockExec.mockResolvedValue(JSON.stringify({ pipeline: null }));
+
+    await provider.checkCi('10', { repository: { host: 'gitlab.com', path: 'group/sub/project' } });
+
+    expect(mockExec).toHaveBeenCalledWith('glab', [
+      'mr',
+      'view',
+      '--json',
+      'pipeline',
+      '--repo=https://gitlab.com/group/sub/project',
+      '--',
+      '10',
+    ]);
+  });
+
+  /** A repository path segment that starts with a dash throws before `glab` runs. */
+  it('GitLabProvider_CheckCi_UnsafeRepository_ThrowsBeforeExec', async () => {
+    await expect(
+      provider.checkCi('10', { repository: { host: 'gitlab.com', path: '-R/project' } }),
+    ).rejects.toThrow('repository must be');
+    expect(mockExec).not.toHaveBeenCalled();
+  });
+
   it('GitLabProvider_CheckCi_PropagatesExecError', async () => {
     mockExec.mockRejectedValue(new Error('glab ci error'));
 

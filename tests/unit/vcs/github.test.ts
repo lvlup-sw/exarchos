@@ -203,6 +203,31 @@ describe('GitHubProvider', () => {
     expect(result.status).toBe('pass');
   });
 
+  /** A repository option binds `gh` to `HOST/OWNER/REPO`, so the number does not resolve against the current checkout. */
+  it('checkCi_WithRepository_PassesRepoFlag', async () => {
+    mockExec.mockResolvedValue(RECORDED_PASS_SKIP);
+
+    await provider.checkCi('42', { repository: { host: 'github.com', path: 'org/repo' } });
+
+    expect(mockExec).toHaveBeenCalledWith('gh', [
+      'pr',
+      'checks',
+      '--json',
+      'name,state,link',
+      '--repo=github.com/org/repo',
+      '--',
+      '42',
+    ]);
+  });
+
+  /** A repository with a path traversal segment or a single segment throws before `gh` runs. */
+  it.each(['org/..', 'repo'])('checkCi_UnsafeRepository_%s_ThrowsBeforeExec', async (path) => {
+    await expect(provider.checkCi('42', { repository: { host: 'github.com', path } })).rejects.toThrow(
+      'repository must be',
+    );
+    expect(mockExec).not.toHaveBeenCalled();
+  });
+
   /**
    * A recorded run with FAILURE, SKIPPED and SUCCESS checks.
    * One failed check makes the overall status fail.
