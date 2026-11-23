@@ -84,7 +84,7 @@ export interface ElicitationTestPair {
 
 /**
  * Builds an in-process MCP client and server pair for the form-mode elicitation round trip.
- * The server is the production `createMcpServer(ctx)`, and only the transport differs.
+ * The server is the production `createMcpServer(ctx)` with the operator grant, and only the transport differs.
  * The SDK runs the initialize handshake during the client connect, so the capability snapshot exists before the first `tools/call`.
  *
  * The request handler key is the method name `V2_ELICIT_REQUEST_METHOD`.
@@ -113,7 +113,7 @@ export async function createElicitationTestPair(
     capabilityResolver,
   };
 
-  const mcpServer = createMcpServer(ctx);
+  const mcpServer = createMcpServer(ctx, { grant: 'operator' });
 
   const [clientTransport, serverTransport] = createV2LinkedTransportPair();
 

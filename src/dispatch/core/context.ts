@@ -28,9 +28,9 @@ function hasJsProjectConfig(projectRoot: string): boolean {
 }
 
 /**
- * Resolves the process capability set. The local CLI and the MCP server both change this machine,
- * so the default grant is the shared-mutating posture and the cache-hint token.
- * `EXARCHOS_DISABLE_CACHE_HINTS=1` drops only the hint token.
+ * Resolves the process capability set. The local operator CLI changes this machine, so the grant is
+ * the shared-mutating posture and the cache-hint token. `EXARCHOS_DISABLE_CACHE_HINTS=1` drops only the hint token.
+ * An MCP session does not inherit this set. `createMcpServer` gives each session the grant of its launch configuration.
  */
 function buildDefaultCapabilityResolver(): CapabilityResolver {
   return buildDefaultProcessResolver();

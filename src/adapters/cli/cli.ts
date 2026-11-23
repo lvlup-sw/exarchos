@@ -383,13 +383,14 @@ export function buildCli(ctx: DispatchContext, options?: BuildCliOptions): Comma
 
   program
     .command('mcp')
-    .description('Start Exarchos as an MCP server (stdio)')
-    .action(async () => {
+    .description('Start Exarchos as an MCP server (stdio). Sessions are read-only unless --operator is set.')
+    .option('--operator', 'Give each session the local operator grant. Set it only for the orchestrator server entry.')
+    .action(async (opts: { operator?: boolean }) => {
       const [
         { createMcpServer },
         { createV2StdioServerTransport, connectV2Server },
       ] = await Promise.all([import('../mcp/mcp.js'), import('../../contract/sdk/seam.js')]);
-      const server = createMcpServer(ctx);
+      const server = createMcpServer(ctx, { grant: opts.operator === true ? 'operator' : 'read-only' });
       await connectV2Server(server, createV2StdioServerTransport());
     });
 

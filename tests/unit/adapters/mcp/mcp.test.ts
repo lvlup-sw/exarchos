@@ -121,10 +121,13 @@ describe('createMcpServer', () => {
       });
 
       const { createMcpServer } = await import('../../../../src/adapters/mcp/mcp.js');
-      createMcpServer({
-        ...ctx,
-        capabilityResolver: createInMemoryResolver(['mcp:exarchos:readonly']),
-      });
+      createMcpServer(
+        {
+          ...ctx,
+          capabilityResolver: createInMemoryResolver(['mcp:exarchos']),
+        },
+        { grant: 'operator' },
+      );
       const registration = spy.mock.calls.find(
         (call) => call[0] === 'custom_identity_probe',
       );
@@ -144,7 +147,7 @@ describe('createMcpServer', () => {
       expect(observed).toMatchObject({
         identity: { kind: 'mcp-session', role: 'agent' },
         posture: 'read-only',
-        capabilities: ['mcp:exarchos:readonly'],
+        capabilities: ['mcp:exarchos'],
       });
       expect(JSON.stringify(observed)).not.toContain('administrator');
       expect(JSON.stringify(observed)).not.toContain('1900-01-01');
@@ -504,7 +507,7 @@ describe('createMcpServer', () => {
       const { V2_MCP_SERVER_CLASS: McpServer } = await import('../../../../src/contract/sdk/seam.js');
       const spy = vi.spyOn(McpServer.prototype, 'registerTool');
       const { createMcpServer } = await import('../../../../src/adapters/mcp/mcp.js');
-      createMcpServer(ctx);
+      createMcpServer(ctx, { grant: 'operator' });
 
       const call = spy.mock.calls.find(c => c[0] === 'custom_probe_tool');
       expect(call).toBeDefined();
@@ -699,11 +702,16 @@ describe('createMcpServer', () => {
     }
   });
 
-  /** `capabilityResolver` is optional. With no resolver, the server sets no `oninitialized` callback. */
+  /**
+   * `capabilityResolver` is optional. An operator server with no resolver sets no `oninitialized` callback.
+   * A read-only server always has a session resolver, so it wires the handshake.
+   */
   it('CreateMcpServer_NoCapabilityResolver_SkipsHandshakeWiring', async () => {
     const { createMcpServer } = await import('../../../../src/adapters/mcp/mcp.js');
-    const server = createMcpServer({ ...ctx, capabilityResolver: undefined });
+    const server = createMcpServer({ ...ctx, capabilityResolver: undefined }, { grant: 'operator' });
     expect(server.server.oninitialized).toBeUndefined();
+    const readOnly = createMcpServer({ ...ctx, capabilityResolver: undefined });
+    expect(readOnly.server.oninitialized).toBeTypeOf('function');
   });
 
   it('CreateMcpServer_SlimRegistration_UsesSlimDescriptions', async () => {

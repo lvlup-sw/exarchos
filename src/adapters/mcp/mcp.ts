@@ -30,6 +30,17 @@ import {
   type McpCallerRuntimeContext,
 } from '../../dispatch/caller-identity.js';
 import { assertBindingsAtStartup } from '../../contract/bindings/verify-bindings.js';
+import {
+  DEFAULT_MCP_SESSION_GRANT,
+  resolveMcpSessionResolver,
+  type McpSessionGrant,
+} from '../../workflow/capabilities/resolver.js';
+
+/** Options that the launch configuration of the server sets. A connected client cannot set them. */
+export interface CreateMcpServerOptions {
+  /** The grant of each session. Without it, a session is read-only. */
+  readonly grant?: McpSessionGrant;
+}
 
 /**
  * The surface that the MCP server stamps onto `onboard` args. Off the `'cli'` surface, the core
@@ -230,11 +241,19 @@ export function validateAgainstActionSchema(
  *
  * A `hidden` tool stays out of `tools/list`, but the CLI can still reach it. Each handler
  * dispatches the call, checks the envelope against the action `outputSchema`, and maps it with
- * {@link toMcpResult}. A thrown dispatch error becomes an `INTERNAL_ERROR` envelope with no schema
- * check. Only an `onboard` result gets the CLI advisory pointer.
+ * {@link toMcpResult}. Only an `onboard` result gets the CLI advisory pointer.
+ * A session does not inherit the operator resolver in `ctx`. Its grant is `options.grant`, and without one it is read-only.
  */
-export function createMcpServer(ctx: DispatchContext): V2McpServer {
+export function createMcpServer(
+  ctx: DispatchContext,
+  options: CreateMcpServerOptions = {},
+): V2McpServer {
   assertBindingsAtStartup();
+
+  const sessionResolver = resolveMcpSessionResolver(
+    options.grant ?? DEFAULT_MCP_SESSION_GRANT,
+    ctx.capabilityResolver,
+  );
 
   const mcpSessionId = randomUUID();
   let mcpRuntimeContext: McpCallerRuntimeContext = { sessionId: mcpSessionId };
@@ -285,15 +304,18 @@ export function createMcpServer(ctx: DispatchContext): V2McpServer {
     },
   });
 
+  const { capabilityResolver: _processResolver, ...sessionCtx } = ctx;
+  void _processResolver;
   const dispatchCtx: DispatchContext = {
-    ...ctx,
+    ...sessionCtx,
+    ...(sessionResolver !== undefined ? { capabilityResolver: sessionResolver } : {}),
     taskStore,
     rootsClient,
     elicitationClient,
   };
 
-  if (ctx.capabilityResolver !== undefined) {
-    const resolver = ctx.capabilityResolver;
+  if (sessionResolver !== undefined) {
+    const resolver = sessionResolver;
     server.server.oninitialized = () => {
       try {
         const capabilities = server.server.getClientCapabilities();

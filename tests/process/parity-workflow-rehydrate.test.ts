@@ -100,7 +100,7 @@ describe('parity: exarchos workflow rehydrate — CLI ↔ MCP', () => {
       const featureId = `parity-rehydrate-${env.testId.slice(0, 8)}`;
       const mcp = await spawnMcpClient({
         command: WORKTREE_BINARY,
-        args: ['mcp'],
+        args: ['mcp', '--operator'],
         stateDir: env.stateDir,
       });
       try {
@@ -179,7 +179,7 @@ describe('parity: exarchos workflow rehydrate — CLI ↔ MCP', () => {
     try {
       mcpA = await spawnMcpClient({
         command: WORKTREE_BINARY,
-        args: ['mcp'],
+        args: ['mcp', '--operator'],
         stateDir: stateDirA,
       });
       await driveStandardSaga(mcpA, featureId);
@@ -198,7 +198,7 @@ describe('parity: exarchos workflow rehydrate — CLI ↔ MCP', () => {
 
       mcpB = await spawnMcpClient({
         command: WORKTREE_BINARY,
-        args: ['mcp'],
+        args: ['mcp', '--operator'],
         stateDir: stateDirB,
       });
 

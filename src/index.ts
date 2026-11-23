@@ -21,6 +21,7 @@ import type { StorageBackend } from './storage/backend.js';
 import { resolvePackageVersion } from './adapters/cli/version.js';
 import { isHookCommand, handleHookCommand } from './adapters/cli/hooks.js';
 import type { DispatchContext } from './dispatch/core/dispatch.js';
+import type { McpSessionGrant } from './workflow/capabilities/resolver.js';
 
 export const SERVER_NAME = 'exarchos-mcp';
 /**
@@ -42,6 +43,8 @@ export interface CreateServerOptions {
    * A storage backend for test injection. The production entry point always uses `initializeBackend()`, which throws when no SQLite driver loads.
    */
   backend?: StorageBackend;
+  /** The grant of each MCP session. Without it, a session is read-only. */
+  grant?: McpSessionGrant;
 }
 
 /**
@@ -125,6 +128,7 @@ export function registerBackendCleanup(backend: StorageBackend): void {
  * The context carries the storage backend, so consumers do not import `bun:sqlite`.
  * The context turns on slim `tools/list` registration. Each tool shows its short `slimDescription`, and `describe` gives the full detail.
  * For new code, use `initializeContext()` and `createMcpServer()` directly.
+ * A session gets the operator grant only when `options.grant` is `operator`. Otherwise it is read-only.
  */
 export async function createServer(
   stateDir: string,
@@ -154,7 +158,7 @@ export async function createServer(
   const ctx: DispatchContext = { stateDir, eventStore, enableTelemetry, capabilityResolver, storage: backend, slimRegistration: true };
 
   const { createMcpServer } = await import('./adapters/mcp/mcp.js');
-  return createMcpServer(ctx);
+  return createMcpServer(ctx, options?.grant !== undefined ? { grant: options.grant } : {});
 }
 
 export async function resolveStateDir(): Promise<string> {
