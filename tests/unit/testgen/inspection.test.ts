@@ -1,4 +1,4 @@
-// @oracle-sources: ../../../src/testgen/inspection/analyze.ts, ../../../src/testgen/inspection/collect.ts, ../../../src/testgen/adapters/cli.ts
+// @oracle-sources: ../../../src/testgen/adapters/cli.ts, the hand-written repository fixtures and expected project verdicts in this file
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { expect, it } from 'vitest';
