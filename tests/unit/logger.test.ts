@@ -160,3 +160,4 @@ function consoleCallLines(content: string): number[] {
   visit(source);
   return lines;
 }
+
