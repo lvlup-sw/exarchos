@@ -114,7 +114,7 @@ const ToolsConfig = z.object({
 }).strict();
 
 const HookAction = z.object({
-  command: z.string(),
+  command: safeCommand,
   timeout: z.number().int().min(1000).max(300000).optional(),
 }).strict();
 

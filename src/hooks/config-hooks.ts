@@ -1,5 +1,5 @@
-import { spawn } from 'child_process';
-import type { ResolvedProjectConfig } from '../config/resolve.js';
+import { spawnCommand } from '../utils/process.js';
+import type { BoundProjectHooks } from './hook-trust.js';
 
 export interface WorkflowEvent {
   readonly type: string;
@@ -11,10 +11,11 @@ export interface WorkflowEvent {
 export type ConfigHookRunner = (event: WorkflowEvent) => Promise<void>;
 
 /**
- * Creates a fire-and-forget hook runner for the resolved project config. For
- * each hook in `config.hooks.on[event.type]`, it runs the command with `sh -c`
- * and writes the event JSON to stdin. It ignores every hook error, so that a
- * hook cannot block a workflow operation.
+ * Creates a fire-and-forget hook runner for the project hooks that the user trusts.
+ * Only `bindProjectHooks` makes the bound hooks, and an untrusted project binds an empty table.
+ * For each hook in `hooks.on[event.type]`, the runner starts the bound program with its arguments through `spawnCommand`.
+ * On POSIX it uses no shell. On win32 only a bare package-manager shim name goes through `cmd.exe`.
+ * It writes the event JSON to stdin and ignores every hook error, so that a hook cannot block a workflow operation.
  *
  * Each hook gets `EXARCHOS_FEATURE_ID`, `EXARCHOS_PHASE`, `EXARCHOS_EVENT_TYPE`
  * and `EXARCHOS_WORKFLOW_TYPE`. `EXARCHOS_SKIP_HOOKS=true` turns off all hooks.
@@ -22,12 +23,13 @@ export type ConfigHookRunner = (event: WorkflowEvent) => Promise<void>;
  * so `EventStore.append()` must not call the runner.
  */
 export function createConfigHookRunner(
-  config: ResolvedProjectConfig,
+  hooks: BoundProjectHooks,
 ): ConfigHookRunner {
   return async (event: WorkflowEvent): Promise<void> => {
     if (process.env.EXARCHOS_SKIP_HOOKS === 'true') return;
 
-    const handlers = config.hooks.on[event.type];
+    if (!Object.hasOwn(hooks.on, event.type)) return;
+    const handlers = hooks.on[event.type];
     if (!handlers?.length) return;
 
     const env = {
@@ -40,16 +42,19 @@ export function createConfigHookRunner(
 
     for (const handler of handlers) {
       try {
-        const proc = spawn('sh', ['-c', handler.command], {
+        const [program, ...args] = handler.argv;
+        const proc = spawnCommand(program, args, {
+          cwd: hooks.projectRoot,
           env,
+          shell: false,
           stdio: ['pipe', 'pipe', 'pipe'],
           timeout: handler.timeout,
         });
 
-        proc.stdin.on('error', () => {
+        proc.stdin?.on('error', () => {
         });
-        proc.stdin.write(JSON.stringify(event));
-        proc.stdin.end();
+        proc.stdin?.write(JSON.stringify(event));
+        proc.stdin?.end();
 
         proc.on('error', () => {
         });

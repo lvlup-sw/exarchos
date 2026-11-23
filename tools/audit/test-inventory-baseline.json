@@ -4,10 +4,10 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1495,
-    "parsedFiles": 1450,
+    "testFiles": 1496,
+    "parsedFiles": 1451,
     "shellFiles": 45,
-    "cases": 16561,
+    "cases": 16578,
     "dynamicTitles": 288,
     "unparseableFiles": 0
   },
@@ -31902,7 +31902,17 @@
         },
         {
           "suite": "createConfigHookRunner",
+          "name": "ConfigHookRunner_QuotedArgument_PassesOneArgument",
+          "dynamic": false
+        },
+        {
+          "suite": "createConfigHookRunner",
           "name": "ConfigHookRunner_NoMatchingHooks_Noop",
+          "dynamic": false
+        },
+        {
+          "suite": "createConfigHookRunner",
+          "name": "ConfigHookRunner_PrototypeEventType_Noop",
           "dynamic": false
         },
         {
@@ -31928,6 +31938,87 @@
         {
           "suite": "createConfigHookRunner",
           "name": "ConfigHookRunner_TestEnv_SkipsExecution",
+          "dynamic": false
+        },
+        {
+          "suite": "createConfigHookRunner",
+          "name": "ConfigHookRunner_UntrustedBinding_NeverSpawns",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/hooks/hook-trust.test.ts": {
+      "file": "tests/unit/hooks/hook-trust.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "bindProjectHooks",
+          "name": "NoHooks_BindsNone",
+          "dynamic": false
+        },
+        {
+          "suite": "bindProjectHooks",
+          "name": "NoTrustRecord_BindsEmptyTable",
+          "dynamic": false
+        },
+        {
+          "suite": "bindProjectHooks",
+          "name": "MatchingTrustRecord_BindsArgv",
+          "dynamic": false
+        },
+        {
+          "suite": "bindProjectHooks",
+          "name": "ChangedCommandAfterTrust_BindsEmptyTable",
+          "dynamic": false
+        },
+        {
+          "suite": "bindProjectHooks",
+          "name": "TrustRecordForOtherRoot_BindsEmptyTable",
+          "dynamic": false
+        },
+        {
+          "suite": "bindProjectHooks",
+          "name": "DigestFromOtherRoot_DoesNotTrust",
+          "dynamic": false
+        },
+        {
+          "suite": "bindProjectHooks",
+          "name": "SymlinkedRoot_UsesRealPath",
+          "dynamic": false
+        },
+        {
+          "suite": "bindProjectHooks",
+          "name": "TrustFileInsideProject_DoesNotTrust",
+          "dynamic": false
+        },
+        {
+          "suite": "bindProjectHooks",
+          "name": "MalformedTrustFile_DoesNotTrust",
+          "dynamic": false
+        },
+        {
+          "suite": "bindProjectHooks",
+          "name": "ShellMetacharacters_RefusedEvenWithRecord",
+          "dynamic": false
+        },
+        {
+          "suite": "bindProjectHooks",
+          "name": "BoundHooks_DoNotFollowLaterChanges",
+          "dynamic": false
+        },
+        {
+          "suite": "bindProjectHooks",
+          "name": "Dispatch_TrustedHook_RunsWithoutShell",
+          "dynamic": false
+        },
+        {
+          "suite": "bindProjectHooks",
+          "name": "Dispatch_HookChangedAfterTrust_DoesNotRun",
+          "dynamic": false
+        },
+        {
+          "suite": "bindProjectHooks",
+          "name": "Dispatch_ConfigEditedWhileOpen_RunsBoundHookOnly",
           "dynamic": false
         }
       ]

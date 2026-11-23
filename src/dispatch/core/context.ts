@@ -13,6 +13,10 @@ import { configureCleanupSnapshotStore } from '../../workflow/cleanup.js';
 import { configureStateStoreBackend } from '../../workflow/state-store.js';
 import { loadTopology } from '../../workflow/topology/loader.js';
 import { assertRegistrationWeldsAtStartup } from '../../events/registration-validate.js';
+import type { HookTrustBinding } from '../../hooks/hook-trust.js';
+import { logger } from '../../logger.js';
+
+const hookTrustLogger = logger.child({ subsystem: 'hook-trust' });
 
 const JS_PROJECT_CONFIG_FILES = ['exarchos.config.ts', 'exarchos.config.js'] as const;
 
@@ -52,7 +56,8 @@ export interface InitializeContextOptions {
  *
  * Without `projectRoot`, it skips config, VCS, hooks, and topology. With it, it lazy-imports the
  * YAML config, VCS, and hook modules, applies the storage durability before the first append, and
- * loads `topology.yaml`. It imports the JS/TS config loader and the registrars only when a JS/TS config file is present.
+ * loads `topology.yaml`. The hook runner gets only the project hooks that a trust record in `stateDir` binds.
+ * It imports the JS/TS config loader and the registrars only when a JS/TS config file is present.
  * This keeps the CLI cold start fast. Without that file, `config` is `{}`.
  */
 export async function initializeContext(
@@ -87,16 +92,20 @@ export async function initializeContext(
     { resolveConfig },
     { createVcsProvider },
     { createConfigHookRunner },
+    { bindProjectHooks },
   ] = await Promise.all([
     import('../../config/yaml-loader.js'),
     import('../../config/resolve.js'),
     import('../../vcs/factory.js'),
     import('../../hooks/config-hooks.js'),
+    import('../../hooks/hook-trust.js'),
   ]);
 
   const projectConfig = resolveConfig(loadProjectConfig(projectRoot));
   const vcsProvider = await createVcsProvider({ config: projectConfig });
-  const hookRunner = createConfigHookRunner(projectConfig);
+  const hookBinding = bindProjectHooks({ stateDir, projectRoot, hooks: projectConfig.hooks });
+  reportHookBinding(hookBinding);
+  const hookRunner = createConfigHookRunner(hookBinding.hooks);
 
   eventStore.setStorageDurability(projectConfig.storage.synchronous);
 
@@ -139,6 +148,25 @@ export async function initializeContext(
   }
 
   return { stateDir, eventStore, enableTelemetry, capabilityResolver, ...(backend !== undefined ? { storage: backend } : {}), config, projectConfig, vcsProvider, hookRunner };
+}
+
+/**
+ * Logs a warning when the project config names hooks that do not run.
+ * An untrusted set names the trust file and the digest that a user record must hold.
+ */
+function reportHookBinding(binding: HookTrustBinding): void {
+  if (binding.kind === 'untrusted') {
+    hookTrustLogger.warn(
+      { projectRoot: binding.projectRoot, trustFile: binding.trustFile, hooksDigest: binding.digest },
+      `Project hooks in ${binding.projectRoot} are not trusted and do not run. To trust them, add ` +
+        `"${binding.projectRoot}": { "hooksDigest": "${binding.digest}" } under "projects" in ${binding.trustFile}.`,
+    );
+  } else if (binding.kind === 'invalid') {
+    hookTrustLogger.warn(
+      { projectRoot: binding.projectRoot, event: binding.event, reason: binding.reason },
+      `Project hooks in ${binding.projectRoot} do not run: the hook for ${binding.event} ${binding.reason}.`,
+    );
+  }
 }
 
 /**

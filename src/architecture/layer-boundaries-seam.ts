@@ -310,7 +310,11 @@ export const LAYER_ALLOWED_IMPORTS: readonly LayerAllowance[] = Object.freeze([
     'L9 cooperative agents — drives launches and worktrees through the dispatch core, the verb surface, the workflow primitives and the event store.',
   ),
   allowance('pruner', ['workflow'], 'Pruner safeguards read the topology contract, which task 013 folded into workflow/.'),
-  allowance('hooks', ['config'], 'Hook wiring reads only config; hooks are an advisory side-channel.'),
+  allowance(
+    'hooks',
+    ['config', 'utils'],
+    'Hook wiring reads config and starts a hook through the shared spawn helper; hooks are an advisory side-channel.',
+  ),
   allowance(
     'runbooks',
     ['utils', ROOT_LAYER],
