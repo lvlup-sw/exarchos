@@ -88,24 +88,9 @@ const MAX_EXEMPT_TIMEOUT_MS = 15_000;
  */
 const SYNC_SPAWN_EXEMPTIONS: ReadonlyArray<{ readonly file: string; readonly calls: number; readonly forcedBy: string }> = [
   {
-    file: 'tests/evals/quality-ab/grade.ts',
-    calls: 1,
-    forcedBy: 'runProbe (src/verbs/gates/test-adequacy.ts) takes a synchronous GitExec',
-  },
-  {
     file: 'tests/outcome/preflight-debug.test.ts',
     calls: 1,
     forcedBy: 'mergePreflight (src/verbs/pure/merge-preflight.ts) takes a synchronous GitExec',
-  },
-  {
-    file: 'tests/unit/verbs/gates/test-adequacy.false-advisory.test.ts',
-    calls: 1,
-    forcedBy: 'changedFilesFor (src/verbs/gates/test-adequacy-handler.ts) and runProbe take a synchronous GitExec',
-  },
-  {
-    file: 'tests/unit/verbs/gates/test-adequacy.test.ts',
-    calls: 1,
-    forcedBy: 'snapshotWorkingTree, revertSourceFiles, restoreWorkingTree and runProbe take a synchronous GitExec',
   },
   {
     file: 'tests/unit/verbs/merge/local-git-merge.test.ts',

@@ -1,5 +1,5 @@
 /**
- * The local executor of the approved checks: static analysis, the integration suite, contract drift and spec coverage.
+ * The local executor of the approved checks: static analysis, the integration suites, contract drift, spec coverage and source-revert adequacy.
  * A command runs only when its argv is a leg of the approved plan, which the pinned or the live resolved profile gives.
  * The program resolves once through PATH. A program inside the checkout refuses, except a runner under node_modules/.bin.
  * Each leg runs in its own process group with a time cap, an output cap and the scrubbed store environment.
@@ -9,7 +9,7 @@
  */
 import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { accessSync, constants as fsConstants, mkdtempSync, statSync } from 'node:fs';
+import { accessSync, constants as fsConstants, mkdtempSync, rmSync, statSync, type RmOptions } from 'node:fs';
 import { realpath } from 'node:fs/promises';
 import os from 'node:os';
 import { basename, delimiter, dirname, isAbsolute, join, resolve, sep } from 'node:path';
@@ -18,6 +18,7 @@ import { z } from 'zod';
 import { canonicalJson } from '../../contract/request-context.js';
 import { checkPlanDigest, verificationJson, verificationValueDigest, type CheckPlan } from '../../contract/verification/harness-verification.js';
 import { getDispatchContext } from '../../dispatch/dispatch-context.js';
+import { PLUGIN_MODE_ENV_KEYS, STORE_LOCATION_ENV_KEYS } from '../../utils/paths.js';
 import type { EventStore } from '../../events/store.js';
 import { isPidAlive, isWindowsBatchFile, windowsBatchLaunch } from '../../utils/process.js';
 import { processObservationalGitPath } from '../../utils/git-tree.js';
@@ -27,8 +28,50 @@ import type { CommandResult } from '../pure/static-analysis.js';
 import type { ToolResult } from '../../format.js';
 import { closedListingCleanTree, HostedAdequacyPending, hostedPendingResult, storedEvidenceReplay } from '../gates/gate-runner.js';
 import { observeCurrentCheckout, type CurrentCheckoutRead, type ProfiledGateArgs } from '../gates/gate-utils.js';
-import { PROBE_SCRATCH_PREFIX, probeTestEnvironment, removeProbeScratch } from '../gates/test-adequacy-handler.js';
-import { withDisposableCopy } from './disposable-copy.js';
+import { buildDisposableCopy, withDisposableCopy, type DisposableCopySource, type SourceRevert } from './disposable-copy.js';
+
+/** The name prefix of the scratch directory of one probe test run, under the temporary directory of the system. */
+export const PROBE_SCRATCH_PREFIX = 'exarchos-probe-';
+
+/** The options of each delete of a probe scratch directory. The retries give a transient Windows lock time to end. */
+const PROBE_SCRATCH_REMOVE: RmOptions = { recursive: true, force: true, maxRetries: 10, retryDelay: 50 };
+
+/** True when `key` names the environment key `name`. Windows reads environment keys without case, so the match there ignores case. */
+function isEnvKey(key: string, name: string, platform: NodeJS.Platform): boolean {
+  return platform === 'win32' ? key.toUpperCase() === name.toUpperCase() : key === name;
+}
+
+/**
+ * Returns the environment of one probe test run: a copy of `parent` in which each store key points under `scratchDir`.
+ * No plugin-mode key stays. A deleted store key is not enough, because the resolver then falls back to the home directory.
+ * Thus a test that resolves its store through these keys does not write the live store that settle writes in the same call.
+ * `HOME` and `XDG_STATE_HOME` stay, so a test that builds a store path from them can still reach the live store.
+ *
+ * @internal Exported so that a test can read the environment without a process.
+ */
+export function probeTestEnvironment(
+  parent: NodeJS.ProcessEnv,
+  scratchDir: string,
+  platform: NodeJS.Platform = process.platform,
+): NodeJS.ProcessEnv {
+  const storeKeys = Object.entries(STORE_LOCATION_ENV_KEYS);
+  const removed = [...PLUGIN_MODE_ENV_KEYS, ...storeKeys.map(([, key]) => key)];
+  const env: NodeJS.ProcessEnv = {};
+  for (const [key, value] of Object.entries(parent)) {
+    if (!removed.some((name) => isEnvKey(key, name, platform))) env[key] = value;
+  }
+  for (const [location, key] of storeKeys) env[key] = join(scratchDir, location);
+  return env;
+}
+
+/** Deletes a probe scratch directory. A failed delete leaves the directory, and the verdict of the run stays. */
+export function removeProbeScratch(scratchDir: string): void {
+  try {
+    rmSync(scratchDir, PROBE_SCRATCH_REMOVE);
+  } catch {
+    return;
+  }
+}
 
 /** The time cap of one leg when the check names none. */
 export const DEFAULT_LEG_TIMEOUT_MS = 600_000;
@@ -46,11 +89,18 @@ const MAXIMUM_ATTEMPTS = 64;
 const COMMIT_PLACEHOLDERS: readonly string[] = ['@baseCommit@', '@headCommit@'];
 
 /** The checks that run in this executor. */
-export type CheckOperation = 'static-analysis' | 'contract-drift' | 'integration-suite' | 'spec-coverage';
+export type CheckOperation = 'static-analysis' | 'contract-drift' | 'integration-suite' | 'spec-coverage' | 'test-adequacy';
 
-/** The closed end of one leg. A refused leg started no process. An unavailable leg did not start. */
+/** The source image of one leg. The head image is the exact head. The reverted image holds the task sources at the base. */
+export type SourceImage = 'head' | 'reverted';
+
+/**
+ * The closed end of one leg. A refused leg started no process. An unavailable leg did not start.
+ * A leg in the reverted image names it. A leg with no image ran in the head image or in the checkout.
+ */
 export const LegObservation = z.object({
   argv: z.array(z.string()).min(1),
+  image: z.literal('reverted').optional(),
   end: z.enum(['exited', 'timeout', 'output-limit', 'unavailable', 'signal', 'refused']),
   exitCode: z.number().int().nullable(),
   signal: z.string().optional(),
@@ -93,6 +143,17 @@ const AttemptClaim = z.object({ version: z.literal(1), attempt: z.number().int()
 /** The binding of one terminal observation in the run bundle. */
 const ObservationBinding = z.object({ version: z.literal(1), digest: ContentDigestV1Schema }).strict();
 
+/**
+ * The integration subject of a suite at the integration tip. The working directory must hold the full ref at the observed tip.
+ * The attempt names the outer operation, the ref, the tip, the profile and the sorted accepted heads.
+ * It takes the place of the dispatch operation in the request key.
+ */
+export interface IntegrationCheckSubject {
+  readonly ref: string;
+  readonly tip: string;
+  readonly attempt: string;
+}
+
 /** One request of one check. The plan holds every approved leg, and the coordinate binds a task segment. */
 export interface ApprovedCheckRequest {
   readonly eventStore: EventStore;
@@ -103,16 +164,24 @@ export interface ApprovedCheckRequest {
   readonly profileDigest: string;
   /** The working directory that the gate names. It must be the canonical root of its checkout. */
   readonly checkout: string;
+  /** The head that the gate observed before the request. A working directory at another head refuses. */
+  readonly head?: string;
   readonly coordinate?: ProfiledGateArgs['coordinate'];
   readonly selection?: readonly string[];
   /** `checkout` runs read-only legs in the checkout itself. `disposable-copy` runs legs that write in a copy of the exact head. */
   readonly workspace: 'checkout' | 'disposable-copy';
+  /** The sources of the reverted image of a disposable-copy request, and the base commit that gives their blobs. */
+  readonly revert?: SourceRevert;
+  /** The integration subject of a suite at the integration tip. */
+  readonly integration?: IntegrationCheckSubject;
   readonly legTimeoutMs?: number;
 }
 
 /** One leg of the plan, its commit substitutions and the operands that the gate appends, such as declared test files. */
 export interface LegRequest {
   readonly leg: number;
+  /** The source image of a disposable-copy request with a revert. The head image is the default. */
+  readonly image?: SourceImage;
   readonly substitute?: Readonly<Record<string, string>>;
   readonly append?: readonly string[];
 }
@@ -124,9 +193,12 @@ export interface CheckSession {
   run(request: LegRequest): Promise<LegObservation>;
 }
 
-/** The outcome of one check: the value of its body and the attempt that gave it, or a refusal before or after the legs. */
+/**
+ * The outcome of one check: the value of its body and the attempt that gave it, or a refusal before or after the legs.
+ * `observation` is the digest of the stored terminal observation of the attempt.
+ */
 export type ApprovedCheckOutcome<T> =
-  | { readonly kind: 'ran'; readonly value: T; readonly replayed: boolean; readonly attempt: number }
+  | { readonly kind: 'ran'; readonly value: T; readonly replayed: boolean; readonly attempt: number; readonly observation: string }
   | { readonly kind: 'refused'; readonly reason: string };
 
 /** The executor of one check. A test passes its own executor to a gate. */
@@ -318,20 +390,27 @@ type CheckoutRead =
     readonly reads: Extract<CurrentCheckoutRead, { readonly kind: 'observed' }> }
   | { readonly kind: 'refused'; readonly reason: string };
 
-/** The repository of the prepared scope of the stream, undefined when the stream has none, or a refusal when it cannot be read. */
-async function scopeRepository(eventStore: EventStore, streamId: string): Promise<string | undefined | { readonly refused: string }> {
+/** The prepared scope of the stream, undefined when the stream has none, or a refusal when it cannot be read. */
+async function preparedScope(eventStore: EventStore, streamId: string):
+  Promise<{ readonly repository: string; readonly checkout: string } | undefined | { readonly refused: string }> {
   const selection = selectPreparedAuthority(await eventStore.query(streamId), streamId);
   if (selection === undefined) return undefined;
   try {
-    return (await loadPreparedCustody(selection, eventStore.bundleStore)).capsule.settlementContract.scope?.repository;
+    return (await loadPreparedCustody(selection, eventStore.bundleStore)).capsule.settlementContract.scope;
   } catch {
     return { refused: 'The prepared authority of the workflow cannot be read, so no scope confines the working directory.' };
   }
 }
 
+/** True when two paths name the same directory after each resolves its links. */
+async function samePath(left: string, right: string): Promise<boolean> {
+  return await realpath(left).catch(() => left) === await realpath(right).catch(() => right);
+}
+
 /**
  * Observe the working directory. It must be the canonical root of a registered branch checkout.
  * A segment checkout must hold the coordinate repository and head. A direct call must name the repository of the prepared scope, when one exists.
+ * An integration suite must run in the checkout of the prepared scope, on the integration ref at the observed tip.
  */
 async function observeWorkingDirectory(request: ApprovedCheckRequest): Promise<CheckoutRead> {
   const checkout = await realpath(request.checkout).catch(() => undefined);
@@ -344,16 +423,26 @@ async function observeWorkingDirectory(request: ApprovedCheckRequest): Promise<C
   if (await realpath(value.checkout).catch(() => value.checkout) !== checkout) {
     return { kind: 'refused', reason: 'The working directory is not the root of its checkout.' };
   }
+  if (request.head !== undefined && value.head !== request.head) {
+    return { kind: 'refused', reason: 'The working directory moved from the head that the gate observed.' };
+  }
   const coordinate = request.coordinate;
   if (coordinate !== undefined) {
     if (value.repository !== coordinate.repository || value.head !== coordinate.observedHeadCommit) {
       return { kind: 'refused', reason: 'The working directory is not the checkout of the bound coordinate.' };
     }
   } else {
-    const scoped = await scopeRepository(request.eventStore, request.streamId);
-    if (typeof scoped === 'object') return { kind: 'refused', reason: scoped.refused };
-    if (scoped !== undefined && await realpath(scoped).catch(() => scoped) !== await realpath(value.repository).catch(() => value.repository)) {
+    const scoped = await preparedScope(request.eventStore, request.streamId);
+    if (scoped !== undefined && 'refused' in scoped) return { kind: 'refused', reason: scoped.refused };
+    if (scoped !== undefined && !await samePath(scoped.repository, value.repository)) {
       return { kind: 'refused', reason: 'The working directory is not a worktree of the repository that the workflow prepared.' };
+    }
+    const integration = request.integration;
+    if (integration !== undefined && (scoped === undefined || !await samePath(scoped.checkout, checkout))) {
+      return { kind: 'refused', reason: 'The working directory is not the integration checkout of the prepared scope.' };
+    }
+    if (integration !== undefined && (value.branch !== integration.ref || value.head !== integration.tip)) {
+      return { kind: 'refused', reason: 'The integration checkout does not hold the integration ref at the observed tip.' };
     }
   }
   return { kind: 'observed', checkout, repository: value.repository, gitDir: value.gitDir, head: value.head, reads: observed };
@@ -374,7 +463,7 @@ function keysOf(requestKey: string) {
   };
 }
 
-/** A session that gives the stored legs in order. A leg that differs from its stored argv leaves the check pending. */
+/** A session that gives the stored legs in order. A leg that differs from its stored argv or image leaves the check pending. */
 function replaySession(plan: CheckPlan, stored: CheckObservation): CheckSession {
   let index = 0;
   return {
@@ -384,7 +473,7 @@ function replaySession(plan: CheckPlan, stored: CheckObservation): CheckSession 
       const argv = legArgv(plan, request);
       const leg = stored.legs[index];
       index++;
-      if (leg === undefined || verificationJson(leg.argv) !== verificationJson(argv)) {
+      if (leg === undefined || verificationJson(leg.argv) !== verificationJson(argv) || (leg.image ?? 'head') !== (request.image ?? 'head')) {
         throw new HostedAdequacyPending('The stored check observation does not match the replayed check.');
       }
       return leg;
@@ -392,19 +481,24 @@ function replaySession(plan: CheckPlan, stored: CheckObservation): CheckSession 
   };
 }
 
+/** The root of one source image, or the reason that the image is unavailable. */
+type ImageRoot = (image: SourceImage) => Promise<string | { readonly unavailable: string }>;
+
 /** A session that runs each leg live and records it. Each program resolves once. */
-function liveSession(plan: CheckPlan, root: string, checkout: string, timeoutMs: number, env: NodeJS.ProcessEnv, legs: LegObservation[]): CheckSession {
+function liveSession(plan: CheckPlan, root: string, images: ImageRoot, checkout: string, timeoutMs: number, env: NodeJS.ProcessEnv,
+  legs: LegObservation[]): CheckSession {
   const programs = new Map<string, Promise<ProgramResolution>>();
   return {
     root,
     replayed: false,
     async run(request) {
+      const image: { readonly image?: 'reverted' } = request.image === 'reverted' ? { image: 'reverted' } : {};
       let argv: readonly string[];
       try {
         argv = legArgv(plan, request);
       } catch (error) {
         const leg = plan.legs[request.leg];
-        const refused: LegObservation = { argv: leg === undefined ? ['?'] : [...leg.argv], end: 'refused', exitCode: null, stdout: '', stderr: '',
+        const refused: LegObservation = { argv: leg === undefined ? ['?'] : [...leg.argv], ...image, end: 'refused', exitCode: null, stdout: '', stderr: '',
           detail: error instanceof Error ? error.message : String(error) };
         legs.push(refused);
         return refused;
@@ -416,13 +510,50 @@ function liveSession(plan: CheckPlan, root: string, checkout: string, timeoutMs:
         programs.set(program, resolution);
       }
       const resolved = await resolution;
-      const observation: LegObservation = resolved.kind === 'resolved'
-        ? await spawnLeg(resolved.path, argv, root, timeoutMs, env)
-        : { argv: [...argv], end: resolved.kind, exitCode: null, stdout: '', stderr: '', detail: resolved.detail };
+      const cwd = await images(request.image ?? 'head');
+      let observation: LegObservation;
+      if (typeof cwd !== 'string') {
+        observation = { argv: [...argv], ...image, end: 'unavailable', exitCode: null, stdout: '', stderr: '', detail: cwd.unavailable };
+      } else if (resolved.kind === 'resolved') {
+        observation = { ...await spawnLeg(resolved.path, argv, cwd, timeoutMs, env), ...image };
+      } else {
+        observation = { argv: [...argv], ...image, end: resolved.kind, exitCode: null, stdout: '', stderr: '', detail: resolved.detail };
+      }
       legs.push(observation);
       return observation;
     },
   };
+}
+
+/** The image roots of a request with no revert: the one root for the head, and no reverted image. */
+function headOnly(root: string): ImageRoot {
+  return async (image) => image === 'head' ? root : { unavailable: 'The request names no reverted source image.' };
+}
+
+/**
+ * Run the body in a copy of the exact head. A revert adds the reverted image, which the executor builds at its first leg and deletes after the body.
+ * A reverted image that cannot be built gives an unavailable leg, so the leg has no verdict.
+ */
+async function inDisposableCopies<T>(
+  source: DisposableCopySource, revert: SourceRevert | undefined, run: (head: string, images: ImageRoot) => Promise<T>,
+): Promise<T> {
+  return withDisposableCopy(source, async (head) => {
+    if (revert === undefined) return run(head, headOnly(head));
+    let reverted: Promise<Awaited<ReturnType<typeof buildDisposableCopy>> | { readonly unavailable: string }> | undefined;
+    const images: ImageRoot = async (image) => {
+      if (image === 'head') return head;
+      reverted ??= buildDisposableCopy(source, revert).catch((error: unknown) => ({
+        unavailable: `The reverted source image was not built: ${error instanceof Error ? error.message : String(error)}` }));
+      const built = await reverted;
+      return 'unavailable' in built ? built : built.root;
+    };
+    try {
+      return await run(head, images);
+    } finally {
+      const built = await reverted;
+      if (built !== undefined && !('unavailable' in built)) await built.dispose();
+    }
+  });
 }
 
 /** The live run of one claimed attempt. It builds the workspace, runs the body and checks the live checkout after the run. */
@@ -434,12 +565,13 @@ async function runAttempt<T>(
   let value: T;
   let root = read.checkout;
   if (request.workspace === 'disposable-copy') {
-    value = await withDisposableCopy({ checkout: read.checkout, gitDir: read.gitDir, repository: read.repository, head: read.head, reads: read.reads.observer.reads }, (copy) => {
+    const source = { checkout: read.checkout, gitDir: read.gitDir, repository: read.repository, head: read.head, reads: read.reads.observer.reads };
+    value = await inDisposableCopies(source, request.revert, (copy, images) => {
       root = copy;
-      return body(liveSession(request.plan, copy, read.checkout, timeoutMs, { GIT_CEILING_DIRECTORIES: dirname(copy) }, legs));
+      return body(liveSession(request.plan, copy, images, read.checkout, timeoutMs, { GIT_CEILING_DIRECTORIES: dirname(copy) }, legs));
     });
   } else {
-    value = await body(liveSession(request.plan, read.checkout, read.checkout, timeoutMs, {}, legs));
+    value = await body(liveSession(request.plan, read.checkout, headOnly(read.checkout), read.checkout, timeoutMs, {}, legs));
   }
   const unchanged = request.coordinate !== undefined || await cleanAt(read);
   return { value, observation: { version: 1, root, legs, tree: unchanged ? 'unchanged' : 'changed' } };
@@ -451,6 +583,8 @@ const CHANGED_TREE_REASON = 'The check changed the working directory, so its res
 /**
  * Run one approved check. The working directory and its head are observed first, and a direct call needs a clean tree.
  * The request binds its operation, the dispatch operation, the coordinates, the profile digest and the plan digest.
+ * An integration request binds its attempt in place of the dispatch operation, so a later settle call of the same attempt replays it.
+ *
  * A stored terminal observation replays. Otherwise an attempt is claimed before any process starts, and its observation is stored after the body.
  * Inside a provider run whose operation already has stored evidence, a check with no stored observation stays pending and starts no process.
  */
@@ -462,11 +596,16 @@ export const runApprovedCheck: CheckExecutor = async <T>(request: ApprovedCheckR
   if (request.coordinate === undefined && !await cleanAt(read)) {
     return { kind: 'refused', reason: 'The working directory has uncommitted changes. Commit them first, then run the check again.' };
   }
+  if (request.revert !== undefined && request.workspace !== 'disposable-copy') {
+    return { kind: 'refused', reason: 'A reverted source image runs only in a disposable copy.' };
+  }
   const requestKey = verificationValueDigest({
-    version: 1, operation: request.operation, operationId, streamId: request.streamId, taskId: request.taskId ?? null,
-    checkout: read.checkout, repository: read.repository, head: read.head,
+    version: 1, operation: request.operation, operationId: request.integration?.attempt ?? operationId, streamId: request.streamId,
+    taskId: request.taskId ?? null, checkout: read.checkout, repository: read.repository, head: read.head,
     base: request.coordinate?.diffBaseCommit ?? null, blockers: request.coordinate?.blockers.map(blocker => blocker.headCommit) ?? [],
     profileDigest: request.profileDigest, planDigest: checkPlanDigest(request.plan), selection: request.selection ?? [], workspace: request.workspace,
+    ...(request.revert === undefined ? {} : { revert: { base: request.revert.base, sources: [...request.revert.sources] } }),
+    ...(request.integration === undefined ? {} : { ref: request.integration.ref }),
   });
   if (activeRequests.has(requestKey)) throw new HostedAdequacyPending('The same check is running in this process.');
   activeRequests.add(requestKey);
@@ -480,7 +619,8 @@ export const runApprovedCheck: CheckExecutor = async <T>(request: ApprovedCheckR
       const binding = ObservationBinding.parse(JSON.parse(stored));
       const observation = CheckObservation.parse(JSON.parse((await request.eventStore.bundleStore.resolve(binding.digest)).toString('utf8')));
       const value = await body(replaySession(request.plan, observation));
-      return observation.tree === 'changed' ? { kind: 'refused', reason: CHANGED_TREE_REASON } : { kind: 'ran', value, replayed: true, attempt };
+      return observation.tree === 'changed' ? { kind: 'refused', reason: CHANGED_TREE_REASON }
+        : { kind: 'ran', value, replayed: true, attempt, observation: binding.digest.value };
     }
     if (storedEvidenceReplay()) throw new HostedAdequacyPending('This operation has stored evidence but no terminal check observation, so no new run starts.');
     if (attempt > 0) {
@@ -498,7 +638,8 @@ export const runApprovedCheck: CheckExecutor = async <T>(request: ApprovedCheckR
     const { value, observation } = await runAttempt(request, read, body);
     const digest = await request.eventStore.bundleStore.put(Buffer.from(canonicalJson(observation), 'utf8'));
     backend.bindSegmentInput(keys.result(attempt + 1), canonicalJson({ version: 1, digest }));
-    return observation.tree === 'changed' ? { kind: 'refused', reason: CHANGED_TREE_REASON } : { kind: 'ran', value, replayed: false, attempt: attempt + 1 };
+    return observation.tree === 'changed' ? { kind: 'refused', reason: CHANGED_TREE_REASON }
+      : { kind: 'ran', value, replayed: false, attempt: attempt + 1, observation: digest.value };
   } finally {
     activeRequests.delete(requestKey);
   }

@@ -959,10 +959,10 @@ describe('dispatch keeps the code of a check that did not run', () => {
   });
 
   /**
-   * On a provisioned machine, an unbound `check_test_adequacy` call refuses before its handler, through real dispatch.
-   * The call carries no coordinate, so the coordinate check does not refuse first. No exchange starts and no row lands.
+   * On a provisioned machine, an unbound `check_test_adequacy` call ignores the connector and runs in the local executor, through real dispatch.
+   * The repo root holds no repository, so the diff read fails closed before any test command. No exchange starts.
    */
-  it('Dispatch_UnboundAdequacyOnProvisionedMachine_RefusesBeforeAnyLocalRun', async () => {
+  it('Dispatch_UnboundAdequacyOnProvisionedMachine_RunsLocallyAndIgnoresTheConnector', async () => {
     const stateDir = await mkdtemp(path.join(os.tmpdir(), 'unbound-adequacy-'));
     const repoRoot = await mkdtemp(path.join(os.tmpdir(), 'unbound-adequacy-repo-'));
     const stream = 'feat-unbound-adequacy';
@@ -970,7 +970,6 @@ describe('dispatch keeps the code of a check that did not run', () => {
     await store.initialize();
     try {
       await store.append(stream, { type: 'workflow.started', data: { featureId: stream, workflowType: 'feature' } });
-      const before = (await store.query(stream)).length;
       const { connector, exchanges } = countingConnector();
       const result = await dispatch('exarchos_orchestrate', {
         action: 'check_test_adequacy', featureId: stream, taskId: 'task-1', repoRoot, baseBranch: 'main',
@@ -978,11 +977,10 @@ describe('dispatch keeps the code of a check that did not run', () => {
       }, {
         stateDir, eventStore: store, enableTelemetry: false, verificationHost: connector,
         callerIdentity: deriveMcpCallerIdentity({ sessionId: 'unbound-adequacy' }),
-        capabilityResolver: createInMemoryResolver(['fs:read', 'fs:write', 'mcp:exarchos', 'shell:exec']),
+        capabilityResolver: createInMemoryResolver(['fs:read', 'fs:write', 'mcp:exarchos', 'shell:exec', 'admission:issue-gate-evidence']),
       });
-      expect(result, JSON.stringify(result)).toMatchObject({ success: false, error: { code: 'HOSTED_VERIFICATION_REFUSED' } });
+      expect(result, JSON.stringify(result)).toMatchObject({ success: true, data: { passed: false, discriminant: 'diff-failed' } });
       expect(exchanges()).toBe(0);
-      expect((await store.query(stream)).length).toBe(before);
     } finally {
       store.close();
       await rmrfAsync(stateDir);

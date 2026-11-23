@@ -7,8 +7,8 @@
     "testFiles": 1513,
     "parsedFiles": 1469,
     "shellFiles": 44,
-    "cases": 16854,
-    "dynamicTitles": 341,
+    "cases": 16851,
+    "dynamicTitles": 338,
     "unparseableFiles": 0
   },
   "unparseable": [],
@@ -4566,7 +4566,7 @@
         },
         {
           "suite": "compiler 8-vcs settlement",
-          "name": "SettleIntegration_WrongBranchOrRepository_RefusesBeforeAnyClaim",
+          "name": "SettleIntegration_WrongCheckoutOrDirtyCheckout_RefusesBeforeAnyClaim",
           "dynamic": false
         },
         {
@@ -4576,7 +4576,7 @@
         },
         {
           "suite": "compiler 8-vcs settlement",
-          "name": "SettleIntegration_UnresolvedSuite_FailsWithNoVerifierRequestAndReplays",
+          "name": "SettleIntegration_UnresolvedSuite_FailsWithNoSuiteRunAndReplays",
           "dynamic": false
         },
         {
@@ -4586,7 +4586,7 @@
         },
         {
           "suite": "compiler 8-vcs settlement",
-          "name": "SettleIntegration_StaleProviderResult_CommitsNothing",
+          "name": "SettleIntegration_ASuiteThatChangesTheCheckout_CommitsNothing",
           "dynamic": false
         },
         {
@@ -4611,7 +4611,7 @@
         },
         {
           "suite": "compiler 8-vcs settlement",
-          "name": "SettleIntegration_RestartRecovery_ResubmitsTheBoundRequest",
+          "name": "SettleIntegration_CrashAfterTheClaim_RunsTheIncompleteAttemptAgainAfterARestart",
           "dynamic": false
         }
       ]
@@ -5135,7 +5135,7 @@
         },
         {
           "suite": "dispatch keeps the code of a check that did not run",
-          "name": "Dispatch_UnboundAdequacyOnProvisionedMachine_RefusesBeforeAnyLocalRun",
+          "name": "Dispatch_UnboundAdequacyOnProvisionedMachine_RunsLocallyAndIgnoresTheConnector",
           "dynamic": false
         }
       ]
@@ -10438,7 +10438,7 @@
       "cases": [
         {
           "suite": "",
-          "name": "BoundAdequacy_LostSignedDeliveryRetainsOriginalAndColdReplays",
+          "name": "BoundAdequacy_LocalRunInDisposableCopies_LeavesTheCheckoutUnchangedAndColdReplays",
           "dynamic": false
         },
         {
@@ -10448,7 +10448,7 @@
         },
         {
           "suite": "",
-          "name": "BoundAdequacy_ReenteredPhaseCannotReplaceOriginalHostedRequest",
+          "name": "BoundAdequacy_CrashesBeforeAndAfterBinding_LeaveTheAttemptRetryableAndRunOnceMore",
           "dynamic": false
         },
         {
@@ -10463,34 +10463,19 @@
       "runner": "vitest:root",
       "cases": [
         {
-          "suite": "integration attempts on a real host",
-          "name": "IntegrationRetry_BindingLostDeliveryReentryAndRestart_ExactExecutionCounts",
+          "suite": "integration attempts in the local executor",
+          "name": "IntegrationRetry_CrashesBeforeAndAfterBinding_RunOnceMoreThenReplay",
           "dynamic": false
         },
         {
-          "suite": "integration attempts on a real host",
-          "name": "<dynamic-case-1>",
-          "dynamic": true
-        },
-        {
-          "suite": "integration attempts on a real host",
+          "suite": "integration attempts in the local executor",
           "name": "IntegrationRetry_TwoTipsInOnePhaseAttempt_EachClaimsExactlyOnce",
           "dynamic": false
         },
         {
-          "suite": "integration attempts on a real host",
-          "name": "<dynamic-case-2>",
-          "dynamic": true
-        },
-        {
-          "suite": "integration attempts on a real host",
-          "name": "IntegrationRetry_HostAuthorization_AdmitsOnlyThePinnedIntegrationSubject",
+          "suite": "integration attempts in the local executor",
+          "name": "IntegrationRetry_WrongCheckout_RefusesBeforeAnyClaim",
           "dynamic": false
-        },
-        {
-          "suite": "integration attempts on a real host",
-          "name": "<dynamic-case-3>",
-          "dynamic": true
         },
         {
           "suite": "verifier key stability",
@@ -11738,7 +11723,7 @@
         },
         {
           "suite": "",
-          "name": "DataOnly_UnusableProvisioning_RunTestsExits77AndUnboundAdequacyRefusesWithItsOwnCode",
+          "name": "DataOnly_UnusableProvisioning_RunTestsExits77AndUnboundAdequacyRunsLocallyWithNoTestCommand",
           "dynamic": false
         },
         {
@@ -60772,7 +60757,7 @@
       "cases": [
         {
           "suite": "TestAdequacy_CommittedBranchDiscovery (WFQ-005)",
-          "name": "discovers task-added files from a named branch when HEAD is a different branch",
+          "name": "refuses a named branch that the checkout does not hold, and discovers the added files on its checkout",
           "dynamic": false
         },
         {
@@ -60868,7 +60853,7 @@
         },
         {
           "suite": "check_test_adequacy routing + idempotency (task 014)",
-          "name": "CheckTestAdequacy_ADiffThatDoesNotParse_IsADiffFailure",
+          "name": "CheckTestAdequacy_ADiffThatCannotBeRead_IsADiffFailure",
           "dynamic": false
         },
         {
@@ -60943,57 +60928,57 @@
           "dynamic": false
         },
         {
-          "suite": "buildScopedTestRunner — each end of a real test run",
+          "suite": "the probe leg of the local executor — each end of a real test run",
           "name": "ScopedTestRunner_NoVerdictTable_HoldsEachCauseOnce",
           "dynamic": false
         },
         {
-          "suite": "buildScopedTestRunner — each end of a real test run",
+          "suite": "the probe leg of the local executor — each end of a real test run",
           "name": "<dynamic-case-1>",
           "dynamic": true
         },
         {
-          "suite": "buildScopedTestRunner — each end of a real test run",
+          "suite": "the probe leg of the local executor — each end of a real test run",
           "name": "<dynamic-case-2>",
           "dynamic": true
         },
         {
-          "suite": "buildScopedTestRunner — each end of a real test run",
+          "suite": "the probe leg of the local executor — each end of a real test run",
           "name": "ScopedTestRunner_ScratchDirectoryNotMade_IsNoVerdictAndStartsNoCommand",
           "dynamic": false
         },
         {
-          "suite": "buildScopedTestRunner — each end of a real test run",
+          "suite": "the probe leg of the local executor — each end of a real test run",
           "name": "ScopedTestRunner_ExitZero_IsAGreenRun",
           "dynamic": false
         },
         {
-          "suite": "buildScopedTestRunner — each end of a real test run",
+          "suite": "the probe leg of the local executor — each end of a real test run",
           "name": "ScopedTestRunner_ExitOne_IsARedRunWithItsOutput",
           "dynamic": false
         },
         {
-          "suite": "buildScopedTestRunner — each end of a real test run",
+          "suite": "the probe leg of the local executor — each end of a real test run",
           "name": "ScopedTestRunner_RustToolchain_ReadsExit101AsRedAndExit1AsNoVerdict",
           "dynamic": false
         },
         {
-          "suite": "buildScopedTestRunner — each end of a real test run",
+          "suite": "the probe leg of the local executor — each end of a real test run",
           "name": "ScopedTestRunner_PythonToolchain_ReadsExit2AsRedAndExit4AsNoVerdict",
           "dynamic": false
         },
         {
-          "suite": "buildScopedTestRunner — each end of a real test run",
+          "suite": "the probe leg of the local executor — each end of a real test run",
           "name": "ScopedTestRunner_RealPytestCollectionErrorAfterTheRevert_IsARedRun",
           "dynamic": false
         },
         {
-          "suite": "buildScopedTestRunner — each end of a real test run",
+          "suite": "the probe leg of the local executor — each end of a real test run",
           "name": "ScopedTestRunner_WrapperRefusalThroughNpm_PassesExit2ThroughAsNoVerdict",
           "dynamic": false
         },
         {
-          "suite": "buildScopedTestRunner — the test:files wrapper with a real vitest",
+          "suite": "the probe leg of the local executor — the test:files wrapper with a real vitest",
           "name": "DefaultRunTests_TestFilesWrapper_RunsEachNamedFileInItsProjectAndReadsItsResult",
           "dynamic": false
         }
@@ -61131,102 +61116,102 @@
           "dynamic": false
         },
         {
-          "suite": "snapshot/revert/restore (INV-14: refuse-to-discard recovery)",
-          "name": "Snapshot_BeforeProbe_UsesRefuseToDiscardRef",
+          "suite": "the reverted source image (no Git write)",
+          "name": "RevertedImage_WritesNoRefNoStashAndNoLiveFile",
           "dynamic": false
         },
         {
-          "suite": "snapshot/revert/restore (INV-14: refuse-to-discard recovery)",
-          "name": "Restore_AfterProbe_TreeHashMatchesSnapshot",
+          "suite": "the reverted source image (no Git write)",
+          "name": "RevertedImage_HoldsTheBaseSourceAndTheHeadTest",
           "dynamic": false
         },
         {
-          "suite": "snapshot/revert/restore (INV-14: refuse-to-discard recovery)",
-          "name": "RevertSourceFiles_MixedExistingAndAddedSource_RevertsAndRestores",
+          "suite": "the reverted source image (no Git write)",
+          "name": "RevertedImage_MixedExistingAndAddedSource_HoldsTheBaseAndLeavesOutTheAdded",
           "dynamic": false
         },
         {
-          "suite": "snapshot/revert/restore (INV-14: refuse-to-discard recovery)",
-          "name": "Restore_OnProbeError_StillRestores",
+          "suite": "the reverted source image (no Git write)",
+          "name": "RevertedImage_ARunThatThrows_LeavesTheLiveCheckoutUnchanged",
           "dynamic": false
         },
         {
-          "suite": "snapshot/revert/restore (INV-14: refuse-to-discard recovery)",
-          "name": "Revert_Conflict_ReturnsRevertConflictDiscriminant",
+          "suite": "the reverted source image (no Git write)",
+          "name": "RevertedImage_ASourceInNeitherTree_Refuses",
           "dynamic": false
         },
         {
-          "suite": "snapshot/revert/restore (INV-14: refuse-to-discard recovery)",
-          "name": "Revert_TaskAddedSource_RemovesThenRestoresCleanly",
+          "suite": "the reverted source image (no Git write)",
+          "name": "RevertedImage_TaskAddedSource_IsAbsentAndTheLiveIndexKeepsIt",
           "dynamic": false
         },
         {
-          "suite": "runProbe (compose split → snapshot → revert → run → restore)",
+          "suite": "runProbe (split, then the head run, then the reverted run)",
           "name": "Probe_NoNewTests_ReturnsNoNewTestsDiscriminant",
           "dynamic": false
         },
         {
-          "suite": "runProbe (compose split → snapshot → revert → run → restore)",
+          "suite": "runProbe (split, then the head run, then the reverted run)",
           "name": "Probe_NewTestFailsOnRevert_RedObservedTrue_PassedTrue",
           "dynamic": false
         },
         {
-          "suite": "runProbe (compose split → snapshot → revert → run → restore)",
+          "suite": "runProbe (split, then the head run, then the reverted run)",
           "name": "Probe_NewTestPassesOnRevert_PassedFalse",
           "dynamic": false
         },
         {
-          "suite": "runProbe (compose split → snapshot → revert → run → restore)",
+          "suite": "runProbe (split, then the head run, then the reverted run)",
           "name": "Probe_Result_CarriesProbedTestsAndRestoredClean",
           "dynamic": false
         },
         {
-          "suite": "runProbe (compose split → snapshot → revert → run → restore)",
+          "suite": "runProbe (split, then the head run, then the reverted run)",
           "name": "Probe_TestCommandAlwaysFails_IsBaselineRedAndBlocksAtEveryTier",
           "dynamic": false
         },
         {
-          "suite": "runProbe (compose split → snapshot → revert → run → restore)",
+          "suite": "runProbe (split, then the head run, then the reverted run)",
           "name": "Probe_BaselineRed_DetailEndsWithTheTailOfTheRunnerOutput",
           "dynamic": false
         },
         {
-          "suite": "runProbe (compose split → snapshot → revert → run → restore)",
+          "suite": "runProbe (split, then the head run, then the reverted run)",
           "name": "Probe_TestOnlyTask_RunsTheTestsOnceAndNeverPasses",
           "dynamic": false
         },
         {
-          "suite": "runProbe (compose split → snapshot → revert → run → restore)",
+          "suite": "runProbe (split, then the head run, then the reverted run)",
           "name": "Probe_DeletedTestFile_IsNeverProbed",
           "dynamic": false
         },
         {
-          "suite": "runProbe (compose split → snapshot → revert → run → restore)",
-          "name": "Probe_RenamedAndDeletedSource_RestoresTheTreeAndTheIndexExactly",
+          "suite": "runProbe (split, then the head run, then the reverted run)",
+          "name": "Probe_RenamedAndDeletedSource_TheRevertedImageHoldsTheBasePathsAndTheLiveTreeStays",
           "dynamic": false
         },
         {
-          "suite": "runProbe (compose split → snapshot → revert → run → restore)",
-          "name": "Probe_RestoreFailsAfterBaselineRed_IsRestoreFailed",
+          "suite": "runProbe (split, then the head run, then the reverted run)",
+          "name": "Probe_AnUnbuiltHeadImage_IsRunNoVerdictBeforeAnyRevert",
           "dynamic": false
         },
         {
-          "suite": "runProbe (compose split → snapshot → revert → run → restore)",
+          "suite": "runProbe (split, then the head run, then the reverted run)",
           "name": "Probe_RunOnTheTaskSourceWithNoVerdict_IsRunNoVerdictAndBlocksAtEveryTier",
           "dynamic": false
         },
         {
-          "suite": "runProbe (compose split → snapshot → revert → run → restore)",
+          "suite": "runProbe (split, then the head run, then the reverted run)",
           "name": "Probe_RunAfterTheRevertWithNoVerdict_IsNeverAKill",
           "dynamic": false
         },
         {
-          "suite": "runProbe (compose split → snapshot → revert → run → restore)",
-          "name": "Probe_RestoreFailsAfterARunWithNoVerdict_IsRestoreFailed",
+          "suite": "runProbe (split, then the head run, then the reverted run)",
+          "name": "Probe_AnUnbuiltRevertedImage_IsRunNoVerdictAndNeverAKill",
           "dynamic": false
         },
         {
-          "suite": "runProbe (compose split → snapshot → revert → run → restore)",
+          "suite": "runProbe (split, then the head run, then the reverted run)",
           "name": "Probe_BaselineRed_DetailKeepsTheFirstStderrLineAheadOfTheTail",
           "dynamic": false
         }
@@ -66548,7 +66533,7 @@
       "cases": [
         {
           "suite": "settle — a blocking gate that blocks",
-          "name": "Settle_AKillProbeThatBlocks_RejectsTheBatchAndLeavesNoCompletion",
+          "name": "Settle_AKillProbeThatBlocks_LeavesTheTaskUnresolvedAndLeavesNoCompletion",
           "dynamic": false
         }
       ]
@@ -97591,7 +97576,7 @@
         },
         {
           "suite": "selected coordinate execution",
-          "name": "DirtyAdequacy_CannotPublishPassingReplayPair",
+          "name": "DirtyAdequacy_ProbeOutputStaysInTheCopyAndThePassingPairReplays",
           "dynamic": false
         }
       ]

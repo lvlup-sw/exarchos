@@ -1,24 +1,20 @@
-// @oracle-sources: actual executor, prepared custody, SQLite binding and signed verifier transport
-/** Hosted evidence uses only the immutable winning task segment. */
-import { createHash, generateKeyPairSync } from 'node:crypto';
-import { execFile, spawn, type ChildProcess } from 'node:child_process';
+// @oracle-sources: actual bound executor, prepared custody, the local check executor, SQLite bindings, a run log outside the checkout and the live Git state
+/**
+ * Source-revert adequacy of a bound task segment runs in the local check executor, in disposable copies of the exact task head.
+ * The probe leg runs once in the head copy and once in the copy with the task source at the base. The live checkout and its Git state never change.
+ * The selected test appends the module value that it loads to a log outside the checkout, so each case reads every run and its source.
+ * A switch of the executor stops an attempt before its claim or after its probe legs, as a crash does. The next call recovers it.
+ */
+import { readFile, rm, writeFile } from 'node:fs/promises';
+import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { once } from 'node:events';
-import { chmod, copyFile, mkdir, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { expect, it } from 'vitest';
-import { z } from 'zod';
-import { capsuleDigest, contentDigest } from '../../src/contract/capsule/capsule-digest.js';
+import { expect, it, vi } from 'vitest';
+import { capsuleDigest } from '../../src/contract/capsule/capsule-digest.js';
 import { encodePreparedBundle } from '../../src/contract/capsule/prepared-bundle.js';
 import { profiledValidCapsule } from '../../src/contract/capsule/exarchos-capsule-fixtures.js';
 import { TaskVerificationCoordinateSchema } from '../../src/contract/capsule/exarchos-capsule.js';
-import { ContentDigestV1Schema } from '../../src/workflow/admission/types.js';
 import { canonicalJson, requestDigest } from '../../src/contract/request-context.js';
-import {
-  VerificationRequest, signVerification, signVerificationReply, verificationValueDigest,
-  type VerificationReply,
-} from '../../src/contract/verification/harness-verification.js';
-import { createVerifierClient } from '../../src/dispatch/core/verifier-client.js';
 import { runWithDispatchContext } from '../../src/dispatch/dispatch-context.js';
 import { EventStore } from '../../src/events/store.js';
 import { observeRepository, observeTree } from '../../src/utils/git-tree.js';
@@ -27,7 +23,6 @@ import { allocatePhaseAttemptId } from '../../src/workflow/phase-attempt-id.js';
 import { readDesignRecord } from '../../src/workflow/design-record/read.js';
 import { ACTION_HANDLERS } from '../../src/verbs/composite.js';
 import { handleExecuteIntent, productionExecuteDeps, derivedLeafOperationId } from '../../src/verbs/execute/executor.js';
-import { SegmentInputBindingV1Schema } from '../../src/verbs/execute/run-bundle.js';
 import { settlementClaimKey, verificationOperationId } from '../../src/verbs/settle/settlement-reads.js';
 import { fixture as preparedFixture, prepared, task, textOf } from '../helpers/capsule/prepared-authority.js';
 import { scopedRepository } from '../helpers/scoped-repository.js';
@@ -36,261 +31,171 @@ import { makeTempDir, rmrfAsync } from '../../tools/test-helpers/temp-dir.js';
 
 const execute = promisify(execFile);
 
-/** Start the compiled verifier and observe its readiness before any connector request. */
-async function ready(child: ChildProcess): Promise<void> {
-  await new Promise<void>((resolve, reject) => {
-    const deadline = setTimeout(() => reject(new Error('Verifier readiness deadline')), 10000);
-    let diagnostic = '';
-    child.stderr?.on('data', bytes => { diagnostic += String(bytes); });
-    child.once('close', code => { clearTimeout(deadline); reject(new Error(`Verifier exited ${code}: ${diagnostic}`)); });
-    let output = '';
-    child.stdout?.on('data', bytes => {
-      output += String(bytes);
-      if (output.includes('VERIFIER_READY')) { clearTimeout(deadline); resolve(); }
+/** The crash switch of the executor. `before` stops an adequacy attempt before its claim. `after` stops it after its probe legs. */
+const crash = vi.hoisted((): { point: 'none' | 'before' | 'after' } => ({ point: 'none' }));
+
+vi.mock('../../src/verbs/verification/check-executor.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../src/verbs/verification/check-executor.js')>();
+  const { HostedAdequacyPending: Pending } = await import('../../src/verbs/gates/gate-runner.js');
+  const runApprovedCheck: typeof actual.runApprovedCheck = async (request, body) => {
+    if (request.operation !== 'test-adequacy' || crash.point === 'none') return actual.runApprovedCheck(request, body);
+    if (crash.point === 'before') throw new Pending('The fixture stopped the attempt before its claim');
+    return actual.runApprovedCheck(request, async (session) => {
+      await body(session);
+      throw new Pending('The fixture stopped the attempt after its probe legs');
     });
-  });
+  };
+  return { ...actual, runApprovedCheck };
+});
+
+/** The live Git state of one worktree: its head, its refs, its stash list, its index and its status. */
+async function liveState(tree: string): Promise<string> {
+  const read = async (...args: string[]) => (await execute('git', ['-C', tree, ...args])).stdout;
+  return [await read('rev-parse', 'HEAD'), await read('for-each-ref'), await read('stash', 'list'),
+    await read('ls-files', '--stage'), await read('status', '--porcelain', '--ignored')].join('\n--\n');
 }
 
-/** Use real preparation, a compiled verifier and the immutable bound executor. */
-async function runBoundAdequacyFixture(
-  scenario: 'recover-lost-reply' | 'reenter-after-execution' | 'reenter-before-execution',
-): Promise<void> {
+/** Prepare a compiler 8 capsule over one high-tier task and bind the immutable executor to its worktree. */
+async function boundAdequacyFixture() {
   const repo = await scopedRepository({ integrationBranch: 'integration', files: { 'module.cjs': 'module.exports = 1;' } });
   const root = makeTempDir('1928-bound-');
+  const log = join(root, 'runs.log');
   const events = new EventStore(root);
-  let host: ChildProcess | undefined;
-  try {
-    await events.initialize();
-    const worktree = await repo.worktreeFor('root', { 'module.cjs': 'module.exports = 2;', 'main.test.cjs': [
-      "const test = require('node:test');",
-      "const assert = require('node:assert/strict');",
-      "test('fixture assertion', () => { process.stdout.write('fixture {counts:1}\\n'); assert.equal(require('./module.cjs'), 2); });",
-    ].join('\n') });
-    const repository = await observeRepository(worktree);
-    const observed = await observeTree(worktree);
-    if (repository.kind !== 'repository' || observed.kind !== 'tree' || observed.head === undefined) throw new Error('Missing fixture Git coordinates');
-    const text = textOf([task('root', { riskTier: 'high', testLayer: 'integration', files: ['module.cjs', 'main.test.cjs'], testFiles: ['main.test.cjs'] })]);
-    const bundle = preparedFixture(text);
-    const capsule = bundle.capsule;
-    const streamId = capsule.identity.workflowId;
-    const design = readDesignRecord(Buffer.from(text), bundle.designRecord?.reference ?? 'plan.md');
-    if (design.kind !== 'typed') throw new Error(JSON.stringify(design));
-    capsule.provenance.compilerVersion = 'exarchos-prepare-8';
-    capsule.graph.tasks = design.snapshot.tasks.map(entry => ({ taskId: entry.id, title: entry.title, stepId: 'delegate',
-      stage: { kind: 'task-batch', stepId: 'delegate' }, taskContext: {
-        taskId: entry.id, title: entry.title, instructions: entry.instructions, files: [...entry.files], testFiles: [...entry.testFiles],
-        acceptance: [...entry.acceptance], riskTier: entry.riskTier, boundaryTouching: entry.boundaryTouching, testLayer: entry.testLayer,
-        blockedBy: [...entry.blockedBy], resultContractRef: entry.id,
-        source: { reference: design.snapshot.reference, digest: design.snapshot.digest, span: { ...entry.span } },
-        knowledgeSlice: { invariantIds: [], adrRefs: [], symbols: [], files: [] },
-      } }));
-    capsule.graph.dependencies = []; capsule.graph.joins = [];
-    capsule.contracts.taskInputs = {};
-    capsule.contracts.taskResults = { root: [{ name: 'passed', type: 'boolean', required: true }] };
-    capsule.settlementContract = { ...profiledValidCapsule().settlementContract, requiredResults: ['root'], skipPhases: [],
-      verificationMode: 'immutable-task-diff-v1', scope: { repository: repository.repository, checkout: repo.checkout, configDigest: 'c'.repeat(64) },
-      taskVerification: { root: { riskTier: 'high', boundaryTouching: false, baseRef: 'main', baseCommit: repo.baseCommit } } };
-    const profile = capsule.settlementContract.verificationProfile;
-    if (profile === undefined) throw new Error('Missing pinned fixture profile');
-    profile.tests.globs = { state: 'resolved', source: 'config', globs: ['**/*.test.cjs'] };
-    profile.tests.probe = { ...profile.tests.probe, command: { state: 'resolved', source: 'config', argv: ['node', '--test'] },
-      globs: ['**/*.test.cjs'], files: 'as-arguments' };
-    const storeDigest = await events.bundleStore.put(encodePreparedBundle(bundle));
-    await events.append(streamId, { ...prepared(bundle), data: {
-      ...prepared(bundle).data, capsuleDigest: capsuleDigest(capsule), bundleRefs: [{ artifactId: 'run-bundle:prepared', digest: storeDigest }],
-    } });
-    const selection = selectPreparedAuthority(await events.query(streamId), streamId);
-    if (selection === undefined) throw new Error('Missing approved authority');
-    const authority = await loadPreparedCustody(selection, events.bundleStore);
-    const outer = settlementClaimKey(streamId, { ...capsule.identity, batchId: 'batch' });
-    const operationId = verificationOperationId(outer, 'root');
-    const coordinate = TaskVerificationCoordinateSchema.parse({ protocolVersion: '1', taskId: 'root', capsule: capsule.identity,
-      repository: repository.repository, rootBaseCommit: repo.baseCommit, diffBaseCommit: repo.baseCommit,
-      observedHeadCommit: observed.head, blockers: [] });
-    const args = { taskId: 'root', worktreePath: worktree, branch: 'task/root', baseRef: 'main', riskTier: 'high', boundaryTouching: false,
-      capsuleVersion: capsule.identity.capsuleVersion, result: { passed: true } };
-    const callerDigest = requestDigest(args);
-    const signer = generateKeyPairSync('ed25519');
-    const publicKey = signer.publicKey.export({ format: 'pem', type: 'spki' }).toString();
-    const token = 'disposable-governance-fixture-token';
-    const control = join(root, 'control');
-    const hostState = join(control, 'state');
-    const runtime = join(root, 'runtime');
-    await mkdir(control, { mode: 0o700 });
-    await mkdir(hostState, { mode: 0o700 });
-    await mkdir(runtime);
-    const node = join(runtime, 'node');
-    await copyFile(await realpath(process.execPath), node);
-    await chmod(node, 0o500);
-    const runnerDigest = createHash('sha256').update(await readFile(node)).digest('hex');
-    const socketPath = join(control, 's');
-    const tokenPath = join(control, 'token');
-    const privateKeyPath = join(control, 'key');
-    const connection = join(control, 'client.json');
-    await writeFile(tokenPath, token, { mode: 0o600 });
-    await writeFile(privateKeyPath, signer.privateKey.export({ format: 'pem', type: 'pkcs8' }), { mode: 0o600 });
-    await writeFile(connection, JSON.stringify({ version: 1, socketPath, tokenPath, publicKey }), { mode: 0o600 });
-    const gitPath = await realpath((await execute('which', ['git'])).stdout.trim());
-    const bwrapPath = await realpath((await execute('which', ['bwrap'])).stdout.trim());
-    const gitDir = (await execute(gitPath, ['-C', worktree, 'rev-parse', '--absolute-git-dir'])).stdout.trim();
-    const marker = join(root, 'fsmonitor-called');
-    const hook = join(root, 'fsmonitor.cjs');
-    await writeFile(hook, `require('node:fs').appendFileSync(${JSON.stringify(marker)}, 'called\\n'); process.stdout.write('token\\0/\\0');`);
-    await execute(gitPath, ['-C', worktree, 'config', 'core.fsmonitor', `"${process.execPath}" "${hook}"`]);
-    await execute(gitPath, ['-C', worktree, 'status', '--porcelain']);
-    expect(await readFile(marker, 'utf8')).toContain('called');
-    await rm(marker);
-    const out = join(root, 'binary');
-    await execute('bun', ['run', 'tools/release/build-binary.ts', '--component=verifier', '--outdir', out], { timeout: 180000 });
-    const binary = join(out, `exarchos-verifier-linux-${process.arch}`);
-    const hostConfig = join(control, 'host.json');
-    let original: VerificationRequest | undefined;
-    let terminal: VerificationReply | undefined;
-    let submissions = 0;
-    let lookups = 0;
-    let delivery: 'original' | 'invalid-signature' | 'other-checkout' = 'original';
-    const client = {
-      retrieve: async (key: string, digest: string) => {
-        lookups++;
-        if (scenario === 'reenter-before-execution' && lookups === 1) {
-          return { kind: 'unavailable' as const, reason: 'Fixture interrupted before host admission' };
-        }
-        if (host === undefined) {
-          return signVerificationReply(key, digest, { kind: 'absent' }, signer.privateKey);
-        }
-        if (delivery !== 'original' && terminal?.response.kind === 'evidence') {
-          const signed = terminal.response.signed;
-          const refused = delivery === 'invalid-signature'
-            ? { ...signed, signature: 'A'.repeat(86) + '==' }
-            : signVerification({ ...signed.evidence,
-              resources: signed.evidence.resources.map(resource => resource.path === worktree ? { ...resource, path: repo.checkout } : resource),
-            }, signer.privateKey);
-          return signVerificationReply(key, digest, { kind: 'evidence', signed: refused }, signer.privateKey);
-        }
-        return (await createVerifierClient(connection)).retrieve(key, digest);
-      },
-      submit: async (request: VerificationRequest) => {
-        submissions++;
-        original = request;
-        if (request.operation !== 'adequacy') throw new Error('Expected closed adequacy request');
-        await writeFile(hostConfig, JSON.stringify({
-          version: 1, socketPath, stateDir: hostState, tokenPath, privateKeyPath, publicKey, bwrapPath, gitPath,
-          runtimePaths: ['/usr', runtime],
-          profiles: [{ id: 'node', digest: request.subject.profileDigest, executable: node, args: ['--test'],
-            timeoutMs: 5000, adequacy: { command: ['node', '--test'], files: 'as-arguments', selection: request.selection, runnerDigest, controlPaths: [] } }],
-          resources: [{ id: 'tree', checkout: worktree, repository: repository.repository, gitDir,
-            branch: 'refs/heads/task/root', subject: request.subject }],
-        }), { mode: 0o600 });
-        host = spawn(binary, ['--config', hostConfig], { stdio: ['ignore', 'pipe', 'pipe'] });
-        await ready(host);
-        const reply = await (await createVerifierClient(connection)).submit(request);
-        if ('kind' in reply || reply.response.kind !== 'evidence') throw new Error(`Expected real signed completion: ${JSON.stringify(reply)}`);
-        terminal = reply;
-        return { kind: 'unavailable' as const, reason: 'Fixture discarded the completed delivery' };
-      },
-    };
-    const deps = { ...productionExecuteDeps(ACTION_HANDLERS, 'exarchos_orchestrate'),
-      runbookTable: [fixtureRunbook('task-completion', [fixtureStep('check_test_adequacy', 'stop', {
-        repoRoot: 'auto', worktreePath: '<worktreePath>', baseBranch: '<baseRef>',
-      })])],
-      verificationInput: { authority, round: 0 as const, outerOperationId: outer, batchId: 'batch', callerDigest, coordinate },
-    };
-    const run = (connected: boolean) => runWithDispatchContext(fixtureCorrelation(), () => handleExecuteIntent(
-      { intent: 'task-completion', featureId: streamId, operationId, args }, root, {
-        ...fixtureWiring(root, events), verificationProfile: { capsuleVersion: capsule.identity.capsuleVersion, profile },
-        ...(connected ? { verificationHost: { client, publicKey, gitPath, profileId: 'node', resourceId: 'tree' } } : {}),
-      }, deps));
-    const backend = events.getAppender().ensureSqliteBackendSync();
-    const phaseAttemptId = allocatePhaseAttemptId(streamId, 'plan', 'delegate', undefined, 1);
-    await events.append(streamId, {
-      type: 'workflow.transition', data: { featureId: streamId, from: 'plan', to: 'delegate', trigger: 'fixture', phaseAttemptId },
-    });
-    const interrupted = await run(true);
-    expect(interrupted, JSON.stringify(interrupted)).toMatchObject({ success: false, error: { code: 'HOSTED_ADEQUACY_PENDING' } });
-    expect(backend.lookupOperationClaim(operationId)).toBeUndefined();
-    await expect(readFile(marker)).rejects.toMatchObject({ code: 'ENOENT' });
-    const bound = backend.lookupSegmentInput(operationId);
-    const binding = SegmentInputBindingV1Schema.parse(JSON.parse(bound ?? 'null'));
-    const leafId = derivedLeafOperationId(operationId, 0, 'check_test_adequacy');
-    const requestBindingKey = 'hosted-request:' + verificationValueDigest({ operationId, leafId });
-    const requestBinding = backend.lookupSegmentInput(requestBindingKey);
-    const requestRef = z.object({ version: z.literal(1), digest: ContentDigestV1Schema }).strict()
-      .parse(JSON.parse(requestBinding ?? 'null'));
-    const request = VerificationRequest.parse(JSON.parse((await events.bundleStore.resolve(requestRef.digest)).toString('utf8')));
-    expect(request.subject).toMatchObject({ operationId, leafId, phaseAttemptId, segmentDigest: binding.inputDigest.value });
-    expect(await events.query(streamId, { operationId: leafId })).toEqual([]);
-    if (scenario === 'reenter-before-execution') {
-      expect(original).toBeUndefined();
-      expect(host).toBeUndefined();
-      expect(lookups).toBe(1);
-      expect(submissions).toBe(0);
-    } else {
-      expect(original).toMatchObject({ operation: 'adequacy', selection: { tests: ['main.test.cjs'], sources: ['module.cjs'] }, subject: {
-        preparedDigest: capsuleDigest(capsule), segmentDigest: binding.inputDigest.value, callerDigest: binding.callerDigest.value,
-        leafId, operationId, configDigest: 'c'.repeat(64), profileDigest: contentDigest(profile), headCommit: observed.head,
-      } });
-      expect(terminal?.response).toMatchObject({ kind: 'evidence', signed: { evidence: { outcome: { status: 'passed' } } } });
-    }
-    if (scenario !== 'recover-lost-reply') {
-      const firstSubmissions = submissions;
-      const firstLookups = lookups;
-      const review = allocatePhaseAttemptId(streamId, 'delegate', 'review', phaseAttemptId, 1);
-      const delegate = allocatePhaseAttemptId(streamId, 'review', 'delegate', review, 1);
-      expect(delegate).not.toBe(phaseAttemptId);
-      for (const [from, to, phaseAttemptId] of [['delegate', 'review', review], ['review', 'delegate', delegate]]) {
-        await events.append(streamId, { type: 'workflow.transition', data: { featureId: streamId, from, to, trigger: 'fixture', phaseAttemptId } });
-      }
-      const retry = await run(true);
-      expect(retry, JSON.stringify(retry)).toMatchObject({ success: false, error: { code: 'HOSTED_ADEQUACY_PENDING' } });
-      expect(lookups).toBe(firstLookups);
-      await expect(readFile(marker)).rejects.toMatchObject({ code: 'ENOENT' });
-      expect(submissions).toBe(firstSubmissions);
-      expect(backend.lookupSegmentInput(operationId)).toBe(bound);
-      expect(backend.lookupSegmentInput(requestBindingKey)).toBe(requestBinding);
-      expect(backend.lookupOperationClaim(operationId)).toBeUndefined();
-      expect(await events.query(streamId, { operationId: leafId })).toEqual([]);
-      return;
-    }
-    const lookupsBeforeDisconnect = lookups;
-    expect(await run(false)).toMatchObject({ success: false, error: { code: 'HOSTED_ADEQUACY_PENDING' } });
-    expect(await events.query(streamId, { operationId: leafId })).toEqual([]);
-    expect(backend.lookupOperationClaim(operationId)).toBeUndefined();
-    expect(backend.lookupSegmentInput(operationId)).toBe(bound);
-    expect(backend.lookupSegmentInput(requestBindingKey)).toBe(requestBinding);
-    expect(lookups).toBe(lookupsBeforeDisconnect);
-    expect(submissions).toBe(1);
-    await expect(readFile(marker)).rejects.toMatchObject({ code: 'ENOENT' });
-    for (const inadmissible of ['invalid-signature', 'other-checkout'] satisfies (typeof delivery)[]) {
-      delivery = inadmissible;
-      expect(await run(true)).toMatchObject({ success: false, error: { code: 'HOSTED_ADEQUACY_PENDING' } });
-      expect(await events.query(streamId, { operationId: leafId })).toEqual([]);
-      expect(backend.lookupOperationClaim(operationId)).toBeUndefined();
-    }
-    delivery = 'original';
-    const settled = await run(true);
-    expect(settled.success, JSON.stringify(settled)).toBe(true);
-    expect(submissions).toBe(1);
-    expect(backend.lookupSegmentInput(operationId)).toBe(bound);
-    const leaf = await events.query(streamId, { operationId: leafId });
-    expect(leaf.map(event => event.type)).toEqual(['admission.evidence-recorded', 'gate.executed']);
-    expect(canonicalJson(leaf[0]?.data)).toContain('report');
-    await expect(readFile(marker)).rejects.toMatchObject({ code: 'ENOENT' });
-    await rmrfAsync(worktree);
-    expect(await run(false)).toEqual(settled);
-    expect(submissions).toBe(1);
-  } finally {
-    if (host?.exitCode === null && host.signalCode === null) { host.kill('SIGTERM'); await once(host, 'exit'); }
-    events.close();
-    await rmrfAsync(root);
-    await rmrfAsync(repo.root);
-  }
+  await events.initialize();
+  const worktree = await repo.worktreeFor('root', { 'module.cjs': 'module.exports = 2;', 'main.test.cjs': [
+    "const test = require('node:test');",
+    "const assert = require('node:assert/strict');",
+    `test('fixture assertion', () => { require('node:fs').appendFileSync(${JSON.stringify(log)}, require('./module.cjs') + '\\n'); assert.equal(require('./module.cjs'), 2); });`,
+  ].join('\n') });
+  const repository = await observeRepository(worktree);
+  const observed = await observeTree(worktree);
+  if (repository.kind !== 'repository' || observed.kind !== 'tree' || observed.head === undefined) throw new Error('Missing fixture Git coordinates');
+  const text = textOf([task('root', { riskTier: 'high', testLayer: 'integration', files: ['module.cjs', 'main.test.cjs'], testFiles: ['main.test.cjs'] })]);
+  const bundle = preparedFixture(text);
+  const capsule = bundle.capsule;
+  const streamId = capsule.identity.workflowId;
+  const design = readDesignRecord(Buffer.from(text), bundle.designRecord?.reference ?? 'plan.md');
+  if (design.kind !== 'typed') throw new Error(JSON.stringify(design));
+  capsule.provenance.compilerVersion = 'exarchos-prepare-8';
+  capsule.graph.tasks = design.snapshot.tasks.map(entry => ({ taskId: entry.id, title: entry.title, stepId: 'delegate',
+    stage: { kind: 'task-batch', stepId: 'delegate' }, taskContext: {
+      taskId: entry.id, title: entry.title, instructions: entry.instructions, files: [...entry.files], testFiles: [...entry.testFiles],
+      acceptance: [...entry.acceptance], riskTier: entry.riskTier, boundaryTouching: entry.boundaryTouching, testLayer: entry.testLayer,
+      blockedBy: [...entry.blockedBy], resultContractRef: entry.id,
+      source: { reference: design.snapshot.reference, digest: design.snapshot.digest, span: { ...entry.span } },
+      knowledgeSlice: { invariantIds: [], adrRefs: [], symbols: [], files: [] },
+    } }));
+  capsule.graph.dependencies = []; capsule.graph.joins = [];
+  capsule.contracts.taskInputs = {};
+  capsule.contracts.taskResults = { root: [{ name: 'passed', type: 'boolean', required: true }] };
+  capsule.settlementContract = { ...profiledValidCapsule().settlementContract, requiredResults: ['root'], skipPhases: [],
+    verificationMode: 'immutable-task-diff-v1', scope: { repository: repository.repository, checkout: repo.checkout, configDigest: 'c'.repeat(64) },
+    taskVerification: { root: { riskTier: 'high', boundaryTouching: false, baseRef: 'main', baseCommit: repo.baseCommit } } };
+  const profile = capsule.settlementContract.verificationProfile;
+  if (profile === undefined) throw new Error('Missing pinned fixture profile');
+  profile.tests.globs = { state: 'resolved', source: 'config', globs: ['**/*.test.cjs'] };
+  profile.tests.probe = { ...profile.tests.probe, command: { state: 'resolved', source: 'config', argv: ['node', '--test'] },
+    globs: ['**/*.test.cjs'], files: 'as-arguments', failureExitCodes: { codes: [1], source: 'config' } };
+  const storeDigest = await events.bundleStore.put(encodePreparedBundle(bundle));
+  await events.append(streamId, { ...prepared(bundle), data: {
+    ...prepared(bundle).data, capsuleDigest: capsuleDigest(capsule), bundleRefs: [{ artifactId: 'run-bundle:prepared', digest: storeDigest }],
+  } });
+  const selection = selectPreparedAuthority(await events.query(streamId), streamId);
+  if (selection === undefined) throw new Error('Missing approved authority');
+  const authority = await loadPreparedCustody(selection, events.bundleStore);
+  const outer = settlementClaimKey(streamId, { ...capsule.identity, batchId: 'batch' });
+  const operationId = verificationOperationId(outer, 'root');
+  const coordinate = TaskVerificationCoordinateSchema.parse({ protocolVersion: '1', taskId: 'root', capsule: capsule.identity,
+    repository: repository.repository, rootBaseCommit: repo.baseCommit, diffBaseCommit: repo.baseCommit,
+    observedHeadCommit: observed.head, blockers: [] });
+  const args = { taskId: 'root', worktreePath: worktree, branch: 'task/root', baseRef: 'main', riskTier: 'high', boundaryTouching: false,
+    capsuleVersion: capsule.identity.capsuleVersion, result: { passed: true } };
+  const marker = join(root, 'fsmonitor-called');
+  const hook = join(root, 'fsmonitor.cjs');
+  await writeFile(hook, `require('node:fs').appendFileSync(${JSON.stringify(marker)}, 'called\\n'); process.stdout.write('token\\0/\\0');`);
+  await execute('git', ['-C', worktree, 'config', 'core.fsmonitor', `"${process.execPath}" "${hook}"`]);
+  await execute('git', ['-C', worktree, 'status', '--porcelain']);
+  expect(await readFile(marker, 'utf8')).toContain('called');
+  await rm(marker);
+  const deps = { ...productionExecuteDeps(ACTION_HANDLERS, 'exarchos_orchestrate'),
+    runbookTable: [fixtureRunbook('task-completion', [fixtureStep('check_test_adequacy', 'stop', {
+      repoRoot: 'auto', worktreePath: '<worktreePath>', baseBranch: '<baseRef>',
+    })])],
+    verificationInput: { authority, round: 0 as const, outerOperationId: outer, batchId: 'batch', callerDigest: requestDigest(args), coordinate },
+  };
+  const run = () => runWithDispatchContext(fixtureCorrelation(), () => handleExecuteIntent(
+    { intent: 'task-completion', featureId: streamId, operationId, args }, root, {
+      ...fixtureWiring(root, events), verificationProfile: { capsuleVersion: capsule.identity.capsuleVersion, profile },
+    }, deps));
+  const phaseAttemptId = allocatePhaseAttemptId(streamId, 'plan', 'delegate', undefined, 1);
+  await events.append(streamId, {
+    type: 'workflow.transition', data: { featureId: streamId, from: 'plan', to: 'delegate', trigger: 'fixture', phaseAttemptId },
+  });
+  const runs = async (): Promise<string[]> => (await readFile(log, 'utf8').catch(() => '')).split('\n').filter(Boolean);
+  const fsmonitorCalled = async (): Promise<boolean> => (await readFile(marker, 'utf8').catch(() => '')).length > 0;
+  const resetFsmonitor = () => rm(marker, { force: true });
+  const leafId = derivedLeafOperationId(operationId, 0, 'check_test_adequacy');
+  const close = async () => { events.close(); await rmrfAsync(root); await rmrfAsync(repo.root); };
+  return { repo, worktree, events, streamId, operationId, leafId, run, runs, fsmonitorCalled, resetFsmonitor, close };
 }
 
-it.runIf(process.platform === 'linux')('BoundAdequacy_LostSignedDeliveryRetainsOriginalAndColdReplays',
-  () => runBoundAdequacyFixture('recover-lost-reply'), 200000);
+/**
+ * The bound leaf runs the probe in the head copy, then in the reverted copy. The reverted run is red, so the probe proves a kill.
+ * The live worktree keeps its head, refs, stash, index and status, and no checkout filter runs. A cold replay reads the terminal receipt with no run.
+ */
+it.runIf(process.platform !== 'win32')('BoundAdequacy_LocalRunInDisposableCopies_LeavesTheCheckoutUnchangedAndColdReplays', async () => {
+  const f = await boundAdequacyFixture();
+  try {
+    const before = await liveState(f.worktree);
+    await f.resetFsmonitor();
+    const settled = await f.run();
+    expect(settled.success, JSON.stringify(settled)).toBe(true);
+    expect(await f.fsmonitorCalled()).toBe(false);
+    expect(await f.runs()).toEqual(['2', '1']);
+    expect(await liveState(f.worktree)).toBe(before);
+    const leaf = await f.events.query(f.streamId, { operationId: f.leafId });
+    expect(leaf.map(event => event.type)).toEqual(['admission.evidence-recorded', 'gate.executed']);
+    expect(canonicalJson(leaf[1]?.data)).toContain('"passed":true');
+    expect(f.events.getAppender().ensureSqliteBackendSync().lookupOperationClaim(f.operationId)).toBeDefined();
+    await rmrfAsync(f.worktree);
+    expect(await f.run()).toEqual(settled);
+    expect(await f.runs()).toEqual(['2', '1']);
+  } finally { await f.close(); }
+}, 120000);
 
-it.runIf(process.platform === 'linux')('BoundAdequacy_ReenteredPhaseCannotReplaceOriginalHostedRequest',
-  async () => {
-    await runBoundAdequacyFixture('reenter-after-execution');
-    await runBoundAdequacyFixture('reenter-before-execution');
-  }, 200000);
+/**
+ * A stop before the claim leaves the segment retryable with no run. A stop after the probe legs leaves the claimed attempt with no terminal observation.
+ * The next call records that attempt as incomplete, runs the probe once more and settles. A later call replays the receipt with no run.
+ */
+it.runIf(process.platform !== 'win32')('BoundAdequacy_CrashesBeforeAndAfterBinding_LeaveTheAttemptRetryableAndRunOnceMore', async () => {
+  const f = await boundAdequacyFixture();
+  try {
+    const before = await liveState(f.worktree);
+    await f.resetFsmonitor();
+    const backend = f.events.getAppender().ensureSqliteBackendSync();
+    crash.point = 'before';
+    expect(await f.run()).toMatchObject({ success: false, error: { code: 'HOSTED_ADEQUACY_PENDING' } });
+    expect(await f.runs()).toEqual([]);
+    expect(backend.lookupSegmentInput(f.operationId)).toBeDefined();
+    expect(backend.lookupOperationClaim(f.operationId)).toBeUndefined();
+    crash.point = 'after';
+    expect(await f.run()).toMatchObject({ success: false, error: { code: 'HOSTED_ADEQUACY_PENDING' } });
+    expect(await f.runs()).toEqual(['2', '1']);
+    expect(await f.events.query(f.streamId, { operationId: f.leafId })).toEqual([]);
+    expect(backend.lookupOperationClaim(f.operationId)).toBeUndefined();
+    crash.point = 'none';
+    const settled = await f.run();
+    expect(settled.success, JSON.stringify(settled)).toBe(true);
+    expect(await f.runs()).toEqual(['2', '1', '2', '1']);
+    expect((await f.events.query(f.streamId, { operationId: f.leafId })).map(event => event.type))
+      .toEqual(['admission.evidence-recorded', 'gate.executed']);
+    expect(await f.run()).toEqual(settled);
+    expect(await f.runs()).toEqual(['2', '1', '2', '1']);
+    expect(await f.fsmonitorCalled()).toBe(false);
+    expect(await liveState(f.worktree)).toBe(before);
+  } finally {
+    crash.point = 'none';
+    await f.close();
+  }
+}, 120000);
+

@@ -2,29 +2,25 @@
  * The `check_test_adequacy` handler. It runs the kill probe (mutation testing at N=1) over the diff of a task and persists subject-bound evidence.
  * `test-adequacy.ts` holds the probe itself. This handler wires the production seams.
  *
- * It resolves `repoRoot`, with the worktree-aware `auto` mode. It resolves the merge base of the task base and the head once, as a SHA.
- * The changed-file diff and the revert both use that SHA.
+ * It resolves `repoRoot`, with the worktree-aware `auto` mode. It reads the diff and its base through the constrained Git reader.
+ * A segment diffs the two exact commits of its coordinate. A direct call diffs from the merge base of the caller base and the observed head.
  * It reads the test terms of the verification profile: the pinned profile of a segment, else the profile that resolves live at `repoRoot`.
- * It runs the probe command on the changed test files, in the file form of the term.
+ *
+ * The local executor runs the probe command in two disposable copies: the exact head, and the head with the task sources at the base.
+ * The live checkout and its Git state never change.
  *
  * Evidence persistence is idempotent on the trusted operation id.
  * The result is an advisory carrier: `success: true`, with `data.passed` set from the probe verdict. A failed probe is a finding, not a tool error.
  */
 
-import { mkdtempSync, rmSync, type RmOptions } from 'node:fs';
-import os from 'node:os';
-import path from 'node:path';
-import { execFailureFields, outputText, runCommandSync } from '../../utils/process.js';
-import { PLUGIN_MODE_ENV_KEYS, STORE_LOCATION_ENV_KEYS } from '../../utils/paths.js';
 import type { ToolResult } from '../../format.js';
 import type { EventStore } from '../../events/store.js';
 import {
-  defaultGitExec,
+  observeCurrentCheckout,
   profileOf,
   profilePathOf,
   resolvePolicySkip,
   SKIPPED_BY_POLICY,
-  WHOLE_SUITE_MAX_OUTPUT_BYTES,
   WHOLE_SUITE_TIMEOUT_MS,
   withProfileRoute,
   type ClosedGateVerdict,
@@ -34,16 +30,14 @@ import {
 } from './gate-utils.js';
 import { runGatePreflight } from '../pure/gate-preflight.js';
 import { runDurableGateProducer } from './durable-gate-producer.js';
-import { HostedAdequacyPending } from './gate-runner.js';
 import { probeArgv } from '../../config/verification-profile.js';
 import type { ResolvedProjectConfig } from '../../config/resolve.js';
 import type { RiskTier } from '../../workflow/verification-policy.js';
 import type { VerificationProfile } from '../../workflow/verification/profile.js';
-import type { GitExec } from '../pure/execute-merge.js';
+import type { CheckPlan } from '../../contract/verification/harness-verification.js';
 import {
   runProbe,
   selectAdequacyPaths,
-  interpretHostedAdequacy,
   probeNotRun,
   interpretProbeVerdict,
   verdictOf,
@@ -51,32 +45,22 @@ import {
   type AdequacyDisposition,
   type ProbeResult,
   type RunOutcome,
-  type TestRunFn,
 } from './test-adequacy.js';
 import { assertNever } from '../../contract/error-families.js';
-import { observeImmutableClaimedTree } from '../../utils/git-tree.js';
-import { getDispatchContext } from '../../dispatch/dispatch-context.js';
 import { contentDigest } from '../../contract/capsule/capsule-digest.js';
-import {
-  AdequacySelection, VerificationRequest, authenticateVerificationReply, verificationDigest, verificationKey, verificationJson, verificationValueDigest,
-  type BoundHostInput, type VerificationHostConnector,
-} from '../../contract/verification/harness-verification.js';
 import { CapsuleBaseRefSchema } from '../../contract/capsule/exarchos-capsule.js';
+import { processObservationalGitPath } from '../../utils/git-tree.js';
+import {
+  pendingOfDirectCall, refusedCheckResult, runApprovedCheck, type CheckExecutor, type LegObservation,
+} from '../verification/check-executor.js';
 
 /** The probe term of the verification profile. */
 type ProbeTerm = VerificationProfile['tests']['probe'];
 
-interface HostedAdequacyInput {
-  readonly connector: VerificationHostConnector;
-  readonly binding: BoundHostInput;
-  readonly segmentOperationId: string;
-}
-
 export interface TestAdequacyArgs extends ProfiledGateArgs {
-  readonly hostAdequacy?: HostedAdequacyInput;
   readonly featureId: string;
   readonly taskId: string;
-  /** The task branch (HEAD side of the diff). Defaults to the current branch. */
+  /** The task branch (HEAD side of the diff). When it is present, it must be the branch of the checkout. */
   readonly branch?: string;
   /**
    * The branch that the task forked from. The diff starts at the merge base of this ref and the task head.
@@ -117,36 +101,19 @@ export interface TestAdequacyArgs extends ProfiledGateArgs {
    * When absent, the resolver uses the built-in table.
    */
   readonly projectConfig?: ResolvedProjectConfig;
-  /** Git executor. Defaults to a 30s-ceiling shell-out. */
-  readonly gitExec?: GitExec;
-  /** Test runner. Defaults to a shell-out of the probe term of the profile. An injected runner replaces the check of that term. */
-  readonly runTests?: TestRunFn;
 }
 
 /** The time limit of one scoped test run of the probe. */
 const SCOPED_TEST_TIMEOUT_MS = 120_000;
 
-/** The output limit of one scoped test run of the probe. It is the default limit of `execFileSync`, written here so that the overflow end has a known size. */
-const SCOPED_TEST_MAX_OUTPUT_BYTES = 1024 * 1024;
-
-/** The limits of a scoped test run. A test sets short limits to drive a timeout or an overflow with a real process. */
-export interface ScopedTestRunLimits {
-  readonly timeoutMs?: number;
-  readonly maxOutputBytes?: number;
-}
-
 /**
- * The limits of one run in the file form `form`: each given limit, else the default of the form for that limit.
- * The `none` form runs a whole suite, so it takes the limits of a whole suite.
+ * The time limit of one run in the file form `form`: the given limit, else the limit of the form.
+ * The `none` form runs a whole suite, so it takes the limit of a whole suite.
  *
- * @internal Exported so that a test can read the limits of each form without a run.
+ * @internal Exported so that a test can read the limit of each form without a run.
  */
-export function runLimitsOf(form: ProbeTerm['files'], limits: ScopedTestRunLimits = {}): Required<ScopedTestRunLimits> {
-  const wholeSuite = form === 'none';
-  return {
-    timeoutMs: limits.timeoutMs ?? (wholeSuite ? WHOLE_SUITE_TIMEOUT_MS : SCOPED_TEST_TIMEOUT_MS),
-    maxOutputBytes: limits.maxOutputBytes ?? (wholeSuite ? WHOLE_SUITE_MAX_OUTPUT_BYTES : SCOPED_TEST_MAX_OUTPUT_BYTES),
-  };
+export function runTimeoutOf(form: ProbeTerm['files'], timeoutMs?: number): number {
+  return timeoutMs ?? (form === 'none' ? WHOLE_SUITE_TIMEOUT_MS : SCOPED_TEST_TIMEOUT_MS);
 }
 
 /** Writes a list of exit codes as text, such as `1` or `1 or 101`. */
@@ -155,136 +122,37 @@ function exitCodeList(codes: readonly number[]): string {
 }
 
 /**
- * Reads the error of a scoped test run that did not exit 0. The order of the checks follows the fields that `execFileSync` sets.
- * A timeout and an overflow carry a code and a signal, so the code comes first. A test-failure exit code of the toolchain is a red run.
- * Every other end gives no verdict, with its cause and the fact that names it.
+ * The run outcome of one probe leg of the local executor. Exit 0 is green, and a test-failure exit code of the toolchain is red.
+ * Each other end of the leg gives no verdict, with its cause.
  */
-function failedRunOutcome(err: unknown, testFailureExitCodes: readonly number[], limits: Required<ScopedTestRunLimits>): RunOutcome {
-  const failure = execFailureFields(err);
-  const output = { stdout: outputText(failure.stdout), stderr: outputText(failure.stderr) };
-  if (failure.code === 'ETIMEDOUT') {
-    return { kind: 'no-verdict', cause: 'timeout', detail: `the limit is ${limits.timeoutMs} ms`, ...output };
+export function probeRunOutcome(run: LegObservation, redCodes: readonly number[]): Exclude<RunOutcome, { kind: 'unresolved' }> {
+  const output = { stdout: run.stdout, stderr: run.stderr };
+  switch (run.end) {
+    case 'exited':
+      if (run.exitCode === 0) return { kind: 'ran', result: 'green', ...output };
+      if (run.exitCode !== null && redCodes.includes(run.exitCode)) return { kind: 'ran', result: 'red', ...output };
+      return { kind: 'no-verdict', cause: 'unknown-exit-code', ...output,
+        detail: `the command exited ${run.exitCode ?? 'with no status'}, and only exit ${exitCodeList(redCodes)} reads as a red run` };
+    case 'timeout': return { kind: 'no-verdict', cause: 'timeout', detail: 'the executor stopped the run at its time limit', ...output };
+    case 'output-limit': return { kind: 'no-verdict', cause: 'overflow', detail: 'the executor stopped the run at its output limit', ...output };
+    case 'unavailable': return { kind: 'no-verdict', cause: 'did-not-start', detail: run.detail ?? 'the test command did not start', ...output };
+    case 'refused': return { kind: 'no-verdict', cause: 'did-not-start', detail: run.detail ?? 'the executor refused the test command', ...output };
+    case 'signal': return { kind: 'no-verdict', cause: 'signal', detail: `the signal ${run.signal ?? 'SIGKILL'} stopped the run`, ...output };
   }
-  if (failure.code === 'ENOBUFS') {
-    return { kind: 'no-verdict', cause: 'overflow', detail: `the limit is ${limits.maxOutputBytes} bytes`, ...output };
-  }
-  if (typeof failure.code === 'string') {
-    return { kind: 'no-verdict', cause: 'did-not-start', detail: `the runner gave the error code ${failure.code}`, ...output };
-  }
-  if (typeof failure.signal === 'string') {
-    return { kind: 'no-verdict', cause: 'signal', detail: `the signal is ${failure.signal}`, ...output };
-  }
-  if (typeof failure.status !== 'number') {
-    const message = err instanceof Error ? err.message : String(err);
-    return { kind: 'no-verdict', cause: 'did-not-start', detail: `the runner gave no exit status: ${message}`, ...output };
-  }
-  if (testFailureExitCodes.includes(failure.status)) {
-    return { kind: 'ran', result: 'red', ...output };
-  }
+}
+
+/** The reviewed typed scope of a resolved probe term for the adequacy probe: its argv and its file form. */
+export function adequacyPlan(probe: ProbeTerm): CheckPlan {
   return {
-    kind: 'no-verdict',
-    cause: 'unknown-exit-code',
-    detail: `the command exited ${failure.status}, and only exit ${exitCodeList(testFailureExitCodes)} reads as a red run`,
-    ...output,
+    operation: 'adequacy',
+    legs: probe.command.state === 'resolved' ? [{ name: 'probe', kind: 'probe', argv: [...probe.command.argv] }] : [],
+    files: probe.files,
   };
 }
 
-/** The name prefix of the scratch directory of one probe test run, under the temporary directory of the system. */
-export const PROBE_SCRATCH_PREFIX = 'exarchos-probe-';
-
-/** The options of each delete of a probe scratch directory. The retries give a transient Windows lock time to end. */
-const PROBE_SCRATCH_REMOVE: RmOptions = { recursive: true, force: true, maxRetries: 10, retryDelay: 50 };
-
-/** True when `key` names the environment key `name`. Windows reads environment keys without case, so the match there ignores case. */
-function isEnvKey(key: string, name: string, platform: NodeJS.Platform): boolean {
-  return platform === 'win32' ? key.toUpperCase() === name.toUpperCase() : key === name;
-}
-
-/**
- * Returns the environment of one probe test run: a copy of `parent` in which each store key points under `scratchDir`.
- * No plugin-mode key stays. A deleted store key is not enough, because the resolver then falls back to the home directory.
- * Thus a test that resolves its store through these keys does not write the live store that settle writes in the same call.
- * `HOME` and `XDG_STATE_HOME` stay, so a test that builds a store path from them can still reach the live store.
- *
- * @internal Exported so that a test can read the environment without a process.
- */
-export function probeTestEnvironment(
-  parent: NodeJS.ProcessEnv,
-  scratchDir: string,
-  platform: NodeJS.Platform = process.platform,
-): NodeJS.ProcessEnv {
-  const storeKeys = Object.entries(STORE_LOCATION_ENV_KEYS);
-  const removed = [...PLUGIN_MODE_ENV_KEYS, ...storeKeys.map(([, key]) => key)];
-  const env: NodeJS.ProcessEnv = {};
-  for (const [key, value] of Object.entries(parent)) {
-    if (!removed.some((name) => isEnvKey(key, name, platform))) env[key] = value;
-  }
-  for (const [location, key] of storeKeys) env[key] = path.join(scratchDir, location);
-  return env;
-}
-
-/** Deletes a probe scratch directory. A failed delete leaves the directory, and the verdict of the run stays. */
-export function removeProbeScratch(scratchDir: string): void {
-  try {
-    rmSync(scratchDir, PROBE_SCRATCH_REMOVE);
-  } catch {
-    return;
-  }
-}
-
-/**
- * Builds a test runner of the probe from the probe term of the profile. The term holds an argv, so the runner splits no string.
- * `probeArgv` places the test files in the file form of the term.
- * A term that is not resolved gives the run outcome `unresolved` with the reason of the term, and no process starts.
- *
- * Exit 0 is a green run. A red exit code of the term is a red run. Every other end gives no verdict, with its cause.
- * The runner uses `runCommandSync`, not `execFileSync`. On Windows, `execFile` refuses a `.cmd` shim with EINVAL.
- *
- * Each run gets a new scratch directory and the environment of {@link probeTestEnvironment}. The runner deletes the directory after the run.
- *
- * @internal Exported for `spec_coverage_check`, which runs its declared tests with this runner, and so that a test can run real processes through it.
- */
-export function buildScopedTestRunner(
-  probe: ProbeTerm,
-  repoRoot: string,
-  limits: ScopedTestRunLimits = {},
-): TestRunFn {
-  const resolvedLimits = runLimitsOf(probe.files, limits);
-  return async ({ testFiles }) => {
-    const { command } = probe;
-    if (command.state === 'unresolved') return { kind: 'unresolved', reason: command.reason };
-    const [bin = '', ...rest] = probeArgv(probe.files, command.argv, testFiles);
-    let scratchDir: string;
-    try {
-      scratchDir = mkdtempSync(path.join(os.tmpdir(), PROBE_SCRATCH_PREFIX));
-    } catch (err) {
-      return {
-        kind: 'no-verdict',
-        cause: 'did-not-start',
-        detail: `the scratch directory of the run was not made: ${err instanceof Error ? err.message : String(err)}`,
-      };
-    }
-    try {
-      const stdout = runCommandSync(bin, rest, {
-        cwd: repoRoot,
-        env: probeTestEnvironment(process.env, scratchDir),
-        timeout: resolvedLimits.timeoutMs,
-        maxBuffer: resolvedLimits.maxOutputBytes,
-        encoding: 'utf-8',
-        stdio: ['pipe', 'pipe', 'pipe'],
-      });
-      return { kind: 'ran', result: 'green', stdout: outputText(stdout) };
-    } catch (err) {
-      return failedRunOutcome(err, probe.failureExitCodes.codes, resolvedLimits);
-    } finally {
-      removeProbeScratch(scratchDir);
-    }
-  };
-}
-
-/** The changed files and the deleted subset of them, or the detail of a git failure. */
-export type ChangedFilesResult =
-  | { readonly ok: true; readonly files: string[]; readonly deletedFiles: string[] }
+/** The changed files, the deleted subset of them, the base of the diff and the head, or the detail of a failed read. */
+export type TaskDiffRead =
+  | { readonly ok: true; readonly files: string[]; readonly deletedFiles: string[]; readonly base: string; readonly head: string }
   | { readonly ok: false; readonly detail: string };
 
 /** A status token of `git diff --no-renames --name-status`: one status letter, as no rename or copy record occurs. */
@@ -310,71 +178,54 @@ function parseNameStatus(stdout: string): { files: string[]; deletedFiles: strin
   return { files, deletedFiles };
 }
 
-/**
- * Computes the repo-relative files that the task diff changes, and the subset that the head side deletes.
- * The HEAD side is the task `branch` when the caller names one, and the checked-out `HEAD` otherwise.
- * A fixed `HEAD` probes the wrong tree when `repoRoot` is not the task worktree, and gives an empty diff and a vacuous pass.
- * The diff is NUL-separated (`-z`), so git does not quote a path with non-ASCII characters.
- * Rename detection is off, so a renamed file is a deletion and an addition, whatever the git config of the repository says.
- * A git failure or an output that does not parse returns `ok: false`, so the gate fails instead of skipping on an empty diff.
- */
-export function changedFilesFor(
-  gitExec: GitExec,
-  repoRoot: string,
-  baseRef: string,
-  headRef?: string,
-  immutable = false,
-): ChangedFilesResult {
-  const head = headRef && headRef.trim().length > 0 ? headRef.trim() : 'HEAD';
-  const result = immutable
-    ? gitExec(repoRoot, ['diff', '-z', '--no-renames', '--name-status', '--no-ext-diff', baseRef, head, '--'])
-    : gitExec(repoRoot, ['diff', '-z', '--no-renames', '--name-status', `${baseRef}...${head}`]);
-  if (result.exitCode !== 0) {
-    return {
-      ok: false,
-      detail: `git diff ${baseRef}...${head} exited ${result.exitCode}: ${result.stdout.trim()}`,
-    };
-  }
-  const parsed = parseNameStatus(result.stdout);
-  if (parsed === null) {
-    return {
-      ok: false,
-      detail: `git diff -z --no-renames --name-status ${baseRef}...${head} gave output that does not parse`,
-    };
-  }
-  return { ok: true, files: parsed.files, deletedFiles: parsed.deletedFiles };
+/** The range of one task diff: the exact commits of a coordinate, or a caller base and an optional task branch. */
+export type TaskDiffRange =
+  | { readonly kind: 'coordinate'; readonly coordinate: NonNullable<ProfiledGateArgs['coordinate']> }
+  | { readonly kind: 'base'; readonly baseRef: string; readonly branch?: string };
+
+/** The full ref of a branch name. */
+function branchRefOf(branch: string): string {
+  return branch.startsWith('refs/heads/') ? branch : `refs/heads/${branch}`;
 }
 
-/** The merge base that the task diff is measured from, or the reason that git did not resolve it. */
-export type MergeBaseResult =
-  | { readonly ok: true; readonly sha: string }
-  | { readonly ok: false; readonly detail: string };
-
 /**
- * Resolves the merge base of the task base and its head once, as a commit SHA.
- * The changed-file diff and the revert both read this SHA, so the probe reverts the files to the commit that measured them.
- * It refuses a base outside the safe ref pattern of the capsule, or a head that starts with a dash, before git sees it.
- * Git reads such a value as an option.
+ * Reads the task diff through the constrained reader, with no status, no checkout filter and no write.
+ * A coordinate diffs its base commit and its head, and the checkout must hold that head.
+ * A caller base diffs from the merge base of the base and the observed head. A named branch must be the branch of the checkout.
+ * A base outside the safe ref pattern of the capsule refuses before Git sees it.
+ *
+ * Rename detection is off, so a renamed file is a deletion and an addition. A failed read gives `ok: false`, never an empty diff.
  */
-export function resolveMergeBase(
-  gitExec: GitExec,
-  repoRoot: string,
-  baseRef: string,
-  headRef?: string,
-): MergeBaseResult {
-  const head = headRef && headRef.trim().length > 0 ? headRef.trim() : 'HEAD';
-  if (!CapsuleBaseRefSchema.safeParse(baseRef).success || head.startsWith('-')) {
-    return {
-      ok: false,
-      detail: `the base ${JSON.stringify(baseRef)} or the head ${JSON.stringify(head)} is not a safe ref, so no merge base was resolved`,
-    };
+export async function readTaskDiff(repoRoot: string, range: TaskDiffRange): Promise<TaskDiffRead> {
+  const gitPath = processObservationalGitPath();
+  if (gitPath === undefined) return { ok: false, detail: 'no usable Git executable reads the task diff' };
+  const observed = await observeCurrentCheckout(gitPath, repoRoot);
+  if (observed.kind === 'refused') return { ok: false, detail: `the checkout was not observed: ${observed.reason}` };
+  const { observer, checkout } = observed;
+  try {
+    let base: string;
+    if (range.kind === 'coordinate') {
+      if (checkout.head !== range.coordinate.observedHeadCommit) return { ok: false, detail: 'the checkout does not hold the coordinate head' };
+      await observer.reads.requireCommit(checkout.gitDir, checkout.checkout, range.coordinate.diffBaseCommit);
+      base = range.coordinate.diffBaseCommit;
+    } else {
+      if (!CapsuleBaseRefSchema.safeParse(range.baseRef).success) {
+        return { ok: false, detail: `the base ${JSON.stringify(range.baseRef)} is not a safe ref, so no merge base was resolved` };
+      }
+      if (range.branch !== undefined && branchRefOf(range.branch) !== checkout.branch) {
+        return { ok: false, detail: `the branch ${JSON.stringify(range.branch)} is not the branch of the checkout ${checkout.branch}` };
+      }
+      const resolved = await observer.base(checkout, range.baseRef);
+      if (resolved.kind === 'refused') return { ok: false, detail: `the base ${range.baseRef} was not resolved: ${resolved.reason}` };
+      base = (await observer.reads.mergeBase(checkout.gitDir, checkout.checkout, resolved.value, checkout.head)).trim();
+      if (!/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(base)) return { ok: false, detail: `the merge base of ${range.baseRef} and the head is not a commit` };
+    }
+    const parsed = parseNameStatus(await observer.reads.nameStatus(checkout.gitDir, checkout.checkout, base, checkout.head));
+    if (parsed === null) return { ok: false, detail: `the diff from ${base} to ${checkout.head} gave output that does not parse` };
+    return { ok: true, ...parsed, base, head: checkout.head };
+  } catch (error) {
+    return { ok: false, detail: `the diff was not read: ${error instanceof Error ? error.message : String(error)}` };
   }
-  const result = gitExec(repoRoot, ['merge-base', baseRef, head]);
-  const sha = result.stdout.trim();
-  if (result.exitCode !== 0 || !/^[0-9a-f]{40,64}$/.test(sha)) {
-    return { ok: false, detail: `git merge-base ${baseRef} ${head} exited ${result.exitCode}: ${sha}` };
-  }
-  return { ok: true, sha };
 }
 
 /** The probe detail when the caller names no base. */
@@ -388,12 +239,15 @@ const BASE_MISSING_DETAIL =
  * The preflight validates the dispatch context and the inputs, and resolves the worktree-aware `auto` repo root.
  * A policy skip returns a labelled advisory skip, not proof, because the ladder routed the gate out of the sequence.
  * The profile gives the test globs, the test-support segments and the probe command. An unresolved glob term or probe command blocks.
- * The globs of a probe whose command is unresolved name no runner, so the probe gets none, and the first run reports the term.
+ * A blocked selection, a failed diff and an unresolved probe command start no executor.
+ *
+ * @param executor - The local check executor, {@link runApprovedCheck} by default. A test passes its own executor.
  */
 export async function handleTestAdequacy(
   args: TestAdequacyArgs,
   stateDir: string,
   eventStore: EventStore,
+  executor: CheckExecutor = runApprovedCheck,
 ): Promise<ToolResult> {
   const pre = await runGatePreflight(
     {
@@ -409,173 +263,101 @@ export async function handleTestAdequacy(
   if (!pre.ok) return pre.result;
   const repoRoot = pre.repoRoot;
   const baseBranch = args.baseBranch && args.baseBranch.trim().length > 0 ? args.baseBranch.trim() : undefined;
-  if (args.coordinate !== undefined && args.hostAdequacy === undefined) {
-    const selected = args.coordinate;
-    const tree = await observeImmutableClaimedTree(repoRoot, selected.diffBaseCommit, selected.repository);
-    if (tree.kind !== 'tree' || tree.repository !== selected.repository || tree.head !== selected.observedHeadCommit
-      || !tree.holdsBase || tree.dirtyPaths.length !== 0) {
-      return { success: false, error: { code: 'TASK_COORDINATE_REFUSED', message: 'The adequacy probe requires the selected clean checkout before source revert.' } };
-    }
+
+  try {
+    return await runDurableGateProducer(
+      {
+        coordinate: args.coordinate,
+        gateClass: 'test-adequacy',
+        featureId: args.featureId,
+        taskId: args.taskId,
+        ...(args.branch ? { branch: args.branch } : {}),
+        ...(baseBranch ? { baseRef: baseBranch } : {}),
+        repoRoot,
+        stateDir,
+        eventStore,
+      },
+      async () => {
+        const policySkip = resolvePolicySkip({
+          gateName: 'check_test_adequacy',
+          riskTier: args.riskTier,
+          boundaryTouching: args.boundaryTouching,
+          config: args.projectConfig,
+        });
+        if (policySkip) {
+          return {
+            success: true,
+            data: {
+              passed: true,
+              skipped: true,
+              disposition: 'advisory-skip',
+              verdict: 'indeterminate',
+              completeness: 'complete',
+              redObserved: false,
+              restoredClean: true,
+              probedTests: [],
+              discriminant: SKIPPED_BY_POLICY,
+              reason: policySkip.reason,
+            } satisfies AdequacyCarrier,
+          };
+        }
+
+        if (baseBranch === undefined && args.coordinate === undefined) {
+          return {
+            success: true,
+            data: buildAdequacyCarrier(probeNotRun('base-missing', BASE_MISSING_DETAIL, args.riskTier), args.riskTier),
+          };
+        }
+        return runLocalProbe(args, repoRoot, eventStore, executor, baseBranch ?? '');
+      },
+    );
+  } catch (error) {
+    return pendingOfDirectCall(error, args.coordinate !== undefined);
   }
-
-  return runDurableGateProducer(
-    {
-      coordinate: args.coordinate,
-      gateClass: 'test-adequacy',
-      featureId: args.featureId,
-      taskId: args.taskId,
-      ...(args.branch ? { branch: args.branch } : {}),
-      ...(baseBranch ? { baseRef: baseBranch } : {}),
-      repoRoot,
-      stateDir,
-      eventStore,
-    },
-    async (phaseAttemptId) => {
-      const policySkip = resolvePolicySkip({
-        gateName: 'check_test_adequacy',
-        riskTier: args.riskTier,
-        boundaryTouching: args.boundaryTouching,
-        config: args.projectConfig,
-      });
-      if (policySkip) {
-        return {
-          success: true,
-          data: {
-            passed: true,
-            skipped: true,
-            disposition: 'advisory-skip',
-            verdict: 'indeterminate',
-            completeness: 'complete',
-            redObserved: false,
-            restoredClean: true,
-            probedTests: [],
-            discriminant: SKIPPED_BY_POLICY,
-            reason: policySkip.reason,
-          } satisfies AdequacyCarrier,
-        };
-      }
-
-      if (baseBranch === undefined && args.coordinate === undefined) {
-        return {
-          success: true,
-          data: buildAdequacyCarrier(probeNotRun('base-missing', BASE_MISSING_DETAIL, args.riskTier), args.riskTier),
-        };
-      }
-
-      const executeGit = args.gitExec ?? defaultGitExec;
-      const gitExec: GitExec = args.coordinate === undefined ? executeGit
-        : (cwd, argv) => executeGit(cwd, ['-c', 'core.fsmonitor=false', ...argv]);
-      const { tests } = profileOf(args, repoRoot);
-
-      const mergeBase: MergeBaseResult = args.coordinate === undefined
-        ? resolveMergeBase(gitExec, repoRoot, baseBranch ?? '', args.branch)
-        : { ok: true, sha: args.coordinate.diffBaseCommit };
-      let changed: ChangedFilesResult;
-      if (args.hostAdequacy !== undefined) {
-        const observeDiff = args.hostAdequacy.binding.observeDiff;
-        if (observeDiff === undefined) throw new HostedAdequacyPending('Hosted immutable diff observation is unavailable.');
-        const parsed = parseNameStatus(await observeDiff(repoRoot));
-        if (parsed === null) throw new HostedAdequacyPending('Hosted immutable diff is incomplete.');
-        changed = { ok: true, ...parsed };
-      } else {
-        changed = mergeBase.ok
-          ? changedFilesFor(gitExec, repoRoot, mergeBase.sha, args.coordinate?.observedHeadCommit ?? args.branch, args.coordinate !== undefined)
-          : { ok: false, detail: mergeBase.detail };
-      }
-
-      const selectionArgs = {
-        changedFiles: changed.ok ? changed.files : [],
-        ...(changed.ok ? { deletedFiles: changed.deletedFiles } : { diffFailed: true }),
-        ...(args.riskTier ? { riskTier: args.riskTier } : {}),
-        terms: {
-          globs: tests.globs,
-          supportSegments: tests.support.segments,
-          probeGlobs: tests.probe.command.state === 'resolved' ? tests.probe.globs : undefined,
-          withRoute: (reason: string) => withProfileRoute(args, reason),
-        },
-      };
-      const profile = { path: profilePathOf(args, repoRoot), unscoped: tests.probe.files === 'none' };
-      if (args.hostAdequacy !== undefined) {
-        return runBoundHostedAdequacy(args, phaseAttemptId, repoRoot, selectionArgs, profile);
-      }
-      const probe = await runProbe({
-        ...selectionArgs, gitExec, repoRoot, baseRef: mergeBase.ok ? mergeBase.sha : baseBranch ?? '',
-        runTests: args.runTests ?? buildScopedTestRunner(tests.probe, repoRoot),
-      });
-      return { success: true, data: buildAdequacyCarrier(probe, args.riskTier, profile) };
-    },
-    args.hostAdequacy?.binding.checkTree,
-  );
 }
 
-/** Recover original host evidence before admitting any new hosted execution. */
-async function runBoundHostedAdequacy(
-  args: TestAdequacyArgs, phaseAttemptId: string, repoRoot: string,
-  selectionArgs: Parameters<typeof selectAdequacyPaths>[0], profile: CarrierProfile,
+/**
+ * Reads the task diff, selects the probe paths and runs the probe in the local executor.
+ * The executor binds the request, then runs the probe leg in the head image and, after a green run, in the reverted image.
+ * A refusal of the executor is a failed carrier, which the producer records with no verdict.
+ */
+async function runLocalProbe(
+  args: TestAdequacyArgs, repoRoot: string, eventStore: EventStore, executor: CheckExecutor, baseBranch: string,
 ): Promise<ToolResult> {
-  const host = args.hostAdequacy;
-  const coordinate = args.coordinate;
-  const pinned = args.verificationProfile;
-  const operation = getDispatchContext()?.operationId;
-  if (host === undefined || coordinate === undefined || pinned === undefined ||
-      operation === undefined || operation !== host.binding.leafOperationId) {
-    throw new HostedAdequacyPending('Hosted adequacy requires the authenticated segment and its actual leaf.');
-  }
-  const probe = pinned.profile.tests.probe;
-  const selected = selectAdequacyPaths(selectionArgs);
-  if ('blocked' in selected || probe.command.state !== 'resolved' || probe.files === 'none') {
-    const blocked = 'blocked' in selected ? selected.blocked :
-      probeNotRun('profile-unresolved', 'Hosted adequacy requires a pinned, file-scoped test command.', args.riskTier);
-    return { success: true, data: buildAdequacyCarrier(blocked, args.riskTier, profile) };
-  }
-  const selection = AdequacySelection.parse({ tests: selected.testFiles, sources: selected.sourceFiles });
-  const { client, publicKey, resourceId, profileId } = host.connector;
-  const terms: Omit<Extract<VerificationRequest, { operation: 'adequacy' }>, 'key'> = {
-    version: 1, operation: 'adequacy', resourceId, profileId, selection,
-    commandDigest: verificationValueDigest({ command: probe.command.argv, files: probe.files }),
-    subject: {
-      streamId: args.featureId, phaseAttemptId, taskId: args.taskId,
-      leafId: operation, operationId: host.segmentOperationId,
-      preparedDigest: host.binding.preparedDigest, callerDigest: host.binding.callerDigest,
-      segmentDigest: host.binding.segmentDigest, configDigest: host.binding.configDigest,
-      profileDigest: contentDigest(pinned.profile), testSelectionDigest: verificationValueDigest(selection),
-      baseCommit: coordinate.diffBaseCommit, headCommit: coordinate.observedHeadCommit,
-      blockerHeads: coordinate.blockers.map(blocker => blocker.headCommit),
+  const profile = profileOf(args, repoRoot);
+  const { tests } = profile;
+  const diff = await readTaskDiff(repoRoot, args.coordinate === undefined
+    ? { kind: 'base', baseRef: baseBranch, ...(args.branch ? { branch: args.branch } : {}) }
+    : { kind: 'coordinate', coordinate: args.coordinate });
+  const selectionArgs = {
+    changedFiles: diff.ok ? diff.files : [],
+    ...(diff.ok ? { deletedFiles: diff.deletedFiles } : { diffFailed: true }),
+    ...(args.riskTier ? { riskTier: args.riskTier } : {}),
+    terms: {
+      globs: tests.globs,
+      supportSegments: tests.support.segments,
+      probeGlobs: tests.probe.command.state === 'resolved' ? tests.probe.globs : undefined,
+      withRoute: (reason: string) => withProfileRoute(args, reason),
     },
   };
-  const proposed = VerificationRequest.parse({ ...terms, key: verificationKey(terms) });
-  let request: VerificationRequest;
-  try { request = await host.binding.freezeRequest(proposed); }
-  catch { throw new HostedAdequacyPending('The original hosted request differs from current execution authority.'); }
-  const digest = verificationDigest(request);
-  let reply: Awaited<ReturnType<typeof client.retrieve>>;
-  try {
-    reply = await client.retrieve(request.key, digest);
-    if (!('kind' in reply)) {
-      reply = authenticateVerificationReply(reply, publicKey, request.key, digest);
-      if (reply.response.kind === 'absent') {
-        reply = await client.submit(request);
-        if (!('kind' in reply)) reply = authenticateVerificationReply(reply, publicKey, request.key, digest);
-      }
-    }
-  } catch {
-    throw new HostedAdequacyPending('Hosted adequacy delivery was interrupted for the original request.');
+  const carrierProfile = { path: profilePathOf(args, repoRoot), unscoped: tests.probe.files === 'none' };
+  const probe = tests.probe;
+  const command = probe.command;
+  const selected = selectAdequacyPaths(selectionArgs);
+  if (!diff.ok || command.state === 'unresolved' || 'blocked' in selected || selected.testFiles.length === 0) {
+    const result = await runProbe({ ...selectionArgs, runTests: async () => command.state === 'unresolved'
+      ? { kind: 'unresolved', reason: command.reason }
+      : { kind: 'no-verdict', cause: 'did-not-start', detail: 'the probe has no run to start' } });
+    return { success: true, data: buildAdequacyCarrier(result, args.riskTier, carrierProfile) };
   }
-  try { await host.binding.recheck(); }
-  catch { throw new HostedAdequacyPending('Prepared authority changed during hosted adequacy.'); }
-  if ('kind' in reply || reply.key !== request.key || reply.digest !== digest || reply.response.kind !== 'evidence') {
-    throw new HostedAdequacyPending('Hosted adequacy has no authenticated terminal result for the original request.');
-  }
-  const { signed } = reply.response;
-  const { evidence } = signed;
-  if (evidence.requestDigest !== digest || verificationJson(evidence.request) !== verificationJson(request) ||
-      evidence.resources[0]?.path !== repoRoot || !evidence.resources.some(resource => resource.path === coordinate.repository) ||
-      !('adequacy' in evidence.outcome) || evidence.outcome.adequacy.cleanHead !== coordinate.observedHeadCommit) {
-    throw new HostedAdequacyPending('The terminal hosted result does not apply to the authenticated task checkout.');
-  }
-  const result = interpretHostedAdequacy(evidence.outcome.adequacy, selection.tests, args.riskTier);
-  const carrier = buildAdequacyCarrier(result, args.riskTier, profile);
-  return { success: true, data: { ...carrier, report: { summary: carrier.report, verification: signed } } };
+  const ran = await executor({
+    eventStore, operation: 'test-adequacy', streamId: args.featureId, taskId: args.taskId, plan: adequacyPlan(probe),
+    profileDigest: contentDigest(profile), checkout: repoRoot, coordinate: args.coordinate, selection: selected.testFiles,
+    workspace: 'disposable-copy', revert: { base: diff.base, sources: selected.sourceFiles }, head: diff.head,
+    legTimeoutMs: runTimeoutOf(probe.files),
+  }, (session) => runProbe({ ...selectionArgs, runTests: async ({ source, testFiles }) =>
+    probeRunOutcome(await session.run({ leg: 0, append: probeArgv(probe.files, [], testFiles), image: source }), probe.failureExitCodes.codes) }));
+  return ran.kind === 'refused' ? refusedCheckResult(ran.reason) : { success: true, data: buildAdequacyCarrier(ran.value, args.riskTier, carrierProfile) };
 }
 
 /**

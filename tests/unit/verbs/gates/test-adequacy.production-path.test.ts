@@ -8,9 +8,26 @@
  * co-located defaults, so a co-located `*.test.ts` file is a test file. A
  * skipped probe reports `skipped: true` and a `disposition`, so it never reads
  * as proof of test adequacy.
+ *
+ * A case that answers the probe legs sets `probeLegs.answer`. The mocked local executor then builds the real source image of each leg
+ * and answers from it with no process. With no answer set, a leg throws, so a case that must run no leg proves it.
  */
 
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, afterEach, vi } from 'vitest';
+
+const probeLegs = vi.hoisted((): { answer?: (leg: import('../../../helpers/verification/check-executor.js').ImageLeg) =>
+  import('../../../../src/verbs/verification/check-executor.js').LegObservation } => ({}));
+vi.mock('../../../../src/verbs/verification/check-executor.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../../../src/verbs/verification/check-executor.js')>();
+  const { imageExecutor } = await import('../../../helpers/verification/check-executor.js');
+  return {
+    ...actual,
+    runApprovedCheck: imageExecutor((leg) => {
+      if (probeLegs.answer === undefined) throw new Error('this case runs no probe leg');
+      return probeLegs.answer(leg);
+    }).executor,
+  };
+});
 import { mkdtempSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -33,7 +50,11 @@ import {
   type AdequacyDiscriminant,
 } from '../../../../src/verbs/gates/test-adequacy.js';
 import { DEFAULT_TEST_GLOBS, resolveProbeTestGlobs } from '../../../../src/config/toolchains.js';
+import { exitedWith } from '../../../helpers/verification/check-executor.js';
 
+
+/** A Node manifest whose `test:files` script resolves the probe command of the node row. */
+const MANIFEST_WITH_PROBE = JSON.stringify({ name: 'fx', version: '1.0.0', scripts: { 'test:files': 'node --test' } }) + '\n';
 
 function git(repoRoot: string, args: readonly string[]): Promise<string> {
   return execFileAsync('git', args, { cwd: repoRoot, timeout: 30_000 });
@@ -75,6 +96,7 @@ describe('check_test_adequacy production path', () => {
   const cleanups: Array<() => void> = [];
 
   afterEach(() => {
+    probeLegs.answer = undefined;
     for (const fn of cleanups.splice(0)) {
       try {
         fn();
@@ -235,9 +257,8 @@ describe('check_test_adequacy production path', () => {
    * The root marker `pyproject.toml` selects python, but the task adds the
    * co-located test `src/calc.test.ts`. The root sets a probe of the node row, so
    * the probe can run that file, and it must include it. The seeded `pytest` probe
-   * cannot run it and blocks. The injected `runTests` reports green on the task
-   * source and red on the reverted source, so the disposition is `proved`. The
-   * test enters at `handleOrchestrate` to inject `runTests`.
+   * cannot run it and blocks. The probe legs exit 0 on the head image and 1 on
+   * the reverted image, so the disposition is `proved`.
    */
   it('ProductionPath_ColocatedTestsUnderLayoutToolchain_ResolvesNonEmptyProbedTests', async () => {
     const repoRoot = await initRepo('prodpath-subject-');
@@ -255,6 +276,7 @@ describe('check_test_adequacy production path', () => {
     await git(repoRoot, ['commit', '-m', 'feat + co-located test', '-q']);
 
     const ctx = await makeCtx('prodpath-subject-state-', 'feat-subject');
+    probeLegs.answer = ({ argv, root }) => exitedWith(argv, readFileSync(path.join(root, 'src', 'calc.ts'), 'utf-8').includes('=> 2') ? 0 : 1);
 
     const result = await runAsTrustedCaller(ctx.stateDir, () =>
       handleOrchestrate(
@@ -266,10 +288,6 @@ describe('check_test_adequacy production path', () => {
           baseBranch: 'main',
           repoRoot,
           riskTier: 'high',
-          runTests: async () => ({
-            kind: 'ran',
-            result: readFileSync(path.join(repoRoot, 'src', 'calc.ts'), 'utf-8').includes('=> 2') ? 'green' : 'red',
-          }),
         },
         ctx,
       ),
@@ -293,7 +311,7 @@ describe('check_test_adequacy production path', () => {
   it('ProductionPath_BaselineRed_DurableRowsRecordIndeterminateNotFail', async () => {
     const repoRoot = await initRepo('prodpath-baseline-red-');
     cleanups.push(() => rmrf(repoRoot));
-    writeFileSync(path.join(repoRoot, 'package.json'), '{"name":"fx","version":"1.0.0"}\n');
+    writeFileSync(path.join(repoRoot, 'package.json'), MANIFEST_WITH_PROBE);
     mkdirSync(path.join(repoRoot, 'src'), { recursive: true });
     writeFileSync(path.join(repoRoot, 'src', 'calc.js'), 'export const v = () => 1;\n');
     await git(repoRoot, ['add', '.']);
@@ -306,6 +324,10 @@ describe('check_test_adequacy production path', () => {
 
     const ctx = await makeCtx('prodpath-baseline-red-state-', 'feat-baseline-red');
     const runs: string[] = [];
+    probeLegs.answer = ({ argv }) => {
+      runs.push('run');
+      return exitedWith(argv, 1);
+    };
     const result = await runAsTrustedCaller(ctx.stateDir, () =>
       handleOrchestrate(
         {
@@ -316,10 +338,6 @@ describe('check_test_adequacy production path', () => {
           baseBranch: 'main',
           repoRoot,
           riskTier: 'medium',
-          runTests: async () => {
-            runs.push('run');
-            return { kind: 'ran', result: 'red' };
-          },
         },
         ctx,
       ),
@@ -355,7 +373,7 @@ describe('check_test_adequacy production path', () => {
     for (const run of ['on the task source', 'after the revert'] as const) {
       const repoRoot = await initRepo('prodpath-no-verdict-');
       cleanups.push(() => rmrf(repoRoot));
-      writeFileSync(path.join(repoRoot, 'package.json'), '{"name":"fx","version":"1.0.0"}\n');
+      writeFileSync(path.join(repoRoot, 'package.json'), MANIFEST_WITH_PROBE);
       mkdirSync(path.join(repoRoot, 'src'), { recursive: true });
       writeFileSync(path.join(repoRoot, 'src', 'calc.js'), 'export const v = () => 1;\n');
       await git(repoRoot, ['add', '.']);
@@ -368,6 +386,9 @@ describe('check_test_adequacy production path', () => {
 
       const featureId = run === 'on the task source' ? 'feat-no-verdict-pre' : 'feat-no-verdict-post';
       const ctx = await makeCtx('prodpath-no-verdict-state-', featureId);
+      probeLegs.answer = ({ argv, image }) => run === 'after the revert' && image === 'head'
+        ? exitedWith(argv, 0)
+        : { argv: [...argv], end: 'timeout', exitCode: null, stdout: '', stderr: '' };
       const result = await runAsTrustedCaller(ctx.stateDir, () =>
         handleOrchestrate(
           {
@@ -378,10 +399,6 @@ describe('check_test_adequacy production path', () => {
             baseBranch: 'main',
             repoRoot,
             riskTier: 'medium',
-            runTests: async ({ repoRoot: runRoot }) =>
-              run === 'after the revert' && readFileSync(path.join(runRoot, 'src', 'calc.js'), 'utf-8').includes('=> 2')
-                ? { kind: 'ran', result: 'green' }
-                : { kind: 'no-verdict', cause: 'timeout', detail: 'the limit is 120000 ms' },
           },
           ctx,
         ),

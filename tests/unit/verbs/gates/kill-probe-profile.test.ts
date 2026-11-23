@@ -3,7 +3,7 @@
  *
  * Each case calls `handleTestAdequacy` directly, in a trusted scope, against a real git fixture and a real event store.
  * A case with a pinned profile passes it in `args.verificationProfile`, because a call through the dispatcher removes it.
- * A case that injects `runTests` records each run. A case that asserts an argv uses the default runner with a recorder script.
+ * A case that injects an executor records each run in a real source image. A case that asserts an argv uses the local executor with a recorder script.
  */
 
 import { afterEach, describe, expect, it } from 'vitest';
@@ -15,14 +15,14 @@ import { z } from 'zod';
 
 import { EventStore } from '../../../../src/events/store.js';
 import {
-  buildScopedTestRunner,
   handleTestAdequacy,
-  runLimitsOf,
+  runTimeoutOf,
   type TestAdequacyArgs,
 } from '../../../../src/verbs/gates/test-adequacy-handler.js';
-import type { RunOutcome, TestRunFn } from '../../../../src/verbs/gates/test-adequacy.js';
+import type { CheckExecutor } from '../../../../src/verbs/verification/check-executor.js';
 import type { RiskTier } from '../../../../src/workflow/verification-policy.js';
-import { execFileAsync, isolatedSync } from '../../../../tools/test-helpers/spawn.js';
+import { execFileAsync } from '../../../../tools/test-helpers/spawn.js';
+import { exitedWith, imageExecutor } from '../../../helpers/verification/check-executor.js';
 import { rmrf } from '../../../../tools/test-helpers/temp-dir.js';
 import { runAsTrustedCaller, seedActivePhaseAttempt } from '../../../../tools/test-helpers/trusted-context.js';
 import {
@@ -116,8 +116,8 @@ async function taskRepo(base: Files, task: Files, deleted: readonly string[] = [
   return repoRoot;
 }
 
-/** The carrier of one direct gate call, in a new store. */
-async function runGate(repoRoot: string, extra: Partial<TestAdequacyArgs> = {}): Promise<Carrier> {
+/** The carrier of one direct gate call, in a new store. A case that passes no executor runs the local executor. */
+async function runGate(repoRoot: string, extra: Partial<TestAdequacyArgs> = {}, executor?: CheckExecutor): Promise<Carrier> {
   const stateDir = mkdtempSync(path.join(os.tmpdir(), 'kill-probe-profile-state-'));
   const eventStore = new EventStore(stateDir);
   cleanups.push(() => {
@@ -131,6 +131,7 @@ async function runGate(repoRoot: string, extra: Partial<TestAdequacyArgs> = {}):
       { featureId: FEATURE, taskId: 'T-1', branch: TASK_BRANCH, baseBranch: 'main', repoRoot, ...extra },
       stateDir,
       eventStore,
+      executor,
     ),
   );
   expect(result.success, JSON.stringify(result)).toBe(true);
@@ -144,22 +145,21 @@ interface RecordedCall {
 }
 
 /**
- * A runner that records each run. It is green while `source` holds the task text and red on the reverted source.
- * It reads each file of `watched` during the run, so a case can tell which files the revert changed.
+ * An executor that records each run in its real source image. It exits 0 while `source` holds the task text and exits 1 on the reverted source.
+ * It reads each file of `watched` in the image, so a case can tell which files the revert changed. The appended operands are the test files.
  */
 function recordingRunner(
-  repoRoot: string,
   source: string,
   watched: readonly string[] = [],
-): { readonly runTests: TestRunFn; readonly calls: RecordedCall[] } {
+): { readonly executor: CheckExecutor; readonly calls: RecordedCall[] } {
   const calls: RecordedCall[] = [];
-  const read = (file: string): string | null =>
-    existsSync(path.join(repoRoot, file)) ? readFileSync(path.join(repoRoot, file), 'utf-8') : null;
-  const runTests: TestRunFn = async ({ testFiles }): Promise<RunOutcome> => {
-    calls.push({ testFiles, watched: watched.map(read) });
-    return { kind: 'ran', result: read(source) === TASK ? 'green' : 'red' };
-  };
-  return { runTests, calls };
+  const { executor } = imageExecutor(({ argv, append, root }) => {
+    const read = (file: string): string | null =>
+      existsSync(path.join(root, file)) ? readFileSync(path.join(root, file), 'utf-8') : null;
+    calls.push({ testFiles: append.filter((operand) => operand !== '--'), watched: watched.map(read) });
+    return exitedWith(argv, read(source) === TASK ? 0 : 1);
+  });
+  return { executor, calls };
 }
 
 /** The name of the recorder script of a fixture. It is at the base, so the revert never touches it. */
@@ -208,15 +208,16 @@ describe('the kill probe in a root where a test of another toolchain can change'
       { 'package.json': NODE_MANIFEST, 'App.sln': '', 'src/Foo.cs': BASE, '.exarchos.yml': DOTNET_PROBE_WITH_GLOBS },
       { 'src/Foo.cs': TASK, 'Tests/FooTests.cs': TASK },
     );
-    const { runTests, calls } = recordingRunner(repoRoot, 'src/Foo.cs');
+    const { executor, calls } = recordingRunner('src/Foo.cs');
 
-    const carrier = await runGate(repoRoot, { runTests });
+    const carrier = await runGate(repoRoot, {}, executor);
 
     expect(carrier.discriminant).toBeUndefined();
     expect(carrier.passed).toBe(true);
     expect(carrier.redObserved).toBe(true);
     expect(carrier.probedTests).toEqual(['Tests/FooTests.cs']);
-    expect(calls.map((call) => call.testFiles)).toEqual([['Tests/FooTests.cs'], ['Tests/FooTests.cs']]);
+    expect(calls).toHaveLength(2);
+    expect(calls.map((call) => call.testFiles).flat().every((file) => file === 'Tests/FooTests.cs')).toBe(true);
   }, CASE_TIMEOUT_MS);
 
   /**
@@ -228,9 +229,9 @@ describe('the kill probe in a root where a test of another toolchain can change'
       { 'package.json': NODE_MANIFEST, 'App.sln': '', 'src/a.ts': BASE, '.exarchos.yml': DOTNET_PROBE_WITH_GLOBS },
       { 'src/a.ts': TASK, 'src/a.test.ts': TASK },
     );
-    const { runTests, calls } = recordingRunner(repoRoot, 'src/a.ts');
+    const { executor, calls } = recordingRunner('src/a.ts');
 
-    const carrier = await runGate(repoRoot, { runTests });
+    const carrier = await runGate(repoRoot, {}, executor);
 
     expectBlockedWith(carrier, 'unprobed-test-paths', [
       'src/a.test.ts',
@@ -252,9 +253,9 @@ describe('the kill probe in a root where a test of another toolchain can change'
         { 'package.json': NODE_MANIFEST, 'requirements.txt': '', 'src/a.ts': BASE, 'tests/helpers/x.ts': BASE, ...config },
         { 'src/a.ts': TASK, 'tests/helpers/x.ts': TASK, 'src/a.test.ts': TASK },
       );
-      const { runTests, calls } = recordingRunner(repoRoot, 'src/a.ts', ['tests/helpers/x.ts']);
+      const { executor, calls } = recordingRunner('src/a.ts', ['tests/helpers/x.ts']);
 
-      const carrier = await runGate(repoRoot, { runTests });
+      const carrier = await runGate(repoRoot, {}, executor);
 
       expect(carrier.discriminant).toBeUndefined();
       expect(carrier.passed).toBe(true);
@@ -272,9 +273,9 @@ describe('the kill probe in a root where a test of another toolchain can change'
       { 'package.json': NODE_MANIFEST, 'App.sln': '', 'src/Foo.cs': BASE },
       { 'src/Foo.cs': TASK, 'Tests/FooTests.cs': TASK },
     );
-    const { runTests, calls } = recordingRunner(repoRoot, 'src/Foo.cs');
+    const { executor, calls } = recordingRunner('src/Foo.cs');
 
-    const carrier = await runGate(repoRoot, { runTests });
+    const carrier = await runGate(repoRoot, {}, executor);
 
     expectBlockedWith(carrier, 'unprobed-test-paths', [
       'Tests/FooTests.cs',
@@ -295,12 +296,12 @@ describe('the kill probe in a root where a test of another toolchain can change'
       { 'ClientApp/src/app.ts': TASK, 'ClientApp/src/app.test.ts': TASK },
     );
     const calls: (readonly string[])[] = [];
-    const runTests: TestRunFn = async ({ testFiles }) => {
-      calls.push(testFiles);
-      return { kind: 'ran', result: 'green' };
-    };
+    const { executor } = imageExecutor(({ argv, append }) => {
+      calls.push(append);
+      return exitedWith(argv, 0);
+    });
 
-    const carrier = await runGate(repoRoot, { runTests });
+    const carrier = await runGate(repoRoot, {}, executor);
 
     expectBlockedWith(carrier, 'unprobed-test-paths', [
       'ClientApp/src/app.test.ts',
@@ -326,12 +327,12 @@ describe('the kill probe in a root where a test of another toolchain can change'
       { 'src/Foo.cs': TASK, 'Tests/FooTests.cs': TASK },
     );
     const calls: (readonly string[])[] = [];
-    const runTests: TestRunFn = async ({ testFiles }) => {
-      calls.push(testFiles);
-      return { kind: 'ran', result: 'green' };
-    };
+    const { executor } = imageExecutor(({ argv, append }) => {
+      calls.push(append);
+      return exitedWith(argv, 0);
+    });
 
-    const carrier = await runGate(repoRoot, { runTests });
+    const carrier = await runGate(repoRoot, {}, executor);
 
     expectBlockedWith(carrier, 'unprobed-test-paths', [
       'Tests/FooTests.cs',
@@ -365,12 +366,11 @@ describe('the kill probe in a root where a test of another toolchain can change'
       { 'src/a.ts': BASE },
       { 'src/a.ts': TASK, 'src/a.test.ts': TASK, 'tests/FooTests.cs': TASK },
     );
-    const { runTests, calls } = recordingRunner(repoRoot, 'src/a.ts');
+    const { executor, calls } = recordingRunner('src/a.ts');
 
     const carrier = await runGate(repoRoot, {
-      runTests,
       verificationProfile: pinnedTestProfile(2, { globs: polyglotGlobTerm() }),
-    });
+    }, executor);
 
     expectBlockedWith(carrier, 'unprobed-test-paths', ['tests/FooTests.cs', 'verification.tests.globs', '#1629']);
     expect(calls).toEqual([]);
@@ -386,12 +386,11 @@ describe('the kill probe in a root where a test of another toolchain can change'
       { 'src/a.ts': TASK, 'src/a.test.ts': TASK },
       ['Tests/OldTests.cs'],
     );
-    const { runTests, calls } = recordingRunner(repoRoot, 'src/a.ts', ['Tests/OldTests.cs']);
+    const { executor, calls } = recordingRunner('src/a.ts', ['Tests/OldTests.cs']);
 
     const carrier = await runGate(repoRoot, {
-      runTests,
       verificationProfile: pinnedTestProfile(2, { globs: polyglotGlobTerm() }),
-    });
+    }, executor);
 
     expect(carrier.discriminant).toBeUndefined();
     expect(carrier.passed).toBe(true);
@@ -436,10 +435,10 @@ describe('a term that the profile does not resolve blocks the probe', () => {
       { 'package.json': NODE_MANIFEST, 'src/a.ts': BASE, '.exarchos.yml': 'verification:\n  tests:\n    globs: []\n' },
       { 'src/a.ts': TASK, 'src/a.test.ts': TASK },
     );
-    const { runTests, calls } = recordingRunner(repoRoot, 'src/a.ts');
+    const { executor, calls } = recordingRunner('src/a.ts');
 
     for (const riskTier of EVERY_TIER) {
-      const carrier = await runGate(repoRoot, { runTests, ...(riskTier === undefined ? {} : { riskTier }) });
+      const carrier = await runGate(repoRoot, riskTier === undefined ? {} : { riskTier }, executor);
 
       expectBlockedWith(carrier, 'profile-unresolved', ['tests.globs', 'Then run the gate again.']);
     }
@@ -463,9 +462,9 @@ describe('a term that the profile does not resolve blocks the probe', () => {
       { 'package.json': NODE_MANIFEST, 'src/a.ts': BASE },
       { 'src/a.ts': TASK, 'src/a.test.ts': TASK },
     );
-    const { runTests, calls } = recordingRunner(repoRoot, 'src/a.ts');
+    const { executor, calls } = recordingRunner('src/a.ts');
 
-    const carrier = await runGate(repoRoot, { runTests, verificationProfile: pinnedUnresolvedGlobProfile(3) });
+    const carrier = await runGate(repoRoot, { verificationProfile: pinnedUnresolvedGlobProfile(3) }, executor);
 
     expectBlockedWith(carrier, 'profile-unresolved', [
       UNRESOLVED_GLOBS_REASON,
@@ -527,9 +526,9 @@ describe('the probe runs the command of its term', () => {
       },
       { 'src/a.ts': TASK, 'harness/x.ts': TASK, 'src/a.test.ts': TASK },
     );
-    const { runTests, calls } = recordingRunner(repoRoot, 'src/a.ts', ['harness/x.ts']);
+    const { executor, calls } = recordingRunner('src/a.ts', ['harness/x.ts']);
 
-    const carrier = await runGate(repoRoot, { runTests });
+    const carrier = await runGate(repoRoot, {}, executor);
 
     expect(carrier.passed).toBe(true);
     expect(calls.map((call) => call.watched)).toEqual([[TASK], [TASK]]);
@@ -555,25 +554,25 @@ describe('the probe runs the command of its term', () => {
   }, CASE_TIMEOUT_MS);
 
   /**
-   * Each given limit wins, else the default of the form applies. A real run shows that the runner takes these limits.
-   * The output of the run is past the scoped limit and within the limit of a whole suite.
+   * A given limit wins, else the time limit of the form applies. The `none` form runs a whole suite, so it gets the limit of a whole suite.
+   * The probe request to the executor carries that limit. The executor caps each leg at 900 seconds and 64 MiB of output.
    */
   it('KillProbe_AnUnscopedRun_GetsTheLimitOfAWholeSuiteRun', async () => {
-    expect(runLimitsOf('none')).toEqual({ timeoutMs: 600_000, maxOutputBytes: 64 * 1024 * 1024 });
-    expect(runLimitsOf('after-separator')).toEqual({ timeoutMs: 120_000, maxOutputBytes: 1024 * 1024 });
-    expect(runLimitsOf('as-arguments')).toEqual({ timeoutMs: 120_000, maxOutputBytes: 1024 * 1024 });
-    expect(runLimitsOf('none', { timeoutMs: 5 })).toEqual({ timeoutMs: 5, maxOutputBytes: 64 * 1024 * 1024 });
-    expect(runLimitsOf('as-arguments', { maxOutputBytes: 7 })).toEqual({ timeoutMs: 120_000, maxOutputBytes: 7 });
+    expect(runTimeoutOf('none')).toBe(600_000);
+    expect(runTimeoutOf('after-separator')).toBe(120_000);
+    expect(runTimeoutOf('as-arguments')).toBe(120_000);
+    expect(runTimeoutOf('none', 5)).toBe(5);
 
-    const argv = [process.execPath, '-e', "process.stdout.write('x'.repeat(2 * 1024 * 1024))"];
-    const workDir = mkdtempSync(path.join(os.tmpdir(), 'kill-probe-profile-limits-'));
-    cleanups.push(() => rmrf(workDir));
-    const unscoped = unscopedProbeTerm(argv);
-    const run = async (form: 'none' | 'as-arguments'): Promise<RunOutcome> =>
-      await isolatedSync(() => buildScopedTestRunner({ ...unscoped, files: form }, workDir)({ repoRoot: workDir, testFiles: [] }));
-
-    expect(await run('none')).toMatchObject({ kind: 'ran', result: 'green' });
-    expect(await run('as-arguments')).toMatchObject({ kind: 'no-verdict', cause: 'overflow' });
+    const repoRoot = await taskRepo({ 'src/a.ts': BASE }, { 'src/a.ts': TASK, 'src/a.test.ts': TASK });
+    const limits: (number | undefined)[] = [];
+    for (const files of ['none', 'as-arguments'] as const) {
+      const recorded = imageExecutor(({ argv }) => exitedWith(argv, 0));
+      await runGate(repoRoot, {
+        verificationProfile: pinnedTestProfile(2, { probe: { ...unscopedProbeTerm(['node', RECORDER]), files } }),
+      }, recorded.executor);
+      limits.push(...recorded.requests.map((request) => request.legTimeoutMs));
+    }
+    expect(limits).toEqual([600_000, 120_000]);
   }, CASE_TIMEOUT_MS);
 
   /** A direct call pins no profile, so the gate resolves the terms at its root, and the report says so. */
@@ -581,13 +580,13 @@ describe('the probe runs the command of its term', () => {
     const repoRoot = await taskRepo(
       {
         'src/a.ts': BASE,
-        '.exarchos.yml': "verification:\n  tests:\n    globs:\n      - 'checks/**/*.check.ts'\n",
+        '.exarchos.yml': "verification:\n  tests:\n    globs:\n      - 'checks/**/*.check.ts'\n    probe:\n      command: node probe-run.mjs\n      files: as-arguments\n",
       },
       { 'src/a.ts': TASK, 'checks/a.check.ts': TASK },
     );
-    const { runTests } = recordingRunner(repoRoot, 'src/a.ts');
+    const { executor } = recordingRunner('src/a.ts');
 
-    const carrier = await runGate(repoRoot, { runTests });
+    const carrier = await runGate(repoRoot, {}, executor);
 
     expect(carrier.passed).toBe(true);
     expect(carrier.probedTests).toEqual(['checks/a.check.ts']);

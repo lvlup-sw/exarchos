@@ -2,10 +2,10 @@
 // `handleOrchestrate` router. A registered action without a dispatch branch returns UNKNOWN_ACTION,
 // and a direct handler test cannot see that.
 // The pure `runProbe` is a mock, so the probe runs no real test command. The durable gate producer is
-// a stub that calls only the provider.
+// a stub that calls only the provider. The diff cases read real Git repositories through the constrained reader.
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 
@@ -33,10 +33,39 @@ import {
   probeNotRun,
   type AdequacyDiscriminant,
 } from '../../../../src/verbs/gates/test-adequacy.js';
-import { handleTestAdequacy, probeTestEnvironment } from '../../../../src/verbs/gates/test-adequacy-handler.js';
+import { handleTestAdequacy, readTaskDiff } from '../../../../src/verbs/gates/test-adequacy-handler.js';
+import { probeTestEnvironment } from '../../../../src/verbs/verification/check-executor.js';
 import { STORE_LOCATION_ENV_KEYS } from '../../../../src/utils/paths.js';
-import type { GitExec } from '../../../../src/verbs/pure/execute-merge.js';
 import { rmrf } from '../../../../tools/test-helpers/temp-dir.js';
+import { execFileAsync } from '../../../../tools/test-helpers/spawn.js';
+import { fakeExecutor } from '../../../helpers/verification/check-executor.js';
+
+/** Run one Git command in a repository and return its trimmed output. */
+async function git(repoRoot: string, ...args: string[]): Promise<string> {
+  return (await execFileAsync('git', args, { cwd: repoRoot, timeout: 30_000 })).trim();
+}
+
+/** Write each file under the root and commit them on the current branch. */
+async function commitFiles(repoRoot: string, files: Readonly<Record<string, string>>, message: string): Promise<string> {
+  for (const [file, body] of Object.entries(files)) {
+    mkdirSync(path.dirname(path.join(repoRoot, file)), { recursive: true });
+    writeFileSync(path.join(repoRoot, file), body);
+  }
+  await git(repoRoot, 'add', '-A');
+  await git(repoRoot, 'commit', '-q', '-m', message);
+  return git(repoRoot, 'rev-parse', 'HEAD');
+}
+
+/** A new repository with one base commit on `main`. */
+async function baseRepository(): Promise<string> {
+  const repoRoot = mkdtempSync(path.join(os.tmpdir(), 'test-adequacy-handler-repo-'));
+  await git(repoRoot, 'init', '-q', '--initial-branch=main');
+  await git(repoRoot, 'config', 'user.email', 'test@example.com');
+  await git(repoRoot, 'config', 'user.name', 'Test');
+  await git(repoRoot, 'config', 'commit.gpgsign', 'false');
+  await commitFiles(repoRoot, { 'src/b.js': 'export const b = 1;\n', 'test/old.test.js': '// old\n' }, 'base');
+  return repoRoot;
+}
 
 function passResult() {
   return {
@@ -248,108 +277,104 @@ describe('check_test_adequacy routing + idempotency (task 014)', () => {
     expect(mockRunProbe).not.toHaveBeenCalled();
   });
 
+  /** The merge base of the caller base and the task head gives the diff and the base of the reverted image. A later commit on the base changes neither. */
   it('CheckTestAdequacy_TheMergeBase_IsResolvedOnceAndMeasuresBothTheDiffAndTheRevert', async () => {
     const ctx = await makeCtx();
-    const sha = 'a'.repeat(40);
-    const calls: string[][] = [];
-    const gitExec: GitExec = (_repoRoot, args) => {
-      calls.push([...args]);
-      if (args[0] === 'merge-base') return { stdout: `${sha}\n`, exitCode: 0 };
-      if (args[0] === 'diff') return { stdout: 'M\0src/b.js\0A\0test/b.test.js\0D\0test/old.test.js\0', exitCode: 0 };
-      return { stdout: `unexpected git ${args.join(' ')}`, exitCode: 1 };
-    };
+    const repoRoot = await baseRepository();
+    stateDirs.push(repoRoot);
+    await git(repoRoot, 'checkout', '-q', '-b', 'feature/x');
+    const fork = await commitFiles(repoRoot, { 'docs/x.md': 'x\n' }, 'feature x');
+    await git(repoRoot, 'checkout', '-q', '-b', 'task-2');
+    await git(repoRoot, 'rm', '-q', 'test/old.test.js');
+    await commitFiles(repoRoot, { 'src/b.js': 'export const b = 2;\n', 'test/b.test.js': '// pins b\n' }, 'task');
+    await git(repoRoot, 'checkout', '-q', 'feature/x');
+    await commitFiles(repoRoot, { 'docs/later.md': 'later\n' }, 'later base commit');
+    await git(repoRoot, 'checkout', '-q', 'task-2');
+
+    const diff = await readTaskDiff(repoRoot, { kind: 'base', baseRef: 'feature/x', branch: 'task-2' });
+    expect(diff).toMatchObject({ ok: true, base: fork });
+    const fake = fakeExecutor(() => ({ exitCode: 0, stdout: '', stderr: '' }));
     await handleTestAdequacy(
       {
         featureId: 'feat-mergebase',
         taskId: 'T-mb',
         branch: 'task-2',
         baseBranch: 'feature/x',
-        repoRoot: '/fake/repo',
+        repoRoot,
         riskTier: 'medium',
-        gitExec,
-        runTests: async () => ({ kind: 'ran', result: 'green' }),
+      },
+      ctx.stateDir,
+      ctx.eventStore,
+      fake.executor,
+    );
+    expect(mockRunProbe).toHaveBeenCalledOnce();
+    expect(mockRunProbe.mock.calls[0]?.[0]).toMatchObject({
+      changedFiles: ['src/b.js', 'test/b.test.js', 'test/old.test.js'],
+      deletedFiles: ['test/old.test.js'],
+    });
+    for (const request of fake.requests) expect(request.revert).toEqual({ base: fork, sources: ['src/b.js'] });
+  });
+
+  /** A diff that cannot be read is a diff failure, not an empty list of changed files. */
+  it('CheckTestAdequacy_ADiffThatCannotBeRead_IsADiffFailure', async () => {
+    const ctx = await makeCtx();
+    const notARepository = mkdtempSync(path.join(os.tmpdir(), 'test-adequacy-handler-none-'));
+    stateDirs.push(notARepository);
+    await handleTestAdequacy(
+      {
+        featureId: 'feat-unparsed-diff',
+        taskId: 'T-unparsed',
+        baseBranch: 'feature/x',
+        repoRoot: notARepository,
+        riskTier: 'medium',
       },
       ctx.stateDir,
       ctx.eventStore,
     );
-    expect(calls).toEqual([
-      ['merge-base', 'feature/x', 'task-2'],
-      ['diff', '-z', '--no-renames', '--name-status', `${sha}...task-2`],
-    ]);
     expect(mockRunProbe).toHaveBeenCalledOnce();
-    expect(mockRunProbe.mock.calls[0]?.[0]).toMatchObject({
-      baseRef: sha,
-      changedFiles: ['src/b.js', 'test/b.test.js', 'test/old.test.js'],
-      deletedFiles: ['test/old.test.js'],
-    });
+    expect(mockRunProbe.mock.calls[0]?.[0]).toMatchObject({ diffFailed: true, changedFiles: [] });
   });
 
-  /** A diff output that is not NUL-separated name-status records is a diff failure, not a list of changed files. */
-  it('CheckTestAdequacy_ADiffThatDoesNotParse_IsADiffFailure', async () => {
-    const ctx = await makeCtx();
-    const sha = 'b'.repeat(40);
-    for (const stdout of ['src/b.js\ntest/b.test.js\n', 'R100\0src/a.js\0src/b.js\0', 'M\0\0']) {
-      const gitExec: GitExec = (_repoRoot, args) =>
-        args[0] === 'merge-base' ? { stdout: `${sha}\n`, exitCode: 0 } : { stdout, exitCode: 0 };
-      await handleTestAdequacy(
-        {
-          featureId: 'feat-unparsed-diff',
-          taskId: 'T-unparsed',
-          branch: 'task-2',
-          baseBranch: 'feature/x',
-          repoRoot: '/fake/repo',
-          riskTier: 'medium',
-          gitExec,
-          runTests: async () => ({ kind: 'ran', result: 'green' }),
-        },
-        ctx.stateDir,
-        ctx.eventStore,
-      );
-    }
-    expect(mockRunProbe).toHaveBeenCalledTimes(3);
-    for (const [args] of mockRunProbe.mock.calls) expect(args).toMatchObject({ diffFailed: true, changedFiles: [] });
-  });
-
+  /** A base that Git reads as an option refuses before any Git read of it. A branch that is not the checkout branch refuses too. */
   it('CheckTestAdequacy_ARefGitWouldReadAsAnOption_NeverReachesGit', async () => {
     const ctx = await makeCtx();
-    const calls: string[][] = [];
-    const gitExec: GitExec = (_repoRoot, args) => {
-      calls.push([...args]);
-      return { stdout: '', exitCode: 1 };
-    };
-    for (const [baseBranch, branch] of [['--output=/tmp/x', 'task-2'], ['feature/x', '--all']]) {
+    const repoRoot = await baseRepository();
+    stateDirs.push(repoRoot);
+    for (const [baseBranch, branch] of [['--output=/tmp/x', 'main'], ['main', '--all']]) {
       await handleTestAdequacy(
         {
           featureId: 'feat-unsafe-ref',
           taskId: 'T-unsafe',
           branch,
           baseBranch,
-          repoRoot: '/fake/repo',
+          repoRoot,
           riskTier: 'medium',
-          gitExec,
-          runTests: async () => ({ kind: 'ran', result: 'green' }),
         },
         ctx.stateDir,
         ctx.eventStore,
       );
     }
-    expect(calls).toEqual([]);
     expect(mockRunProbe).toHaveBeenCalledTimes(2);
     for (const [args] of mockRunProbe.mock.calls) expect(args).toMatchObject({ diffFailed: true });
+    expect(await readTaskDiff(repoRoot, { kind: 'base', baseRef: '--output=/tmp/x' })).toMatchObject({ ok: false,
+      detail: expect.stringContaining('is not a safe ref') });
   });
 
   it('CheckTestAdequacy_ABaseWithNoMergeBase_IsADiffFailure', async () => {
     const ctx = await makeCtx();
-    const gitExec: GitExec = () => ({ stdout: 'fatal: Not a valid object name feature/gone', exitCode: 128 });
+    const repoRoot = await baseRepository();
+    stateDirs.push(repoRoot);
+    await git(repoRoot, 'checkout', '-q', '--orphan', 'feature/gone');
+    await git(repoRoot, 'rm', '-q', '-r', '--cached', '.');
+    await commitFiles(repoRoot, { 'other.txt': 'unrelated\n' }, 'unrelated history');
+    await git(repoRoot, 'checkout', '-q', '-f', 'main');
     await handleTestAdequacy(
       {
         featureId: 'feat-nomergebase',
         taskId: 'T-nmb',
         baseBranch: 'feature/gone',
-        repoRoot: '/fake/repo',
+        repoRoot,
         riskTier: 'medium',
-        gitExec,
-        runTests: async () => ({ kind: 'ran', result: 'green' }),
       },
       ctx.stateDir,
       ctx.eventStore,
@@ -378,7 +403,6 @@ describe('check_test_adequacy routing + idempotency (task 014)', () => {
     };
     expect(Object.keys(blockedVerdict)).toHaveLength(ADEQUACY_DISCRIMINANTS.length);
     for (const cause of ADEQUACY_DISCRIMINANTS) expect(Object.keys(blockedVerdict)).toContain(cause);
-    const gitExec: GitExec = () => ({ stdout: 'fatal: no repository', exitCode: 128 });
     let blockedRuns = 0;
     for (const cause of ADEQUACY_DISCRIMINANTS) {
       for (const riskTier of [undefined, 'low', 'medium', 'high'] as const) {
@@ -390,8 +414,6 @@ describe('check_test_adequacy routing + idempotency (task 014)', () => {
             taskId: 'T-cause',
             baseBranch: 'main',
             repoRoot: '/fake/repo',
-            gitExec,
-            runTests: async () => ({ kind: 'ran', result: 'green' }),
             ...(riskTier === undefined ? {} : { riskTier }),
           },
           ctx.stateDir,

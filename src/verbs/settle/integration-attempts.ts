@@ -1,13 +1,14 @@
 /**
- * The integration attempts of a compiler 8-vcs settlement. One attempt runs the integration suite of one observed tip in the verifier.
+ * The integration attempts of a compiler 8-vcs settlement. One attempt runs the integration suite of one observed tip in the local check executor.
  *
- * The attempt identity derives from the outer operation, the full ref, the tip, the profile and the sorted task heads.
- * The complete request goes into the bundle store, and a zero-row segment binding holds its digest reference before the first submit.
+ * The attempt identity derives from the outer operation, the full ref, the tip, the profile and the sorted accepted heads.
+ * The complete attempt request goes into the bundle store, and a zero-row segment binding holds its digest reference before the executor runs.
  * The binding operation id starts with `settle-integration:`, so it never collides with a task segment or a gate binding.
  *
- * A later call finds an attempt only when it computes the same identity again. Thus a retry at the same tip submits the bound request again.
- * Settle keeps no pointer and no list of earlier attempts. The verifier decides when a request for a new tip can start.
- * Each attempt read of the stream and of the binding table stays in this module.
+ * The executor claims the attempt before the suite starts and stores the terminal observation.
+ * A later call of the same attempt replays that observation with no new run.
+ * An attempt with a claim and no observation is incomplete, and the next call records it and runs the suite again.
+ * A moved tip gives another identity, so it needs a fresh attempt. Each attempt read of the stream and of the binding table stays in this module.
  */
 
 import { z } from 'zod';
@@ -15,42 +16,59 @@ import { z } from 'zod';
 import { contentDigest } from '../../contract/capsule/capsule-digest.js';
 import type { CapsuleScope } from '../../contract/capsule/exarchos-capsule.js';
 import { canonicalJson } from '../../contract/request-context.js';
-import {
-  VerificationRequest,
-  checkPlanDigest,
-  exchangeHostedVerification,
-  verificationJson,
-  verificationKey,
-  verificationValueDigest,
-  type HostedCheckoutIdentity,
-  type VerificationHostConnector,
-  type VerificationRequestTerms,
-} from '../../contract/verification/harness-verification.js';
+import { checkPlanDigest, verificationValueDigest } from '../../contract/verification/harness-verification.js';
 import type { RunBundleStore } from '../../events/bundle/run-bundle-store.js';
 import type { EventStore } from '../../events/store.js';
 import type { ToolResult } from '../../format.js';
 import { ContentDigestV1Schema } from '../../workflow/admission/types.js';
 import type { VerificationProfile } from '../../workflow/verification/profile.js';
 import { integrationSuitePlan } from '../gates/check-integration-suite.js';
-import { HostedAdequacyPending, admitHostedExchange, hostedCommandResult, hostedPendingResult, hostedRefusal } from '../gates/gate-runner.js';
-import { NO_EXIT_STATUS, interpretReducedIntegration } from '../pure/integration-suite.js';
+import { HostedAdequacyPending, hostedPendingResult, hostedRefusal } from '../gates/gate-runner.js';
+import { NO_EXIT_STATUS, interpretReducedIntegration, runIntegrationSuite, type RunIntegrationSuiteResult } from '../pure/integration-suite.js';
 import { resolveWorkflowState } from '../resolve-state.js';
 import { resolveActivePhaseAttemptId } from '../tasks/active-phase-attempt.js';
+import { commandResultOf, runApprovedCheck, type ApprovedCheckOutcome, type CheckExecutor } from '../verification/check-executor.js';
 
 /** The prefix of each attempt binding operation id. It keeps the ids apart from task segments and gate bindings. */
 const ATTEMPT_PREFIX = 'settle-integration:';
+
+/** One full commit id. */
+const CommitId = z.string().regex(/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/);
+
+/** One sha-256 digest in hex. */
+const HexDigest = z.string().regex(/^[a-f0-9]{64}$/);
+
+/**
+ * The request of one local attempt. It names the stream, the phase attempt, the outer operation, the ref, the tip and the sorted accepted heads.
+ * It also names the prepared capsule, the config, the profile, the suite plan and the integration checkout of the capsule scope.
+ */
+export const IntegrationAttemptRequestV1Schema = z.object({
+  version: z.literal(1),
+  operation: z.literal('integration-suite'),
+  streamId: z.string().min(1),
+  phaseAttemptId: z.string().min(1),
+  outerOperationId: z.string().min(1),
+  ref: z.string().regex(/^refs\/heads\/[^\x00-\x20\x7f]+$/),
+  tip: CommitId,
+  acceptedHeads: z.array(CommitId).max(64).refine(heads => heads.every((head, index) => index === 0 || (heads[index - 1] ?? '') < head)),
+  preparedDigest: HexDigest,
+  configDigest: HexDigest,
+  profileDigest: HexDigest,
+  planDigest: HexDigest,
+  checkout: z.string().min(1),
+  repository: z.string().min(1),
+}).strict();
+export type IntegrationAttemptRequestV1 = z.infer<typeof IntegrationAttemptRequestV1Schema>;
 
 /** The stored payload of one attempt binding: the bundle-store digest of the complete canonical request. */
 export const IntegrationAttemptBindingV1Schema = z
   .object({ version: z.literal(1), kind: z.literal('settle-integration'), request: ContentDigestV1Schema })
   .strict();
 
-/** The terms of one integration attempt. `heads` are the sorted unique accepted heads. */
+/** The terms of one integration attempt. `heads` are the sorted unique accepted heads. A test passes its own `executor`. */
 export interface IntegrationAttemptTerms {
   readonly eventStore: EventStore;
   readonly bundles: RunBundleStore;
-  readonly connector: VerificationHostConnector;
-  readonly identity: HostedCheckoutIdentity;
   readonly streamId: string;
   readonly outerOperationId: string;
   readonly ref: string;
@@ -59,11 +77,13 @@ export interface IntegrationAttemptTerms {
   readonly preparedDigest: string;
   readonly scope: CapsuleScope;
   readonly profile: VerificationProfile;
+  readonly executor?: CheckExecutor;
 }
 
 /**
- * The outcome of one attempt. `passed` and `failed` come only from a signed terminal reply of the original request.
- * `refused` is a verifier refusal or a key conflict. `pending` is a busy, incomplete, pending or transport outcome. Neither of them commits.
+ * The outcome of one attempt. `passed` and `failed` come only from the terminal observation of the bound attempt.
+ * `evidenceDigest` is the digest of that stored observation.
+ * `refused` is a refusal of the executor or a binding that differs. `pending` is a running or interrupted attempt. Neither of them commits.
  */
 export type IntegrationAttemptOutcome =
   | { readonly kind: 'passed'; readonly attemptBinding: string; readonly evidenceDigest: string }
@@ -71,10 +91,13 @@ export type IntegrationAttemptOutcome =
   | { readonly kind: 'refused'; readonly result: ToolResult }
   | { readonly kind: 'pending'; readonly result: ToolResult };
 
-/** The binding operation id of one attempt identity: the outer operation, the full ref, the tip, the profile and the sorted heads. */
+/**
+ * The binding operation id of one attempt identity: the outer operation, the full ref, the tip, the profile and the sorted heads.
+ * The route term keeps a local attempt apart from an attempt that the retired verifier bound.
+ */
 export function integrationAttemptId(terms: Pick<IntegrationAttemptTerms, 'outerOperationId' | 'ref' | 'tip' | 'heads' | 'profile'>): string {
   return ATTEMPT_PREFIX + verificationValueDigest({
-    outerOperationId: terms.outerOperationId, ref: terms.ref, tip: terms.tip,
+    route: 'local', outerOperationId: terms.outerOperationId, ref: terms.ref, tip: terms.tip,
     profileDigest: contentDigest(terms.profile), heads: [...terms.heads],
   });
 }
@@ -97,48 +120,43 @@ async function activePhaseAttempt(eventStore: EventStore, streamId: string): Pro
   return resolveActivePhaseAttemptId(streamId, resolved.state);
 }
 
-/** The complete request of a new attempt. Its subject binds each term, and its key binds the resource and the command digest. */
-async function proposedRequest(terms: IntegrationAttemptTerms): Promise<VerificationRequest> {
-  const request: Extract<VerificationRequestTerms, { operation: 'integration-suite' }> = {
-    version: 1, operation: 'integration-suite', resourceId: terms.identity.resourceId, profileId: terms.identity.profileId,
-    commandDigest: checkPlanDigest(integrationSuitePlan(terms.profile.integration)),
-    subject: {
-      scope: 'integration', streamId: terms.streamId, phaseAttemptId: await activePhaseAttempt(terms.eventStore, terms.streamId),
-      outerOperationId: terms.outerOperationId, ref: terms.ref, headCommit: terms.tip, preparedDigest: terms.preparedDigest,
-      configDigest: terms.scope.configDigest, profileDigest: contentDigest(terms.profile), acceptedHeads: [...terms.heads],
-    },
-  };
-  return VerificationRequest.parse({ ...request, key: verificationKey(request) });
+/** The complete request of a new attempt. It binds each term of the attempt and the integration checkout of the capsule scope. */
+async function proposedRequest(terms: IntegrationAttemptTerms): Promise<IntegrationAttemptRequestV1> {
+  return IntegrationAttemptRequestV1Schema.parse({
+    version: 1, operation: 'integration-suite', streamId: terms.streamId, phaseAttemptId: await activePhaseAttempt(terms.eventStore, terms.streamId),
+    outerOperationId: terms.outerOperationId, ref: terms.ref, tip: terms.tip, acceptedHeads: [...terms.heads], preparedDigest: terms.preparedDigest,
+    configDigest: terms.scope.configDigest, profileDigest: contentDigest(terms.profile),
+    planDigest: checkPlanDigest(integrationSuitePlan(terms.profile.integration)), checkout: terms.scope.checkout, repository: terms.scope.repository,
+  });
 }
 
 /** Read the request that one binding names, and require canonical bytes. */
-async function boundRequest(bundles: RunBundleStore, payload: string): Promise<VerificationRequest> {
+async function boundRequest(bundles: RunBundleStore, payload: string): Promise<IntegrationAttemptRequestV1> {
   const binding = IntegrationAttemptBindingV1Schema.parse(JSON.parse(payload));
   const original = (await bundles.resolve(binding.request)).toString('utf8');
-  const checked = VerificationRequest.parse(JSON.parse(original));
-  if (verificationJson(checked) !== original) throw new Error('The bound integration request bytes are not canonical');
+  const checked = IntegrationAttemptRequestV1Schema.parse(JSON.parse(original));
+  if (canonicalJson(checked) !== original) throw new Error('The bound integration request bytes are not canonical');
   return checked;
 }
 
 /**
- * Bind the request of one attempt before its first submit, or read the request that an earlier call bound.
- * The bound request must name the same tip, ref, heads, stream and outer operation, or the attempt refuses.
+ * Bind the request of one attempt before the executor runs, or read the request that an earlier call bound.
+ * The bound request must name the same tip, ref, heads, stream, outer operation and integration checkout, or the attempt refuses.
  */
-async function bindAttempt(terms: IntegrationAttemptTerms, attemptId: string): Promise<VerificationRequest> {
+async function bindAttempt(terms: IntegrationAttemptTerms, attemptId: string): Promise<IntegrationAttemptRequestV1> {
   const backend = terms.eventStore.getAppender().ensureSqliteBackendSync();
   let payload = backend.lookupSegmentInput(attemptId);
   if (payload === undefined) {
     const proposed = await proposedRequest(terms);
-    const reference = await terms.bundles.put(Buffer.from(verificationJson(proposed)));
+    const reference = await terms.bundles.put(Buffer.from(canonicalJson(proposed), 'utf8'));
     payload = backend.bindSegmentInput(attemptId, canonicalJson(IntegrationAttemptBindingV1Schema.parse({
       version: 1, kind: 'settle-integration', request: reference,
     })));
   }
   const request = await boundRequest(terms.bundles, payload);
-  const { subject } = request;
-  if (request.operation !== 'integration-suite' || !('scope' in subject) || subject.scope !== 'integration'
-    || subject.headCommit !== terms.tip || subject.ref !== terms.ref || subject.streamId !== terms.streamId
-    || subject.outerOperationId !== terms.outerOperationId || verificationJson(subject.acceptedHeads) !== verificationJson(terms.heads)) {
+  if (request.tip !== terms.tip || request.ref !== terms.ref || request.streamId !== terms.streamId
+    || request.outerOperationId !== terms.outerOperationId || canonicalJson(request.acceptedHeads) !== canonicalJson(terms.heads)
+    || request.checkout !== terms.scope.checkout || request.repository !== terms.scope.repository) {
     throw new Error('The bound integration request differs from its attempt identity');
   }
   return request;
@@ -151,12 +169,12 @@ async function bindAttempt(terms: IntegrationAttemptTerms, attemptId: string): P
 export async function integrationAttemptIntact(eventStore: EventStore, bundles: RunBundleStore, attemptId: string, request: string): Promise<boolean> {
   const payload = eventStore.getAppender().ensureSqliteBackendSync().lookupSegmentInput(attemptId);
   if (payload === undefined) return false;
-  try { return verificationJson(await boundRequest(bundles, payload)) === request; }
+  try { return canonicalJson(await boundRequest(bundles, payload)) === request; }
   catch { return false; }
 }
 
 /** The finding message of a terminal suite result that does not pass. */
-function failureMessage(tip: string, verdict: ReturnType<typeof interpretReducedIntegration>): string {
+function failureMessage(tip: string, verdict: RunIntegrationSuiteResult): string {
   const cause = verdict.reason ?? verdict.noVerdictCause ?? `${verdict.failCount} failure(s)`;
   return `the integration suite at ${tip} gave the verdict ${verdict.verdict}: ${cause}`;
 }
@@ -168,39 +186,39 @@ export interface IntegrationAttemptBinding {
 }
 
 /**
- * Run one attempt. It binds the request first, then exchanges it with the verifier and admits only the authenticated original evidence.
- * The verdict comes from the reduced suite report, read with the rules of the per-task gate.
+ * Run one attempt. It binds the request first, then runs the suite in the local executor in the integration checkout of the capsule scope.
+ * The executor confines the run to that checkout on the integration ref at the tip, with no connector and no operator identity.
+ * The verdict comes from the stored run, read with the rules of the per-task gate.
  */
 export async function runIntegrationAttempt(terms: IntegrationAttemptTerms): Promise<{ readonly outcome: IntegrationAttemptOutcome; readonly binding?: IntegrationAttemptBinding }> {
   const attemptId = integrationAttemptId(terms);
-  let request: VerificationRequest;
+  let request: IntegrationAttemptRequestV1;
   try { request = await bindAttempt(terms, attemptId); }
   catch (error) {
     if (error instanceof HostedAdequacyPending) return { outcome: { kind: 'pending', result: hostedPendingResult(error) } };
     return { outcome: { kind: 'refused', result: hostedRefusal(error instanceof Error ? error.message : String(error)) } };
   }
-  const binding = { attemptId, request: verificationJson(request) };
-  let exchange: Awaited<ReturnType<typeof exchangeHostedVerification>>;
-  try { exchange = await exchangeHostedVerification(terms.connector, request); }
-  catch (error) {
-    const reason = error instanceof Error ? error.message : String(error);
-    return { outcome: { kind: 'pending', result: hostedPendingResult(new HostedAdequacyPending(`The verifier transport failed: ${reason}`)) }, binding };
-  }
+  const binding = { attemptId, request: canonicalJson(request) };
+  const integration = terms.profile.integration;
+  const executor = terms.executor ?? runApprovedCheck;
+  let ran: ApprovedCheckOutcome<RunIntegrationSuiteResult>;
   try {
-    const admitted = await admitHostedExchange(exchange, request, terms.scope.checkout, terms.scope.repository);
-    if (admitted.kind === 'refused') return { outcome: { kind: 'refused', result: admitted.result }, binding };
-    if (admitted.facts.operation !== 'integration-suite') throw new HostedAdequacyPending('The hosted facts name another operation.');
-    const verdict = interpretReducedIntegration({
-      repoRoot: terms.scope.checkout, integration: terms.profile.integration,
-      run: hostedCommandResult(admitted.facts.run), report: admitted.facts.report,
+    ran = await executor({
+      eventStore: terms.eventStore, operation: 'integration-suite', streamId: terms.streamId, plan: integrationSuitePlan(integration),
+      profileDigest: contentDigest(terms.profile), checkout: terms.scope.checkout, workspace: 'checkout',
+      integration: { ref: terms.ref, tip: terms.tip, attempt: attemptId },
+    }, async (session) => {
+      const run = commandResultOf(await session.run({ leg: 0 }));
+      return runIntegrationSuite({ repoRoot: terms.scope.checkout, integration, runCommand: () => run });
     });
-    const evidenceDigest = verificationValueDigest(admitted.signed);
-    const outcome: IntegrationAttemptOutcome = verdict.passed && verdict.verdict === 'pass'
-      ? { kind: 'passed', attemptBinding: attemptId, evidenceDigest }
-      : { kind: 'failed', attemptBinding: attemptId, evidenceDigest, message: failureMessage(terms.tip, verdict) };
-    return { outcome, binding };
   } catch (error) {
     if (error instanceof HostedAdequacyPending) return { outcome: { kind: 'pending', result: hostedPendingResult(error) }, binding };
     throw error;
   }
+  if (ran.kind === 'refused') return { outcome: { kind: 'refused', result: hostedRefusal(`The integration suite did not run: ${ran.reason}`) }, binding };
+  const verdict = ran.value;
+  const outcome: IntegrationAttemptOutcome = verdict.passed && verdict.verdict === 'pass'
+    ? { kind: 'passed', attemptBinding: attemptId, evidenceDigest: ran.observation }
+    : { kind: 'failed', attemptBinding: attemptId, evidenceDigest: ran.observation, message: failureMessage(terms.tip, verdict) };
+  return { outcome, binding };
 }

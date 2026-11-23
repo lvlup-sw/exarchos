@@ -30,7 +30,6 @@ import { handleDesignCompleteness } from './gates/design-completeness.js';
 import { handlePlanCoverage } from './gates/plan-coverage.js';
 import { handleCheckExplorationDepth } from './gates/check-exploration-depth.js';
 import { handleTestAdequacy } from './gates/test-adequacy-handler.js';
-import { hostedRefusal } from './gates/gate-runner.js';
 import { handleContractDrift } from './gates/contract-drift-handler.js';
 import { handleMockBoundary } from './gates/mock-boundary-handler.js';
 import { handleMutationAdequacy, MUTATION_GATE_NAME } from './gates/mutation-adequacy.js';
@@ -283,18 +282,15 @@ function coordinateRefusal(args: Record<string, unknown>, ctx: DispatchContext |
  *
  * `verificationProfile` comes only from the context. The adapter removes a value that the args carry, so a wire caller cannot pin a profile.
  * The private verifier terms come only from the context too. The adapter removes `hostAdequacy`, `hostCheck` and `verificationHost` from the args.
- * A check gate ignores the connector and runs in the local approved-check executor, with or without a verifier provisioning.
- *
- * The hosted adequacy gate refuses an unbound call on a provisioned context before its handler, as the check gates do.
- * That refusal starts no local source revert and no local test process, and it writes no key, binding, claim or event.
- * A selector instead of a mode gives the gate an extra fourth argument, such as the connector of a provisioned context.
+ * A check gate and the adequacy gate ignore the connector and run in the local approved-check executor, with or without a verifier provisioning.
+ * A selector gives the gate an extra fourth argument, such as the connector of a provisioned context.
  *
  * @internal Exported so that a test can call the adapter with a gate of its own.
  */
 export function adaptLadderGate<T, X = never>(
   handler: (args: T, stateDir: string, eventStore: EventStore, extra?: X) => Promise<ToolResult>,
   coordinateAware = false,
-  hosted: boolean | ((ctx: DispatchContext) => X | undefined) = false,
+  extraOf?: (ctx: DispatchContext) => X | undefined,
 ): ActionHandler {
   return async (args, stateDir, ctx) => {
     if (!ctx?.eventStore) {
@@ -304,10 +300,6 @@ export function adaptLadderGate<T, X = never>(
     }
     const refusal = coordinateRefusal(args, ctx, coordinateAware);
     if (refusal !== undefined) return refusal;
-    if (hosted === true && ctx.verificationHost !== undefined
-      && (ctx.verificationInput?.hosted?.leafOperationId === undefined || ctx.verificationInput.segmentOperationId === undefined)) {
-      return hostedRefusal('A provisioned machine runs test adequacy only in the verifier for a bound leaf. This call has no bound leaf, so no local test process starts.');
-    }
     const enrichedArgs =
       ctx.projectConfig !== undefined &&
       (args as { projectConfig?: unknown }).projectConfig === undefined
@@ -320,14 +312,8 @@ export function adaptLadderGate<T, X = never>(
         : { ...unprofiledArgs, verificationProfile: ctx.verificationProfile };
     const selectedArgs = coordinateAware && ctx.verificationInput !== undefined
       ? { ...gateArgs, coordinate: ctx.verificationInput.coordinate } : gateArgs;
-    const binding = ctx.verificationInput?.hosted;
-    const connector = ctx.verificationHost;
-    const segmentOperationId = ctx.verificationInput?.segmentOperationId;
-    const selected = hosted === true && connector !== undefined && binding?.leafOperationId !== undefined
-      ? { ...selectedArgs, hostAdequacy: { connector, binding, segmentOperationId } }
-      : selectedArgs;
-    const typedArgs = selected as unknown as T;
-    const extra = typeof hosted === 'function' ? hosted(ctx) : undefined;
+    const typedArgs = selectedArgs as unknown as T;
+    const extra = extraOf?.(ctx);
     return extra === undefined ? handler(typedArgs, stateDir, ctx.eventStore) : handler(typedArgs, stateDir, ctx.eventStore, extra);
   };
 }
@@ -506,7 +492,7 @@ export const ACTION_HANDLERS: Readonly<Record<string, ActionHandler>> = {
    */
   check_exploration_depth: adaptWithEventStore(handleCheckExplorationDepth),
   /** Verification-ladder gate. {@link adaptLadderGate} copies the dispatch config into the args, and the severity wrapper applies the severity. */
-  check_test_adequacy: adaptLadderGate(handleTestAdequacy, true, true),
+  check_test_adequacy: adaptLadderGate(handleTestAdequacy, true),
   check_contract_drift: adaptLadderGate(handleContractDrift, true),
   check_mock_boundary: adaptLadderGate(handleMockBoundary, true, connectorOf),
   /**

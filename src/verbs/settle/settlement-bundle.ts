@@ -101,9 +101,10 @@ const VerificationTraceSchema = z
  * The integration record of a compiler 8-vcs settlement that judged the integration tip.
  * `ref` is the full integration ref, `tip` the commit that settle captured and `observedAt` the time of its final observation.
  * `attemptBinding` is the `settle-integration:` operation that binds the stored request.
- * `suiteEvidenceDigest` is the `verificationValueDigest` of the signed suite evidence. The verifier claim database keeps the evidence.
+ * `suiteEvidenceDigest` names the stored local observation of the suite run. The run bundle store keeps that observation under this digest.
+ * A bundle of the retired verifier holds the digest of its signed suite evidence, and it reads unchanged.
  *
- * Both are present only for a resolved suite that settle submitted. An unresolved suite or an unmerged head leaves both out.
+ * Both are present only for a resolved suite that settle ran. An unresolved suite or an unmerged head leaves both out.
  */
 const IntegrationRecordSchema = z
   .object({

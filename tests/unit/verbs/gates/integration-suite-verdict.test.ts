@@ -21,7 +21,7 @@ import { execCommandRunner, handleCheckIntegrationSuite } from '../../../../src/
 import { WHOLE_SUITE_MAX_OUTPUT_BYTES } from '../../../../src/verbs/gates/gate-utils.js';
 import { hostedCommandResult } from '../../../../src/verbs/gates/gate-runner.js';
 import { interpretReducedIntegration } from '../../../../src/verbs/pure/integration-suite.js';
-import { PROBE_SCRATCH_PREFIX } from '../../../../src/verbs/gates/test-adequacy-handler.js';
+import { PROBE_SCRATCH_PREFIX } from '../../../../src/verbs/verification/check-executor.js';
 import type { CommandResult, RunCommandFn } from '../../../../src/verbs/pure/static-analysis.js';
 import type { PinnedVerificationProfile, VerificationProfile } from '../../../../src/workflow/verification/profile.js';
 import { isolatedSync } from '../../../../tools/test-helpers/spawn.js';

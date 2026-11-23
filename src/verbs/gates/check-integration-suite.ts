@@ -22,7 +22,8 @@ import { runDurableGateProducer } from './durable-gate-producer.js';
 import { contentDigest } from '../../contract/capsule/capsule-digest.js';
 import type { CheckPlan } from '../../contract/verification/harness-verification.js';
 import {
-  commandResultOf, pendingOfDirectCall, refusedCheckResult, runApprovedCheck, type CheckExecutor,
+  commandResultOf, pendingOfDirectCall, PROBE_SCRATCH_PREFIX, probeTestEnvironment, refusedCheckResult, removeProbeScratch, runApprovedCheck,
+  type CheckExecutor,
 } from '../verification/check-executor.js';
 import type { VerificationProfile } from '../../workflow/verification/profile.js';
 import {
@@ -36,7 +37,6 @@ import {
   type ClosedGateVerdict,
   type ProfiledGateArgs,
 } from './gate-utils.js';
-import { PROBE_SCRATCH_PREFIX, probeTestEnvironment, removeProbeScratch } from './test-adequacy-handler.js';
 import { runGatePreflight } from '../pure/gate-preflight.js';
 import {
   NO_EXIT_STATUS,

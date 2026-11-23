@@ -20,9 +20,9 @@ import { PROFILE_UNRESOLVED, type VerificationProfile } from '../../workflow/ver
 import { HostedAdequacyPending, runPhaseGateWithEvidence } from './gate-runner.js';
 import { contentDigest } from '../../contract/capsule/capsule-digest.js';
 import type { CheckPlan } from '../../contract/verification/harness-verification.js';
-import { refusedCheckResult, runApprovedCheck, type CheckExecutor, type LegObservation } from '../verification/check-executor.js';
+import { refusedCheckResult, runApprovedCheck, type CheckExecutor } from '../verification/check-executor.js';
 import { profileOf, withProfileRoute, type ProfiledGateArgs } from './gate-utils.js';
-import { runLimitsOf } from './test-adequacy-handler.js';
+import { probeRunOutcome, runTimeoutOf } from './test-adequacy-handler.js';
 import type { RunOutcome } from './test-adequacy.js';
 
 /**
@@ -430,22 +430,6 @@ function checkOfRun(name: string, outcome: Exclude<RunOutcome, { kind: 'unresolv
   return { status: outcome.result === 'green' ? 'PASS' : 'FAIL', name };
 }
 
-/** The run outcome of one leg. Exit 0 is green, a red code of the term is red, and each other end gives no verdict. */
-function runOutcomeOf(run: LegObservation, redCodes: readonly number[]): Exclude<RunOutcome, { kind: 'unresolved' }> {
-  switch (run.end) {
-    case 'exited':
-      if (run.exitCode === 0) return { kind: 'ran', result: 'green' };
-      if (run.exitCode !== null && redCodes.includes(run.exitCode)) return { kind: 'ran', result: 'red' };
-      return { kind: 'no-verdict', cause: 'unknown-exit-code',
-        detail: `the command exited ${run.exitCode ?? 'with no status'}, and only exit ${redCodes.join(' or ')} reads as a red run` };
-    case 'timeout': return { kind: 'no-verdict', cause: 'timeout', detail: 'the executor stopped the run at its time limit' };
-    case 'output-limit': return { kind: 'no-verdict', cause: 'overflow', detail: 'the executor stopped the run at its output limit' };
-    case 'unavailable': return { kind: 'no-verdict', cause: 'did-not-start', detail: run.detail ?? 'the test command did not start' };
-    case 'refused': return { kind: 'no-verdict', cause: 'did-not-start', detail: run.detail ?? 'the executor refused the test command' };
-    case 'signal': return { kind: 'no-verdict', cause: 'signal', detail: `the signal ${run.signal ?? 'SIGKILL'} stopped the run` };
-  }
-}
-
 /** The local execution context of the declared tests, with the digest of the profile that gives the probe term. */
 interface DeclaredTestRun extends SpecCoverageRun {
   readonly profileDigest: string;
@@ -483,12 +467,12 @@ async function runDeclaredTests(
   const ran = await run.executor({
     eventStore: run.eventStore, operation: 'spec-coverage', streamId: args.featureId, plan: specCoveragePlan(probe),
     profileDigest: run.profileDigest, checkout: args.repoRoot, selection: testFiles, workspace: 'checkout',
-    legTimeoutMs: runLimitsOf(probe.files).timeoutMs,
+    legTimeoutMs: runTimeoutOf(probe.files),
   }, async (session) => {
     const checks: CheckEntry[] = [];
     for (const files of unscoped ? [testFiles] : testFiles.map((file) => [file])) {
       const observation = await session.run({ leg: 0, append: probeArgv(probe.files, [], files) });
-      checks.push(checkOfRun(unscoped ? UNSCOPED_RUN_CHECK : `Test passes: ${files.join(', ')}`, runOutcomeOf(observation, codes)));
+      checks.push(checkOfRun(unscoped ? UNSCOPED_RUN_CHECK : `Test passes: ${files.join(', ')}`, probeRunOutcome(observation, codes)));
     }
     return checks;
   });

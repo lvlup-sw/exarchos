@@ -16,7 +16,7 @@
  */
 
 import type { z } from 'zod';
-import type { BoundHostInput, VerificationHostConnector } from '../../contract/verification/harness-verification.js';
+import type { VerificationHostConnector } from '../../contract/verification/harness-verification.js';
 import type { TaskVerificationCoordinateSchema } from '../../contract/capsule/exarchos-capsule.js';
 import type { ToolResult } from '../../format.js';
 import { logger } from '../../logger.js';
@@ -164,7 +164,6 @@ export interface DispatchContext {
   readonly verificationInput?: {
     readonly coordinate: z.infer<typeof TaskVerificationCoordinateSchema>;
     readonly segmentOperationId: string;
-    readonly hosted?: BoundHostInput;
   };
 }
 

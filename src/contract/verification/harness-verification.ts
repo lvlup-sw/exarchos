@@ -117,9 +117,12 @@ export const CheckLeg = z.object({
 }).strict();
 export type CheckLeg = z.infer<typeof CheckLeg>;
 
-/** The reviewed typed scope of one check. Its digest binds the request to the operator command policy. */
+/**
+ * The reviewed typed scope of one check. Its digest binds the request to the operator command policy.
+ * The source-revert adequacy probe runs only in the local executor, so only a local plan names `adequacy`.
+ */
 export const CheckPlan = z.object({
-  operation: z.enum(HOSTED_CHECK_OPERATIONS),
+  operation: z.enum([...HOSTED_CHECK_OPERATIONS, 'adequacy']),
   legs: z.array(CheckLeg).max(20),
   report: z.enum(['exit-code', 'vitest-json']).optional(),
   files: z.enum(['as-arguments', 'after-separator', 'none']).optional(),
@@ -456,18 +459,6 @@ export async function exchangeHostedVerification(connector: VerificationHostConn
     case 'incomplete': return { kind: 'incomplete' };
     case 'absent': return { kind: 'pending', reason: 'The verifier holds no claim for the original request' };
   }
-}
-
-export interface BoundHostInput {
-  readonly segmentDigest: string;
-  readonly callerDigest: string;
-  readonly preparedDigest: string;
-  readonly configDigest: string;
-  readonly recheck: () => Promise<void>;
-  readonly freezeRequest: (request: VerificationRequest) => Promise<VerificationRequest>;
-  readonly observeDiff?: (checkout: string) => Promise<string>;
-  readonly checkTree?: (checkout: string) => Promise<void>;
-  readonly leafOperationId?: string;
 }
 
 /** Sign the entire reply carrier before returning any authenticated disposition. */

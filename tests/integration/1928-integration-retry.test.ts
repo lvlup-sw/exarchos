@@ -1,32 +1,31 @@
-// @oracle-sources: the real verifier dispositions with operator authorization, Bubblewrap suite children and the private claim database, real Git merges, SQLite segment bindings read directly, and literal historical key digests computed by the build before this change
+// @oracle-sources: the local check executor that runs the suite in the integration checkout, real Git merges, SQLite segment bindings read directly, a suite log outside the checkout, and literal historical key digests computed by the build before this change
 /**
- * Integration attempts bind one request before the first submit and recover it after a lost delivery, a re-entry and a restart.
- * Each case runs the real verifier dispositions in this process. The verifier authorizes the operator integration pin and runs the suite under Bubblewrap.
- * The exact host execution count is the row count of the private claim database.
+ * Integration attempts bind one request before the executor runs, then run the suite in the local check executor.
+ * Each case runs the real executor in this process, in the integration checkout of a prepared scope. The suite appends the tip that it sees to a log.
+ * A stop before the claim and a stop after the suite leg each leave the attempt retryable. A retry runs once more and a later call replays.
  */
-import { createHash, generateKeyPairSync } from 'node:crypto';
-import { chmod, copyFile, mkdir, readFile, realpath, writeFile } from 'node:fs/promises';
+import { readFile, realpath } from 'node:fs/promises';
 import { join } from 'node:path';
-import { afterEach, describe, expect, it, vi } from 'vitest';
-import { contentDigest } from '../../src/contract/capsule/capsule-digest.js';
+import { afterEach, describe, expect, it } from 'vitest';
+import { capsuleDigest, contentDigest } from '../../src/contract/capsule/capsule-digest.js';
+import { encodePreparedBundle } from '../../src/contract/capsule/prepared-bundle.js';
 import {
-  VerificationRequest, checkPlanDigest, verificationDigest, verificationKey, verificationOperation, verifierSignerId,
-  type HostedCheckoutIdentity, type VerificationHostConnector, type VerificationKeyTerms, type VerificationRequestTerms,
+  VerificationRequest, verificationDigest, verificationKey, verificationOperation,
+  type VerificationKeyTerms, type VerificationRequestTerms,
 } from '../../src/contract/verification/harness-verification.js';
 import { EventStore } from '../../src/events/store.js';
-import { authorizeVerification } from '../../src/runtime/verification-host/authorization.js';
-import { createVerificationDispositions } from '../../src/runtime/verification-host/dispositions.js';
-import { HostProvisioning } from '../../src/runtime/verification-host/provisioning.js';
-import { openVerifierClaimDb } from '../../src/storage/sqlite/verifier-claim-db.js';
-import { integrationSuitePlan } from '../../src/verbs/gates/check-integration-suite.js';
-import { IntegrationAttemptBindingV1Schema, integrationAttemptId, runIntegrationAttempt, type IntegrationAttemptTerms } from '../../src/verbs/settle/integration-attempts.js';
+import { HostedAdequacyPending } from '../../src/verbs/gates/gate-runner.js';
+import {
+  IntegrationAttemptBindingV1Schema, IntegrationAttemptRequestV1Schema, integrationAttemptId, runIntegrationAttempt, type IntegrationAttemptTerms,
+} from '../../src/verbs/settle/integration-attempts.js';
+import { runApprovedCheck, type CheckExecutor } from '../../src/verbs/verification/check-executor.js';
 import type { VerificationProfile } from '../../src/workflow/verification/profile.js';
 import { makeTempDir, rmrfAsync } from '../../tools/test-helpers/temp-dir.js';
 import { execFileAsync } from '../../tools/test-helpers/spawn.js';
+import { runAsTrustedCaller } from '../../tools/test-helpers/trusted-context.js';
+import { fixture as preparedFixture, prepared } from '../helpers/capsule/prepared-authority.js';
 import { scopedRepository } from '../helpers/scoped-repository.js';
 import { nodeTestProfile } from '../helpers/verification-profile.js';
-
-vi.mock('bun:sqlite', () => import('../../src/storage/__shims__/bun-sqlite-node.js'));
 
 const cleanup: (() => Promise<void> | void)[] = [];
 afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close(); });
@@ -36,213 +35,142 @@ async function git(tree: string, ...args: string[]): Promise<string> {
   return (await execFileAsync('git', ['-C', tree, ...args])).trim();
 }
 
+/** An executor that stops each attempt before its claim, as a crash before the binding does. */
+const stopBeforeClaim: CheckExecutor = async () => { throw new HostedAdequacyPending('The fixture stopped the attempt before its claim'); };
+
+/** An executor that runs the real attempt and stops it after its suite leg, as a crash before the terminal observation does. */
+const stopAfterSuite: CheckExecutor = (request, body) => runApprovedCheck(request, async (session) => {
+  await body(session);
+  throw new HostedAdequacyPending('The fixture stopped the attempt after its suite leg');
+});
+
 /**
- * A repository with two task branches, an operator policy with one head-free integration pin, a task pin and a checkout pin, and the real dispositions.
- * `attempt` runs one integration attempt with the governor event store. `restartHost` closes and opens the dispositions on the same claim database.
- * `drop` discards the next completed submit reply. `claims` counts the host claim rows.
+ * A repository with three task branches, a prepared scope that names the integration checkout, and a suite that logs the tip that it sees.
+ * `attempt` runs one integration attempt with the governor event store. `restartStore` closes and opens the store.
  */
-async function realHost() {
+async function localAttempts() {
+  const root = makeTempDir('1928-integration-retry-');
+  cleanup.push(() => rmrfAsync(root));
+  const log = join(root, 'suite.log');
   const repo = await scopedRepository({ integrationBranch: 'integration', files: {
-    'suite.cjs': "process.exit(require('node:fs').existsSync('FAIL') ? 1 : 0);\n" } });
+    'suite.cjs': `const fs = require('node:fs'); fs.appendFileSync(${JSON.stringify(log)}, require('node:child_process').execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' })); process.exit(fs.existsSync('FAIL') ? 1 : 0);\n` } });
   cleanup.push(() => rmrfAsync(repo.root));
   const treeA = await repo.worktreeFor('a', { 'a.txt': 'a\n' });
   const treeB = await repo.worktreeFor('b', { 'b.txt': 'b\n' });
   const treeC = await repo.worktreeFor('c', { 'c.txt': 'c\n' });
   const heads = { a: await git(treeA, 'rev-parse', 'HEAD'), b: await git(treeB, 'rev-parse', 'HEAD'), c: await git(treeC, 'rev-parse', 'HEAD') };
   const repository = await realpath(join(repo.checkout, '.git'));
-  const root = makeTempDir('1928-integration-retry-');
-  cleanup.push(() => rmrfAsync(root));
-  const control = join(root, 'control');
-  const state = join(control, 'state');
-  const runtime = join(root, 'runtime');
-  await mkdir(control, { mode: 0o700 }); await mkdir(state, { mode: 0o700 }); await mkdir(runtime);
-  const node = join(runtime, 'node');
-  await copyFile(await realpath(process.execPath), node); await chmod(node, 0o500);
-  const runnerDigest = createHash('sha256').update(await readFile(node)).digest('hex');
-  const signer = generateKeyPairSync('ed25519');
-  const publicKey = signer.publicKey.export({ type: 'spki', format: 'pem' }).toString();
-  const token = 'disposable-integration-retry-fixture-token';
-  const tokenPath = join(control, 'token'); const privateKeyPath = join(control, 'key'); const provisioningPath = join(control, 'host.json');
-  await writeFile(tokenPath, token, { mode: 0o600 });
-  await writeFile(privateKeyPath, signer.privateKey.export({ type: 'pkcs8', format: 'pem' }), { mode: 0o600 });
-  const gitPath = await realpath((await execFileAsync('which', ['git'])).trim());
-  const bwrapPath = await realpath((await execFileAsync('which', ['bwrap'])).trim());
   const profile: VerificationProfile = nodeTestProfile();
   profile.integration = { command: { state: 'resolved', source: 'config', argv: ['node', 'suite.cjs'] }, report: 'exit-code',
     failureExitCodes: { codes: [1], source: 'config' } };
-  const plan = integrationSuitePlan(profile.integration);
-  const gitDirOf = (tree: string) => git(tree, 'rev-parse', '--absolute-git-dir');
-  const taskPin = { streamId: 's', phaseAttemptId: 'p', taskId: 'c', leafId: 'l', operationId: 'o', preparedDigest: '1'.repeat(64),
-    callerDigest: '2'.repeat(64), segmentDigest: '3'.repeat(64), configDigest: '4'.repeat(64), profileDigest: contentDigest(profile),
-    testSelectionDigest: '6'.repeat(64), baseCommit: repo.baseCommit, headCommit: heads.c, blockerHeads: [] };
-  const policy = HostProvisioning.parse({
-    version: 1, socketPath: join(control, 's'), stateDir: state, tokenPath, privateKeyPath, publicKey, bwrapPath, gitPath, runtimePaths: ['/usr', runtime],
-    profiles: [{ id: 'integration', digest: contentDigest(profile), executable: node, args: [], timeoutMs: 30000,
-      check: { ...plan, runnerDigest, timeoutMs: 60000, outputBytes: 4 * 1024 * 1024 } }],
-    resources: [
-      { id: 'integration', checkout: repo.checkout, repository, gitDir: repository, branch: 'refs/heads/integration', subject: { scope: 'integration', profileId: 'integration' } },
-      { id: 'task', checkout: treeC, repository, gitDir: await gitDirOf(treeC), branch: 'refs/heads/task/c', subject: taskPin },
-      { id: 'checkout', checkout: treeB, repository, gitDir: await gitDirOf(treeB), branch: 'refs/heads/task/b', subject: { scope: 'checkout', profileId: 'integration' } },
-    ],
-  });
-  await writeFile(provisioningPath, JSON.stringify(policy), { mode: 0o600 });
-  const config = { policy, token, privateKey: signer.privateKey, signerId: verifierSignerId(publicKey), provisioningPath };
-  let service = createVerificationDispositions(config);
-  cleanup.push(() => service.close());
-  const counts = { retrieve: 0, submit: 0 };
-  const order: string[] = [];
-  const host = { drop: 0 };
+  const bundle = preparedFixture();
+  const scope = { repository, checkout: repo.checkout, configDigest: '4'.repeat(64) };
+  bundle.capsule.settlementContract = { ...bundle.capsule.settlementContract, scope };
+  const streamId = bundle.capsule.identity.workflowId;
   const stateDir = makeTempDir('1928-integration-retry-store-');
   let events = new EventStore(stateDir); await events.initialize();
   cleanup.push(async () => { events.close(); await rmrfAsync(stateDir); });
-  const identity: HostedCheckoutIdentity = { resourceId: 'integration', profileId: 'integration', checkout: repo.checkout, repository,
-    branch: 'refs/heads/integration', commandDigest: checkPlanDigest(plan) };
-  let watched: string | undefined;
-  const connector: VerificationHostConnector = { publicKey, gitPath, resourceId: 'unused', profileId: 'unused', checks: { integration: identity },
-    client: {
-      async retrieve(key, digest) {
-        counts.retrieve += 1;
-        order.push(watched !== undefined && events.getAppender().ensureSqliteBackendSync().lookupSegmentInput(watched) !== undefined ? 'retrieve-after-binding' : 'retrieve');
-        return service.handle({ version: 1, token, action: 'retrieve', key, digest });
-      },
-      async submit(request) {
-        counts.submit += 1;
-        order.push('submit');
-        const reply = await service.handle({ version: 1, token, action: 'submit', request });
-        if (host.drop > 0) { host.drop -= 1; return { kind: 'unavailable', reason: 'The fixture discarded the completed reply' }; }
-        return reply;
-      },
-    },
-  };
+  const storeDigest = await events.bundleStore.put(encodePreparedBundle(bundle));
+  await events.append(streamId, { ...prepared(bundle), data: {
+    ...prepared(bundle).data, capsuleDigest: capsuleDigest(bundle.capsule), bundleRefs: [{ artifactId: 'run-bundle:prepared', digest: storeDigest }],
+  } });
   const land = async (branch: string) => { await git(repo.checkout, 'merge', '--no-edit', branch); return git(repo.checkout, 'rev-parse', 'HEAD'); };
-  const terms = (outerOperationId: string, tip: string, accepted: readonly string[]): IntegrationAttemptTerms => ({
-    eventStore: events, bundles: events.bundleStore, connector, identity, streamId: 'retry-stream', outerOperationId, ref: 'refs/heads/integration',
-    tip, heads: [...accepted].sort(), preparedDigest: '1'.repeat(64), scope: { repository, checkout: repo.checkout, configDigest: '4'.repeat(64) }, profile });
-  const attempt = async (outerOperationId: string, tip: string, accepted: readonly string[]) => {
-    watched = integrationAttemptId(terms(outerOperationId, tip, accepted));
-    return runIntegrationAttempt(terms(outerOperationId, tip, accepted));
-  };
-  const claims = (): number => {
-    const db = openVerifierClaimDb(state);
-    try {
-      const row: unknown = db.one('SELECT COUNT(*) AS n FROM claims');
-      if (typeof row !== 'object' || row === null || !('n' in row) || typeof row.n !== 'number') throw new Error('Unreadable claim count');
-      return row.n;
-    } finally { db.close(); }
-  };
+  const terms = (outerOperationId: string, tip: string, accepted: readonly string[], extra: Partial<IntegrationAttemptTerms> = {}): IntegrationAttemptTerms => ({
+    eventStore: events, bundles: events.bundleStore, streamId, outerOperationId, ref: 'refs/heads/integration',
+    tip, heads: [...accepted].sort(), preparedDigest: '1'.repeat(64), scope, profile, ...extra });
+  const attempt = (outerOperationId: string, tip: string, accepted: readonly string[], extra: Partial<IntegrationAttemptTerms> = {}) =>
+    runAsTrustedCaller(stateDir, () => runIntegrationAttempt(terms(outerOperationId, tip, accepted, extra)));
+  const suiteTips = async (): Promise<string[]> => (await readFile(log, 'utf8').catch(() => '')).split('\n').filter(Boolean);
   const binding = (outerOperationId: string, tip: string, accepted: readonly string[]) =>
     events.getAppender().ensureSqliteBackendSync().lookupSegmentInput(integrationAttemptId(terms(outerOperationId, tip, accepted)));
-  const restartHost = async () => { await service.close(); service = createVerificationDispositions(config); };
   const restartStore = async () => { events.close(); events = new EventStore(stateDir); await events.initialize(); };
-  return { repo, heads, repository, profile, plan, policy, provisioningPath, identity, counts, order, host, land, attempt, claims, binding,
-    restartHost, restartStore, bundles: () => events.bundleStore, taskPin };
+  return { repo, heads, repository, profile, scope, trees: { a: treeA, b: treeB, c: treeC }, land, attempt, suiteTips, binding, restartStore,
+    bundles: () => events.bundleStore };
 }
 
-/** The request terms of one integration subject on the integration pin, with its canonical key. */
-function integrationRequest(f: Awaited<ReturnType<typeof realHost>>, subject: Partial<Extract<VerificationRequestTerms, { operation: 'integration-suite' }>['subject']>,
-  resourceId = 'integration'): VerificationRequest {
-  const terms: Extract<VerificationRequestTerms, { operation: 'integration-suite' }> = {
-    version: 1, operation: 'integration-suite', resourceId, profileId: 'integration', commandDigest: checkPlanDigest(f.plan),
-    subject: { scope: 'integration', streamId: 'retry-stream', phaseAttemptId: 'phase', outerOperationId: 'outer', ref: 'refs/heads/integration',
-      headCommit: f.heads.a, preparedDigest: '1'.repeat(64), configDigest: '4'.repeat(64), profileDigest: contentDigest(f.profile), acceptedHeads: [], ...subject },
-  };
-  return VerificationRequest.parse({ ...terms, key: verificationKey(terms) });
-}
-
-describe('integration attempts on a real host', () => {
+describe('integration attempts in the local executor', () => {
   /**
-   * The request binds before the first exchange. A lost delivery leaves one host claim.
-   * A re-entry, a duplicate and a restart of the host and of the governor store each recover the original evidence with no second execution.
+   * The request binds before the executor runs. A stop before the claim runs no suite. A stop after the suite leg leaves the claimed attempt incomplete.
+   * The retry runs the suite once more. A re-entry, a duplicate and a restart of the store each replay the stored observation with no run.
    */
-  it.runIf(process.platform === 'linux')('IntegrationRetry_BindingLostDeliveryReentryAndRestart_ExactExecutionCounts', async () => {
-    const f = await realHost();
+  it('IntegrationRetry_CrashesBeforeAndAfterBinding_RunOnceMoreThenReplay', async () => {
+    const f = await localAttempts();
     const tip = await f.land('task/a');
     expect(f.binding('outer-1', tip, [f.heads.a])).toBeUndefined();
-    f.host.drop = 1;
-    const lost = await f.attempt('outer-1', tip, [f.heads.a]);
-    expect(lost.outcome).toMatchObject({ kind: 'pending', result: { success: false, error: { code: 'HOSTED_ADEQUACY_PENDING' } } });
-    expect(f.order).toEqual(['retrieve-after-binding', 'submit']);
-    expect(f.claims()).toBe(1);
+    const before = await f.attempt('outer-1', tip, [f.heads.a], { executor: stopBeforeClaim });
+    expect(before.outcome).toMatchObject({ kind: 'pending', result: { success: false, error: { code: 'HOSTED_ADEQUACY_PENDING' } } });
+    expect(await f.suiteTips()).toEqual([]);
     const bound = f.binding('outer-1', tip, [f.heads.a]);
     const payload = IntegrationAttemptBindingV1Schema.parse(JSON.parse(bound ?? 'null'));
-    const stored = VerificationRequest.parse(JSON.parse((await f.bundles().resolve(payload.request)).toString('utf8')));
-    expect(stored.subject).toMatchObject({ scope: 'integration', headCommit: tip, acceptedHeads: [f.heads.a], outerOperationId: 'outer-1' });
+    const stored = IntegrationAttemptRequestV1Schema.parse(JSON.parse((await f.bundles().resolve(payload.request)).toString('utf8')));
+    expect(stored).toMatchObject({ tip, acceptedHeads: [f.heads.a], outerOperationId: 'outer-1', checkout: f.scope.checkout,
+      repository: f.repository, profileDigest: contentDigest(f.profile) });
+
+    const after = await f.attempt('outer-1', tip, [f.heads.a], { executor: stopAfterSuite });
+    expect(after.outcome).toMatchObject({ kind: 'pending', result: { success: false, error: { code: 'HOSTED_ADEQUACY_PENDING' } } });
+    expect(await f.suiteTips()).toEqual([tip]);
 
     const reentry = await f.attempt('outer-1', tip, [f.heads.a]);
     expect(reentry.outcome.kind).toBe('passed');
-    expect(f.counts).toEqual({ retrieve: 2, submit: 1 });
-    expect(f.claims()).toBe(1);
+    expect(await f.suiteTips()).toEqual([tip, tip]);
     const evidence = reentry.outcome.kind === 'passed' ? reentry.outcome.evidenceDigest : '';
+    expect(evidence).toMatch(/^[a-f0-9]{64}$/);
 
-    const duplicates = await Promise.all([f.attempt('outer-1', tip, [f.heads.a]), f.attempt('outer-1', tip, [f.heads.a])]);
-    expect(duplicates.map(result => result.outcome)).toEqual([reentry.outcome, reentry.outcome]);
-    expect(f.counts.submit).toBe(1);
-    expect(f.claims()).toBe(1);
-
-    await f.restartHost(); await f.restartStore();
+    const duplicate = await f.attempt('outer-1', tip, [f.heads.a]);
+    expect(duplicate.outcome).toEqual(reentry.outcome);
+    await f.restartStore();
     const restarted = await f.attempt('outer-1', tip, [f.heads.a]);
     expect(restarted.outcome).toEqual({ kind: 'passed', attemptBinding: integrationAttemptId({ outerOperationId: 'outer-1', ref: 'refs/heads/integration',
       tip, heads: [f.heads.a], profile: f.profile }), evidenceDigest: evidence });
-    expect(f.counts.submit).toBe(1);
-    expect(f.claims()).toBe(1);
+    expect(await f.suiteTips()).toEqual([tip, tip]);
     expect(f.binding('outer-1', tip, [f.heads.a])).toBe(bound);
-  }, 240000);
+  }, 120000);
 
   /**
-   * Two tips in one phase attempt each claim exactly once. The completed old request returns its original evidence.
-   * A new request for the old tip cannot authorize after the head moved, so it runs nothing.
+   * Two tips in one phase attempt each run the suite exactly once. A moved tip needs a fresh attempt.
+   * The attempt of the old tip refuses in the executor, because the checkout no longer holds that tip. A new attempt for the old tip refuses too.
+   * Neither runs the suite.
    */
-  it.runIf(process.platform === 'linux')('IntegrationRetry_TwoTipsInOnePhaseAttempt_EachClaimsExactlyOnce', async () => {
-    const f = await realHost();
+  it('IntegrationRetry_TwoTipsInOnePhaseAttempt_EachClaimsExactlyOnce', async () => {
+    const f = await localAttempts();
     const first = await f.land('task/a');
     const one = await f.attempt('outer-1', first, [f.heads.a]);
     expect(one.outcome.kind).toBe('passed');
     const second = await f.land('task/b');
     const two = await f.attempt('outer-1', second, [f.heads.a, f.heads.b]);
     expect(two.outcome.kind).toBe('passed');
-    expect(f.claims()).toBe(2);
-    expect(f.counts.submit).toBe(2);
+    expect(await f.suiteTips()).toEqual([first, second]);
     const stored = async (tip: string, accepted: readonly string[]) => {
       const payload = IntegrationAttemptBindingV1Schema.parse(JSON.parse(f.binding('outer-1', tip, accepted) ?? 'null'));
-      return VerificationRequest.parse(JSON.parse((await f.bundles().resolve(payload.request)).toString('utf8')));
+      return IntegrationAttemptRequestV1Schema.parse(JSON.parse((await f.bundles().resolve(payload.request)).toString('utf8')));
     };
     const earlier = await stored(first, [f.heads.a]);
     const later = await stored(second, [f.heads.a, f.heads.b]);
-    expect(later.subject).toMatchObject({ phaseAttemptId: earlier.subject.phaseAttemptId, headCommit: second });
-    expect(earlier.subject).toMatchObject({ headCommit: first });
-    expect(verificationOperation(earlier)).not.toBe(verificationOperation(later));
+    expect(later).toMatchObject({ phaseAttemptId: earlier.phaseAttemptId, tip: second });
+    expect(earlier).toMatchObject({ tip: first });
     const original = await f.attempt('outer-1', first, [f.heads.a]);
-    expect(original.outcome).toEqual(one.outcome);
-    expect(f.claims()).toBe(2);
+    expect(original.outcome).toMatchObject({ kind: 'refused', result: { error: { code: 'HOSTED_VERIFICATION_REFUSED',
+      message: expect.stringContaining('does not hold the integration ref at the observed tip') } } });
     const stale = await f.attempt('outer-2', first, [f.heads.a]);
     expect(stale.outcome).toMatchObject({ kind: 'refused', result: { error: { code: 'HOSTED_VERIFICATION_REFUSED' } } });
-    expect(f.claims()).toBe(2);
-  }, 240000);
+    expect(await f.suiteTips()).toEqual([first, second]);
+  }, 120000);
 
-  /** The verifier admits an integration subject only on its pin, for the pinned branch, the operator profile, the observed tip and merged heads. */
-  it.runIf(process.platform === 'linux')('IntegrationRetry_HostAuthorization_AdmitsOnlyThePinnedIntegrationSubject', async () => {
-    const f = await realHost();
+  /**
+   * The suite runs only in the integration checkout of the prepared scope. A scope that names a task worktree refuses in the executor before any claim.
+   * A checkout of the scope on another branch refuses too. Neither runs the suite.
+   */
+  it('IntegrationRetry_WrongCheckout_RefusesBeforeAnyClaim', async () => {
+    const f = await localAttempts();
     const tip = await f.land('task/a');
-    const authorize = (request: VerificationRequest) => authorizeVerification(f.policy, f.provisioningPath, request);
-    await expect(authorize(integrationRequest(f, { headCommit: tip, acceptedHeads: [f.heads.a] }))).resolves.toHaveProperty('hostPolicyDigest');
-    const refused = [
-      integrationRequest(f, { headCommit: tip, ref: 'refs/heads/main' }),
-      integrationRequest(f, { headCommit: tip, profileDigest: '9'.repeat(64) }),
-      integrationRequest(f, { headCommit: f.repo.baseCommit }),
-      integrationRequest(f, { headCommit: tip, acceptedHeads: [f.heads.a, f.heads.b].sort() }),
-      integrationRequest(f, { headCommit: f.heads.c }, 'task'),
-      integrationRequest(f, { headCommit: f.heads.b }, 'checkout'),
-    ];
-    for (const request of refused) await expect(authorize(request), JSON.stringify(request.subject)).rejects.toThrow();
-    const taskTerms: Extract<VerificationRequestTerms, { operation: 'integration-suite' }> = { version: 1, operation: 'integration-suite',
-      resourceId: 'integration', profileId: 'integration', commandDigest: checkPlanDigest(f.plan), subject: { ...f.taskPin, headCommit: tip } };
-    await expect(authorize(VerificationRequest.parse({ ...taskTerms, key: verificationKey(taskTerms) }))).rejects.toThrow('operator policy');
-    const onTaskPin = { ...taskTerms, resourceId: 'task', subject: f.taskPin };
-    await expect(authorize(VerificationRequest.parse({ ...onTaskPin, key: verificationKey(onTaskPin) }))).resolves.toHaveProperty('hostPolicyDigest');
-    const lifecycle: Extract<VerificationRequestTerms, { operation: 'lifecycle' }> = { version: 1, operation: 'lifecycle', resourceId: 'integration',
-      profileId: 'integration', commandDigest: checkPlanDigest(f.plan), subject: { scope: 'checkout', headCommit: tip } };
-    await expect(authorize(VerificationRequest.parse({ ...lifecycle, key: verificationKey(lifecycle) }))).rejects.toThrow('operator policy');
-  }, 240000);
+    const elsewhere = await f.attempt('outer-1', tip, [f.heads.a], { scope: { ...f.scope, checkout: f.trees.a } });
+    expect(elsewhere.outcome).toMatchObject({ kind: 'refused', result: { error: { code: 'HOSTED_VERIFICATION_REFUSED',
+      message: expect.stringContaining('not the integration checkout of the prepared scope') } } });
+    const taskTip = await git(f.trees.c, 'rev-parse', 'HEAD');
+    const otherBranch = await f.attempt('outer-1', taskTip, [f.heads.c], { ref: 'refs/heads/task/c' });
+    expect(otherBranch.outcome).toMatchObject({ kind: 'refused', result: { error: { code: 'HOSTED_VERIFICATION_REFUSED' } } });
+    expect(await f.suiteTips()).toEqual([]);
+  }, 120000);
 });
 
 describe('verifier key stability', () => {

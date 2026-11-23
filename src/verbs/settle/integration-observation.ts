@@ -1,6 +1,6 @@
 /**
  * The integration observation of a compiler 8-vcs settlement. It reads the tip of the pinned integration ref on the registered checkout of the capsule.
- * The reader is the operator-pinned Git observer of the verifier connector. It reads `scope.checkout` on the pinned ref and never the current branch.
+ * The reader is the constrained Git observer with the process-wide Git path. It reads `scope.checkout` on the pinned ref and never the current branch.
  * A checkout that does not hold the pinned ref, and each refused or failed read, fail closed.
  */
 

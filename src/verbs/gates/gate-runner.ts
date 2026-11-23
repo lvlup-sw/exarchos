@@ -5,7 +5,6 @@ import { createHash } from 'node:crypto';
 import { lstat, open, realpath, stat } from 'node:fs/promises';
 import { constants } from 'node:fs';
 import { join } from 'node:path';
-import { z } from 'zod';
 import {
   DIRTY_CHECKOUT_REFUSAL, VerificationRequest, checkPlanDigest, exchangeHostedVerification, verificationDigest, verificationJson, verificationKey,
   verificationValueDigest, type CheckPlan, type HostedCheckFacts, type HostedCommandRun,
@@ -13,7 +12,6 @@ import {
 } from '../../contract/verification/harness-verification.js';
 import { createGitObserver } from '../../utils/git-observer.js';
 import type { HostedTestRun, RunTestsHost } from '../../lifecycle/run-tests.js';
-import type { RunBundleStore } from '../../events/bundle/run-bundle-store.js';
 import type { CommandResult } from '../pure/static-analysis.js';
 
 import type { ContentAddressedStore } from '../../storage/artifacts/content-addressed-store.js';
@@ -37,7 +35,6 @@ import {
   ADMISSION_RUNTIME_CONTRACT_VERSION,
   AdmissionEvidenceV1Schema,
   ArtifactIdSchema,
-  ContentDigestV1Schema,
   OperationIdSchema,
   PhaseAttemptIdSchema,
   PolicyIdSchema,
@@ -741,25 +738,6 @@ export function verifierNotProvisioned(check: string, platform: NodeJS.Platform 
     : `${check} did not run: the hosted verifier does not support the ${platform} platform. `
       + 'Provision the verifier on a supported Linux machine, then run the check there.';
   return { success: false, error: { code: VERIFIER_NOT_PROVISIONED, message } };
-}
-
-const RequestBindingSchema = z.object({ version: z.literal(1), digest: ContentDigestV1Schema }).strict();
-
-/** Bind one complete request before its first submission. A retry reads the original canonical bytes and never a new request. */
-export async function bindVerificationRequest(
-  eventStore: EventStore, bundles: RunBundleStore, bindingKey: string, request: VerificationRequest,
-): Promise<VerificationRequest> {
-  const backend = eventStore.getAppender().ensureSqliteBackendSync();
-  let payload = backend.lookupSegmentInput(bindingKey);
-  if (payload === undefined) {
-    const ref = await bundles.put(Buffer.from(verificationJson(request)));
-    payload = backend.bindSegmentInput(bindingKey, canonicalJson({ version: 1, digest: ref }));
-  }
-  const binding = RequestBindingSchema.parse(JSON.parse(payload));
-  const original = (await bundles.resolve(binding.digest)).toString('utf8');
-  const checked = VerificationRequest.parse(JSON.parse(original));
-  if (verificationJson(checked) !== original) throw new Error('Bound verifier request bytes are not canonical');
-  return checked;
 }
 
 /** Map one signed child result onto the runner result that the existing pure interpreters read. */

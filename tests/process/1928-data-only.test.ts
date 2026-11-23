@@ -176,7 +176,7 @@ it.runIf(process.platform === 'linux')('DataOnly_OldTerminalWorkflow_ReadsWithNo
   } finally { await f.close(); await rmrfAsync(repo.root); }
 }, 240000);
 
-it.runIf(process.platform === 'linux')('DataOnly_UnusableProvisioning_RunTestsExits77AndUnboundAdequacyRefusesWithItsOwnCode', async () => {
+it.runIf(process.platform === 'linux')('DataOnly_UnusableProvisioning_RunTestsExits77AndUnboundAdequacyRunsLocallyWithNoTestCommand', async () => {
   const f = await dataOnlyFixture();
   try {
     const checkout = join(f.root, 'checkout');
@@ -202,12 +202,10 @@ it.runIf(process.platform === 'linux')('DataOnly_UnusableProvisioning_RunTestsEx
 
     const adequacy = await f.json(['orchestrate', 'check_test_adequacy', '--feature-id', 'unbound', '--task-id', 'task-1',
       '--repo-root', checkout, '--base-branch', 'main'], checkout);
-    expect(adequacy.envelope).toMatchObject({ success: false, error: { code: 'HOSTED_VERIFICATION_REFUSED' } });
+    expect(JSON.stringify(adequacy.envelope)).not.toContain('HOSTED_VERIFICATION_REFUSED');
     const mcpAdequacy = await f.mcp('exarchos_orchestrate', { action: 'check_test_adequacy', featureId: 'unbound', taskId: 'task-1',
       repoRoot: checkout, baseBranch: 'main' });
-    expect(mcpAdequacy).toMatchObject({ success: false, error: { code: 'HOSTED_VERIFICATION_REFUSED' } });
-    const rows = await f.json(['event', 'query', '--stream', 'unbound'], checkout);
-    expect(JSON.stringify(data(rows.envelope))).not.toContain('gate.executed');
+    expect(JSON.stringify(mcpAdequacy)).not.toContain('HOSTED_VERIFICATION_REFUSED');
 
     expect(await f.gitCalls()).toEqual([]);
     expect(await exists(f.marker('test'))).toBe(false);

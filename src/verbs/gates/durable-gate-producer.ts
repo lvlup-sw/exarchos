@@ -233,7 +233,6 @@ async function constrainedTreeObservation(repoRoot: string): Promise<TreeObserva
 export async function runDurableGateProducer(
   scope: DurableGateScope,
   executeProvider: (phaseAttemptId: string) => Promise<ToolResult>,
-  checkHostedTree?: (checkout: string) => Promise<void>,
 ): Promise<ToolResult> {
   const context = getDispatchContext();
   if (context?.authorization === undefined) {
@@ -261,15 +260,7 @@ export async function runDurableGateProducer(
     );
   }
 
-  let selected: GateRunTree | undefined;
-  if (scope.coordinate !== undefined) {
-    if (checkHostedTree !== undefined) {
-      await checkHostedTree(scope.repoRoot);
-      selected = { worktree: scope.repoRoot, head: scope.coordinate.observedHeadCommit };
-    } else {
-      selected = await selectedCheckout(scope.repoRoot, scope.coordinate);
-    }
-  }
+  const selected = scope.coordinate === undefined ? undefined : await observeSelectedCheckout(scope.repoRoot, scope.coordinate);
   if (scope.coordinate !== undefined && selected === undefined) {
     return scopeError('TASK_COORDINATE_REFUSED', 'The selected checkout is unavailable, changed or dirty.');
   }
@@ -297,9 +288,7 @@ export async function runDurableGateProducer(
         if (await activePhaseAttemptId(scope.featureId, scope.eventStore) !== activeAttempt) {
           throw new HostedAdequacyPending('The active phase attempt changed during the gate run.');
         }
-        if (checkHostedTree !== undefined) {
-          await checkHostedTree(scope.repoRoot);
-        } else if (scope.coordinate !== undefined && await selectedCheckout(scope.repoRoot, scope.coordinate) === undefined) {
+        if (scope.coordinate !== undefined && await observeSelectedCheckout(scope.repoRoot, scope.coordinate) === undefined) {
           return scopeError('TASK_COORDINATE_REFUSED', 'The provider changed the selected checkout.');
         }
         return result;
@@ -314,7 +303,7 @@ export async function runDurableGateProducer(
  * That head must hold the coordinate base. Then the closed listing clean-tree check runs against that head.
  * A detached checkout, a failed read, a failed listing, an unsupported entry or a tree beyond the bounds gives no tree.
  */
-async function selectedCheckout(repoRoot: string, coordinate: NonNullable<ProfiledGateArgs['coordinate']>): Promise<GateRunTree | undefined> {
+export async function observeSelectedCheckout(repoRoot: string, coordinate: NonNullable<ProfiledGateArgs['coordinate']>): Promise<GateRunTree | undefined> {
   const gitPath = processObservationalGitPath();
   if (gitPath === undefined) return undefined;
   const observed = await observeCurrentCheckout(gitPath, repoRoot);
@@ -332,17 +321,19 @@ async function selectedCheckout(repoRoot: string, coordinate: NonNullable<Profil
     ? { worktree, head: checkout.head } : undefined;
 }
 
-/** Reuses the writer's attempt and subject terms for the bounded adequacy restart. */
+/**
+ * Reuses the writer's attempt and subject terms for the bounded adequacy restart.
+ * Stored effects replay only on the selected clean checkout, which the constrained observer reads. No other route trusts the coordinate head.
+ * With no stored effects, the replay reads no checkout, and the claim check of the gate runner still runs.
+ */
 export async function replayPassingAdequacy(scope: GateSubjectScope & { readonly eventStore: EventStore },
-  operationId: string, producerId: string, coordinate: NonNullable<ProfiledGateArgs['coordinate']>,
-  checkHostedTree?: (checkout: string) => Promise<void>) {
+  operationId: string, producerId: string, coordinate: NonNullable<ProfiledGateArgs['coordinate']>) {
   const attempt = await activePhaseAttemptId(scope.featureId, scope.eventStore);
   if (typeof attempt !== 'string') return undefined;
   const effects = await scope.eventStore.query(scope.featureId, { operationId });
-  if (checkHostedTree !== undefined && effects.length > 0) await checkHostedTree(scope.repoRoot);
-  const tree = effects.length === 0 || checkHostedTree !== undefined
+  const tree = effects.length === 0
     ? { worktree: canonicalPath(scope.repoRoot), head: coordinate.observedHeadCommit }
-    : await selectedCheckout(scope.repoRoot, coordinate);
+    : await observeSelectedCheckout(scope.repoRoot, coordinate);
   if (tree === undefined) return undefined;
   return passingGateReplay({ streamId: scope.featureId, gateClass: scope.gateClass, phaseAttemptId: attempt,
     requirementId: ladderRequirementId(scope.gateClass), subject: selectSubject(scope, attempt), providerInput: {},
