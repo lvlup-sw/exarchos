@@ -29,6 +29,8 @@
  */
 import { z } from 'zod';
 
+import { checkPatternProblem, MAX_CHECK_GLOB_LENGTH } from './check-pattern.js';
+
 /**
  * Thrown at PARSE/LOAD time when a check leaf declares a `kind` that is not
  * one of the known leaf-execution kinds. Fail-closed (DR-9): an unknown kind
@@ -56,12 +58,24 @@ export type LeafKind = (typeof LEAF_KINDS)[number];
 
 // ─── CheckNode (recursive combinator DSL) ───────────────────────────────────
 
+/**
+ * A check-leaf pattern. It must compile with the linear-time RE2 engine inside the size limits of
+ * `check-pattern.ts`. Thus a catalog cannot load a pattern that runs without a time limit.
+ */
+const CheckPatternSchema = z.string().superRefine((pattern, ctx) => {
+  const problem = checkPatternProblem(pattern);
+  if (problem !== undefined) ctx.addIssue({ code: 'custom', message: problem });
+});
+
+/** A check `fileGlob`, with a length limit. */
+const CheckGlobSchema = z.string().max(MAX_CHECK_GLOB_LENGTH);
+
 /** Leaf check — a single grep / structural / heuristic execution. */
 const CheckLeafSchema = z
   .object({
     kind: z.enum(LEAF_KINDS),
-    pattern: z.string(),
-    fileGlob: z.string().optional(),
+    pattern: CheckPatternSchema,
+    fileGlob: CheckGlobSchema.optional(),
     threshold: z.number().optional(),
   })
   .strict();
@@ -99,7 +113,7 @@ export const CheckNodeSchema: z.ZodType<CheckNode> = z.lazy(() =>
       .object({
         scope: z
           .object({
-            fileGlob: z.string().optional(),
+            fileGlob: CheckGlobSchema.optional(),
             phase: z.string().optional(),
           })
           .strict(),
