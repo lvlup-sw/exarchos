@@ -16,6 +16,7 @@ import {
   globToRegExp,
   loadManifest,
   parseArgs,
+  relativeImports,
   resolveMode,
   selectSelfTests,
   staticPlan,
@@ -263,6 +264,19 @@ describe('pull request lane selection', () => {
     expect(unit).toMatch(/--project unit '/);
     expect(unit).not.toContain('tests/architecture/');
   }, 30_000);
+
+  it('forces a core test that reads the tree through a helper module, such as the suite-invariants corpus', () => {
+    const forced = forcedCoreFiles(MANIFEST);
+    expect(forced).toContain('tests/core/integration/suite-invariants.test.ts');
+  });
+
+  it('resolves relative imports to the .ts source and the index module', () => {
+    const text = "import { a } from './corpus.js';\nconst b = await import('../lib');\nimport c from 'node:fs';";
+    const targets = relativeImports('tests/core/integration/x.test.ts', text);
+    expect(targets).toContain('tests/core/integration/corpus.ts');
+    expect(targets).toContain('tests/core/lib/index.ts');
+    expect(targets.some((target) => target.includes('node:fs'))).toBe(false);
+  });
 
   it('runs the knip sweep on the 16 GiB tests agent and not on the 4 GiB static agent', () => {
     const plan = staticPlan(MANIFEST, { base: 'b', mode: 'full', changed: [], limits: SMALL });

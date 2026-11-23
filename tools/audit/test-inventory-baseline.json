@@ -7,7 +7,7 @@
     "testFiles": 1495,
     "parsedFiles": 1450,
     "shellFiles": 45,
-    "cases": 16562,
+    "cases": 16564,
     "dynamicTitles": 288,
     "unparseableFiles": 0
   },
@@ -15202,6 +15202,16 @@
         {
           "suite": "pull request lane selection",
           "name": "prints the same unit file list in a dry run as in a real run",
+          "dynamic": false
+        },
+        {
+          "suite": "pull request lane selection",
+          "name": "forces a core test that reads the tree through a helper module, such as the suite-invariants corpus",
+          "dynamic": false
+        },
+        {
+          "suite": "pull request lane selection",
+          "name": "resolves relative imports to the .ts source and the index module",
           "dynamic": false
         },
         {
