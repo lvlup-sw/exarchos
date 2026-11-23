@@ -23,7 +23,8 @@ const mockStore = {
 import { parseVitestResult } from '../../../../src/config/suite-reports.js';
 import { handleCheckIntegrationSuite, isSpawnFailure } from '../../../../src/verbs/gates/check-integration-suite.js';
 import { interpretReducedIntegration, runIntegrationSuite, LOAD_FAILURE_LIST_CAP } from '../../../../src/verbs/pure/integration-suite.js';
-import type { VerificationHostConnector } from '../../../../src/contract/verification/harness-verification.js';
+import { contentDigest } from '../../../../src/contract/capsule/capsule-digest.js';
+import { fakeExecutor } from '../../../helpers/verification/check-executor.js';
 import { integrationTerm, pinnedIntegrationProfile, pinnedTestProfile } from '../../../helpers/verification-profile.js';
 
 const STATE_DIR = '/tmp/test-integration-suite';
@@ -89,7 +90,7 @@ describe('handleCheckIntegrationSuite', () => {
       args,
       STATE_DIR,
       mockStore as unknown as EventStore,
-      runner,
+      fakeExecutor(runner).executor,
     );
 
     expect(result.success).toBe(true);
@@ -118,7 +119,7 @@ describe('handleCheckIntegrationSuite', () => {
       { featureId: 'feat-1', repoRoot: '/repo', verificationProfile: EXIT_CODE_PIN },
       STATE_DIR,
       mockStore as unknown as EventStore,
-      runner,
+      fakeExecutor(runner).executor,
     );
 
     const data = result.data as { passed: boolean; failCount: number; loadFailures: number };
@@ -134,7 +135,7 @@ describe('handleCheckIntegrationSuite', () => {
       { featureId: 'feat-1', repoRoot: '/repo', verificationProfile: EXIT_CODE_PIN },
       STATE_DIR,
       mockStore as unknown as EventStore,
-      runner,
+      fakeExecutor(runner).executor,
     );
 
     expect(mockStore.append).not.toHaveBeenCalled();
@@ -147,7 +148,7 @@ describe('handleCheckIntegrationSuite', () => {
       { featureId: 'feat-1', repoRoot: '/worktrees/agent-x', verificationProfile: EXIT_CODE_PIN },
       STATE_DIR,
       mockStore as unknown as EventStore,
-      runner,
+      fakeExecutor(runner).executor,
     );
 
     expect(runner).toHaveBeenCalledTimes(1);
@@ -167,7 +168,7 @@ describe('handleCheckIntegrationSuite', () => {
       { featureId: 'feat-1', repoRoot: '/repo', verificationProfile: VITEST_JSON_PIN },
       STATE_DIR,
       mockStore as unknown as EventStore,
-      runner,
+      fakeExecutor(runner).executor,
     );
 
     const data = result.data as { passed: boolean; failCount: number; parseError: boolean };
@@ -182,7 +183,7 @@ describe('handleCheckIntegrationSuite', () => {
       { featureId: '' },
       STATE_DIR,
       mockStore as unknown as EventStore,
-      runner,
+      fakeExecutor(runner).executor,
     );
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe('INVALID_INPUT');
@@ -216,7 +217,7 @@ describe('handleCheckIntegrationSuite', () => {
       { featureId: 'feat-1', repoRoot: '/repo', verificationProfile: VITEST_JSON_PIN },
       STATE_DIR,
       mockStore as unknown as EventStore,
-      runner,
+      fakeExecutor(runner).executor,
     );
 
     expect(result.success).toBe(true);
@@ -394,21 +395,30 @@ describe('check_integration_suite command resolution (#1537, DR-15)', () => {
   });
 });
 
-/** A connector whose client fails the case when a gate calls it. */
-function unusedConnector(): VerificationHostConnector {
-  const unused = async (): Promise<never> => { throw new Error('The verifier client must not be called'); };
-  return { publicKey: '', gitPath: '/usr/bin/git', resourceId: 'r', profileId: 'p', client: { submit: unused, retrieve: unused } };
-}
+describe('check_integration_suite in the local executor', () => {
+  /** The suite runs as the one approved leg of the local executor, read-only in the checkout, under the digest of the pinned profile. */
+  it('CheckIntegrationSuite_TheSuite_RunsAsTheOneApprovedLegOfTheLocalExecutor', async () => {
+    const fake = fakeExecutor(stubRunnerReturning('{}', 0));
+    const result = await handleCheckIntegrationSuite(
+      { featureId: 'feat-1', repoRoot: '/repo', verificationProfile: EXIT_CODE_PIN }, STATE_DIR, mockStore as unknown as EventStore, fake.executor,
+    );
+    expect(result.success).toBe(true);
+    expect(fake.requests).toHaveLength(1);
+    expect(fake.requests[0]).toMatchObject({
+      operation: 'integration-suite', workspace: 'checkout', checkout: '/repo', streamId: 'feat-1', profileDigest: contentDigest(EXIT_CODE_PIN.profile),
+    });
+    const command = EXIT_CODE_PIN.profile.integration.command;
+    expect(fake.requests[0]?.plan.legs.map(leg => leg.argv)).toEqual(command.state === 'resolved' ? [command.argv] : []);
+  });
 
-describe('check_integration_suite with a provisioned verifier', () => {
-  /** A provisioned route with no bound segment refuses, and the suite never runs locally. */
-  it('CheckIntegrationSuite_AProvisionedVerifierWithNoBoundSegment_RefusesAndRunsNoSuite', async () => {
+  /** A refusal of the executor runs no suite and gives the refusal code, which the producer records with no verdict. */
+  it('CheckIntegrationSuite_ARefusedCheck_RunsNoSuiteAndGivesTheRefusal', async () => {
     const runner = stubRunnerReturning('{}', 0);
     const result = await handleCheckIntegrationSuite(
-      { featureId: 'feat-1', repoRoot: '/repo', verificationProfile: EXIT_CODE_PIN, hostCheck: { connector: unusedConnector() } },
-      STATE_DIR, mockStore as unknown as EventStore, runner,
+      { featureId: 'feat-1', repoRoot: '/repo', verificationProfile: EXIT_CODE_PIN }, STATE_DIR, mockStore as unknown as EventStore,
+      fakeExecutor(runner, 'The working directory is not a registered branch checkout.').executor,
     );
-    expect(result).toMatchObject({ success: false, error: { code: 'HOSTED_VERIFICATION_REFUSED' } });
+    expect(result).toMatchObject({ success: false, error: { code: 'LOCAL_CHECK_REFUSED' } });
     expect(runner).not.toHaveBeenCalled();
   });
 

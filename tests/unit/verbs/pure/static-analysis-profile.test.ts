@@ -28,6 +28,7 @@ import {
   UNRESOLVED_LINT_REASON,
   unresolvedLintProfile,
 } from '../../../helpers/verification-profile.js';
+import { fakeExecutor } from '../../../helpers/verification/check-executor.js';
 
 /** The command lines that reach the process call of a handler case, and the lines that exit 1 as npm does for a missing script. */
 const spawns = vi.hoisted(() => {
@@ -54,6 +55,13 @@ vi.mock('../../../../src/utils/process.js', async (importOriginal) => {
 vi.mock('../../../../src/verbs/gates/durable-gate-producer.js', () => ({
   runDurableGateProducer: (_scope: unknown, executeProvider: () => Promise<ToolResult>) => executeProvider(),
 }));
+
+/** The runner of the fake executor of a handler case. It records each command line, and a failing line exits 1 as npm does for a missing script. */
+const processRunner: RunCommandFn = (cmd, args) => {
+  const line = [cmd, ...args].join(' ');
+  spawns.ran.push(line);
+  return spawns.failing.has(line) ? { exitCode: 1, stdout: '', stderr: 'npm error Missing script' } : { exitCode: 0, stdout: '', stderr: '' };
+};
 
 /** The output of a real `dotnet build` of a project with a package that the SDK prunes. The path is neutral. */
 const NU1510_BUILD_OUTPUT = fs.readFileSync(
@@ -343,6 +351,7 @@ describe('handleStaticAnalysis — the profile of a call', () => {
       { featureId: 'feat-segment', repoRoot: worktree, verificationProfile: pinnedTestProfile(4) },
       tmpDir,
       new EventStore(tmpDir),
+      fakeExecutor(processRunner).executor,
     );
 
     expect(spawns.ran).toEqual(['npm run lint', 'npm run typecheck']);
@@ -363,6 +372,7 @@ describe('handleStaticAnalysis — the profile of a call', () => {
       },
       tmpDir,
       new EventStore(tmpDir),
+      fakeExecutor(processRunner).executor,
     );
 
     expect(spawns.ran).toEqual(['npm run typecheck']);
@@ -375,7 +385,7 @@ describe('handleStaticAnalysis — the profile of a call', () => {
   it('StaticAnalysis_ADirectCall_RunsTheKeysOfItsRootAndNamesTheRoot', async () => {
     const repoRoot = nodeProject(NODE_SCRIPTS, { '.exarchos.yml': 'lint: npm run lint:strict\n' });
 
-    const result = await handleStaticAnalysis({ featureId: 'feat-direct', repoRoot }, tmpDir, new EventStore(tmpDir));
+    const result = await handleStaticAnalysis({ featureId: 'feat-direct', repoRoot }, tmpDir, new EventStore(tmpDir), fakeExecutor(processRunner).executor);
 
     expect(spawns.ran).toEqual(['npm run lint:strict', 'npm run typecheck']);
     expect(result.data).toMatchObject({ passed: true, verdict: 'pass', passCount: 2 });

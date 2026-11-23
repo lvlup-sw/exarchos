@@ -1,20 +1,19 @@
 import { canonicalJson } from '../../contract/request-context.js';
 import { GateExecutedData, type WorkflowEvent } from '../../events/schemas.js';
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { createHash } from 'node:crypto';
 import { lstat, open, realpath, stat } from 'node:fs/promises';
 import { constants } from 'node:fs';
 import { join } from 'node:path';
 import { z } from 'zod';
-import { contentDigest } from '../../contract/capsule/capsule-digest.js';
 import {
   DIRTY_CHECKOUT_REFUSAL, VerificationRequest, checkPlanDigest, exchangeHostedVerification, verificationDigest, verificationJson, verificationKey,
-  verificationValueDigest, type BoundHostInput, type CheckPlan, type HostedCheckFacts, type HostedCommandRun,
-  type HostedExchange, type SignedVerification, type TaskCheckOperation, type VerificationHostConnector, type VerificationRequestTerms,
+  verificationValueDigest, type CheckPlan, type HostedCheckFacts, type HostedCommandRun,
+  type HostedExchange, type SignedVerification, type VerificationHostConnector, type VerificationRequestTerms,
 } from '../../contract/verification/harness-verification.js';
 import { createGitObserver } from '../../utils/git-observer.js';
 import type { HostedTestRun, RunTestsHost } from '../../lifecycle/run-tests.js';
 import type { RunBundleStore } from '../../events/bundle/run-bundle-store.js';
-import type { PinnedVerificationProfile } from '../../workflow/verification/profile.js';
 import type { CommandResult } from '../pure/static-analysis.js';
 
 import type { ContentAddressedStore } from '../../storage/artifacts/content-addressed-store.js';
@@ -64,7 +63,6 @@ import {
   type GateCompletenessDescriptor,
   type GateEvidenceReference,
   type GateSkipDescriptor,
-  type ProfiledGateArgs,
 } from './gate-utils.js';
 
 const GATE_RUNNER_VERSION = '2.12.0';
@@ -116,6 +114,14 @@ export type GateProviderExecutor = (
 
 /** A lost or unfinished hosted reply leaves the original bound segment retryable. */
 export class HostedAdequacyPending extends Error {}
+
+/** The scope of a provider run whose operation already has stored evidence. */
+const storedEvidenceScope = new AsyncLocalStorage<true>();
+
+/** True inside a provider run whose operation already has stored evidence. A local check then replays its stored observation and starts no process. */
+export function storedEvidenceReplay(): boolean {
+  return storedEvidenceScope.getStore() === true;
+}
 
 export interface GateRunnerDependencies {
   readonly eventStore: Pick<EventStore, 'append' | 'query'>;
@@ -368,6 +374,7 @@ function persistenceFailure(error: unknown): ToolResult {
  *
  * A `disabled` severity directive in the dispatch context replaces the provider run with a skip carrier, which the runner records.
  * The signal then lands when `emitGateExecuted` is on or the directive declares it. A policy skip in the provider loses to it.
+ * The runner looks up same-operation evidence before the provider. With stored evidence, the provider runs in the replay scope.
  */
 export async function runGate(
   request: GateRunRequest,
@@ -416,12 +423,24 @@ export async function runGate(
   const provider = resolution.data.provider;
   const disabled = context.gateSeverity?.severity === 'disabled' ? context.gateSeverity : undefined;
   const appendSignal = emitGateExecuted || disabled?.signal === true;
+  let stored: boolean;
+  try {
+    stored = (await dependencies.eventStore.query(request.streamId, { type: 'admission.evidence-recorded' })).some((event) => {
+      const candidate = AdmissionEvidenceRecordedData.safeParse(event.data);
+      return candidate.success && event.operationId === operationId
+        && candidate.data.evidence.requirementId === requirementId && candidate.data.evidence.phaseAttemptId === phaseAttemptId
+        && candidate.data.evidence.producer.providerRef === provider.providerRef && sameSubject(candidate.data.evidence.subject, request.subject);
+    });
+  } catch (error) {
+    return persistenceFailure(error);
+  }
   let providerResult: ToolResult;
   if (disabled !== undefined) {
     providerResult = disabledByConfigCarrier(disabled.action);
   } else {
     try {
-      providerResult = await dependencies.executeProvider(provider, request.providerInput);
+      const execute = () => dependencies.executeProvider(provider, request.providerInput);
+      providerResult = await (stored ? storedEvidenceScope.run(true, execute) : execute());
     } catch (error) {
       if (error instanceof HostedAdequacyPending) throw error;
       providerResult = {
@@ -699,13 +718,6 @@ export async function passingGateReplay(request: GateRunRequest, eventStore: Eve
   return [evidenceRow, signalRow];
 }
 
-/** The private verifier terms that the composite adapter supplies. A caller copy of these terms never reaches a handler. */
-export interface HostedCheckInput {
-  readonly connector: VerificationHostConnector;
-  readonly binding?: BoundHostInput;
-  readonly segmentOperationId?: string;
-}
-
 /** The error code of an explicit hosted refusal. No local execution follows it. */
 export const HOSTED_VERIFICATION_REFUSED = 'HOSTED_VERIFICATION_REFUSED';
 
@@ -748,11 +760,6 @@ export async function bindVerificationRequest(
   const checked = VerificationRequest.parse(JSON.parse(original));
   if (verificationJson(checked) !== original) throw new Error('Bound verifier request bytes are not canonical');
   return checked;
-}
-
-/** True when an earlier call bound a request under this key. The lookup needs no connector. */
-export function verificationRequestBound(eventStore: EventStore, bindingKey: string): boolean {
-  return eventStore.getAppender().ensureSqliteBackendSync().lookupSegmentInput(bindingKey) !== undefined;
 }
 
 /** Map one signed child result onto the runner result that the existing pure interpreters read. */
@@ -798,60 +805,6 @@ export async function admitHostedExchange(
     throw new HostedAdequacyPending('The terminal hosted result does not apply to the authenticated subject.');
   }
   return { kind: 'facts', facts: evidence.outcome.check, signed };
-}
-
-/** The inputs of one task check in the verifier. */
-export interface HostedTaskCheckInput {
-  readonly host: HostedCheckInput;
-  readonly operation: TaskCheckOperation;
-  readonly plan: CheckPlan;
-  readonly featureId: string;
-  readonly taskId: string | undefined;
-  readonly phaseAttemptId: string;
-  readonly coordinate: ProfiledGateArgs['coordinate'];
-  readonly profile: PinnedVerificationProfile | undefined;
-  readonly repoRoot: string;
-}
-
-/**
- * Run one task check under the bound segment and its derived leaf. The request binds the exact task head and the reviewed scope.
- * The original request is bound before transport, so a retry after a lost reply retrieves the original result.
- * A provisioned route without a bound segment refuses, and no local process starts.
- */
-export async function runHostedTaskCheck(input: HostedTaskCheckInput): Promise<HostedCheckAdmission> {
-  const { host, coordinate, profile, taskId } = input;
-  const binding = host.binding;
-  const leafId = binding?.leafOperationId;
-  if (binding === undefined || leafId === undefined || host.segmentOperationId === undefined
-    || coordinate === undefined || profile === undefined || taskId === undefined) {
-    return { kind: 'refused', result: hostedRefusal('A provisioned verifier runs this check only for a bound task segment. No local route runs it.') };
-  }
-  if (getDispatchContext()?.operationId !== leafId) {
-    throw new HostedAdequacyPending('Hosted verification requires the authenticated segment and its actual leaf.');
-  }
-  const identity = host.connector.checks?.[input.operation];
-  if (identity === undefined) {
-    return { kind: 'refused', result: hostedRefusal('The provisioned verifier has no approved identity for this check. No local route runs it.') };
-  }
-  const terms: Extract<VerificationRequestTerms, { operation: TaskCheckOperation }> = {
-    version: 1, operation: input.operation, resourceId: identity.resourceId, profileId: identity.profileId,
-    commandDigest: checkPlanDigest(input.plan),
-    subject: {
-      streamId: input.featureId, phaseAttemptId: input.phaseAttemptId, taskId, leafId, operationId: host.segmentOperationId,
-      preparedDigest: binding.preparedDigest, callerDigest: binding.callerDigest, segmentDigest: binding.segmentDigest,
-      configDigest: binding.configDigest, profileDigest: contentDigest(profile.profile), testSelectionDigest: verificationValueDigest([]),
-      baseCommit: coordinate.diffBaseCommit, headCommit: coordinate.observedHeadCommit,
-      blockerHeads: coordinate.blockers.map(blocker => blocker.headCommit),
-    },
-  };
-  const proposed = VerificationRequest.parse({ ...terms, key: verificationKey(terms) });
-  let request: VerificationRequest;
-  try { request = await binding.freezeRequest(proposed); }
-  catch { throw new HostedAdequacyPending('The original hosted request differs from current execution authority.'); }
-  const exchange = await exchangeHostedVerification(host.connector, request);
-  try { await binding.recheck(); }
-  catch { throw new HostedAdequacyPending('Prepared authority changed during hosted verification.'); }
-  return admitHostedExchange(exchange, request, input.repoRoot, coordinate.repository);
 }
 
 /** One leg of a lifecycle check: the test command or the typecheck command, as an argument vector. */

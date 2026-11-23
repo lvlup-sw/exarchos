@@ -11,7 +11,7 @@
 import { mkdtemp, realpath, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { WorkflowDefinitionV1Schema } from '@lvlup-sw/strategos-contracts';
 
 import type { CapsuleScope, ExarchosCapsuleV1 } from '../../../../src/contract/capsule/exarchos-capsule.js';
@@ -30,6 +30,11 @@ import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
 import { seedActivePhaseAttempt } from '../../../../tools/test-helpers/trusted-context.js';
 import { inScopeObserver, scopeOfCheckout, withScope } from '../../../helpers/scoped-capsule.js';
 import { nodeTestProfile } from '../../../helpers/verification-profile.js';
+
+vi.mock('../../../../src/verbs/verification/check-executor.js', async (importOriginal) => ({
+  ...await importOriginal<typeof import('../../../../src/verbs/verification/check-executor.js')>(),
+  runApprovedCheck: (await import('../../../helpers/verification/check-executor.js')).spawningExecutor().executor,
+}));
 
 const STREAM = 'feat-settle-unresolved-qualifier';
 

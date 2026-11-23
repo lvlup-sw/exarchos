@@ -70,7 +70,6 @@ export type AdequacySelection = z.infer<typeof AdequacySelection>;
 
 /** The task gate checks that one verifier operation runs against the exact head of a bound task. */
 export const TASK_CHECK_OPERATIONS: readonly ['static-analysis', 'contract-drift', 'integration-suite'] = ['static-analysis', 'contract-drift', 'integration-suite'];
-export type TaskCheckOperation = (typeof TASK_CHECK_OPERATIONS)[number];
 /** Every check operation. Only spec coverage takes a phase subject, and only the lifecycle check takes a checkout subject. */
 export const HOSTED_CHECK_OPERATIONS: readonly [...typeof TASK_CHECK_OPERATIONS, 'spec-coverage', 'lifecycle'] = [...TASK_CHECK_OPERATIONS, 'spec-coverage', 'lifecycle'];
 export type HostedCheckOperation = (typeof HOSTED_CHECK_OPERATIONS)[number];

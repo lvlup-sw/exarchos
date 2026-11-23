@@ -32,6 +32,7 @@ import { NO_EXIT_STATUS } from '../../../../src/verbs/pure/integration-suite.js'
 import type { CommandResult } from '../../../../src/verbs/pure/static-analysis.js';
 import { isolatedSync } from '../../../../tools/test-helpers/spawn.js';
 import { makeTempDir, rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
+import { fakeExecutor } from '../../../helpers/verification/check-executor.js';
 import { integrationTerm, pinnedIntegrationProfile } from '../../../helpers/verification-profile.js';
 
 /** The most characters that the description of the action can hold. */
@@ -70,7 +71,7 @@ async function carrierOfRun(run: CommandResult): Promise<Readonly<Record<string,
     { featureId: 'feat-integration-guardrails', repoRoot: '/repo', verificationProfile: pin },
     stateDir,
     store,
-    () => run,
+    fakeExecutor(() => run).executor,
   );
   expect(result.success, JSON.stringify(result)).toBe(true);
   if (!isRecord(result.data)) throw new Error(`the gate returned no carrier: ${JSON.stringify(result)}`);

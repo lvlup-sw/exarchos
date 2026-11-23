@@ -27,6 +27,7 @@ import type { PinnedVerificationProfile, VerificationProfile } from '../../../..
 import { isolatedSync } from '../../../../tools/test-helpers/spawn.js';
 import { makeTempDir, rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
 import { withTrustedCaller } from '../../../../tools/test-helpers/trusted-context.js';
+import { fakeExecutor } from '../../../helpers/verification/check-executor.js';
 import {
   UNRESOLVED_INTEGRATION_REASON,
   integrationTerm,
@@ -101,7 +102,7 @@ function stubRunner(run: Partial<CommandResult> = {}) {
 
 /** One gate call at a root with no test command. The arguments pin the term, as a segment does. */
 function runGate(pin: PinnedVerificationProfile, runCommand: RunCommandFn): Promise<ToolResult> {
-  return handleCheckIntegrationSuite({ featureId: FEATURE, repoRoot: '/repo', verificationProfile: pin }, stateDir, store, runCommand);
+  return handleCheckIntegrationSuite({ featureId: FEATURE, repoRoot: '/repo', verificationProfile: pin }, stateDir, store, fakeExecutor(runCommand).executor);
 }
 
 /** The pin of a suite with the given fields of its term. */
@@ -308,7 +309,7 @@ describe('the input of the gate', () => {
       },
       stateDir,
       store,
-      runner,
+      fakeExecutor(runner).executor,
     );
 
     const carrier = carrierOf(result);
@@ -331,7 +332,7 @@ describe('the input of the gate', () => {
       },
       stateDir,
       store,
-      runner,
+      fakeExecutor(runner).executor,
     );
 
     expect(carrierOf(result)).toMatchObject({ passed: false, verdict: 'fail' });

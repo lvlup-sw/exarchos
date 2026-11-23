@@ -1,7 +1,7 @@
 /**
  * Static analysis gate. It runs the checks of the verification profile through the durable gate producer, which records the gate evidence.
  * A segment reads the profile that the capsule pins. A direct call resolves the profile live at its root.
- * A provisioned verifier runs every check of a bound segment, and a provisioned route never runs a check locally.
+ * Each check runs in the local approved-check executor, read-only in the checkout. The pure analysis reads the stored leg results.
  */
 
 import { runCommandSync, execFailureFields, outputText } from '../../utils/process.js';
@@ -10,9 +10,12 @@ import type { EventStore } from '../../events/store.js';
 import { loadExarchosConfigOutcome, type ExarchosConfigOutcome } from '../../config/load-exarchos-config.js';
 import { PROFILE_UNRESOLVED, type VerificationProfile } from '../../workflow/verification/profile.js';
 import { runDurableGateProducer, type GateSubjectScope } from './durable-gate-producer.js';
-import { HostedAdequacyPending, hostedCommandResult, hostedRefusal, runHostedTaskCheck, type HostedCheckInput } from './gate-runner.js';
-import { positiveCount, type BoundaryLeg } from '../../config/boundary-adapters.js';
-import { verificationJson, type CheckLeg, type CheckPlan, type HostedBoundaryLeg, type HostedCommandRun } from '../../contract/verification/harness-verification.js';
+import { planBoundaryCheck, type BoundaryLeg } from '../../config/boundary-adapters.js';
+import { contentDigest } from '../../contract/capsule/capsule-digest.js';
+import { verificationJson, type CheckLeg, type CheckPlan } from '../../contract/verification/harness-verification.js';
+import {
+  commandResultOf, pendingOfDirectCall, refusedCheckResult, runApprovedCheck, type CheckExecutor, type CheckSession,
+} from '../verification/check-executor.js';
 import {
   profileOf,
   profilePathOf,
@@ -21,7 +24,7 @@ import {
   type ProfiledGateArgs,
 } from './gate-utils.js';
 import { runGatePreflight } from '../pure/gate-preflight.js';
-import { runStaticAnalysis } from '../pure/static-analysis.js';
+import { runStaticAnalysis, staticAnalysisCommandArgvs } from '../pure/static-analysis.js';
 import type {
   AdvisorySkip,
   RunCommandFn,
@@ -48,8 +51,6 @@ interface StaticAnalysisArgs extends ProfiledGateArgs {
   readonly baseBranch?: string;
   readonly skipLint?: boolean;
   readonly skipTypecheck?: boolean;
-  /** The private verifier terms. Only the composite adapter sets them, from the dispatch context. */
-  readonly hostCheck?: HostedCheckInput;
 }
 
 /**
@@ -108,7 +109,7 @@ export type StaticAnalysisCarrier = StaticAnalysisCarrierFields & StaticAnalysis
 const MAX_COMMAND_OUTPUT_BYTES = 64 * 1024 * 1024;
 
 /**
- * Adapts `runCommandSync` to the `RunCommandFn` signature of `runStaticAnalysis`.
+ * Adapts `runCommandSync` to the `RunCommandFn` signature of `runStaticAnalysis`. No gate route calls it. The tests of the boundary adapters run real tools through it.
  * A command that exits with an error gives its status and output, not a throw.
  * A process with no exit status, because it did not start or a signal stopped it, gives exit 1.
  * The result also carries the signal, and the error code of the runner as `spawnError`, such as `ENOENT` or `ENOBUFS`.
@@ -285,28 +286,7 @@ function repoRootMissingRun(taskId: string): StaticAnalysisRun {
   };
 }
 
-/**
- * Runs the checks and the boundary checks of the profile at `repoRoot`. A direct call resolves the profile with one read of the worktree config, and that read gives the boundary scope.
- * Under a pin, the pinned term gives the scope, and the read gives only a load failure.
- * Each term goes to `runStaticAnalysis` resolved or not, and that function decides the skip.
- */
-function runProfiledAnalysis(args: StaticAnalysisArgs, repoRoot: string): StaticAnalysisRun {
-  const outcome = loadExarchosConfigOutcome(repoRoot);
-  const profile = profileOf(args, repoRoot, { loadConfig: () => outcome });
-  return runStaticAnalysis({
-    repoRoot,
-    skipLint: args.skipLint,
-    skipTypecheck: args.skipTypecheck,
-    checks: profile.staticAnalysis,
-    boundaryChecks: profile.boundaryChecks,
-    profilePath: profilePathOf(args, repoRoot),
-    withRoute: (reason) => withProfileRoute(args, reason),
-    ...(args.verificationProfile === undefined ? boundaryScopeOf(outcome) : pinnedBoundaryScope(profile.firstParty, outcome)),
-    runCommand: execCommandRunner,
-  });
-}
-
-/** The reviewed typed scope of the pinned checks: each resolved command, then each boundary check, and the first-party globs. */
+/** The reviewed typed scope of the checks: each resolved command, then each boundary check, and the first-party globs. */
 export function staticAnalysisPlan(profile: VerificationProfile): CheckPlan {
   const commands: CheckLeg[] = profile.staticAnalysis.state === 'resolved'
     ? profile.staticAnalysis.checks.flatMap((check): CheckLeg[] => check.command.state === 'resolved'
@@ -321,59 +301,54 @@ export function staticAnalysisPlan(profile: VerificationProfile): CheckPlan {
   };
 }
 
-/** A runner that returns the signed result of each command leg once, matched by its exact argv. */
-function observedCommands(legs: readonly CheckLeg[], runs: readonly HostedCommandRun[]): RunCommandFn {
+/** A runner that returns the stored result of each command leg once, matched by its exact argv. */
+function observedCommands(argvs: readonly (readonly string[])[], results: readonly CommandResult[]): RunCommandFn {
   const used = new Set<number>();
   return (cmd, args) => {
     const argv = verificationJson([cmd, ...args]);
-    const index = legs.findIndex((leg, position) => !used.has(position) && verificationJson(leg.argv) === argv);
-    const run = runs[index];
-    if (index < 0 || run === undefined) throw new Error('the verifier returned no result for this check');
+    const index = argvs.findIndex((candidate, position) => !used.has(position) && verificationJson(candidate) === argv);
+    const result = results[index];
+    if (index < 0 || result === undefined) throw new Error('the executor holds no result for this check');
     used.add(index);
-    return hostedCommandResult(run);
+    return result;
   };
 }
 
-/** The boundary leg of one signed verdict. A positive count is the only pass. */
-function observedBoundaryLeg(leg: HostedBoundaryLeg): BoundaryLeg {
-  if (leg.adapter === 'semgrep-taint') return { name: leg.name, result: leg.result };
-  const { result } = leg;
-  if (result.status !== 'PASS') return { name: leg.name, result };
-  const cruised = positiveCount(result.cruised);
-  if (cruised === undefined) throw new HostedAdequacyPending('The hosted boundary verdict has no positive module count.');
-  return { name: leg.name, result: { status: 'PASS', cruised, detail: result.detail } };
+/**
+ * Plan one boundary check in the session root, run its scan as the approved leg with the planned scan roots, and classify the result.
+ * A settled plan starts no process. The scan operands are the planned arguments after the flags of the approved leg.
+ */
+async function boundaryLeg(session: CheckSession, leg: number, check: VerificationProfile['boundaryChecks'][number], scope: BoundaryScope): Promise<BoundaryLeg> {
+  const planned = planBoundaryCheck(check, {
+    repoRoot: session.root, firstPartyGlobs: scope.firstPartyGlobs, unresolvedScope: scope.unresolvedFirstParty,
+    projectConfigError: scope.projectConfigError,
+  });
+  const flags = check.command.argv.length - 1;
+  if (planned.adapter === 'dependency-cruiser') {
+    const { plan } = planned;
+    if (plan.kind === 'settled') return { name: planned.name, result: plan.result };
+    return { name: planned.name, result: plan.classify(commandResultOf(await session.run({ leg, append: plan.args.slice(flags) }))) };
+  }
+  const { plan } = planned;
+  if (plan.kind === 'settled') return { name: planned.name, result: plan.result };
+  return { name: planned.name, result: plan.classify(commandResultOf(await session.run({ leg, append: plan.args.slice(flags) }))) };
 }
 
 /**
- * Runs the pinned checks in the verifier and interprets the signed facts with the shared pure interpreter.
- * The pinned first-party term gives the scope. The checkout config gives only a load failure, as on a local pinned run.
+ * Runs the checks and the boundary checks of the profile in the local executor, then interprets the stored results with the pure analysis.
+ * A direct call resolves the profile with one read of the worktree config, and that read gives the boundary scope.
+ * Under a pin, the pinned term gives the scope, and the read gives only a load failure.
+ * A refusal of the executor is a failed carrier, which the producer records with no verdict. A profile with no leg starts no executor.
  */
-async function runHostedAnalysis(
-  args: StaticAnalysisArgs, repoRoot: string, host: HostedCheckInput, phaseAttemptId: string,
-): Promise<StaticAnalysisRun | ToolResult> {
-  const pinned = args.verificationProfile;
-  if (pinned === undefined) return hostedRefusal('A provisioned verifier requires the pinned verification profile. No local route runs the checks.');
-  const { profile } = pinned;
+async function runProfiledAnalysis(
+  args: StaticAnalysisArgs, repoRoot: string, eventStore: EventStore, executor: CheckExecutor,
+): Promise<ToolResult> {
   const outcome = loadExarchosConfigOutcome(repoRoot);
+  const profile = profileOf(args, repoRoot, { loadConfig: () => outcome });
+  const scope = args.verificationProfile === undefined ? boundaryScopeOf(outcome) : pinnedBoundaryScope(profile.firstParty, outcome);
   const plan = staticAnalysisPlan(profile);
-  const commandLegs = plan.legs.filter(leg => leg.kind === 'command');
-  let commands: readonly HostedCommandRun[] = [];
-  let boundary: readonly BoundaryLeg[] = [];
-  if (plan.legs.length > 0) {
-    const admitted = await runHostedTaskCheck({
-      host, operation: 'static-analysis', plan, featureId: args.featureId, taskId: args.taskId,
-      phaseAttemptId, coordinate: args.coordinate, profile: pinned, repoRoot,
-    });
-    if (admitted.kind === 'refused') return admitted.result;
-    const { facts } = admitted;
-    if (facts.operation !== 'static-analysis' || facts.commands.length !== commandLegs.length
-      || facts.boundary.length !== profile.boundaryChecks.length) {
-      throw new HostedAdequacyPending('The hosted static-analysis facts do not match the reviewed check scope.');
-    }
-    commands = facts.commands;
-    boundary = facts.boundary.map(observedBoundaryLeg);
-  }
-  return runStaticAnalysis({
+  const commands = staticAnalysisCommandArgvs(profile.staticAnalysis, args);
+  const analyse = (runCommand: RunCommandFn, observedBoundaryLegs?: readonly BoundaryLeg[]) => runStaticAnalysis({
     repoRoot,
     skipLint: args.skipLint,
     skipTypecheck: args.skipTypecheck,
@@ -381,10 +356,31 @@ async function runHostedAnalysis(
     boundaryChecks: profile.boundaryChecks,
     profilePath: profilePathOf(args, repoRoot),
     withRoute: (reason) => withProfileRoute(args, reason),
-    ...pinnedBoundaryScope(profile.firstParty, outcome),
-    runCommand: observedCommands(commandLegs, commands),
-    observedBoundaryLegs: boundary,
+    ...scope,
+    runCommand,
+    ...(observedBoundaryLegs === undefined ? {} : { observedBoundaryLegs }),
   });
+  if (commands.length === 0 && profile.boundaryChecks.length === 0) {
+    return staticAnalysisCarrier(analyse(() => { throw new Error('no static-analysis check runs'); }));
+  }
+  const ran = await executor({
+    eventStore, operation: 'static-analysis', streamId: args.featureId, ...(args.taskId === undefined ? {} : { taskId: args.taskId }),
+    plan, profileDigest: contentDigest(profile), checkout: repoRoot, coordinate: args.coordinate, workspace: 'checkout',
+  }, async (session) => {
+    const used = new Set<number>();
+    const results: CommandResult[] = [];
+    for (const argv of commands) {
+      const leg = plan.legs.findIndex((candidate, index) => !used.has(index) && candidate.kind === 'command'
+        && verificationJson(candidate.argv) === verificationJson(argv));
+      used.add(leg);
+      results.push(commandResultOf(await session.run({ leg })));
+    }
+    const boundary: BoundaryLeg[] = [];
+    const first = plan.legs.length - profile.boundaryChecks.length;
+    for (const [index, check] of profile.boundaryChecks.entries()) boundary.push(await boundaryLeg(session, first + index, check, scope));
+    return analyse(observedCommands(commands, results), boundary);
+  });
+  return ran.kind === 'refused' ? refusedCheckResult(ran.reason) : staticAnalysisCarrier(ran.value);
 }
 
 /**
@@ -393,11 +389,14 @@ async function runHostedAnalysis(
  *
  * A call with a `taskId` and no `repoRoot` does not scan the server directory. It records the skip `repo-root-missing`
  * through the producer, and the runner row names no tree. A call with no `taskId` keeps the `process.cwd()` default.
+ *
+ * @param executor - The local check executor, {@link runApprovedCheck} by default. A test passes its own executor.
  */
 export async function handleStaticAnalysis(
   args: StaticAnalysisArgs,
   stateDir: string,
   eventStore: EventStore,
+  executor: CheckExecutor = runApprovedCheck,
 ): Promise<ToolResult> {
   const pre = await runGatePreflight(
     {
@@ -410,20 +409,15 @@ export async function handleStaticAnalysis(
     eventStore,
   );
   if (!pre.ok) return pre.result;
-  const host = args.hostCheck;
-  if (host !== undefined && host.binding === undefined) {
-    return hostedRefusal('A provisioned verifier runs static analysis only for a bound task segment. No local route runs the checks.');
-  }
   const missing = args.taskId && !args.repoRoot ? repoRootMissingRun(args.taskId) : undefined;
   const repoRoot = missing === undefined ? pre.repoRoot : '';
 
-  return runDurableGateProducer(
-    { ...staticAnalysisSubjectScope(args, repoRoot), coordinate: args.coordinate, stateDir, eventStore, unscanned: missing !== undefined },
-    async (phaseAttemptId) => {
-      if (missing !== undefined || host === undefined) return staticAnalysisCarrier(missing ?? runProfiledAnalysis(args, repoRoot));
-      const run = await runHostedAnalysis(args, repoRoot, host, phaseAttemptId);
-      return 'success' in run ? run : staticAnalysisCarrier(run);
-    },
-    host?.binding?.checkTree,
-  );
+  try {
+    return await runDurableGateProducer(
+      { ...staticAnalysisSubjectScope(args, repoRoot), coordinate: args.coordinate, stateDir, eventStore, unscanned: missing !== undefined },
+      async () => missing === undefined ? runProfiledAnalysis(args, repoRoot, eventStore, executor) : staticAnalysisCarrier(missing),
+    );
+  } catch (error) {
+    return pendingOfDirectCall(error, args.coordinate !== undefined);
+  }
 }

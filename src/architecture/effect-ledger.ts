@@ -666,7 +666,7 @@ function registerLedger(): readonly EffectOwnershipRule[] {
         '--git-common-dir, rev-parse --verify --quiet <ref>^{commit}, symbolic-ref --quiet ' +
         'HEAD, rev-parse --verify --quiet HEAD, merge-base --is-ancestor (also ' +
         '<baseCommit> HEAD) and --no-optional-locks status --porcelain, which writes no index ' +
-        'refresh; the constrained reads add worktree list, cat-file -e, ls-tree, ls-files ' +
+        'refresh; the constrained reads add worktree list, cat-file -e, cat-file --batch of exact blob IDs, ls-tree, ls-files ' +
         '--stage, ls-files --others --exclude-standard, merge-base, rev-parse of a ' +
         'refs/remotes ref, symbolic-ref refs/remotes/origin/HEAD, diff --name-only, ' +
         'diff --name-status, diff --submodule=short and log --oneline --graph ' +

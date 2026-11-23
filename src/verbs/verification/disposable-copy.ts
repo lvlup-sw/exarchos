@@ -1,0 +1,115 @@
+/**
+ * A disposable copy of the exact head of one checkout, for a check that writes files.
+ * The copy holds the committed blobs of the head tree, read through the constrained Git reader.
+ * It holds a private Git directory, whose detached HEAD is the head and whose object store reads the repository objects as an alternate.
+ * Thus a leg reads the exact commits, and a Git write in the copy changes only the private directory.
+ *
+ * It links node_modules from the live checkout, so a project-local runner resolves as in the checkout.
+ * The live checkout and its Git state are never written. The copy is deleted after the body, and a copy that stays refuses.
+ */
+import { lstat, mkdir, mkdtemp, realpath, rm, symlink, writeFile } from 'node:fs/promises';
+import os from 'node:os';
+import { dirname, join } from 'node:path';
+
+import type { ConstrainedGitReads } from '../../utils/git-tree.js';
+
+/**
+ * Write the private Git directory of a copy. It runs no Git process.
+ * HEAD names the exact head, the refs are empty, and the alternates file names the object store of the repository.
+ * A 64-character head selects the SHA-256 object format.
+ */
+async function writePrivateGitDirectory(copy: string, repository: string, head: string): Promise<void> {
+  const gitDir = join(copy, '.git');
+  for (const directory of ['refs/heads', 'refs/tags', 'objects/info']) await mkdir(join(gitDir, directory), { recursive: true });
+  const sha256 = head.length === 64;
+  const config = sha256
+    ? '[core]\n\trepositoryformatversion = 1\n\tbare = false\n[extensions]\n\tobjectformat = sha256\n'
+    : '[core]\n\trepositoryformatversion = 0\n\tbare = false\n';
+  await writeFile(join(gitDir, 'config'), config, { flag: 'wx' });
+  await writeFile(join(gitDir, 'HEAD'), `${head}\n`, { flag: 'wx' });
+  await writeFile(join(gitDir, 'objects', 'info', 'alternates'), `${await realpath(join(repository, 'objects'))}\n`, { flag: 'wx' });
+}
+
+/** The largest number of tracked entries that one copy holds. */
+const MAXIMUM_COPY_ENTRIES = 32768;
+
+/** The largest number of blob bytes that one copy holds. */
+const MAXIMUM_COPY_BYTES = 256 * 1024 * 1024;
+
+/** The prefix of each copy directory under the temporary directory of the operating system. */
+const DISPOSABLE_COPY_PREFIX = 'exarchos-check-';
+
+/** The exact head of one observed checkout and the constrained reads of its Git directory. */
+export interface DisposableCopySource {
+  readonly checkout: string;
+  readonly gitDir: string;
+  /** The common Git directory of the checkout. Its object store is the alternate of the private Git directory. */
+  readonly repository: string;
+  readonly head: string;
+  readonly reads: Pick<ConstrainedGitReads, 'treeListing' | 'blobs'>;
+}
+
+/** One regular file of the head tree. */
+interface CopyEntry {
+  readonly path: string;
+  readonly oid: string;
+  readonly executable: boolean;
+}
+
+/** True for a tree path that stays inside the copy and names no Git directory. */
+function safeTreePath(path: string): boolean {
+  return !path.includes('\\') && !/[\x00]/.test(path)
+    && path.split('/').every(part => part !== '' && part !== '.' && part !== '..' && part.toLowerCase() !== '.git');
+}
+
+/** The regular files of the head tree. A link, a submodule, an unsafe path or a tree beyond the bounds refuses. */
+async function headEntries(source: DisposableCopySource): Promise<readonly CopyEntry[]> {
+  const records = new TextDecoder('utf-8', { fatal: true }).decode(await source.reads.treeListing(source.gitDir, source.checkout, source.head)).split('\0');
+  if (records.pop() !== '' || records.length > MAXIMUM_COPY_ENTRIES) throw new Error('The head tree exceeds the bounds of a disposable copy');
+  return records.map((record) => {
+    const [, mode, oid, path] = /^(100644|100755) blob ([a-f0-9]{40}|[a-f0-9]{64})\t(.+)$/s.exec(record) ?? [];
+    if (mode === undefined || oid === undefined || path === undefined || !safeTreePath(path)) {
+      throw new Error('The head tree holds an entry that a disposable copy does not support');
+    }
+    return { path, oid, executable: mode === '100755' };
+  });
+}
+
+/** True when a path exists, without following a final link. */
+async function present(path: string): Promise<boolean> {
+  try {
+    await lstat(path);
+    return true;
+  } catch (error) {
+    if (error instanceof Error && 'code' in error && error.code === 'ENOENT') return false;
+    throw error;
+  }
+}
+
+/**
+ * Build a copy of the exact head, run the body in it, then delete it.
+ * The body gets the copy root. A copy that cannot be built, or that stays after the delete, throws.
+ */
+export async function withDisposableCopy<T>(source: DisposableCopySource, body: (copy: string) => Promise<T>): Promise<T> {
+  const entries = await headEntries(source);
+  const blobs = await source.reads.blobs(source.gitDir, source.checkout, entries.map(entry => entry.oid), MAXIMUM_COPY_BYTES);
+  const copy = await realpath(await mkdtemp(join(os.tmpdir(), DISPOSABLE_COPY_PREFIX)));
+  try {
+    for (const entry of entries) {
+      const bytes = blobs.get(entry.oid);
+      if (bytes === undefined) throw new Error('A blob of the head tree is missing');
+      const target = join(copy, entry.path);
+      await mkdir(dirname(target), { recursive: true });
+      await writeFile(target, bytes, { flag: 'wx', mode: entry.executable ? 0o755 : 0o644 });
+    }
+    await writePrivateGitDirectory(copy, source.repository, source.head);
+    const modules = join(source.checkout, 'node_modules');
+    if (await present(modules) && !await present(join(copy, 'node_modules'))) {
+      await symlink(await realpath(modules), join(copy, 'node_modules'), process.platform === 'win32' ? 'junction' : 'dir');
+    }
+    return await body(copy);
+  } finally {
+    await rm(copy, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
+    if (await present(copy)) throw new Error('The disposable copy was not removed');
+  }
+}

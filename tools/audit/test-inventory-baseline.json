@@ -4,11 +4,11 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1511,
-    "parsedFiles": 1467,
+    "testFiles": 1513,
+    "parsedFiles": 1469,
     "shellFiles": 44,
-    "cases": 16834,
-    "dynamicTitles": 339,
+    "cases": 16854,
+    "dynamicTitles": 341,
     "unparseableFiles": 0
   },
   "unparseable": [],
@@ -11810,7 +11810,7 @@
       "cases": [
         {
           "suite": "",
-          "name": "HostedGates_BoundChecksRunOnlyInVerifierAndColdReplayNeedsNoHost",
+          "name": "LocalGates_BoundChecksRunInTheLocalExecutorWithOrWithoutAVerifier",
           "dynamic": false
         },
         {
@@ -11820,7 +11820,7 @@
         },
         {
           "suite": "",
-          "name": "HostedGates_NoHostWrongSubjectSignatureAndRefusedProfileNeverRunLocally",
+          "name": "LocalGates_ARetryOfTheSameOperation_ReplaysTheStoredObservationWithoutARerun",
           "dynamic": false
         },
         {
@@ -11830,7 +11830,7 @@
         },
         {
           "suite": "",
-          "name": "HostedSpecCoverage_PhaseSubjectRunsDeclaredTestsWhilePlanningAndSkipRunMakeNoRequest",
+          "name": "LocalGates_AWrongWorkingDirectoryAndADirtyCheckout_RefuseWithARecordedOutcome",
           "dynamic": false
         },
         {
@@ -11840,17 +11840,22 @@
         },
         {
           "suite": "",
-          "name": "VerifierBundle_ReachesOnlyReportParsersOfConfig",
-          "dynamic": false
-        },
-        {
-          "suite": "",
-          "name": "HostedRuntime_RefusesUnsafeSourcesAndRunnerProfilesBeforeAnyClaim",
+          "name": "LocalGates_AllowlistTimeCapOutputCapAndIncompleteAttempts_StopWithARecordedOutcome",
           "dynamic": false
         },
         {
           "suite": "",
           "name": "<dynamic-case-4>",
+          "dynamic": true
+        },
+        {
+          "suite": "",
+          "name": "LocalSpecCoverage_PostImplementationRunsTheDeclaredTestsInTheCheckoutAndPlanningRunsNone",
+          "dynamic": false
+        },
+        {
+          "suite": "",
+          "name": "<dynamic-case-5>",
           "dynamic": true
         }
       ]
@@ -12081,6 +12086,21 @@
         {
           "suite": "",
           "name": "<dynamic-case-2>",
+          "dynamic": true
+        },
+        {
+          "suite": "",
+          "name": "VerifierBundle_ReachesOnlyReportParsersOfConfig",
+          "dynamic": false
+        },
+        {
+          "suite": "",
+          "name": "HostedRuntime_RefusesUnsafeSourcesAndRunnerProfilesBeforeAnyClaim",
+          "dynamic": false
+        },
+        {
+          "suite": "",
+          "name": "<dynamic-case-3>",
           "dynamic": true
         }
       ]
@@ -57411,12 +57431,17 @@
           "dynamic": false
         },
         {
-          "suite": "check_integration_suite with a provisioned verifier",
-          "name": "CheckIntegrationSuite_AProvisionedVerifierWithNoBoundSegment_RefusesAndRunsNoSuite",
+          "suite": "check_integration_suite in the local executor",
+          "name": "CheckIntegrationSuite_TheSuite_RunsAsTheOneApprovedLegOfTheLocalExecutor",
           "dynamic": false
         },
         {
-          "suite": "check_integration_suite with a provisioned verifier",
+          "suite": "check_integration_suite in the local executor",
+          "name": "CheckIntegrationSuite_ARefusedCheck_RunsNoSuiteAndGivesTheRefusal",
+          "dynamic": false
+        },
+        {
+          "suite": "check_integration_suite in the local executor",
           "name": "CheckIntegrationSuite_AReducedReport_GivesTheLocalVerdictAndTheExactFileTotal",
           "dynamic": false
         }
@@ -57642,7 +57667,12 @@
         },
         {
           "suite": "check_contract_drift registration + dispatch + steer",
-          "name": "HandleOrchestrate_AProvisionedVerifierWithNoBoundSegment_RefusesAndRunsNoLeg",
+          "name": "HandleOrchestrate_AProvisionedVerifier_IsIgnoredAndTheLegsRun",
+          "dynamic": false
+        },
+        {
+          "suite": "check_contract_drift registration + dispatch + steer",
+          "name": "ContractDrift_TheLegs_RunInADisposableCopyOfTheLocalExecutor",
           "dynamic": false
         }
       ]
@@ -72206,6 +72236,88 @@
         {
           "suite": "verification-ladder self-routing (FIX-1)",
           "name": "CheckTestAdequacy_NoStampArgs_BehaviorUnchanged",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/verbs/verification/check-executor.test.ts": {
+      "file": "tests/unit/verbs/verification/check-executor.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "the approved-check policy",
+          "name": "CheckExecutor_AnApprovedLeg_RunsInTheCheckout",
+          "dynamic": false
+        },
+        {
+          "suite": "the approved-check policy",
+          "name": "CheckExecutor_AProgramInsideTheCheckout_RefusesAndARunnerOfNodeModulesRuns",
+          "dynamic": false
+        },
+        {
+          "suite": "the approved-check policy",
+          "name": "CheckExecutor_AnArgvOutsideThePlan_IsNeverFormed",
+          "dynamic": false
+        },
+        {
+          "suite": "the approved-check policy",
+          "name": "CheckExecutor_AWrongWorkingDirectory_RefusesBeforeAnyProcess",
+          "dynamic": false
+        },
+        {
+          "suite": "the time and output caps",
+          "name": "CheckExecutor_ATimeout_StopsTheWholeProcessGroup",
+          "dynamic": false
+        },
+        {
+          "suite": "the time and output caps",
+          "name": "CheckExecutor_AnOutputPastTheCap_StopsTheLeg",
+          "dynamic": false
+        },
+        {
+          "suite": "claims, replay and incomplete attempts",
+          "name": "CheckExecutor_ARetryOfTheSameRequest_ReplaysWithoutARerun",
+          "dynamic": false
+        },
+        {
+          "suite": "claims, replay and incomplete attempts",
+          "name": "CheckExecutor_ACrashBeforeTheTerminalObservation_LeavesTheAttemptIncomplete",
+          "dynamic": false
+        },
+        {
+          "suite": "claims, replay and incomplete attempts",
+          "name": "CheckExecutor_ALegThatChangesTheCheckout_IsRefusedAndReplaysTheRefusal",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/verbs/verification/disposable-copy.test.ts": {
+      "file": "tests/unit/verbs/verification/disposable-copy.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "withDisposableCopy",
+          "name": "DisposableCopy_HoldsTheCommittedHead",
+          "dynamic": false
+        },
+        {
+          "suite": "withDisposableCopy",
+          "name": "DisposableCopy_APrivateGitDirectory_ReadsTheHeadAndKeepsEachWritePrivate",
+          "dynamic": false
+        },
+        {
+          "suite": "withDisposableCopy",
+          "name": "DisposableCopy_AWriteInTheCopy_LeavesTheLiveCheckoutUnchanged",
+          "dynamic": false
+        },
+        {
+          "suite": "withDisposableCopy",
+          "name": "DisposableCopy_ABodyThatThrows_StillDeletesTheCopy",
+          "dynamic": false
+        },
+        {
+          "suite": "withDisposableCopy",
+          "name": "DisposableCopy_AHeadWithALink_Refuses",
           "dynamic": false
         }
       ]
@@ -91708,7 +91820,7 @@
         },
         {
           "suite": "boundary legs that the verifier plans and observes",
-          "name": "StaticAnalysis_AProvisionedVerifierWithNoBoundSegment_RefusesAndRunsNoProcess",
+          "name": "StaticAnalysis_ARefusedCheck_RunsNoProcessAndRecordsTheRefusal",
           "dynamic": false
         }
       ]
@@ -91911,8 +92023,8 @@
           "dynamic": false
         },
         {
-          "suite": "spec coverage with a provisioned verifier",
-          "name": "SpecCoverage_AProvisionedVerifierWithNoPreparedPhase_RefusesAndRunsNoProbe",
+          "suite": "spec coverage in the local executor",
+          "name": "SpecCoverage_TheDeclaredTests_RunOnlyInTheLocalExecutor",
           "dynamic": false
         }
       ]

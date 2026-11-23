@@ -22,6 +22,7 @@ import { beforeAll, describe, expect, it } from 'vitest';
 
 import { gateRunnerObservationSource } from '../../../src/verbs/gates/gate-runner.js';
 import { rmrfAsync } from '../../../tools/test-helpers/temp-dir.js';
+import { execFileAsync } from '../../../tools/test-helpers/spawn.js';
 import {
   findRepoRoot,
   ensureBinaryBuilt,
@@ -103,7 +104,7 @@ const PASSING_SCRIPT = 'node -e ""';
 /**
  * Makes a Node project on disk for the static-analysis gate. Its lint, typecheck and quality-check
  * scripts exit with 0. The project has no boundary config and no taint ruleset, so those legs do
- * not run.
+ * not run. The project is committed on a branch, so the local check executor sees a clean registered checkout.
  */
 async function makePassingNodeProject(): Promise<string> {
   const dir = await fsp.realpath(
@@ -119,6 +120,10 @@ async function makePassingNodeProject(): Promise<string> {
     }),
     'utf-8',
   );
+  const identity = ['-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid'];
+  await execFileAsync('git', ['init', '-q', '-b', 'main'], { cwd: dir });
+  await execFileAsync('git', ['add', '.'], { cwd: dir });
+  await execFileAsync('git', [...identity, 'commit', '-q', '-m', 'fixture'], { cwd: dir });
   return dir;
 }
 

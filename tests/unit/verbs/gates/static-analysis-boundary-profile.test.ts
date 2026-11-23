@@ -2,7 +2,7 @@
  * Tests for the boundary legs under the verification profile. A segment runs the boundary checks that the capsule pins, with the `firstParty` term of the pin.
  * The worktree config gives only a load failure. A check of the pin cannot turn off through a change in the worktree.
  *
- * The handler cases replace the process call below `execCommandRunner`, and each fixture root holds an installed bin, so the real lookup finds it.
+ * The handler cases run each approved leg through a fake executor, and each fixture root holds an installed bin, so the real lookup finds it.
  * The cases of the adapters inject the runner and the bin lookup. The durable gate producer is a stub that calls only the provider.
  *
  * @oracle-sources: ../../../../src/verbs/gates/static-analysis.ts, and the argv that reaches the process call
@@ -14,7 +14,6 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 
 import { planBoundaryCheck, positiveCount, runBoundaryLint, runRawIoTaint } from '../../../../src/config/boundary-adapters.js';
-import type { VerificationHostConnector } from '../../../../src/contract/verification/harness-verification.js';
 import { runStaticAnalysis } from '../../../../src/verbs/pure/static-analysis.js';
 import { EventStore } from '../../../../src/events/store.js';
 import type { ToolResult } from '../../../../src/format.js';
@@ -28,6 +27,7 @@ import {
   taintCheck,
   UNRESOLVED_FIRST_PARTY_REASON,
 } from '../../../helpers/verification-profile.js';
+import { fakeExecutor } from '../../../helpers/verification/check-executor.js';
 
 /** Each argv that reaches the process call, and the report that the stub cruiser prints. A case can change the report. */
 const spawns = vi.hoisted(() => {
@@ -35,16 +35,6 @@ const spawns = vi.hoisted(() => {
   return { ran, cruiserReport: '', produced: 0 };
 });
 
-vi.mock('../../../../src/utils/process.js', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../../../src/utils/process.js')>();
-  return {
-    ...actual,
-    runCommandSync: (cmd: string, args: readonly string[]): string => {
-      spawns.ran.push([cmd, ...args]);
-      return cmd.includes('depcruise') ? spawns.cruiserReport : '';
-    },
-  };
-});
 
 vi.mock('../../../../src/verbs/gates/durable-gate-producer.js', () => ({
   runDurableGateProducer: (_scope: unknown, executeProvider: () => Promise<ToolResult>) => { spawns.produced++; return executeProvider(); },
@@ -74,6 +64,12 @@ function fixtureRoot(files: Readonly<Record<string, string>>): string {
   return root;
 }
 
+/** The runner of the fake executor. It records each argv, and the cruiser prints the report of the case. */
+const processRunner: RunCommandFn = (cmd, args) => {
+  spawns.ran.push([cmd, ...args]);
+  return { exitCode: 0, stdout: cmd.includes('depcruise') ? spawns.cruiserReport : '', stderr: '' };
+};
+
 /** The argv of each call of the installed bin. */
 function cruiserCalls(): (readonly string[])[] {
   return spawns.ran.filter(([cmd]) => cmd?.includes('depcruise'));
@@ -81,7 +77,7 @@ function cruiserCalls(): (readonly string[])[] {
 
 /** Runs the handler at `repoRoot` with no pin. */
 async function runDirect(repoRoot: string): Promise<ToolResult> {
-  return handleStaticAnalysis({ featureId: 'feat-direct', repoRoot }, tmpDir, new EventStore(tmpDir));
+  return handleStaticAnalysis({ featureId: 'feat-direct', repoRoot }, tmpDir, new EventStore(tmpDir), fakeExecutor(processRunner).executor);
 }
 
 /** Runs the handler at `repoRoot` under `profile`, as a segment does. */
@@ -90,6 +86,7 @@ async function runPinned(repoRoot: string, profile: VerificationProfile): Promis
     { featureId: 'feat-segment', repoRoot, verificationProfile: { capsuleVersion: VERSION, profile } },
     tmpDir,
     new EventStore(tmpDir),
+    fakeExecutor(processRunner).executor,
   );
 }
 
@@ -234,7 +231,7 @@ describe('handleStaticAnalysis — the boundary terms of the pin', () => {
 
   /**
    * The pinned entry names a config at a path that the old gate never looks at, and the root holds no `.dependency-cruiser.*`.
-   * The killing assertion: the process call gets that argv, with the found bin as its program and the scan roots after it.
+   * The killing assertion: the executor gets the approved argv of the pin, with the scan roots after it. The executor resolves its program.
    * The old gate finds no config at the root, so the leg does not run.
    */
   it('StaticAnalysis_AConfiguredBoundaryCheck_RunsThePinnedArgvWithTheScanRoots', async () => {
@@ -244,7 +241,7 @@ describe('handleStaticAnalysis — the boundary terms of the pin', () => {
 
     expect(cruiserCalls()).toEqual([
       [
-        path.join(worktree, 'node_modules', '.bin', BIN_NAME),
+        'depcruise',
         '--validate',
         'rules/boundaries.cjs',
         '--output-type',
@@ -436,18 +433,16 @@ describe('boundary legs that the verifier plans and observes', () => {
     expect(broken.output).toContain('the project config .exarchos.yml does not load');
   });
 
-  /** A provisioned route with no bound segment refuses before the producer, and no process starts. */
-  it('StaticAnalysis_AProvisionedVerifierWithNoBoundSegment_RefusesAndRunsNoProcess', async () => {
+  /** A refusal of the executor runs no leg. The producer records the refusal, which reads with no verdict. */
+  it('StaticAnalysis_ARefusedCheck_RunsNoProcessAndRecordsTheRefusal', async () => {
     const worktree = fixtureRoot({ '.dependency-cruiser.cjs': CRUISER_CONFIG, 'src/a.ts': '' });
-    const unused = async (): Promise<never> => { throw new Error('The verifier client must not be called'); };
-    const connector: VerificationHostConnector = { publicKey: '', gitPath: '/usr/bin/git', resourceId: 'r', profileId: 'p',
-      client: { submit: unused, retrieve: unused } };
 
-    const result = await handleStaticAnalysis({ featureId: 'feat-hosted', repoRoot: worktree,
-      verificationProfile: { capsuleVersion: VERSION, profile: boundaryProfile([cruiserCheck()]) }, hostCheck: { connector } }, tmpDir, new EventStore(tmpDir));
+    const result = await handleStaticAnalysis({ featureId: 'feat-refused', repoRoot: worktree,
+      verificationProfile: { capsuleVersion: VERSION, profile: boundaryProfile([cruiserCheck()]) } }, tmpDir, new EventStore(tmpDir),
+      fakeExecutor(processRunner, 'The program depcruise lies inside the checkout.').executor);
 
-    expect(result).toMatchObject({ success: false, error: { code: 'HOSTED_VERIFICATION_REFUSED' } });
+    expect(result).toMatchObject({ success: false, error: { code: 'LOCAL_CHECK_REFUSED' } });
     expect(spawns.ran).toEqual([]);
-    expect(spawns.produced).toBe(0);
+    expect(spawns.produced).toBe(1);
   });
 });

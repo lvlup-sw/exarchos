@@ -21,6 +21,7 @@ import * as path from 'node:path';
 const mockRunStaticAnalysis = vi.fn();
 vi.mock('../../../../src/verbs/pure/static-analysis.js', () => ({
   runStaticAnalysis: (...args: unknown[]) => mockRunStaticAnalysis(...args),
+  staticAnalysisCommandArgvs: () => [],
 }));
 
 import { EventStore } from '../../../../src/events/store.js';

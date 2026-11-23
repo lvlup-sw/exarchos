@@ -227,6 +227,8 @@ async function constrainedTreeObservation(repoRoot: string): Promise<TreeObserva
  * The run observes `repoRoot` once before the gate runs. That one observation gives the commit subject of a run with no `taskId` and the tree of the runner row.
  * A scope that marks the run `unscanned` stamps no tree, and it observes the directory only for the subject of a run with no `taskId`.
  * A coordinate run with a `taskId` observes only the selected checkout.
+ *
+ * On every route, a phase attempt that changed during the provider leaves the run pending, and no evidence is recorded.
  */
 export async function runDurableGateProducer(
   scope: DurableGateScope,
@@ -292,10 +294,10 @@ export async function runDurableGateProducer(
       artifactStore: evidenceArtifactStore(scope.stateDir),
       executeProvider: async () => {
         const result = await executeProvider(activeAttempt);
+        if (await activePhaseAttemptId(scope.featureId, scope.eventStore) !== activeAttempt) {
+          throw new HostedAdequacyPending('The active phase attempt changed during the gate run.');
+        }
         if (checkHostedTree !== undefined) {
-          if (await activePhaseAttemptId(scope.featureId, scope.eventStore) !== activeAttempt) {
-            throw new HostedAdequacyPending('The active phase attempt changed during hosted adequacy.');
-          }
           await checkHostedTree(scope.repoRoot);
         } else if (scope.coordinate !== undefined && await selectedCheckout(scope.repoRoot, scope.coordinate) === undefined) {
           return scopeError('TASK_COORDINATE_REFUSED', 'The provider changed the selected checkout.');

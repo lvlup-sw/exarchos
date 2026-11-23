@@ -244,7 +244,7 @@ function checkLabel(name: string): string {
 }
 
 /** The skip flag that skips the check of `name`, or undefined when no flag skips it. */
-function skipFlagOf(name: string, input: StaticAnalysisInput): 'skipLint' | 'skipTypecheck' | undefined {
+function skipFlagOf(name: string, input: Pick<StaticAnalysisInput, 'skipLint' | 'skipTypecheck'>): 'skipLint' | 'skipTypecheck' | undefined {
   if (name === 'lint' && input.skipLint === true) return 'skipLint';
   if (name === 'typecheck' && input.skipTypecheck === true) return 'skipTypecheck';
   return undefined;
@@ -282,6 +282,19 @@ function runProfileCheck(check: ProfileCheck, input: StaticAnalysisInput): Check
   const flag = skipFlagOf(check.name, input);
   if (flag !== undefined) return { name, status: 'SKIP', detail: `skipped by the ${flag} flag` };
   return runArgv(name, check.command.argv, input);
+}
+
+/**
+ * The argv of each check that {@link runStaticAnalysis} runs, in its order: each resolved check that no skip flag skips.
+ * A gate that runs the legs before the analysis reads this list, so the gate and the analysis select the same checks.
+ */
+export function staticAnalysisCommandArgvs(
+  term: StaticAnalysisTerm,
+  input: Pick<StaticAnalysisInput, 'skipLint' | 'skipTypecheck'>,
+): readonly (readonly string[])[] {
+  if (term.state === 'unresolved') return [];
+  return term.checks.flatMap((check) =>
+    check.command.state === 'resolved' && skipFlagOf(check.name, input) === undefined ? [check.command.argv] : []);
 }
 
 /** Runs the term of the profile. An unresolved term is one SKIP that names its keys. */

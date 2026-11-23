@@ -1,16 +1,27 @@
 // @oracle-sources: independently compiled verifier, real Git worktree, Bubblewrap process, and signed original responses
 /** Exercise the separately built host without installing a service or changing operator accounts. */
-import { generateKeyPairSync } from 'node:crypto';
+import { createHash, generateKeyPairSync } from 'node:crypto';
+import { existsSync } from 'node:fs';
 import { execFile, spawn, type ChildProcess } from 'node:child_process';
 import { promisify } from 'node:util';
 import { mkdir, writeFile, realpath, chmod, readFile, readdir, rename, lstat, symlink, copyFile } from 'node:fs/promises';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { connect } from 'node:net';
 import { once } from 'node:events';
 import { expect, it } from 'vitest';
 import { makeTempDir, rmrfAsync } from '../../tools/test-helpers/temp-dir.js';
 import { createVerifierClient } from '../../src/dispatch/core/verifier-client.js';
-import { verificationKey, verificationDigest, encodeVerificationFrame, type VerificationRequest } from '../../src/contract/verification/harness-verification.js';
+import {
+  VerificationRequest as VerificationRequestSchema, checkPlanDigest, verificationKey, verificationDigest, verificationValueDigest, encodeVerificationFrame,
+  type VerificationRequest,
+} from '../../src/contract/verification/harness-verification.js';
+import { profiledValidCapsule } from '../../src/contract/capsule/exarchos-capsule-fixtures.js';
+import { authorizeVerification, copyPinnedRuntime, measureRuntimeClosure } from '../../src/runtime/verification-host/authorization.js';
+import { HostProvisioning } from '../../src/runtime/verification-host/provisioning.js';
+import { observeRepository, observeTree } from '../../src/utils/git-tree.js';
+import { staticAnalysisPlan } from '../../src/verbs/gates/static-analysis.js';
+import type { VerificationProfile } from '../../src/workflow/verification/profile.js';
+import { scopedRepository } from '../helpers/scoped-repository.js';
 
 const execute = promisify(execFile);
 
@@ -257,3 +268,141 @@ it.runIf(process.platform === 'linux')('IndependentVerifier_CrashRetainsUnknownC
     expect(await children(host.pid ?? -1)).toEqual([]);
   } finally { if (host?.exitCode === null) { host.kill('SIGKILL'); await once(host, 'exit'); } await rmrfAsync(f.root); }
 }, 200000);
+
+/** The pinned checks of the authorization fixture. Every program is the approved runner or a pinned closure entry. */
+function authorizationProfile(): VerificationProfile {
+  const profile = profiledValidCapsule().settlementContract.verificationProfile;
+  if (profile === undefined) throw new Error('Missing pinned fixture profile');
+  profile.staticAnalysis = { state: 'resolved', source: 'config', checks: [
+    { name: 'lint', command: { state: 'resolved', source: 'config', argv: ['node', 'lint.cjs'] } },
+  ] };
+  profile.boundaryChecks = [{ adapter: 'dependency-cruiser', config: '.dependency-cruiser.cjs',
+    command: { state: 'resolved', source: 'config', argv: ['depcruise', '--validate', '.dependency-cruiser.cjs', '--output-type', 'json'] } }];
+  profile.firstParty = { state: 'resolved', source: 'config', globs: ['src/**'] };
+  return profile;
+}
+
+/** A linked worktree, a pinned runner and a pinned dependency closure for the authorization case. No verifier starts. */
+async function authorizationFixture() {
+  const repo = await scopedRepository({ integrationBranch: 'integration', files: { 'value.cjs': 'module.exports = 1;\n' } });
+  const root = makeTempDir('1928-authorize-');
+  const marker = join(root, 'lint-marker');
+  const worktree = await repo.worktreeFor('root', {
+    'src/index.cjs': 'module.exports = 2;\n', '.dependency-cruiser.cjs': 'module.exports = {};\n',
+    'lint.cjs': `require('node:fs').appendFileSync(${JSON.stringify(marker)}, 'ran\\n');\n`,
+  });
+  const repository = await observeRepository(worktree);
+  const observed = await observeTree(worktree);
+  if (repository.kind !== 'repository' || observed.kind !== 'tree' || observed.head === undefined) throw new Error('Missing fixture Git coordinates');
+  const gitDir = (await execute('git', ['-C', worktree, 'rev-parse', '--absolute-git-dir'])).stdout.trim();
+  const control = join(root, 'control');
+  const runtime = join(root, 'runtime');
+  const deps = join(root, 'deps');
+  await mkdir(join(control, 'state'), { recursive: true, mode: 0o700 });
+  await mkdir(runtime);
+  await mkdir(join(deps, 'fake-cruiser'), { recursive: true });
+  await writeFile(join(deps, 'fake-cruiser', 'bin.cjs'), 'process.stdout.write("{}");\n');
+  const node = join(runtime, 'node');
+  await copyFile(await realpath(process.execPath), node);
+  await chmod(node, 0o500);
+  const runnerDigest = createHash('sha256').update(await readFile(node)).digest('hex');
+  const dependencyDigest = await measureRuntimeClosure(deps);
+  const signer = generateKeyPairSync('ed25519');
+  const publicKey = signer.publicKey.export({ format: 'pem', type: 'spki' }).toString();
+  const tokenPath = join(control, 'token');
+  const privateKeyPath = join(control, 'key');
+  await writeFile(tokenPath, 'disposable-authorization-fixture-token', { mode: 0o600 });
+  await writeFile(privateKeyPath, signer.privateKey.export({ format: 'pem', type: 'pkcs8' }), { mode: 0o600 });
+  const gitPath = await realpath((await execute('which', ['git'])).stdout.trim());
+  const bwrapPath = await realpath((await execute('which', ['bwrap'])).stdout.trim());
+  const controls = { version: 1, socketPath: join(control, 's'), stateDir: join(control, 'state'), tokenPath, privateKeyPath, publicKey,
+    bwrapPath, gitPath, runtimePaths: ['/usr', runtime, deps] };
+  const profile = authorizationProfile();
+  const check = { ...staticAnalysisPlan(profile),
+    legs: staticAnalysisPlan(profile).legs.map(leg => leg.kind === 'dependency-cruiser' ? { ...leg, entry: 'fake-cruiser/bin.cjs' } : leg),
+    dependencyRoot: deps, dependencyDigest };
+  return {
+    root, worktree, gitDir, repository: repository.repository, observedHead: observed.head, baseCommit: repo.baseCommit, marker, profile, check,
+    control: { node, runtime, deps, runnerDigest, dependencyDigest, controls, hostConfig: join(control, 'host.json') },
+    async close() { await rmrfAsync(root); await rmrfAsync(repo.root); },
+  };
+}
+
+it('VerifierBundle_ReachesOnlyReportParsersOfConfig', async () => {
+  const reached = new Set<string>();
+  const pending = [resolve('src/runtime/verification-host/main.ts')];
+  for (let file = pending.pop(); file !== undefined; file = pending.pop()) {
+    if (reached.has(file)) continue;
+    reached.add(file);
+    const source = await readFile(file, 'utf8');
+    for (const match of source.matchAll(/^\s*(?:import|export)\s+(?!type\b)(?:[^'"]*?\s+from\s+)?['"](\.{1,2}\/[^'"]+)['"]/gm)) {
+      const specifier = match[1];
+      if (specifier !== undefined) pending.push(resolve(dirname(file), specifier.replace(/\.js$/, '.ts')));
+    }
+  }
+  const config = [...reached].filter(file => file.includes('/src/config/')).map(file => file.slice(file.indexOf('/src/config/') + 12)).sort();
+  expect(config).toEqual(['boundary-adapters.ts', 'exarchos-config-schema.ts', 'suite-reports.ts']);
+  for (const forbidden of ['loader.ts', 'register.ts', 'load-exarchos-config.ts', 'verification-profile.ts']) expect(config).not.toContain(forbidden);
+});
+
+it.runIf(process.platform === 'linux')('HostedRuntime_RefusesUnsafeSourcesAndRunnerProfilesBeforeAnyClaim', async () => {
+  const f = await authorizationFixture();
+  try {
+    const { control } = f;
+    const linked = join(f.root, 'linked-node');
+    await symlink(control.node, linked);
+    await expect(copyPinnedRuntime(linked, join(f.root, 'linked-copy'), control.runnerDigest)).rejects.toThrow('Invalid pinned runtime source');
+    const npmRoot = join(control.runtime, 'npm');
+    await mkdir(join(npmRoot, 'bin'), { recursive: true });
+    await writeFile(join(npmRoot, 'bin', 'npm-cli.js'), 'process.exit(0);\n');
+    const npmEntry = join(npmRoot, 'bin', 'npm-cli.js');
+    const npmDigest = await measureRuntimeClosure(npmRoot);
+    const renamed = join(control.runtime, 'runner');
+    await copyFile(control.node, renamed);
+    await chmod(renamed, 0o500);
+    await writeFile(control.hostConfig, '{}', { mode: 0o600 });
+    const subject = { streamId: 'stream', phaseAttemptId: 'p', taskId: 'root', leafId: 'l', operationId: 'o', preparedDigest: 'a'.repeat(64),
+      callerDigest: 'b'.repeat(64), segmentDigest: 'c'.repeat(64), configDigest: 'd'.repeat(64), profileDigest: 'e'.repeat(64),
+      testSelectionDigest: 'f'.repeat(64), baseCommit: f.baseCommit, headCommit: f.observedHead, blockerHeads: [] };
+    const selection = { tests: ['main.test.cjs'], sources: ['value.cjs'] };
+    const authorize = (profile: Record<string, unknown>, operation: 'adequacy' | 'static-analysis', runtimePaths?: readonly string[]) => {
+      const terms = operation === 'adequacy'
+        ? { version: 1 as const, operation, resourceId: 'tree', profileId: 'profile', selection, subject: { ...subject, testSelectionDigest: verificationValueDigest(selection) },
+          commandDigest: verificationValueDigest({ command: profile.command, files: profile.files }) }
+        : { version: 1 as const, operation, resourceId: 'tree', profileId: 'profile', subject, commandDigest: checkPlanDigest(staticAnalysisPlan(f.profile)) };
+      const request = VerificationRequestSchema.parse({ ...terms, key: verificationKey(terms) });
+      const policy = HostProvisioning.parse({ ...control.controls, ...(runtimePaths === undefined ? {} : { runtimePaths }),
+        profiles: [{ id: 'profile', digest: subject.profileDigest, executable: profile.executable ?? control.node, args: profile.args ?? [], timeoutMs: 5000,
+          ...(operation === 'adequacy' ? { adequacy: profile.adequacy } : { check: profile.check }) }],
+        resources: [{ id: 'tree', checkout: f.worktree, repository: f.repository, gitDir: f.gitDir, branch: 'refs/heads/task/root', subject: request.subject }] });
+      return authorizeVerification(policy, control.hostConfig, request);
+    };
+    const node = { command: ['node', '--test'], files: 'as-arguments', args: ['--test'],
+      adequacy: { command: ['node', '--test'], files: 'as-arguments', selection, runnerDigest: control.runnerDigest, controlPaths: [] } };
+    await expect(authorize(node, 'adequacy')).resolves.toHaveProperty('hostPolicyDigest');
+    await expect(authorize({ ...node, adequacy: { ...node.adequacy, npmDigest: npmDigest } }, 'adequacy')).rejects.toThrow('Unsupported hosted adequacy runner');
+    await expect(authorize({ ...node, adequacy: { ...node.adequacy, dependencyDigest: control.dependencyDigest } }, 'adequacy'))
+      .rejects.toThrow('Unsupported hosted adequacy runner');
+    const vitestAdequacy = { command: ['npm', 'run', 'test:files'], files: 'after-separator', selection, reporter: 'vitest',
+      runnerDigest: control.runnerDigest, dependencyRoot: control.deps, dependencyDigest: control.dependencyDigest, npmRoot, npmEntry, npmDigest,
+      controlPaths: ['package.json', 'tools/test-helpers/run-test-files.mjs', 'vitest.config.mjs'] };
+    const vitest = { command: vitestAdequacy.command, files: vitestAdequacy.files, args: [npmEntry, 'run', 'test:files'], adequacy: vitestAdequacy };
+    await expect(authorize(vitest, 'adequacy')).resolves.toHaveProperty('hostPolicyDigest');
+    await expect(authorize({ ...vitest, executable: renamed }, 'adequacy')).rejects.toThrow('Unsupported hosted adequacy runner');
+    const inside = join(f.worktree, 'src');
+    await expect(authorize({ ...vitest, adequacy: { ...vitestAdequacy, dependencyRoot: inside } }, 'adequacy', ['/usr', control.runtime, control.deps, inside]))
+      .rejects.toThrow('Adequacy dependencies require an explicitly approved canonical runtime directory');
+    const { check } = f;
+    await expect(authorize({ check: { runnerDigest: control.runnerDigest, ...check } }, 'static-analysis')).resolves.toHaveProperty('hostPolicyDigest');
+    await expect(authorize({ check: { runnerDigest: control.runnerDigest, ...check, dependencyRoot: inside } }, 'static-analysis',
+      ['/usr', control.runtime, control.deps, inside])).rejects.toThrow('Check dependencies require a separate approved canonical runtime directory');
+    await expect(authorize({ executable: renamed, check: { runnerDigest: control.runnerDigest, ...check } }, 'static-analysis'))
+      .rejects.toThrow('A check runner must be the pinned node executable');
+    const plan = staticAnalysisPlan(f.profile);
+    await expect(authorize({ check: { runnerDigest: control.runnerDigest, ...check, legs: plan.legs } }, 'static-analysis'))
+      .rejects.toThrow('An unmapped check program is refused');
+    await expect(authorize({ check: { runnerDigest: control.runnerDigest, ...check, operation: 'contract-drift' } }, 'static-analysis'))
+      .rejects.toThrow('Check command policy is not authorized');
+    expect(existsSync(f.marker)).toBe(false);
+  } finally { await f.close(); }
+}, 300000);

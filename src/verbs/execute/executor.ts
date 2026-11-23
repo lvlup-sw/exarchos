@@ -593,10 +593,11 @@ function hostedRequestBindingKey(operationId: string, leafId: string): string {
   return 'hosted-request:' + verificationValueDigest({ operationId, leafId });
 }
 
-/** The task leaves whose original request the verifier owns. A retry of such a leaf never runs locally. */
-const HOSTED_LEAF_ACTIONS: ReadonlySet<string> = new Set([
-  'check_test_adequacy', 'check_static_analysis', 'check_contract_drift', 'check_integration_suite',
-]);
+/**
+ * The task leaves whose original request the verifier owns. A retry of such a leaf never runs locally.
+ * The check leaves run in the local approved-check executor, so an earlier hosted request of a check leaf binds no retry.
+ */
+const HOSTED_LEAF_ACTIONS: ReadonlySet<string> = new Set(['check_test_adequacy']);
 
 /** Keep the original request before transport, including a crash before first submission. Only a task subject binds to a task leaf. */
 async function freezeHostedRequest(

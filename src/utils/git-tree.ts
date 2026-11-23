@@ -6,7 +6,8 @@
  * The two path forms follow `normalizeRepoPath` of `paths.ts`. The canonical form is the real path
  * in POSIX form, as `git rev-parse --show-toplevel` prints it. The lexical form reads no file, so it
  * serves a path that does not exist. The module spawns git with the async `execFile`, with a
- * timeout and an output cap. It imports nothing from `src/verbs`.
+ * timeout and an output cap. One constrained read writes exact blob IDs to the stdin of `cat-file --batch`.
+ * It imports nothing from `src/verbs`.
  *
  * It also keeps the process-wide Git path of the observational reads. A PATH search finds it with no process.
  */
@@ -320,6 +321,34 @@ const LISTING_MAX_BYTES = 64 * 1024 * 1024;
 /** The output bound of a full diff of two commits. A review diff can be large. */
 const FULL_DIFF_MAX_BYTES = 256 * 1024 * 1024;
 
+/** The bytes of the header line of one `cat-file --batch` record, and of its closing newline, above the blob bytes. */
+const BLOB_RECORD_OVERHEAD_BYTES = 100;
+
+/**
+ * Split the output of one `cat-file --batch` read into the blob of each requested ID.
+ * Each record must name the requested ID, the `blob` type and a size inside the total bound. Trailing bytes refuse.
+ */
+function blobRecords(output: Buffer, ids: readonly string[], maxBytes: number): ReadonlyMap<string, Buffer> {
+  const blobs = new Map<string, Buffer>();
+  let offset = 0;
+  let total = 0;
+  for (const id of ids) {
+    const newline = output.indexOf(0x0a, offset);
+    const [returned, kind, encodedSize, extra] = output.toString('ascii', offset, Math.max(offset, newline)).split(' ');
+    const length = Number(encodedSize);
+    if (newline < offset || newline - offset > BLOB_RECORD_OVERHEAD_BYTES || returned !== id || kind !== 'blob' || extra !== undefined
+      || encodedSize === undefined || !/^\d+$/.test(encodedSize) || !Number.isSafeInteger(length)
+      || total + length > maxBytes || output[newline + 1 + length] !== 0x0a) {
+      throw new Error('Malformed or oversized Git blob response');
+    }
+    blobs.set(id, output.subarray(newline + 1, newline + 1 + length));
+    offset = newline + 2 + length;
+    total += length;
+  }
+  if (offset !== output.length) throw new Error('Unexpected Git blob response bytes');
+  return blobs;
+}
+
 /** True when a full ref name has no revision syntax, no control character and no unsafe component. */
 function safeRefName(ref: string): boolean {
   return !/[\x00-\x20\x7f~^:?*\[\\]/.test(ref) && !ref.includes('..') && !ref.includes('@{') && !ref.endsWith('.')
@@ -354,6 +383,7 @@ export function constrainedCommitId(value: string): string {
  * On any Git version, `protocol.allow=never` refuses every transport, so a lazy fetch cannot reach a remote.
  *
  * The listings and the full diff return bytes up to their own bound. An output above a bound fails, so no read truncates.
+ * The blob read writes exact blob IDs to the stdin of one `cat-file --batch` process, and its output stays inside its bound.
  */
 export async function createConstrainedGitReads(executable: string) {
   if (!isAbsolute(executable)) throw new Error('Git executable must be an operator-selected absolute path');
@@ -391,7 +421,22 @@ export async function createConstrainedGitReads(executable: string) {
     return Buffer.isBuffer(result.stdout) ? result.stdout : Buffer.from(result.stdout);
   }
 
+  async function readBlobs(gitDir: string, checkout: string, ids: readonly string[], maxBytes: number): Promise<ReadonlyMap<string, Buffer>> {
+    const unique = [...new Set(ids.map(constrainedCommitId))];
+    if (unique.length === 0) return new Map();
+    const output = await new Promise<Buffer>((resolve, reject) => {
+      const child = execFile(git, argv(gitDir, checkout, ['cat-file', '--batch']), {
+        env, encoding: 'buffer', timeout: 120_000, maxBuffer: maxBytes + unique.length * BLOB_RECORD_OVERHEAD_BYTES,
+        windowsHide: true, cwd: checkout,
+      }, (error, stdout) => { if (error === null) resolve(stdout); else reject(error); });
+      child.stdin?.once('error', reject);
+      child.stdin?.end(unique.join('\n') + '\n');
+    });
+    return blobRecords(output, unique, maxBytes);
+  }
+
   return {
+    blobs: readBlobs,
     treeListing: (gitDir: string, checkout: string, id: string) => runBytes(gitDir, checkout, ['ls-tree', '-r', '-z', '--full-tree', constrainedCommitId(id)], LISTING_MAX_BYTES),
     indexListing: (gitDir: string, checkout: string) => runBytes(gitDir, checkout, ['ls-files', '--stage', '-z'], LISTING_MAX_BYTES),
     untrackedListing: (gitDir: string, checkout: string) => runBytes(gitDir, checkout, ['ls-files', '--others', '--exclude-standard', '-z'], LISTING_MAX_BYTES),

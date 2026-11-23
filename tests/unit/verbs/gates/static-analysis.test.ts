@@ -3,6 +3,8 @@
 // The module mock replaces only `runStaticAnalysis`, so the handler tests inject canned results.
 // The other exports pass through `importActual` and run for real. The boundary legs live in
 // `src/config/boundary-adapters.ts`, which the mock does not touch.
+//
+// The local check executor is a fake whose every leg exits 0, so no handler case starts a process.
 // The durable gate producer is a stub that calls only the provider. `ladder-gate-evidence.test.ts`
 // tests the durable evidence against the real runner.
 
@@ -41,6 +43,21 @@ vi.mock('../../../../src/verbs/pure/static-analysis.js', async (importActual) =>
     ...actual,
     runStaticAnalysis: (...args: unknown[]) => mockRunStaticAnalysis(...args),
   };
+});
+
+vi.mock('../../../../src/verbs/verification/check-executor.js', async (importActual) => {
+  const actual = await importActual<typeof import('../../../../src/verbs/verification/check-executor.js')>();
+  const runApprovedCheck: typeof actual.runApprovedCheck = async (request, body) => ({
+    kind: 'ran',
+    attempt: 1,
+    replayed: false,
+    value: await body({
+      root: request.checkout,
+      replayed: false,
+      run: async (leg) => ({ argv: [...actual.legArgv(request.plan, leg)], end: 'exited', exitCode: 0, stdout: '', stderr: '' }),
+    }),
+  });
+  return { ...actual, runApprovedCheck };
 });
 
 vi.mock('../../../../src/verbs/gates/durable-gate-producer.js', () => ({
