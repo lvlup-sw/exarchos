@@ -79,12 +79,8 @@ describe('CopilotWriter', () => {
     expect(written).toBeDefined();
     const parsed = JSON.parse(written!);
     expect(parsed.mcpServers.exarchos).toBeDefined();
-    expect(parsed.mcpServers.exarchos.command).toBe('npx');
-    expect(parsed.mcpServers.exarchos.args).toEqual([
-      '-y',
-      '@anthropic-ai/claude-code',
-      '--mcp-server-name=exarchos',
-    ]);
+    expect(parsed.mcpServers.exarchos.command).toBe('exarchos');
+    expect(parsed.mcpServers.exarchos.args).toEqual(['mcp']);
     expect(parsed.mcpServers.exarchos.type).toBe('stdio');
   });
 
@@ -118,7 +114,7 @@ describe('CopilotWriter', () => {
     expect(parsed.mcpServers['other-server'].command).toBe('node');
 
     expect(parsed.mcpServers.exarchos).toBeDefined();
-    expect(parsed.mcpServers.exarchos.command).toBe('npx');
+    expect(parsed.mcpServers.exarchos.command).toBe('exarchos');
   });
 
   it('CopilotWriter_Write_CreatesVscodeDir', async () => {
