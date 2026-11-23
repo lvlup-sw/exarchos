@@ -64,6 +64,21 @@ function defaultCommandRunner(
 
 const PASSING_STATUSES: ReadonlySet<VcsCiCheck['status']> = new Set(['pass', 'skipped']);
 
+/**
+ * Takes the pull request number from a bare number, or from the end of the path of a pull request URL.
+ * The provider gets only that number, so no part of the URL text reaches the CLI as a flag or a repository.
+ */
+function prNumberOf(prUrl: string): string | undefined {
+  if (/^[1-9]\d*$/.test(prUrl)) return prUrl;
+  let url: URL;
+  try {
+    url = new URL(prUrl);
+  } catch {
+    return undefined;
+  }
+  return /\/(?:pull|merge_requests|pullrequest)\/([1-9]\d*)\/?$/.exec(url.pathname)?.[1];
+}
+
 /** Runs the CI check and the test suite, and builds the report. A PR with no CI checks passes the CI check. */
 export async function checkPostMerge(options: PostMergeOptions): Promise<PostMergeResult> {
   const { prUrl, mergeSha, repoRoot } = options;
@@ -90,9 +105,19 @@ export async function checkPostMerge(options: PostMergeOptions): Promise<PostMer
   }
 
   async function checkCiStatus(): Promise<void> {
+    const prNumber = prNumberOf(prUrl);
+    if (prNumber === undefined) {
+      const evidence = 'prUrl names no pull request number';
+      findings.push(
+        `FINDING [D4] [HIGH] criterion="ci-green" evidence="${evidence}"`
+      );
+      checkFail('CI green', evidence);
+      return;
+    }
+
     let ciStatus: CiStatus;
     try {
-      ciStatus = await vcs.checkCi(prUrl);
+      ciStatus = await vcs.checkCi(prNumber);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
       const evidence = message.includes('command not found')

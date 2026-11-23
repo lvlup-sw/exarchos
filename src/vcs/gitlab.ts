@@ -21,7 +21,7 @@ import type {
   RepoInfo,
   ReplyResult,
 } from './provider.js';
-import { UnsupportedOperationError, computeOverallCiStatus } from './provider.js';
+import { UnsupportedOperationError, computeOverallCiStatus, requireNumericId } from './provider.js';
 import { exec } from './shell.js';
 
 interface GlabPipelineJob {
@@ -130,21 +130,24 @@ export class GitLabProvider implements VcsProvider {
     const viewOutput = await exec('glab', [
       'mr',
       'view',
-      opts.headBranch,
       '--json',
       'iid,webUrl',
+      '--',
+      opts.headBranch,
     ]);
     const parsed = JSON.parse(viewOutput) as { iid: number; webUrl: string };
     return { url: parsed.webUrl, number: parsed.iid };
   }
 
   async checkCi(prId: string): Promise<CiStatus> {
+    const mr = requireNumericId(prId, 'prId');
     const output = await exec('glab', [
       'mr',
       'view',
-      prId,
       '--json',
       'pipeline',
+      '--',
+      mr,
     ]);
 
     const parsed = JSON.parse(output) as GlabPipelineResponse;
@@ -170,13 +173,15 @@ export class GitLabProvider implements VcsProvider {
    * After the merge, it reads the merge commit SHA. If that read fails, the result is still `merged: true`, with no SHA.
    */
   async mergePr(prId: string, strategy: string): Promise<MergeResult> {
-    const args = ['mr', 'merge', prId];
+    const mr = requireNumericId(prId, 'prId');
+    const args = ['mr', 'merge'];
 
     if (strategy === 'squash') {
       args.push('--squash');
     } else if (strategy === 'rebase') {
       args.push('--rebase');
     }
+    args.push('--', mr);
 
     try {
       await exec('glab', args);
@@ -185,9 +190,10 @@ export class GitLabProvider implements VcsProvider {
         const viewOutput = await exec('glab', [
           'mr',
           'view',
-          prId,
           '--json',
           'sha',
+          '--',
+          mr,
         ]);
         const parsed = JSON.parse(viewOutput) as { sha?: string };
         return parsed.sha ? { merged: true, sha: parsed.sha } : { merged: true };
@@ -201,7 +207,8 @@ export class GitLabProvider implements VcsProvider {
   }
 
   async addComment(prId: string, body: string): Promise<void> {
-    await exec('glab', ['mr', 'comment', prId, '--message', body]);
+    const mr = requireNumericId(prId, 'prId');
+    await exec('glab', ['mr', 'comment', '--message', body, '--', mr]);
   }
 
   /**
@@ -214,12 +221,14 @@ export class GitLabProvider implements VcsProvider {
 
   /** The state is `approved` only when there is at least one reviewer and every reviewer approved. */
   async getReviewStatus(prId: string): Promise<ReviewStatus> {
+    const mr = requireNumericId(prId, 'prId');
     const output = await exec('glab', [
       'mr',
       'view',
-      prId,
       '--json',
       'reviewers,approvedBy',
+      '--',
+      mr,
     ]);
 
     const parsed = JSON.parse(output) as GlabReviewResponse;
@@ -253,12 +262,13 @@ export class GitLabProvider implements VcsProvider {
    * A comment carries only contract keys. `resolved` is present only for a resolvable note with a boolean `resolved`, and is never coerced to false.
    */
   async getPrComments(prId: string): Promise<PrComment[]> {
+    const mr = requireNumericId(prId, 'prId');
     const PER_PAGE = 100;
     const discussions: GlabDiscussion[] = [];
     for (let page = 1; page <= 50; page++) {
       const output = await exec('glab', [
         'api',
-        `projects/:fullpath/merge_requests/${prId}/discussions?per_page=${PER_PAGE}&page=${page}`,
+        `projects/:fullpath/merge_requests/${mr}/discussions?per_page=${PER_PAGE}&page=${page}`,
       ]);
       const parsed = JSON.parse(output) as readonly GlabDiscussion[];
       if (!Array.isArray(parsed) || parsed.length === 0) break;

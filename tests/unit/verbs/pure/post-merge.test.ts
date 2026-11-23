@@ -100,8 +100,28 @@ describe('checkPostMerge', () => {
     expect(result.status).toBe('pass');
     expect(result.passCount).toBe(2);
     expect(result.failCount).toBe(0);
-    expect(provider.checkCi).toHaveBeenCalledWith('https://github.com/org/repo/pull/42');
+    expect(provider.checkCi).toHaveBeenCalledWith('42');
   });
+
+  /** Only the number from the URL path reaches the provider. Text with no such number fails the check with no provider call. */
+  it.each(['--admin', 'https://github.com/org/repo/pull/-1', 'https://github.com/org/repo/issues/42/comments'])(
+    'prUrl %s with no pull request number fails the CI check without a provider call',
+    async (prUrl) => {
+      const provider = createMockProvider({});
+      const result = await checkPostMerge({
+        prUrl,
+        mergeSha: 'abc1234',
+        repoRoot: nodeRepo,
+        runCommand: createCommandRunner({
+          'npm run test:run': { exitCode: 0, stdout: 'All tests passed', stderr: '' },
+        }),
+        provider,
+      });
+      expect(provider.checkCi).not.toHaveBeenCalled();
+      expect(result.status).toBe('fail');
+      expect(result.findings.join('\n')).toContain('prUrl names no pull request number');
+    },
+  );
 
   it('CI failure after merge via provider returns fail', async () => {
     const provider = createMockProvider({

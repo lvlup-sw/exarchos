@@ -187,9 +187,10 @@ describe('GitHubProvider', () => {
     expect(mockExec).toHaveBeenCalledWith('gh', [
       'pr',
       'checks',
-      '42',
       '--json',
       'name,state,link',
+      '--',
+      '42',
     ]);
 
     expect(result.checks).toHaveLength(5);
@@ -330,7 +331,7 @@ describe('GitHubProvider', () => {
     expect(result.sha).toBe('sha-from-view');
 
     expect(mockExec).toHaveBeenNthCalledWith(2, 'gh', [
-      'pr', 'view', '42', '--json', 'mergeCommit',
+      'pr', 'view', '--json', 'mergeCommit', '--', '42',
     ]);
   });
 
@@ -935,7 +936,7 @@ index abc123..def456 100644
 
     const result = await provider.getPrDiff('42');
 
-    expect(mockExec).toHaveBeenCalledWith('gh', ['pr', 'diff', '42']);
+    expect(mockExec).toHaveBeenCalledWith('gh', ['pr', 'diff', '--', '42']);
     expect(result).toBe(diffOutput);
   });
 

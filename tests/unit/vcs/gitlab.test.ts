@@ -60,9 +60,10 @@ describe('GitLabProvider', () => {
     expect(mockExec).toHaveBeenNthCalledWith(2, 'glab', [
       'mr',
       'view',
-      'feat/test',
       '--json',
       'iid,webUrl',
+      '--',
+      'feat/test',
     ]);
     expect(result.url).toBe('https://gitlab.com/test/repo/-/merge_requests/10');
     expect(result.number).toBe(10);
@@ -106,9 +107,10 @@ describe('GitLabProvider', () => {
     expect(mockExec).toHaveBeenNthCalledWith(2, 'glab', [
       'mr',
       'view',
-      'feat/view',
       '--json',
       'iid,webUrl',
+      '--',
+      'feat/view',
     ]);
     expect(result).toEqual({
       url: 'https://gitlab.com/test/repo/-/merge_requests/42',
@@ -200,9 +202,10 @@ describe('GitLabProvider', () => {
     expect(mockExec).toHaveBeenCalledWith('glab', [
       'mr',
       'view',
-      '10',
       '--json',
       'pipeline',
+      '--',
+      '10',
     ]);
     expect(result.status).toBe('fail');
     expect(result.checks).toHaveLength(2);
@@ -291,8 +294,9 @@ describe('GitLabProvider', () => {
     expect(mockExec).toHaveBeenNthCalledWith(1, 'glab', [
       'mr',
       'merge',
-      '10',
       '--squash',
+      '--',
+      '10',
     ]);
     expect(result.merged).toBe(true);
   });
@@ -307,8 +311,9 @@ describe('GitLabProvider', () => {
     expect(mockExec).toHaveBeenNthCalledWith(1, 'glab', [
       'mr',
       'merge',
-      '10',
       '--rebase',
+      '--',
+      '10',
     ]);
   });
 
@@ -323,6 +328,7 @@ describe('GitLabProvider', () => {
     expect(mockExec).toHaveBeenNthCalledWith(1, 'glab', [
       'mr',
       'merge',
+      '--',
       '10',
     ]);
   });
@@ -362,9 +368,10 @@ describe('GitLabProvider', () => {
     expect(mockExec).toHaveBeenCalledWith('glab', [
       'mr',
       'comment',
-      '10',
       '--message',
       'LGTM',
+      '--',
+      '10',
     ]);
   });
 
@@ -381,9 +388,10 @@ describe('GitLabProvider', () => {
     expect(mockExec).toHaveBeenCalledWith('glab', [
       'mr',
       'view',
-      '10',
       '--json',
       'reviewers,approvedBy',
+      '--',
+      '10',
     ]);
     expect(result.state).toBe('approved');
     expect(result.reviewers).toHaveLength(1);
@@ -851,4 +859,19 @@ describe('GitLabProvider', () => {
     expect(result).toHaveLength(1);
     expect(result[0].id).toBe(2);
   });
+
+  /** A merge request id that is not a positive integer can become a glab flag or another API path. The provider starts no call for it. */
+  it.each(['--admin', '-1', '0', '42abc', '1/../../user', 'https://example.invalid/pull/1'])(
+    'GitLab_PrId_RejectsNonNumeric_%s',
+    async (prId) => {
+      mockExec.mockClear();
+      mockExec.mockResolvedValue('{}');
+      await expect(provider.mergePr(prId, 'squash')).rejects.toThrow('prId must be a positive integer');
+      await expect(provider.checkCi(prId)).rejects.toThrow('prId must be a positive integer');
+      await expect(provider.addComment(prId, 'note')).rejects.toThrow('prId must be a positive integer');
+      await expect(provider.getReviewStatus(prId)).rejects.toThrow('prId must be a positive integer');
+      await expect(provider.getPrComments(prId)).rejects.toThrow('prId must be a positive integer');
+      expect(mockExec).not.toHaveBeenCalled();
+    },
+  );
 });
