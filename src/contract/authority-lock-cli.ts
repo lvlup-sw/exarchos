@@ -123,13 +123,19 @@ const LOCK_NOTE =
   '`check-pattern.ts` size limits, and a `fileGlob` has a length limit. RE2 has no lookaround ' +
   'and no backreference, so a catalog pattern that uses either no longer loads. No shipped ' +
   'catalog uses them. The schema shape, every field name, the action set and the wire format ' +
-  'are unchanged.';
+  'are unchanged.' +
+  ' RE-APPROVED for #1928 S2 T-23 under the slice plan that Reed approved: ' +
+  'exarchos_orchestrate.mutation-adequacy is the sole removed ActionId. The closed ' +
+  'retired-action table refuses a call of it before dispatch, with the code ' +
+  'MUTATION_TESTING_RETIRED. All other authority pins remain unchanged.';
 
 /**
  * The approver that the freeze records for the current snapshot. Change it at each new approval, so
  * the lockfile records who approved and not the tool.
  */
 export const CURRENT_APPROVER =
+  'Delegated Claude worker (#1928 S2 T-23 mutation-adequacy retirement under the slice plan ' +
+  'that Reed approved, 2026-11-23; for Reed review at the pull request). Previously: ' +
   'Reed (re-approved for the invariant-schema change in the Cursor security rollup: check ' +
   'patterns must compile with RE2 and globs have a length limit; decision of 2026-11-23). ' +
   'Previously: Delegated Codex coordinator (S7 T12 action introduction reviewed under Reed\'s authorized ' +

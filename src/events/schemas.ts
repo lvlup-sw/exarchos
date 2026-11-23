@@ -439,9 +439,9 @@ export const EventTypes = [
   'invariant.amended',
   'catalog.registered',
   /**
-   * Mutation-run liveness. The `mutation-adequacy` gate handler appends `mutation.executing_started` at
-   * the start of a run that is not a dry run. `mutation.executed` carries the verdict and the exit
-   * code. A run with no event store skips both events.
+   * Mutation-run liveness. The retired `mutation-adequacy` gate handler appended `mutation.executing_started`
+   * at the start of a run that was not a dry run. `mutation.executed` carried the verdict and the exit
+   * code. No code appends them now. The schemas stay, so stored logs replay the same.
    */
   'mutation.executing_started',
   'mutation.executed',

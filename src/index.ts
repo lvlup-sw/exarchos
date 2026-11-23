@@ -237,6 +237,8 @@ function hookReadStdin(): Promise<string> {
  *
  * `verify-worktree-boundary` is the PreToolUse guard. It denies a write outside the worktree with exit code 2, and allows when stdin is a TTY.
  *
+ * A call of a retired action gets its refusal before the backend opens or configuration loads.
+ *
  * Every other command opens the backend and goes through Commander. Only the MCP tool registration reads `slimRegistration` from the context.
  * Before the context starts, it primes the observational Git path from a usable provisioning, else from PATH, with no process.
  * A `preAction` hook starts the hook-event merge and the lifecycle compaction for `mcp` only. The command-name check still works with flags before `mcp`.
@@ -285,6 +287,9 @@ async function main() {
     process.exitCode = handleVerifyWorktreeBoundary(stdin);
     return;
   }
+
+  const { refuseRetiredCliCall } = await import('./adapters/cli/retired-call.js');
+  if (await refuseRetiredCliCall(process.argv)) return;
 
   const stateDir = await resolveStateDir();
 

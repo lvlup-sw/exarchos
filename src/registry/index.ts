@@ -95,6 +95,9 @@ export {
 
 export { TOOL_REGISTRY } from './tools.js';
 
+export type { RetiredAction } from './retired-actions.js';
+export { RETIRED_ACTIONS, retiredActionOf, retiredActionResult } from './retired-actions.js';
+
 export type { CustomToolActionHandler } from './custom-tools.js';
 export {
   registerCustomTool,

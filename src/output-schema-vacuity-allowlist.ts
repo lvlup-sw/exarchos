@@ -82,7 +82,6 @@ export const VACUITY_ALLOWLIST = Object.freeze({
   'exarchos_orchestrate.list_prs': { owner: 'orchestration', expires: '2027-02-28' },
   'exarchos_orchestrate.merge_orchestrate': { owner: 'orchestration', expires: '2027-02-28' },
   'exarchos_orchestrate.merge_pr': { owner: 'orchestration', expires: '2027-02-28' },
-  'exarchos_orchestrate.mutation-adequacy': { owner: 'orchestration', expires: '2027-02-28' },
   'exarchos_orchestrate.needs_schema_sync': { owner: 'orchestration', expires: '2027-02-28' },
   'exarchos_orchestrate.onboard': { owner: 'orchestration', expires: '2027-02-28' },
   'exarchos_orchestrate.post_delegation_check': { owner: 'orchestration', expires: '2027-02-28' },
@@ -172,6 +171,11 @@ export const VACUITY_RETIRED: Readonly<Record<string, VacuityRetiredEntry>> = Ob
   'exarchos_orchestrate.cutover_readiness': {
     owner: 'orchestration',
     retiredAt: '2026-08-10',
+  },
+  /** The action is deleted. The retired-action table refuses a call of it before dispatch, so it declares no schema. */
+  'exarchos_orchestrate.mutation-adequacy': {
+    owner: 'orchestration',
+    retiredAt: '2026-11-23',
   },
   /** The action now declares `withCappedShape(SyncNowOutputSchema)` from `registry/output-schemas.ts`. */
   'exarchos_sync.now': {

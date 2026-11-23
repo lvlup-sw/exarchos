@@ -9,6 +9,8 @@ import {
   getFullRegistry,
   buildRegistrationSchema,
   buildToolDescription,
+  retiredActionOf,
+  retiredActionResult,
 } from '../../registry.js';
 import { appendCompactActionContracts } from '../../registry/schema-builders.js';
 import type { ToolAction } from '../../registry.js';
@@ -228,6 +230,32 @@ export function validateAgainstActionSchema(
   });
 }
 
+/** The standard schema that the SDK checks the arguments of one tool against. */
+type RegistrationStandard = ReturnType<typeof buildRegistrationSchema>['~standard'];
+
+/**
+ * Wraps the registration schema of a tool, so a call of a retired action passes the SDK input check and reaches the handler.
+ * The handler then refuses that call with its row of the retired-action table, before dispatch.
+ * Every other call gets the check of the registration schema. The JSON form in `tools/list` does not change.
+ */
+function admitRetiredCalls(
+  toolName: string,
+  schema: ReturnType<typeof buildRegistrationSchema>,
+): { readonly '~standard': RegistrationStandard } {
+  const standard = schema['~standard'];
+  return {
+    '~standard': {
+      ...standard,
+      validate: (value, options) => {
+        if (typeof value === 'object' && value !== null && !Array.isArray(value) && retiredActionOf(toolName, value) !== undefined) {
+          return { value: { ...value } };
+        }
+        return standard.validate(value, options);
+      },
+    },
+  };
+}
+
 /**
  * Creates the MCP server, which routes each visible tool call through the dispatch layer. It
  * throws before it registers a tool if a contract action does not resolve to exactly one binding.
@@ -349,15 +377,16 @@ export function createMcpServer(
 
   for (const tool of getFullRegistry()) {
     if (tool.hidden) continue;
-    const inputSchema = buildRegistrationSchema(tool.actions);
+    const toolName = tool.name;
+    const inputSchema = admitRetiredCalls(toolName, buildRegistrationSchema(tool.actions));
     const slim = ctx.slimRegistration === true;
     const description = slim
       ? buildToolDescription(tool, true)
       : appendCompactActionContracts(buildToolDescription(tool, false), tool.actions);
 
-    const toolName = tool.name;
-
     const mcpHandler = async (args: Record<string, unknown>) => {
+      const retired = retiredActionOf(toolName, args);
+      if (retired !== undefined) return toMcpResult(toEnvelope(retiredActionResult(retired)));
       const dispatchArgs = stampOnboardSurface(args);
       let env: Envelope<unknown> | ErrorEnvelope;
       try {

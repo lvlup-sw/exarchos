@@ -23,6 +23,7 @@ import {
   VACUITY_RETIRED,
   VACUITY_RETIRED_IDS,
 } from '../../src/output-schema-vacuity-allowlist.js';
+import { RETIRED_ACTIONS } from '../../src/registry/retired-actions.js';
 import { VACUITY_SEED_KEY_SET_DIGEST } from '../../tools/conformance/src/output-schema-seed-pin.js';
 import {
   isDeclaredOutputSchema,
@@ -220,7 +221,7 @@ describe('DR-4: outputSchema vacuity is unconstructible', () => {
    *
    * A retired id keeps the key that the seed gave it, because a new key changes the pinned digest.
    * `currentIdOf` maps `stack_place` to its current tool, because the live census uses the current
-   * id.
+   * id. A deleted action in the retired-action table is absent from the live census.
    */
   it('OutputSchema_AllowlistIdSwappedInPlace_FailsTheShrinkOnlyCheck', () => {
     const pinned = liveVacuitySeedDigest(['t.a', 't.b']);
@@ -291,6 +292,7 @@ describe('DR-4: outputSchema vacuity is unconstructible', () => {
       'exarchos_orchestrate.check_invariant_conformance',
       'exarchos_orchestrate.cutover_decide',
       'exarchos_orchestrate.cutover_readiness',
+      'exarchos_orchestrate.mutation-adequacy',
       'exarchos_sync.now',
       'exarchos_view.stack_place',
       'exarchos_workflow.cancel',
@@ -310,10 +312,17 @@ describe('DR-4: outputSchema vacuity is unconstructible', () => {
     const currentIdOf = (retiredId: string): string =>
       retiredId === 'exarchos_view.stack_place' ? 'exarchos_orchestrate.stack_place' : retiredId;
 
+    const deletedIds = new Set(RETIRED_ACTIONS.map((entry) => `${entry.tool}.${entry.action}`));
+    const census = censusLiveOutputSchemas();
     for (const id of retiredIds) {
       expect(VACUITY_ALLOWLIST_IDS).not.toContain(id);
-      expect(censusLiveOutputSchemas().substantive).toContain(currentIdOf(id));
+      if (deletedIds.has(id)) {
+        expect([...census.substantive, ...census.vacuous]).not.toContain(id);
+      } else {
+        expect(census.substantive).toContain(currentIdOf(id));
+      }
     }
+    expect([...deletedIds].filter((id) => retiredIds.includes(id))).toEqual(['exarchos_orchestrate.mutation-adequacy']);
 
     const retirementShape = (entry: { owner: string; retiredAt: string }): boolean =>
       entry.owner.length > 0 && /^\d{4}-\d{2}-\d{2}$/.test(entry.retiredAt);

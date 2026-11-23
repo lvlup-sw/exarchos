@@ -18,7 +18,6 @@ import { deriveMcpCallerIdentity } from '../../src/dispatch/caller-identity.js';
 import { EventStore as DurableEventStore } from '../../src/events/store.js';
 import type { VerificationHostConnector } from '../../src/contract/verification/harness-verification.js';
 import { HostedAdequacyPending, hostedPendingResult } from '../../src/verbs/gates/gate-runner.js';
-import { handleMutationAdequacy } from '../../src/verbs/gates/mutation-adequacy.js';
 import { createInMemoryResolver } from '../../src/workflow/capabilities/resolver.js';
 import { getDispatchContext } from '../../src/dispatch/dispatch-context.js';
 import { replayedEvidence } from '../../src/dispatch/core/effect-carrier.js';
@@ -920,26 +919,15 @@ describe('dispatch keeps the code of a check that did not run', () => {
   });
 
   /**
-   * Two literals have a live producer: the pending result and the retired mutation gate.
+   * One literal has a live producer: the pending result.
    * The hosted refusal and the code of a machine with no verifier stay in the set for stored receipts.
-   * No source file outside dispatch names them.
+   * The retired mutation code is not in the set, because the adapters refuse a retired action before dispatch.
+   * No source file outside dispatch names the two reserved literals.
    * The census reads every TypeScript file under `src` and must find each reserved literal in dispatch, so an empty scan cannot pass.
    */
-  it('DidNotRunCodes_TwoLiveProducersAndTwoLiteralsReservedForHistory', async () => {
-    const stateDir = await mkdtemp(path.join(os.tmpdir(), 'did-not-run-producers-'));
-    const store = new DurableEventStore(stateDir);
-    await store.initialize();
-    try {
-      const retired = await handleMutationAdequacy({ featureId: 'feat-retired', base: 'main' }, stateDir, store, countingConnector().connector);
-      expect([hostedPendingResult(new HostedAdequacyPending('pending')).error?.code, retired.error?.code])
-        .toEqual(['HOSTED_ADEQUACY_PENDING', 'MUTATION_TESTING_RETIRED']);
-      expect(DID_NOT_RUN_CODES).toEqual([
-        'HOSTED_VERIFICATION_REFUSED', 'HOSTED_ADEQUACY_PENDING', 'MUTATION_TESTING_RETIRED', 'VERIFIER_NOT_PROVISIONED',
-      ]);
-    } finally {
-      store.close();
-      await rmrfAsync(stateDir);
-    }
+  it('DidNotRunCodes_OneLiveProducerAndTwoLiteralsReservedForHistory', async () => {
+    expect(hostedPendingResult(new HostedAdequacyPending('pending')).error?.code).toBe('HOSTED_ADEQUACY_PENDING');
+    expect(DID_NOT_RUN_CODES).toEqual(['HOSTED_VERIFICATION_REFUSED', 'HOSTED_ADEQUACY_PENDING', 'VERIFIER_NOT_PROVISIONED']);
     const sourceRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../src');
     const files = (await readdir(sourceRoot, { recursive: true })).filter((file) => file.endsWith('.ts'));
     const naming = new Map<string, string[]>();

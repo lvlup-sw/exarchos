@@ -99,14 +99,6 @@ const VERDICT_SHAPED =
  * A structural test checks that each row names a gate action of the registry.
  */
 export const GATE_SEVERITY_REGISTER: readonly GateSeverityRegisterRow[] = Object.freeze([
-  {
-    action: 'mutation-adequacy',
-    meaning: 'disabled-acts-as-warning',
-    reason:
-      'The handler appends mutation.executed and its own gate.executed rows, not through the gate runner. ' +
-      'A skip with no run breaks those always rows.',
-    owner: '#2147',
-  },
   { action: 'check_review_verdict', meaning: 'no-severity', reason: VERDICT_SHAPED, owner: '#1976' },
   { action: 'check_invariant_conformance', meaning: 'no-severity', reason: VERDICT_SHAPED, owner: '#1976' },
   { action: 'prepare_synthesis', meaning: 'no-severity', reason: DATA_READ_BY_NEXT_STEP, owner: '#2147' },

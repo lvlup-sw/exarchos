@@ -52,7 +52,6 @@ const UNRESOLVED_BASELINE: Readonly<Record<string, number>> = Object.freeze({
   'storage/sidecar-merger.ts': 1,
   'storage/sidecar-scheduler.ts': 1,
   'vcs/mutation-owner.ts': 2,
-  'verbs/gates/mutation-adequacy.ts': 1,
   'verbs/team/prepare-delegation.ts': 1,
   'verbs/worktree/manager.ts': 1,
   'verbs/worktree/merge-serializer.ts': 1,

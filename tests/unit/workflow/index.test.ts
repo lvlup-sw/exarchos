@@ -117,6 +117,22 @@ const ORIGINAL_HOME: Readonly<Record<'HOME' | 'USERPROFILE', string | undefined>
   USERPROFILE: process.env.USERPROFILE,
 };
 
+/**
+ * The property names that the JSON form of a registered input schema advertises, as `tools/list` reads it.
+ * The MCP adapter wraps the Zod schema to admit a retired call, so the test reads the standard JSON projection.
+ */
+function advertisedPropertyNames(schema: unknown): string[] {
+  if (typeof schema !== 'object' || schema === null || !('~standard' in schema)) return [];
+  const standard = schema['~standard'];
+  if (typeof standard !== 'object' || standard === null || !('jsonSchema' in standard)) return [];
+  const { jsonSchema } = standard;
+  if (typeof jsonSchema !== 'object' || jsonSchema === null || !('input' in jsonSchema) || typeof jsonSchema.input !== 'function') return [];
+  const json: unknown = jsonSchema.input({ target: 'draft-2020-12' });
+  if (typeof json !== 'object' || json === null || !('properties' in json)) return [];
+  const { properties } = json;
+  return typeof properties === 'object' && properties !== null ? Object.keys(properties) : [];
+}
+
 /** The scratch home of this file. `createServer` reads the verifier provisioning under the home once per file, so no test reads the real home. */
 let scratchHome = '';
 
@@ -206,10 +222,10 @@ describe('MCP Server Entry Point', () => {
 
     it('should register tools with schemas containing action field', async () => {
       await createServer('/tmp/test-state-dir');
+      expect(toolRegistrations.size).toBeGreaterThan(0);
       for (const [, registration] of toolRegistrations) {
         expect(registration.schema).toBeDefined();
-        const schema = registration.schema as { shape: Record<string, unknown> };
-        expect(schema.shape).toHaveProperty('action');
+        expect(advertisedPropertyNames(registration.schema)).toContain('action');
       }
     });
 

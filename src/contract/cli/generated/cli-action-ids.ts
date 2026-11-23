@@ -60,7 +60,6 @@ export const CLI_ACTION_IDS: readonly string[] = [
   'exarchos_orchestrate.list_prs',
   'exarchos_orchestrate.merge_orchestrate',
   'exarchos_orchestrate.merge_pr',
-  'exarchos_orchestrate.mutation-adequacy',
   'exarchos_orchestrate.needs_schema_sync',
   'exarchos_orchestrate.onboard',
   'exarchos_orchestrate.post_delegation_check',

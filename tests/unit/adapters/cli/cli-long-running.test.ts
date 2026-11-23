@@ -78,7 +78,6 @@ const EXPECTED_LONG_RUNNING_ACTIONS: ReadonlySet<string> = new Set([
   'post_delegation_check',
   'check_test_adequacy',
   'check_contract_drift',
-  'mutation-adequacy',
   'execute_intent',
   'settle',
 ]);

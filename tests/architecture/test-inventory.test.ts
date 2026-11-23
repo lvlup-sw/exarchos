@@ -147,6 +147,9 @@ const RETIRED_TEST_FILES: ReadonlyArray<{ path: string; subject: string }> = [
   { path: 'tests/unit/events/composite-hooks.test.ts', subject: 'src/hooks/config-hooks.ts' },
   { path: 'tests/scripts/check-mutation-gate.test.sh', subject: 'tools/audit/gates/check-mutation-gate.mjs' },
   { path: 'tests/unit/verbs/stryker-adapter.smoke.test.ts', subject: 'tools/audit/core/stryker-adapter.mjs' },
+  { path: 'tests/unit/verbs/gates/mutation-adequacy.test.ts', subject: 'src/verbs/gates/mutation-adequacy.ts' },
+  { path: 'tests/unit/verbs/gates/mutation-adequacy.report.test.ts', subject: 'src/verbs/gates/mutation-adequacy.ts' },
+  { path: 'tests/unit/verbs/gates/mutation-adequacy.characterization.test.ts', subject: 'src/verbs/gates/mutation-adequacy.ts' },
 ];
 
 describe('test inventory', () => {

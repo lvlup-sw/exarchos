@@ -1,15 +1,14 @@
-// Characterization of the four liveness emitters at the emission boundary: merge, launch,
-// mutation and prune. Each one runs through its real emission path into a real `EventStore`.
+// Characterization of the three live liveness emitters at the emission boundary: merge, launch
+// and prune. Each one runs through its real emission path into a real `EventStore`.
 // The tests parse the start and terminal payloads with the exported Zod schemas, because
 // `EventStore.append` validates only the envelope. Each payload must carry the canonical
 // `instanceId`:
 //   - merge: `taskId`, or `${sourceBranch}→${targetBranch}` with no `taskId`
 //   - launch: `worktreeId`
-//   - mutation: `operationId`
 //   - prune: the `operationId` of the pass
 //
-// The mutation case calls the live handler in `verbs/gates/mutation-adequacy.ts`, which brackets
-// the injected run with the liveness pair.
+// The mutation gate is retired, so no code emits the mutation pair. A stored mutation pair
+// still parses and still pairs by its `operationId`.
 // The import of `projections/merge-orchestrator/index.js` registers `merge-orchestrator@v1`, so
 // the `decide` closure of the merge executor can resolve the reducer against a real `EventStore`.
 
@@ -41,11 +40,7 @@ import {
   emitLaunchExecuted,
 } from '../../../src/runtime/launcher/liveness.js';
 import { WorktreeManager, WORKTREES_STREAM } from '../../../src/verbs/worktree/manager.js';
-import {
-  handleMutationAdequacy,
-  type MutationRunResult,
-} from '../../../src/verbs/gates/mutation-adequacy.js';
-import type { ResolvedVerificationRuntime } from '../../../src/config/test-runtime-resolver.js';
+import { getLivenessDescriptor } from '../../../src/events/liveness-registry.js';
 
 const scratchDirs: string[] = [];
 
@@ -89,26 +84,9 @@ function makeGitExec(recoverySha: string) {
   });
 }
 
-const RESOLVED_MUTATION: ResolvedVerificationRuntime = {
-  test: null,
-  typecheck: null,
-  install: null,
-  mutation: 'npx stryker run',
-  lint: null,
-  contract: null,
-  source: 'detection',
-};
-
-/**
- * Creates a repo root that holds only a Stryker config at its top level.
- * Run-root resolution finds the config there, so the mutation case does not read the live checkout.
- */
-async function makeConfiguredRepoRoot(): Promise<string> {
-  const dir = await mkdtemp(path.join(tmpdir(), 'dr2-mutation-repo-'));
-  scratchDirs.push(dir);
-  await writeFile(path.join(dir, 'stryker.conf.mjs'), 'export default {};\n');
-  return dir;
-}
+/** The data of a mutation pair that the retired gate stored before its retirement. */
+const STORED_MUTATION_START = { command: 'npx stryker run', repoRoot: '/repo', operationId: 'op-mutation-run', instanceId: 'op-mutation-run' };
+const STORED_MUTATION_TERMINAL = { ...STORED_MUTATION_START, passed: true, exitCode: 0 };
 
 afterEach(async () => {
   while (scratchDirs.length > 0) {
@@ -126,15 +104,13 @@ function findByType(events: readonly WorkflowEvent[], type: string): WorkflowEve
 describe('DR-2 liveness emitters', () => {
   /**
    * Merge: with a `taskId`, the `instanceId` is the `taskId`. With none, it is `<source>→<target>`.
-   * Mutation: each seam is injected, so no toolchain resolution, git diff or mutation subprocess
-   * runs. The handler result is advisory and always succeeds. The `{}` report gives only a warning
-   * after the terminal liveness emit, so both events are on the stream.
+   * Mutation: a stored pair parses with its schemas, and the registry pairs it by its `instanceId`.
    *
    * Prune: a repository with no released or orphan worktree is a no-op pass, and the liveness pair
    * still brackets it. The `catch` lets the test read the pair when the enumeration fails.
    * Prune uses its `operationId` as the instance key, so start and terminal hold the same value.
    */
-  it('AllFourEmitters_EmitCanonicalInstanceIdAdditively', async () => {
+  it('ThreeLiveEmittersAndTheStoredMutationPair_CarryCanonicalInstanceIdAdditively', async () => {
     {
       const { store, stateDir } = await makeStore('dr2-merge-');
       const recoverySha = 'b'.repeat(40);
@@ -207,32 +183,13 @@ describe('DR-2 liveness emitters', () => {
     }
 
     {
-      const { store, stateDir } = await makeStore('dr2-mutation-');
-      const result = await handleMutationAdequacy(
-        {
-          featureId: 'feat-mutation',
-          base: 'main',
-          repoRoot: await makeConfiguredRepoRoot(),
-          operationId: 'op-mutation-run',
-          resolve: () => RESOLVED_MUTATION,
-          detectToolchainId: () => 'node',
-          runMutation: (): MutationRunResult => ({ ok: true, report: '{}' }),
-          runDiff: () => [],
-        },
-        stateDir,
-        store,
-      );
-      expect(result.success).toBe(true);
-
-      const events = await store.query('feat-mutation');
-      const started = MutationExecutingStartedData.parse(
-        findByType(events, 'mutation.executing_started').data,
-      );
-      const terminal = MutationExecutedData.parse(
-        findByType(events, 'mutation.executed').data,
-      );
+      const started = MutationExecutingStartedData.parse(STORED_MUTATION_START);
+      const terminal = MutationExecutedData.parse(STORED_MUTATION_TERMINAL);
+      const { instanceKeyOf } = getLivenessDescriptor('mutation');
       expect(started.instanceId).toBe('op-mutation-run');
       expect(terminal.instanceId).toBe('op-mutation-run');
+      expect(instanceKeyOf(started)).toBe('op-mutation-run');
+      expect(instanceKeyOf(terminal)).toBe('op-mutation-run');
     }
 
     {

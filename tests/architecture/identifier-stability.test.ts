@@ -327,7 +327,6 @@ describe('identifier stability across decomposition', () => {
         'check_test_adequacy',
         'check_contract_drift',
         'check_mock_boundary',
-        'mutation-adequacy',
         'check_post_merge',
         'merge_orchestrate',
         'check_task_decomposition',

@@ -151,15 +151,7 @@ describe('KILL: route — breaking the SHIPPED dispatch wiring drops the census'
     expect(report.closedActions).toBe(BASELINE.closedActions - 1);
   });
 
-  /**
-   * The scanner resolves the computed key `[MUTATION_GATE_NAME]` through the import of the router.
-   * Thus the test also copies the imported module to the relative path that the router names.
-   */
   it('deleting a real key from the shipped orchestrate dispatch TABLE unroutes that action', () => {
-    scratchCopy(
-      path.join(SOURCE_ROOT, 'verbs', 'gates', 'mutation-adequacy.ts'),
-      path.join('gates', 'mutation-adequacy.ts'),
-    );
     const file = mutatedSource(
       path.join(SOURCE_ROOT, 'verbs', 'composite.ts'),
       'verbs-composite-dropped.ts',

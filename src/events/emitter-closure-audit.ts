@@ -81,8 +81,6 @@ export const UNRESOLVED_ACTION_EVENT_ALLOWANCE: readonly string[] = Object.freez
   'deviation.decided',
   'deviation.proposed',
   'execution.settled',
-  'mutation.executed',
-  'mutation.executing_started',
   'onboard.executed',
   'onboard.requested',
   'orchestrate.intent_executed',

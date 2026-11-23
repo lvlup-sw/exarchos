@@ -32,7 +32,6 @@ import { handleCheckExplorationDepth } from './gates/check-exploration-depth.js'
 import { handleTestAdequacy } from './gates/test-adequacy-handler.js';
 import { handleContractDrift } from './gates/contract-drift-handler.js';
 import { handleMockBoundary } from './gates/mock-boundary-handler.js';
-import { handleMutationAdequacy, MUTATION_GATE_NAME } from './gates/mutation-adequacy.js';
 import { handlePostMerge } from './gates/post-merge.js';
 import { handleStaticAnalysis } from './gates/static-analysis.js';
 import { handleCheckIntegrationSuite } from './gates/check-integration-suite.js';
@@ -514,12 +513,6 @@ export const ACTION_HANDLERS: Readonly<Record<string, ActionHandler>> = {
   check_test_adequacy: adaptLadderGate(handleTestAdequacy, true),
   check_contract_drift: adaptLadderGate(handleContractDrift, true),
   check_mock_boundary: adaptLadderGateWithExtra(handleMockBoundary, true, connectorOf),
-  /**
-   * Action of the mutation-adequacy review dimension. It is advisory by default, because its seeded gate default is warning-only.
-   * A score under the threshold shows survivor `next_actions` and does not block.
-   * An explicit `review.gates['mutation-adequacy']` override can make it blocking.
-   */
-  [MUTATION_GATE_NAME]: adaptLadderGateWithExtra(handleMutationAdequacy, false, connectorOf),
   check_post_merge: privateTermsRemoved(adaptWithEventStore(handlePostMerge)),
   check_static_analysis: adaptLadderGate(handleStaticAnalysis, true),
   check_integration_suite: adaptLadderGate(handleCheckIntegrationSuite, true),

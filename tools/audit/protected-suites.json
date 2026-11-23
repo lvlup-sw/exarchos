@@ -44,7 +44,6 @@
     "tests/unit/verbs/gates/check-invariant-conformance.parity.test.ts",
     "tests/unit/verbs/gates/contract-drift.parity.test.ts",
     "tests/unit/verbs/gates/mock-boundary.parity.test.ts",
-    "tests/unit/verbs/gates/mutation-adequacy.characterization.test.ts",
     "tests/unit/verbs/gates/plan-coverage.parity.test.ts",
     "tests/unit/verbs/gates/security-scan.parity.test.ts",
     "tests/unit/verbs/gates/static-analysis.parity.test.ts",

@@ -4,7 +4,7 @@
   "counts": {
     "tools": 5,
     "visibleTools": 4,
-    "actions": 128,
+    "actions": 127,
     "eventTypes": 186
   },
   "tools": [
@@ -73,7 +73,6 @@
         "list_prs",
         "merge_orchestrate",
         "merge_pr",
-        "mutation-adequacy",
         "needs_schema_sync",
         "onboard",
         "post_delegation_check",
@@ -573,13 +572,13 @@
     },
     {
       "type": "mutation.executed",
-      "lifecycle": "active",
+      "lifecycle": "retired",
       "tier": "substrate",
       "rationale": "operation-record"
     },
     {
       "type": "mutation.executing_started",
-      "lifecycle": "active",
+      "lifecycle": "retired",
       "tier": "substrate",
       "rationale": "operation-record"
     },
