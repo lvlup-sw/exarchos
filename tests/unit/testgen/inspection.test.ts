@@ -1,22 +1,22 @@
 // @oracle-sources: ../../../src/testgen/inspection/analyze.ts, ../../../src/testgen/inspection/collect.ts, ../../../src/testgen/adapters/cli.ts
-import { execFileSync } from 'node:child_process';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { expect, it } from 'vitest';
 import { makeTempDir, rmrfAsync } from '../../../tools/test-helpers/temp-dir.js';
+import { execFileAsync } from '../../../tools/test-helpers/spawn.js';
 import { dispatchInspection } from '../../../src/testgen/contract/operations.js';
 import { collectMetadata } from '../../../src/testgen/inspection/collect.js';
 import { runCli } from '../../../src/testgen/adapters/cli.js';
 
 /** Create a Git repository that tracks the given files. */
-function repository(files: Record<string, string>): string {
+async function repository(files: Record<string, string>): Promise<string> {
   const root = makeTempDir('testgen inspect ');
   for (const [path, text] of Object.entries(files)) {
     mkdirSync(dirname(join(root, path)), { recursive: true });
     writeFileSync(join(root, path), text);
   }
-  execFileSync('git', ['init', '-q'], { cwd: root });
-  execFileSync('git', ['add', '-A'], { cwd: root });
+  await execFileAsync('git', ['init', '-q'], { cwd: root });
+  await execFileAsync('git', ['add', '-A'], { cwd: root });
   return root;
 }
 
@@ -70,7 +70,7 @@ it('rejects metadata traversal paths and duplicate entries', () => {
 });
 
 it('reports an oversized lockfile as unresolved instead of failing the inspection', async () => {
-  const root = repository({ 'package.json': vitestManifest, 'package-lock.json': ' '.repeat(1_000_001) });
+  const root = await repository({ 'package.json': vitestManifest, 'package-lock.json': ' '.repeat(1_000_001) });
   try {
     const { exit, stdout } = await cli(['inspect', '--root', root, '--json']);
     expect(exit).toBe(0);
@@ -82,7 +82,7 @@ it('reports an oversized lockfile as unresolved instead of failing the inspectio
 
 it('reads only the selected project and its parent folders', async () => {
   const lock = JSON.stringify({ packages: { 'packages/a/node_modules/vitest': { version: '4.1.12' } } });
-  const root = repository({
+  const root = await repository({
     'package-lock.json': lock,
     'packages/a/package.json': vitestManifest,
     'packages/b/package.json': vitestManifest,
@@ -103,7 +103,7 @@ it('reads only the selected project and its parent folders', async () => {
 
 it('asks for a directory when the inferred project folder is not a portable scaffold path', async () => {
   const lock = JSON.stringify({ packages: { 'packages/@demo app/node_modules/vitest': { version: '4.1.12' } } });
-  const root = repository({ 'package-lock.json': lock, 'packages/@demo app/package.json': vitestManifest });
+  const root = await repository({ 'package-lock.json': lock, 'packages/@demo app/package.json': vitestManifest });
   const previous = process.cwd();
   process.chdir(root);
   try {
