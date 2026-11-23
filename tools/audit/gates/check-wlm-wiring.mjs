@@ -234,10 +234,7 @@ const INTEGRATION_CONTEXT_RE = /integration[\s-]?(?:branch|ref|merge)/i;
  * relative to `content/`. Each must still name `serialize_merge` on a line that
  * names `merge_orchestrate`.
  */
-const EXPECTED_SKILLS_SCOPE_FILES = [
-  'synthesis/skills/synthesize/SKILL.md',
-  'synthesis/skills/shepherd/SKILL.md',
-];
+const EXPECTED_SKILLS_SCOPE_FILES = [];
 
 function checkRule2(skillsRoot, skillsRootIsDefault, violations) {
   const filesWithSerializeCaveat = new Set();

@@ -7,7 +7,7 @@
     "testFiles": 1510,
     "parsedFiles": 1466,
     "shellFiles": 44,
-    "cases": 16804,
+    "cases": 16805,
     "dynamicTitles": 336,
     "unparseableFiles": 0
   },
@@ -37062,7 +37062,7 @@
         },
         {
           "suite": "skill-migration — T34: gh to MCP action migration",
-          "name": "McpActionReferences_PresentInMigratedSkills",
+          "name": "McpActionReferences_Synthesize_LeavesPrCreationAndMergeToTheHarness",
           "dynamic": false
         },
         {
@@ -37078,6 +37078,11 @@
         {
           "suite": "skill-migration — T34: gh to MCP action migration",
           "name": "McpActionReferences_CheckCi_PresentInTroubleshooting",
+          "dynamic": false
+        },
+        {
+          "suite": "skill-migration — T34: gh to MCP action migration",
+          "name": "RetiredActions_NamedByNoSkillSource",
           "dynamic": false
         }
       ]

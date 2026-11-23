@@ -20,9 +20,7 @@
         },
         "intent": "synthesis",
         "onlyInProse": [
-          "exarchos_orchestrate.create_pr",
           "exarchos_orchestrate.list_prs",
-          "exarchos_orchestrate.merge_pr",
           "exarchos_workflow.update",
           "native:Bash"
         ],
@@ -1454,7 +1452,7 @@
     {
       "boundary": {
         "label": "human checkpoint: merge the stack",
-        "line": 160,
+        "line": 149,
         "source": "content/synthesis/skills/synthesize/SKILL.md"
       },
       "conditional": [
@@ -1468,7 +1466,7 @@
         },
         {
           "call": "native:Bash",
-          "line": 234,
+          "line": 240,
           "per": "once",
           "role": "native",
           "source": "content/synthesis/skills/synthesize/SKILL.md",
@@ -1476,7 +1474,7 @@
         },
         {
           "call": "exarchos_workflow.describe",
-          "line": 273,
+          "line": 279,
           "per": "once",
           "role": "describe",
           "source": "content/synthesis/skills/synthesize/SKILL.md",
@@ -1484,7 +1482,7 @@
         },
         {
           "call": "exarchos_workflow.describe",
-          "line": 274,
+          "line": 280,
           "per": "once",
           "role": "describe",
           "source": "content/synthesis/skills/synthesize/SKILL.md",
@@ -1492,7 +1490,7 @@
         },
         {
           "call": "exarchos_orchestrate.describe",
-          "line": 276,
+          "line": 282,
           "per": "once",
           "role": "describe",
           "source": "content/synthesis/skills/synthesize/SKILL.md",
@@ -1511,17 +1509,17 @@
               "perTask": 0
             },
             "exarchos": {
-              "atUnit": 8,
-              "fixed": 5,
-              "formula": "5 + 3*prs",
-              "perPr": 3,
+              "atUnit": 6,
+              "fixed": 4,
+              "formula": "4 + 2*prs",
+              "perPr": 2,
               "perTask": 0
             },
             "exarchosWithDiscovery": {
-              "atUnit": 9,
-              "fixed": 6,
-              "formula": "6 + 3*prs",
-              "perPr": 3,
+              "atUnit": 7,
+              "fixed": 5,
+              "formula": "5 + 2*prs",
+              "perPr": 2,
               "perTask": 0
             },
             "native": {
@@ -1612,42 +1610,28 @@
         {
           "call": "exarchos_event.append",
           "kind": "beyond-boundary",
-          "line": 183,
+          "line": 172,
           "source": "content/synthesis/skills/synthesize/SKILL.md",
           "why": "emitted during shepherd iterations, after the checkpoint routes feedback to shepherd"
         },
         {
           "call": "exarchos_workflow.cleanup",
           "kind": "beyond-boundary",
-          "line": 202,
+          "line": 191,
           "source": "content/synthesis/skills/synthesize/SKILL.md",
           "why": "post-merge cleanup, after the checkpoint"
         },
         {
-          "call": "exarchos_orchestrate.prune_worktrees",
-          "kind": "beyond-boundary",
-          "line": 217,
-          "source": "content/synthesis/skills/synthesize/SKILL.md",
-          "why": "post-merge worktree reclamation"
-        },
-        {
-          "call": "exarchos_orchestrate.prune_worktrees",
-          "kind": "beyond-boundary",
-          "line": 218,
-          "source": "content/synthesis/skills/synthesize/SKILL.md",
-          "why": "post-merge worktree reclamation"
-        },
-        {
           "call": "exarchos_workflow.transition",
           "kind": "beyond-boundary",
-          "line": 228,
+          "line": 234,
           "source": "content/synthesis/skills/synthesize/SKILL.md",
           "why": "manual completion after a merged PR, an escape hatch past the checkpoint"
         },
         {
           "call": "exarchos_workflow.cleanup",
           "kind": "beyond-boundary",
-          "line": 228,
+          "line": 234,
           "source": "content/synthesis/skills/synthesize/SKILL.md",
           "why": "names the cleanup that normally owns completion"
         }
@@ -1688,24 +1672,8 @@
             "via": "site"
           },
           {
-            "call": "exarchos_orchestrate.create_pr",
-            "line": 128,
-            "per": "perPr",
-            "role": "work",
-            "source": "content/synthesis/skills/synthesize/SKILL.md",
-            "via": "site"
-          },
-          {
-            "call": "exarchos_orchestrate.merge_pr",
-            "line": 137,
-            "per": "perPr",
-            "role": "work",
-            "source": "content/synthesis/skills/synthesize/SKILL.md",
-            "via": "site"
-          },
-          {
             "call": "exarchos_orchestrate.list_prs",
-            "line": 146,
+            "line": 129,
             "per": "once",
             "role": "work",
             "source": "content/synthesis/skills/synthesize/SKILL.md",
@@ -1713,15 +1681,15 @@
           },
           {
             "call": "exarchos_workflow.update",
-            "line": 150,
-            "per": "once",
+            "line": 133,
+            "per": "perPr",
             "role": "work",
             "source": "content/synthesis/skills/synthesize/SKILL.md",
             "via": "site"
           },
           {
             "call": "exarchos_event.append",
-            "line": 171,
+            "line": 160,
             "per": "once",
             "role": "work",
             "source": "content/synthesis/skills/synthesize/SKILL.md",
@@ -1737,17 +1705,17 @@
             "perTask": 0
           },
           "exarchos": {
-            "atUnit": 7,
-            "fixed": 4,
-            "formula": "4 + 3*prs",
-            "perPr": 3,
+            "atUnit": 5,
+            "fixed": 3,
+            "formula": "3 + 2*prs",
+            "perPr": 2,
             "perTask": 0
           },
           "exarchosWithDiscovery": {
-            "atUnit": 8,
-            "fixed": 5,
-            "formula": "5 + 3*prs",
-            "perPr": 3,
+            "atUnit": 6,
+            "fixed": 4,
+            "formula": "4 + 2*prs",
+            "perPr": 2,
             "perTask": 0
           },
           "native": {
@@ -1773,9 +1741,7 @@
             "source": "content/synthesis/skills/synthesize/SKILL.md"
           },
           "onlyInProse": [
-            "exarchos_orchestrate.create_pr",
             "exarchos_orchestrate.list_prs",
-            "exarchos_orchestrate.merge_pr",
             "exarchos_workflow.update",
             "native:Bash"
           ],
@@ -2455,7 +2421,7 @@
       "flag": null,
       "intent": "synthesis",
       "kind": "boundary",
-      "line": 160,
+      "line": 149,
       "path": "boundary",
       "source": "content/synthesis/skills/synthesize/SKILL.md",
       "subject": "boundary"
@@ -2491,31 +2457,21 @@
       "subject": "exarchos_orchestrate.validate_pr_body"
     },
     {
-      "decision": "created for each branch in the stack, bottom-up; counted perPr",
+      "decision": "the state is updated after each PR URL is recorded, before auto-merge is enabled for that PR; counted perPr",
       "flag": null,
       "intent": "synthesis",
       "kind": "site",
-      "line": 129,
+      "line": 136,
       "path": "normal",
       "source": "content/synthesis/skills/synthesize/SKILL.md",
-      "subject": "exarchos_orchestrate.create_pr"
-    },
-    {
-      "decision": "auto-merge is enabled for each branch in the stack; counted perPr",
-      "flag": null,
-      "intent": "synthesis",
-      "kind": "site",
-      "line": 138,
-      "path": "normal",
-      "source": "content/synthesis/skills/synthesize/SKILL.md",
-      "subject": "exarchos_orchestrate.merge_pr"
+      "subject": "exarchos_workflow.update"
     },
     {
       "decision": "emitted after the PRs are created and auto-merge is enabled, before the checkpoint",
       "flag": null,
       "intent": "synthesis",
       "kind": "site",
-      "line": 172,
+      "line": 161,
       "path": "normal",
       "source": "content/synthesis/skills/synthesize/SKILL.md",
       "subject": "exarchos_event.append"
@@ -2565,7 +2521,7 @@
       "flag": null,
       "intent": "synthesis",
       "kind": "site",
-      "line": 235,
+      "line": 241,
       "path": "conditional",
       "source": "content/synthesis/skills/synthesize/SKILL.md",
       "subject": "native:Bash"
@@ -2575,7 +2531,7 @@
       "flag": null,
       "intent": "synthesis",
       "kind": "site",
-      "line": 273,
+      "line": 279,
       "path": "conditional",
       "source": "content/synthesis/skills/synthesize/SKILL.md",
       "subject": "exarchos_workflow.describe"
@@ -2585,7 +2541,7 @@
       "flag": null,
       "intent": "synthesis",
       "kind": "site",
-      "line": 274,
+      "line": 280,
       "path": "conditional",
       "source": "content/synthesis/skills/synthesize/SKILL.md",
       "subject": "exarchos_workflow.describe"
@@ -2595,7 +2551,7 @@
       "flag": null,
       "intent": "synthesis",
       "kind": "site",
-      "line": 276,
+      "line": 282,
       "path": "conditional",
       "source": "content/synthesis/skills/synthesize/SKILL.md",
       "subject": "exarchos_orchestrate.describe"
@@ -2605,7 +2561,7 @@
       "flag": null,
       "intent": "synthesis",
       "kind": "beyond-boundary",
-      "line": 183,
+      "line": 172,
       "path": "excluded",
       "source": "content/synthesis/skills/synthesize/SKILL.md",
       "subject": "exarchos_event.append"
@@ -2615,37 +2571,17 @@
       "flag": null,
       "intent": "synthesis",
       "kind": "beyond-boundary",
-      "line": 202,
+      "line": 191,
       "path": "excluded",
       "source": "content/synthesis/skills/synthesize/SKILL.md",
       "subject": "exarchos_workflow.cleanup"
-    },
-    {
-      "decision": "post-merge worktree reclamation",
-      "flag": null,
-      "intent": "synthesis",
-      "kind": "beyond-boundary",
-      "line": 217,
-      "path": "excluded",
-      "source": "content/synthesis/skills/synthesize/SKILL.md",
-      "subject": "exarchos_orchestrate.prune_worktrees"
-    },
-    {
-      "decision": "post-merge worktree reclamation",
-      "flag": null,
-      "intent": "synthesis",
-      "kind": "beyond-boundary",
-      "line": 218,
-      "path": "excluded",
-      "source": "content/synthesis/skills/synthesize/SKILL.md",
-      "subject": "exarchos_orchestrate.prune_worktrees"
     },
     {
       "decision": "manual completion after a merged PR, an escape hatch past the checkpoint",
       "flag": null,
       "intent": "synthesis",
       "kind": "beyond-boundary",
-      "line": 228,
+      "line": 234,
       "path": "excluded",
       "source": "content/synthesis/skills/synthesize/SKILL.md",
       "subject": "exarchos_workflow.transition"
@@ -2655,7 +2591,7 @@
       "flag": null,
       "intent": "synthesis",
       "kind": "beyond-boundary",
-      "line": 228,
+      "line": 234,
       "path": "excluded",
       "source": "content/synthesis/skills/synthesize/SKILL.md",
       "subject": "exarchos_workflow.cleanup"
@@ -2695,7 +2631,7 @@
       },
       {
         "file": "content/synthesis/skills/synthesize/SKILL.md",
-        "sha256": "34f0bc3afa8823275b374ccb6d6c1b89ed08af0210256f1e951beedbc7eaf21b"
+        "sha256": "7d3615135412050a17582d34bd05c92e0f0305f1031a1121aea136ba8441b465"
       },
       {
         "file": "src/runbooks/definitions.ts",
@@ -4010,34 +3946,12 @@
         "status": "registered"
       },
       {
-        "call": "exarchos_orchestrate.create_pr",
-        "dispositions": [
-          "synthesis:normal"
-        ],
-        "endLine": 134,
-        "line": 128,
-        "pattern": "call-expression",
-        "runbookId": null,
-        "status": "registered"
-      },
-      {
-        "call": "exarchos_orchestrate.merge_pr",
-        "dispositions": [
-          "synthesis:normal"
-        ],
-        "endLine": 141,
-        "line": 137,
-        "pattern": "call-expression",
-        "runbookId": null,
-        "status": "registered"
-      },
-      {
         "call": "exarchos_orchestrate.list_prs",
         "dispositions": [
           "synthesis:normal"
         ],
-        "endLine": 146,
-        "line": 146,
+        "endLine": 129,
+        "line": 129,
         "pattern": "call-expression",
         "runbookId": null,
         "status": "registered"
@@ -4047,8 +3961,8 @@
         "dispositions": [
           "synthesis:normal"
         ],
-        "endLine": 155,
-        "line": 150,
+        "endLine": 138,
+        "line": 133,
         "pattern": "call-expression",
         "runbookId": null,
         "status": "registered"
@@ -4058,8 +3972,8 @@
         "dispositions": [
           "synthesis:normal"
         ],
-        "endLine": 177,
-        "line": 171,
+        "endLine": 166,
+        "line": 160,
         "pattern": "call-expression",
         "runbookId": null,
         "status": "registered"
@@ -4069,8 +3983,8 @@
         "dispositions": [
           "synthesis:excluded:beyond-boundary"
         ],
-        "endLine": 191,
-        "line": 183,
+        "endLine": 180,
+        "line": 172,
         "pattern": "call-expression",
         "runbookId": null,
         "status": "registered"
@@ -4080,30 +3994,8 @@
         "dispositions": [
           "synthesis:excluded:beyond-boundary"
         ],
-        "endLine": 205,
-        "line": 202,
-        "pattern": "call-expression",
-        "runbookId": null,
-        "status": "registered"
-      },
-      {
-        "call": "exarchos_orchestrate.prune_worktrees",
-        "dispositions": [
-          "synthesis:excluded:beyond-boundary"
-        ],
-        "endLine": 217,
-        "line": 217,
-        "pattern": "call-expression",
-        "runbookId": null,
-        "status": "registered"
-      },
-      {
-        "call": "exarchos_orchestrate.prune_worktrees",
-        "dispositions": [
-          "synthesis:excluded:beyond-boundary"
-        ],
-        "endLine": 218,
-        "line": 218,
+        "endLine": 194,
+        "line": 191,
         "pattern": "call-expression",
         "runbookId": null,
         "status": "registered"
@@ -4113,8 +4005,8 @@
         "dispositions": [
           "synthesis:excluded:beyond-boundary"
         ],
-        "endLine": 228,
-        "line": 228,
+        "endLine": 234,
+        "line": 234,
         "pattern": "bare-action-key",
         "runbookId": null,
         "status": "registered"
@@ -4124,8 +4016,8 @@
         "dispositions": [
           "synthesis:excluded:beyond-boundary"
         ],
-        "endLine": 228,
-        "line": 228,
+        "endLine": 234,
+        "line": 234,
         "pattern": "bare-action-key",
         "runbookId": null,
         "status": "registered"
@@ -4135,8 +4027,8 @@
         "dispositions": [
           "synthesis:conditional"
         ],
-        "endLine": 236,
-        "line": 234,
+        "endLine": 242,
+        "line": 240,
         "pattern": "shell-fence",
         "runbookId": null,
         "status": "harness"
@@ -4146,8 +4038,8 @@
         "dispositions": [
           "synthesis:conditional"
         ],
-        "endLine": 273,
-        "line": 273,
+        "endLine": 279,
+        "line": 279,
         "pattern": "call-expression",
         "runbookId": null,
         "status": "registered"
@@ -4157,8 +4049,8 @@
         "dispositions": [
           "synthesis:conditional"
         ],
-        "endLine": 274,
-        "line": 274,
+        "endLine": 280,
+        "line": 280,
         "pattern": "call-expression",
         "runbookId": null,
         "status": "registered"
@@ -4168,8 +4060,8 @@
         "dispositions": [
           "synthesis:conditional"
         ],
-        "endLine": 276,
-        "line": 276,
+        "endLine": 282,
+        "line": 282,
         "pattern": "call-expression",
         "runbookId": null,
         "status": "registered"
@@ -4290,8 +4182,8 @@
       "endsAt": "human checkpoint: merge the stack",
       "exceptions": [
         {
-          "atUnit": 8,
-          "exarchos": "5 + 3*prs",
+          "atUnit": 6,
+          "exarchos": "4 + 2*prs",
           "id": "pr-body-invalid"
         },
         {
@@ -4302,8 +4194,8 @@
       ],
       "intent": "synthesis",
       "native": "1*prs",
-      "normalExarchos": "4 + 3*prs",
-      "normalExarchosAtUnit": 7,
+      "normalExarchos": "3 + 2*prs",
+      "normalExarchosAtUnit": 5,
       "runbookFetch": "1"
     }
   ]

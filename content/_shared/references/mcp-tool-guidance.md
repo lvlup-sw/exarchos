@@ -3,7 +3,7 @@
 Use specialized MCP tools over generic approaches:
 
 1. **Workflow state** — Exarchos MCP, never manual JSON
-2. **PR creation** — VCS MCP action (`exarchos_orchestrate({ action: "create_pr", base: "<base-branch>", title: "...", body: "..." })`)
+2. **PR creation** — the coordinator creates each PR through its harness, outside governance. Exarchos reads PRs with the `list_prs` action.
 3. **State management** — `exarchos_workflow` get/update/transition, never edit JSON directly
 
 > Additional tool guidance (Serena, GitHub MCP, Context7) is provided by optional companions. Install: `npx create-exarchos`

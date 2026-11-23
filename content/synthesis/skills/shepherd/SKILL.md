@@ -13,11 +13,11 @@ metadata:
 
 ## VCS Provider
 
-This skill uses VCS operations through Exarchos MCP actions (`check_ci`, `list_prs`, `merge_pr`, `get_pr_comments`, `add_pr_comment`, etc.).
-These actions automatically detect and route to the correct VCS provider (GitHub, GitLab, Azure DevOps).
-No `gh`/`glab`/`az` commands needed — the MCP server handles provider dispatch.
+The Exarchos read actions (`check_ci`, `list_prs`, `get_pr_comments`, `assess_stack`) detect the VCS provider (GitHub, GitLab, Azure DevOps) and route to it.
+Exarchos does no VCS write. The coordinator posts each comment, enables auto-merge and merges each PR through its harness, outside governance.
+If the harness cannot do a write, stop and report. Do not fall back to an Exarchos action.
 
-> The `merge_pr` invoked here is the remote PR merge primitive (synthesize-phase). It is distinct from the integration merge run during the upstream `merge-pending` substate — there, `serialize_merge` (`@skills/merge-orchestrator/SKILL.md`) is the integration-merge path: it holds a single-writer lease and composes the local `git merge` (raw `merge_orchestrate` is that composed executor / the non-integration path). This skill never invokes `serialize_merge` or `merge_orchestrate`.
+> A PR merge in this skill is a remote operation that the coordinator runs through its harness. It is distinct from the integration merge. During delegation the coordinator lands each accepted head on the integration branch through its harness (`@skills/delegate/SKILL.md`). A stream parked in `merge-pending` follows `@skills/merge-orchestrator/SKILL.md`. This skill lands no integration commit.
 
 Iterative loop that shepherds published PRs through CI checks and code reviews to merge readiness. Uses the `assess_stack` composite action for all PR health checks, fixing failures and addressing feedback until the stack is green.
 
@@ -53,7 +53,7 @@ Activate when:
 ## Prerequisites
 
 - Active workflow with PRs published (PR URLs in `synthesis.prUrl` or `artifacts.pr`)
-- PRs created and pushed (`create_pr` already ran)
+- PRs created and pushed (synthesize Step 3 already ran)
 - Exarchos MCP tools available for VCS operations
 
 ## Process
@@ -163,7 +163,7 @@ These events feed `selfCorrectionRate` and `avgRemediationAttempts` metrics in C
 | Type | Strategy |
 |------|----------|
 | `ci-fix` | Read logs, reproduce locally, fix, commit to stack branch |
-| `comment-reply` | Use `actionItem.reviewer`, `normalizedSeverity`, `file`, `line`, and `raw` (full original comment) to compose a response. Provider adapters under `servers/exarchos-mcp/src/review/providers/` populate the input fields — no manual tier parsing needed. **Posting:** both PR-level summary comments and per-thread inline replies use the provider-agnostic `add_pr_comment` orchestrate action — pass a `threadId` to route a reply into a specific inline thread (via `VcsProvider.addReply`). Inline thread replies are supported on GitHub; GitLab and Azure DevOps return an explicit "not yet supported" capability signal. |
+| `comment-reply` | Use `actionItem.reviewer`, `normalizedSeverity`, `file`, `line`, and `raw` (full original comment) to compose a response. Provider adapters under `servers/exarchos-mcp/src/review/providers/` populate the input fields — no manual tier parsing needed. **Posting:** the coordinator posts both PR-level summary comments and per-thread inline replies through its harness, outside governance. A comment with a lost reply can post twice. Thus before a re-post, read `get_pr_comments` for the PR and follow its offset until `page.hasMore` is false. Skip the re-post only on an exact match by PR, thread and body text. A truncated or failed read is never "no reply there": stop before the re-post. If the harness cannot post, stop and report. |
 | `review-address` | Fix code for CHANGES_REQUESTED, reply to each thread |
 | `restack` | Run `git rebase origin/<base>`, verify with `exarchos_orchestrate({ action: "list_prs" })` |
 | `escalate` | Consult `references/escalation-criteria.md` |
@@ -177,10 +177,7 @@ After fixes are applied, resubmit the stack:
 git push --force-with-lease
 ```
 
-Re-enable auto-merge if needed:
-```typescript
-exarchos_orchestrate({ action: "merge_pr", prId: "<number>", strategy: "squash" })
-```
+Re-enable auto-merge if needed: the coordinator enables it through its harness, outside governance, with the squash strategy. Before a merge or an auto-merge retry, read the PR state with `list_prs` (filtered by head and base, with `state: "all"`). Do not merge a PR that is already merged, and stop and report on a closed one.
 
 Return to Step 1 for the next iteration. Track iteration count against the limit (default 5). If the limit is reached without reaching `request-approval`, escalate per `references/escalation-criteria.md`.
 

@@ -4,16 +4,10 @@ PR stacking creates a chain of dependent pull requests that merge bottom-up into
 
 ## 1. PR Chain Creation
 
-Create PRs that chain together by setting each PR's base to the previous branch:
+Create PRs that chain together by setting each PR's base to the previous branch. The coordinator creates each PR through its harness, outside governance, bottom-up:
 
-```typescript
-// First PR in chain targets main
-exarchos_orchestrate({ action: "create_pr", base: "main", head: "feat/step-1", title: "feat: step 1", body: "..." })
-
-// Subsequent PRs target the previous PR's branch
-exarchos_orchestrate({ action: "create_pr", base: "feat/step-1", head: "feat/step-2", title: "feat: step 2", body: "..." })
-exarchos_orchestrate({ action: "create_pr", base: "feat/step-2", head: "feat/step-3", title: "feat: step 3", body: "..." })
-```
+1. The first PR targets `main`: head `feat/step-1`, base `main`.
+2. Each later PR targets the branch of the PR below it: head `feat/step-2`, base `feat/step-1`, then head `feat/step-3`, base `feat/step-2`.
 
 The resulting chain looks like:
 
@@ -93,29 +87,22 @@ exarchos_orchestrate({
 GitHub's native merge queue ensures PRs pass CI before merging:
 
 - **Enable:** Repository Settings > Rules > Branch protection > Require merge queue
-- **Auto-merge:** `exarchos_orchestrate({ action: "merge_pr", prId: "<number>", strategy: "squash" })` enables auto-merge once checks pass
-- **For stacks:** Enable auto-merge on each PR, then merge bottom-up
-
-```typescript
-// Enable auto-merge on all PRs in the stack
-exarchos_orchestrate({ action: "merge_pr", prId: "101", strategy: "squash" })
-exarchos_orchestrate({ action: "merge_pr", prId: "102", strategy: "squash" })
-exarchos_orchestrate({ action: "merge_pr", prId: "103", strategy: "squash" })
-```
+- **Auto-merge:** the coordinator enables auto-merge through its harness, outside governance, with the squash strategy. The PR merges once checks pass.
+- **For stacks:** Enable auto-merge on each PR, then merge bottom-up. For the example stack, enable it on PR 101, then PR 102, then PR 103.
 
 After PR 101 merges and its branch is deleted, GitHub retargets PR 102 to `main`. If auto-merge is enabled on PR 102, it merges automatically once CI passes.
 
-## 7. Graphite to Exarchos MCP Equivalents
+## 7. Graphite Equivalents
 
-| Graphite Command | Exarchos MCP Equivalent |
+| Graphite Command | Equivalent |
 |---|---|
 | `gt create <branch> -m "feat: ..."` | `git checkout -b <branch> && git commit -m "feat: ..." && git push -u origin <branch>` |
-| `gt submit --no-interactive --publish --stack` | `exarchos_orchestrate({ action: "create_pr", base: "<base>", title: "...", body: "..." })` (per PR) |
+| `gt submit --no-interactive --publish --stack` | The coordinator creates each PR through its harness, outside governance, bottom-up |
 | `gt log` | `exarchos_orchestrate({ action: "list_prs", state: "open" })` |
 | `gt modify -m "..."` | `git commit --amend -m "..." && git push --force-with-lease` |
 | `gt sync` | `git fetch --prune && git rebase origin/main` |
 | `gt restack` | `git rebase origin/<base-branch>` per branch in stack |
-| `mcp__graphite__run_gt_cmd` | `exarchos_orchestrate` VCS actions |
+| `mcp__graphite__run_gt_cmd` | `exarchos_orchestrate` VCS read actions, and harness writes for PRs |
 
 ## 8. Error Handling
 

@@ -465,20 +465,13 @@ const SYNTHESIS: IntentModel = {
       per: 'perPr',
       why: 'each PR body is validated before its PR is created',
     },
-    {
-      kind: 'site',
-      ref: at('synthesize', `${O}.create_pr`, 'action: "create_pr",'),
-      per: 'perPr',
-      why: 'created for each branch in the stack, bottom-up',
-    },
-    {
-      kind: 'site',
-      ref: at('synthesize', `${O}.merge_pr`, 'action: "merge_pr",'),
-      per: 'perPr',
-      why: 'auto-merge is enabled for each branch in the stack',
-    },
     { kind: 'site', ref: at('synthesize', `${O}.list_prs`, 'action: "list_prs"') },
-    { kind: 'site', ref: at('synthesize', `${W}.update`, '"mergeOrder": [') },
+    {
+      kind: 'site',
+      ref: at('synthesize', `${W}.update`, '"mergeOrder": ['),
+      per: 'perPr',
+      why: 'the state is updated after each PR URL is recorded, before auto-merge is enabled for that PR',
+    },
     {
       kind: 'site',
       ref: at('synthesize', `${E}.append`, 'type: "stack.submitted",'),
@@ -537,8 +530,6 @@ const SYNTHESIS: IntentModel = {
       why: 'emitted during shepherd iterations, after the checkpoint routes feedback to shepherd',
     },
     { ref: at('synthesize', `${W}.cleanup`, 'mergeVerified: true,'), kind: 'beyond-boundary', why: 'post-merge cleanup, after the checkpoint' },
-    { ref: at('synthesize', `${O}.prune_worktrees`, '// dry-run (default)'), kind: 'beyond-boundary', why: 'post-merge worktree reclamation' },
-    { ref: at('synthesize', `${O}.prune_worktrees`, '// apply'), kind: 'beyond-boundary', why: 'post-merge worktree reclamation' },
     {
       ref: at('synthesize', `${W}.transition`, 'action: "transition"`, `target: "completed"`'),
       kind: 'beyond-boundary',
