@@ -337,13 +337,15 @@ export const EVENT_ANNOTATIONS: Readonly<Record<string, EventRegistration>> = Ob
     tier: 'substrate',
     rationale: 'operation-record',
   },
+  /** Retired with the launcher. The schema stays so that old logs replay the same, but no code writes this event. */
   'worktree.create.requested': {
-    lifecycle: 'active',
+    lifecycle: 'retired',
     tier: 'substrate',
     rationale: 'operation-record',
   },
+  /** Retired with the launcher. The schema stays so that old logs replay the same, but no code writes this event. */
   'worktree.create.executed': {
-    lifecycle: 'active',
+    lifecycle: 'retired',
     tier: 'substrate',
     rationale: 'operation-record',
   },

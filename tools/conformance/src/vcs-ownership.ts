@@ -68,8 +68,8 @@ export interface VcsOwnershipResult {
 
 /**
  * The modules that can mutate git worktrees, branches and merges directly. `vcs/mutation-owner.ts`
- * is the canonical owner, with idempotency, fencing and compensation. The launcher worktree create
- * and the saga compensation teardown are older owners.
+ * is the canonical owner, with idempotency, fencing and compensation. The saga compensation
+ * teardown is an older owner.
  *
  * `verbs/merge/local-git-merge.ts` owns the `git merge` argv and the `checkout -b` of the rebase
  * strategy. Its merge has no ledger fence, because the merge serializer suppresses duplicates.
@@ -78,7 +78,6 @@ export interface VcsOwnershipResult {
  * declared here or routed through the owner.
  */
 export const VCS_MUTATION_OWNERS: readonly string[] = Object.freeze([
-  'runtime/launcher/create-worktree.ts',
   'verbs/merge/local-git-merge.ts',
   'verbs/pure/execute-merge.ts',
   'vcs/mutation-owner.ts',

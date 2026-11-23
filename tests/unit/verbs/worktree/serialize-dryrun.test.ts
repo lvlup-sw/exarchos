@@ -1,7 +1,7 @@
 // `serialize_merge` defaults to a dry run, which claims no lease and runs no merge.
-// The suite checks three facts:
+// The suite checks these facts:
 // - The dispatch default claims no lease and returns the planned effect.
-// - The composed integration-merge caller `LauncherWlm` still runs a real merge.
+// - An explicit `dryRun: false` claims the lease and runs the merge.
 // - `acquire_worktree` refuses the reserve with a structured error when the
 //   adopt gate finds that the target worktree is not mutable.
 
@@ -16,7 +16,6 @@ import type { ToolResult } from '../../../../src/format.js';
 import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
 import { WORKTREES_STREAM } from '../../../../src/verbs/worktree/manager.js';
 import { handleSerializeMerge, handleAcquireWorktree } from '../../../../src/verbs/worktree/handlers.js';
-import { createLauncherWlm } from '../../../../src/runtime/launcher/wlm-compose.js';
 import type { GitWorktreeProbe } from '../../../../src/verbs/worktree/manager.js';
 import type { ProcessSource } from '../../../../src/verbs/worktree/pure/process-identity.js';
 import type { ProcessTableSource } from '../../../../src/verbs/worktree/pure/probe.js';
@@ -112,36 +111,6 @@ describe('serialize_merge — DR-1 dry-run default', () => {
 
     expect(result.success).toBe(true);
     expect(calls).toHaveLength(1);
-    expect(await leaseEvents(arm.eventStore)).toEqual([
-      'worktree.merge_requested',
-      'worktree.merge_executed',
-    ]);
-  });
-
-  /**
-   * `LauncherWlm.serializeIntegrationMerge` must run a real merge. The caller
-   * passes no `dryRun`, and the composition sets `dryRun: false`.
-   */
-  it('SerializeMerge_ComposedCaller_StillExecutesMerge', async () => {
-    const arm = await nextArm();
-    const calls: HandleMergeOrchestrateInput[] = [];
-    const wlm = createLauncherWlm({ ctx: arm.ctx });
-
-    const result = await wlm.serializeIntegrationMerge(
-      { featureId: 'F', integrationRef: 'main', sourceBranch: 'feat/x', strategy: 'squash' },
-      {
-        mergeOrchestrate: recordingMerge(calls),
-        readIntegrationHead: () => 'deadbeef',
-        processSource: FIXED_SOURCE,
-        processTableSource: SELF_ALIVE_TABLE,
-        selfPid: 4242,
-        selfStartedAt: 'fixed-start',
-      },
-    );
-
-    expect(result.success).toBe(true);
-    expect(calls).toHaveLength(1);
-    expect(calls[0].featureId).toBe('F');
     expect(await leaseEvents(arm.eventStore)).toEqual([
       'worktree.merge_requested',
       'worktree.merge_executed',

@@ -4142,10 +4142,20 @@ describe('harness-launcher event schemas (DR-2)', () => {
     ).toBeNull();
   });
 
-  /** Deterministic code appends all four types around `git worktree add` and around the child process. */
-  it('EmissionRegistry_FourNewTypes_ClassifiedAuto', () => {
+  /**
+   * Deterministic code appends the `launch.*` pair, so it is classified `auto`.
+   * The retired launcher was the only writer of the `worktree.create.*` pair, so that pair is `retired`.
+   * All four schemas stay, so stored rows still parse.
+   */
+  it('EmissionRegistry_LaunchPairAuto_CreatePairRetired_SchemasKept', () => {
+    const expected: Record<(typeof NEW_TYPES)[number], string> = {
+      'worktree.create.requested': 'retired',
+      'worktree.create.executed': 'retired',
+      'launch.executing_started': 'auto',
+      'launch.executed': 'auto',
+    };
     for (const type of NEW_TYPES) {
-      expect(EVENT_EMISSION_REGISTRY[type], `${type} should be classified 'auto'`).toBe('auto');
+      expect(EVENT_EMISSION_REGISTRY[type], `${type} should be classified '${expected[type]}'`).toBe(expected[type]);
       const schema = EVENT_DATA_SCHEMAS[type];
       expect(schema, `${type} missing from EVENT_DATA_SCHEMAS`).toBeDefined();
     }

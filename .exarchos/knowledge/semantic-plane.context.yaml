@@ -798,6 +798,17 @@ decisions:
       The detectVcs context option has no production caller after the harness entry goes.
     status: "Committed on codex/1928-s3-launcher. The lock waits for Reed to re-approve it."
 
+  - date: "2026-11-23"
+    source: "#1928 revision 26, slice S3 step T-28, the conception of 2026-11-23 (the launcher is retired)."
+    decision: >-
+      The 16 launch composition modules and their 15 suites are deleted. launch-reconcile.ts and liveness.ts stay for the historical reconcile_worktrees leg.
+      The effect ledger loses its two launcher rules, and VCS_MUTATION_OWNERS loses the launcher worktree create. The module emission rows of that create go, and worktree.create.* is annotated retired. Its schemas stay, so stored rows parse the same.
+      The Windows lane names tests/unit/verbs/worktree/pure/path-containment.test.ts, which holds the win32 short-name case, in place of the deleted topology suite.
+    known: >-
+      launch.executing_started has no production writer now. Its liveness emitter stays in liveness.ts with its unit test, and launch.executed is still appended by reconcile_worktrees.
+      The layer allowances runtime -> dispatch and adapters/cli -> runtime had no live edge after the launcher left, so they are removed.
+    status: "Committed on codex/1928-s3-launcher."
+
 build_order:
   original: "kernel -> capsule contract -> prepare/settle -> one runtime adapter -> divergence loop -> #1249 laws -> second adapter"
   legs:
@@ -917,7 +928,7 @@ drift:
     resolution: "open question"
   - id: "launcher"
     design: "retired for plugin distribution"
-    built: "launcher shipped; v2.12.0 is the first release that carries the plane (the interim per-wave prepare/settle)"
+    built: "launcher shipped; v2.12.0 is the first release that carries the plane (the interim per-wave prepare/settle). #1928 S3 (T-27, T-28) deletes the harness entry and the launch composition; launch-reconcile.ts and liveness.ts stay for the historical reconcile leg"
     resolution: "distribution leg"
   - id: "materiality"
     design: "settlement classifies what changed: a changed assumption, goal interpretation or task boundary is material"

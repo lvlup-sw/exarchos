@@ -57,12 +57,6 @@ const ELICITATION_PROTOCOL =
   'attributing the protocol to actions would make each one a declared emitter of a negotiation the ' +
   'pipeline runs for it. Same shape as the emission verifier below.';
 
-const WORKTREE_CREATE_PAIR =
-  'Appended from the launcher as a child worktree is provisioned, driven by the runtime lifecycle ' +
-  'rather than by a dispatched call — the same reading the launcher liveness row below carries. ' +
-  'Crash recovery re-appends the terminal half from a LATER process, replaying an intent whose ' +
-  'originating dispatch is gone, so no live action invocation bounds the pair.';
-
 const PROJECTION_HEALTH =
   'Published from the shared view read path, which every view read traverses: the read clears or ' +
   'records the projection-health row for the stream it just read, keyed on the cursor/tail pair it ' +
@@ -154,8 +148,9 @@ export const MODULE_EMISSIONS: readonly ModuleEmission[] = Object.freeze([
     trigger: 'process-hook',
     rationale:
       'Appended from the launcher liveness path as a child process starts, driven by the runtime ' +
-      'lifecycle rather than by a dispatched call. The terminal half of the pair is reachable ' +
-      'from a probing action; this opening half is not.',
+      'lifecycle rather than by a dispatched call. The launcher is retired, so only stored logs ' +
+      'hold this half. The terminal half of the pair is reachable from a probing action; this ' +
+      'opening half is not.',
   },
   {
     event: 'emission.violated',
@@ -202,18 +197,6 @@ export const MODULE_EMISSIONS: readonly ModuleEmission[] = Object.freeze([
       'caller is the pre-handler inferred-value step, which runs before routing and is told ' +
       'nothing about which action it is resolving for — the append precedes any action taking ' +
       'effect, so none of them can carry it.',
-  },
-  {
-    event: 'worktree.create.requested',
-    module: 'runtime/launcher/create-worktree.ts',
-    trigger: 'process-hook',
-    rationale: WORKTREE_CREATE_PAIR,
-  },
-  {
-    event: 'worktree.create.executed',
-    module: 'runtime/launcher/create-worktree.ts',
-    trigger: 'process-hook',
-    rationale: WORKTREE_CREATE_PAIR,
   },
   {
     event: 'projection.degraded',

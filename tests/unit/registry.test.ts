@@ -55,8 +55,6 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 import { parse as parseYaml } from 'yaml';
-import { LAUNCHER_VERB_CONFORMANCE } from '../../src/runtime/launcher/verb.js';
-import { TIER1_HARNESSES } from '../../src/runtime/launcher/harness-registry.js';
 import { validateAutoEmission } from '../../src/registry/gate-metadata.js';
 import type { AutoEmission } from '../../src/registry/gate-metadata.js';
 
@@ -2585,61 +2583,13 @@ describe('asOf registry schema (T6, #1555)', () => {
 });
 
 /**
- * The `exarchos <harness>` launcher is a CLI-only verb, because the stdio MCP surface cannot own the lifecycle of a child process.
- * Thus its schema constraints and its when-not-to-use clauses are on the verb module and not in `TOOL_REGISTRY`.
- * The verb must add no visible MCP tool. A named Windows CI lane must run its tests that are fragile on win32.
+ * The launcher is retired, so no tool and no action carries a launcher or harness name.
+ * A named Windows CI lane must run the tests that are fragile on win32.
  */
-describe('harness-launcher verb conformance + Windows CI lane (task 015, DR-1/DR-8)', () => {
-  /**
-   * The constraints must name the schema fields `harness`, `feature` and `dryRun`, and each Tier-1 harness.
-   * Thus the documented `harness` constraint cannot drift from the enum.
-   * They must also name `validTargets`, which the error for an unknown harness carries.
-   */
-  it('Verb_SchemaConstraints_Present', () => {
-    const { schemaConstraints } = LAUNCHER_VERB_CONFORMANCE;
-    expect(Array.isArray(schemaConstraints)).toBe(true);
-    expect(schemaConstraints.length).toBeGreaterThan(0);
-
-    for (const constraint of schemaConstraints) {
-      expect(typeof constraint).toBe('string');
-      expect(constraint.trim().length).toBeGreaterThan(0);
-    }
-
-    const joined = schemaConstraints.join('\n');
-    expect(joined).toContain('harness');
-    expect(joined).toContain('feature');
-    expect(joined).toContain('dryRun');
-
-    for (const harness of TIER1_HARNESSES) {
-      expect(joined).toContain(harness);
-    }
-    expect(joined).toContain('validTargets');
-  });
-
-  /**
-   * Each clause must hold the words "do not use".
-   * The clauses must name `serialize_merge` for integration merges, and `adopt` for the nested worktrees that a harness creates.
-   * They must also name the `generic` runtime, which has no process to start.
-   */
-  it('Verb_WhenNotToUse_Present', () => {
-    const { whenNotToUse } = LAUNCHER_VERB_CONFORMANCE;
-    expect(Array.isArray(whenNotToUse)).toBe(true);
-    expect(whenNotToUse.length).toBeGreaterThan(0);
-
-    for (const clause of whenNotToUse) {
-      expect(typeof clause).toBe('string');
-      expect(clause.toLowerCase()).toContain('do not use');
-    }
-
-    const joined = whenNotToUse.join('\n');
-    expect(joined).toContain('serialize_merge');
-    expect(joined).toContain('adopt');
-    expect(joined.toLowerCase()).toContain('generic');
-  });
-
+describe('no launcher in the registry + Windows CI lane', () => {
   /**
    * The registry must still hold four visible tools.
-   * It must hold no tool and no action named `launch`, `launcher`, the launcher verb or a Tier-1 harness.
+   * It must hold no tool and no action named `launch`, `launcher`, the retired launcher verb or a Tier-1 harness.
    */
   it('VisibleToolCount_Unchanged', () => {
     const visibleTools = TOOL_REGISTRY.filter((t) => !t.hidden);
@@ -2659,8 +2609,12 @@ describe('harness-launcher verb conformance + Windows CI lane (task 015, DR-1/DR
     const forbidden = [
       'launch',
       'launcher',
-      LAUNCHER_VERB_CONFORMANCE.verb,
-      ...TIER1_HARNESSES,
+      'exarchos <harness>',
+      'claude-code',
+      'codex',
+      'cursor',
+      'copilot',
+      'opencode',
     ];
     for (const name of forbidden) {
       expect(allNames).not.toContain(name);
@@ -2675,7 +2629,7 @@ describe('harness-launcher verb conformance + Windows CI lane (task 015, DR-1/DR
    */
   it('WindowsLane_RunsNamedSpawnAndPathTests_Required', () => {
     const SPAWN_TEST = 'tests/unit/utils/process.spawn.test.ts';
-    const PATH_TEST = 'tests/unit/runtime/launcher/topology.test.ts';
+    const PATH_TEST = 'tests/unit/verbs/worktree/pure/path-containment.test.ts';
 
     const here = dirname(fileURLToPath(import.meta.url));
     const ciPath = resolve(here, '../../.github/workflows/ci.yml');

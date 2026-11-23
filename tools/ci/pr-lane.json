@@ -117,7 +117,7 @@
     "test-windows: bash tools/release/npm-ci-retry.sh": "Windows runs on Actions.",
     "test-windows: npm run test:core": "Windows runs on Actions.",
     "test-windows: Guard — worktree suite executed on Windows (DR-11s)": "Windows runs on Actions.",
-    "test-windows: DR-8 — named win32-fragile launcher tests (spawn 003 + path 009)": "Windows runs on Actions.",
+    "test-windows: DR-8 — named win32-fragile tests (spawn + path containment)": "Windows runs on Actions.",
     "test-windows-root: bash tools/release/npm-ci-retry.sh": "Windows runs on Actions.",
     "test-windows-root: npm run test:run": "Windows runs on Actions.",
     "binary-matrix: bash tools/release/npm-ci-retry.sh": "The five-target binary build runs after merge.",

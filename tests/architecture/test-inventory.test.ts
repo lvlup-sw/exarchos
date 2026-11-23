@@ -169,6 +169,20 @@ const RETIRED_TEST_FILES: ReadonlyArray<{ path: string; subject: string }> = [
   { path: 'tests/core/types/run-outcome.type-test.ts', subject: 'src/verbs/gates/test-adequacy.ts' },
   { path: 'tests/unit/adapters/cli/cli-launcher.test.ts', subject: 'src/runtime/launcher/harness-entry.ts' },
   { path: 'tests/process/1928-launch-ownership.test.ts', subject: 'src/runtime/launcher/harness-entry.ts' },
+  { path: 'tests/unit/runtime/launcher/channel-probe.test.ts', subject: 'src/runtime/launcher/lifecycle-core.ts' },
+  { path: 'tests/unit/runtime/launcher/create-worktree.test.ts', subject: 'src/runtime/launcher/create-worktree.ts' },
+  { path: 'tests/unit/runtime/launcher/harness-registry.test.ts', subject: 'src/runtime/launcher/harness-registry.ts' },
+  { path: 'tests/unit/runtime/launcher/injection-channel.integration.test.ts', subject: 'src/runtime/launcher/injection-seam.ts' },
+  { path: 'tests/unit/runtime/launcher/injection-seam.test.ts', subject: 'src/runtime/launcher/injection-seam.ts' },
+  { path: 'tests/unit/runtime/launcher/lifecycle.test.ts', subject: 'src/runtime/launcher/lifecycle-core.ts' },
+  { path: 'tests/unit/runtime/launcher/on-ramps.test.ts', subject: 'src/runtime/launcher/harnesses/index.ts' },
+  { path: 'tests/unit/runtime/launcher/production-deps.test.ts', subject: 'src/runtime/launcher/production-deps.ts' },
+  { path: 'tests/unit/runtime/launcher/signals.test.ts', subject: 'src/runtime/launcher/signals.ts' },
+  { path: 'tests/unit/runtime/launcher/single-abstraction.guard.test.ts', subject: 'src/runtime/launcher/harnesses/index.ts' },
+  { path: 'tests/unit/runtime/launcher/teardown.test.ts', subject: 'src/runtime/launcher/teardown.ts' },
+  { path: 'tests/unit/runtime/launcher/topology.test.ts', subject: 'src/runtime/launcher/topology.ts' },
+  { path: 'tests/unit/runtime/launcher/verb.test.ts', subject: 'src/runtime/launcher/verb.ts' },
+  { path: 'tests/unit/runtime/launcher/wlm-compose.test.ts', subject: 'src/runtime/launcher/wlm-compose.ts' },
 ];
 
 describe('test inventory', () => {

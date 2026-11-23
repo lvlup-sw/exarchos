@@ -688,13 +688,6 @@ function registerLedger(): readonly EffectOwnershipRule[] {
     ),
     rule(
       'process',
-      'runtime/launcher/',
-      'launcher-process-owner',
-      'idempotent: teardown/liveness probes tolerate re-run',
-      'launcher lifecycle owns child kill/teardown',
-    ),
-    rule(
-      'process',
       'install/',
       'install-process-owner',
       'idempotent: every subprocess here probes or re-renders — runtime detection, ' +
@@ -788,7 +781,6 @@ function registerLedger(): readonly EffectOwnershipRule[] {
     rule('filesystem', 'dispatch/core/', 'core-fs', 'read-only bootstrap/context', 'none'),
     rule('filesystem', 'utils/', 'utils-fs', 'pure fs helpers; caller owns idempotency', 'caller-owned'),
     rule('filesystem', 'runtime/lib/', 'lib-fs', 'pure fs helpers; caller owns idempotency', 'caller-owned'),
-    rule('filesystem', 'runtime/launcher/', 'launcher-fs', 'startup/teardown fs; idempotent', 'launcher teardown'),
     rule('filesystem', 'runtime/agents/', 'agents-fs', 'agent definition reads; read-only', 'none'),
     rule('filesystem', 'sync/', 'sync-fs', 'outbox writes; idempotent by op id', 'outbox reconciliation'),
     rule('filesystem', 'runtime/', 'runtime-fs', 'runtime resource reads; read-only', 'none'),
