@@ -85,7 +85,7 @@ describe('CursorWriter', () => {
 
     await new CursorWriter({ fs }).write(stubDeps, defaultOptions);
 
-    const parsed = JSON.parse(fs.files.get('/project/.cursor/mcp.json')!);
+    const parsed = JSON.parse(fs.files.get('/project/.cursor/mcp.json') ?? '{}');
     expect(parsed.mcpServers.exarchos).toEqual({ command: 'exarchos', args: ['mcp', '--operator'], type: 'stdio' });
     expect(parsed.mcpServers['exarchos-readonly']).toEqual({ command: 'exarchos', args: ['mcp'], type: 'stdio' });
   });

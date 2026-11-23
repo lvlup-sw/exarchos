@@ -77,7 +77,7 @@ const READONLY_PROJECT_MCP_ENTRY = {
   command: 'exarchos',
   args: [...READONLY_MCP_ARGS],
   type: 'stdio',
-} as const;
+};
 
 const DEFAULT_FS: McpJsonWriterFs = {
   readFile: (p, enc) => nodeFs.readFile(p, enc),
