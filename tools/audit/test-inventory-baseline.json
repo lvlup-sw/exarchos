@@ -37072,7 +37072,7 @@
         },
         {
           "suite": "skill-migration — T34: gh to MCP action migration",
-          "name": "McpActionReferences_CreateIssue_PresentInDogfood",
+          "name": "McpActionReferences_Dogfood_LeavesIssueFilingToTheHarness",
           "dynamic": false
         },
         {

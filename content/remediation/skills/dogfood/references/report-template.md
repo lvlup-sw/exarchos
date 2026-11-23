@@ -91,17 +91,17 @@ Issues discovered solely through debug trace (not visible in conversation errors
 
 ### Issue Drafts
 
-Ready-to-file issue bodies for Code Bugs and Documentation Issues:
+Ready-to-file issue drafts for Code Bugs and Documentation Issues. After the user confirms a draft, the coordinator files it through its harness, outside governance.
 
 #### Issue: [CB-1 title]
-```typescript
-exarchos_orchestrate({ action: "create_issue", title: "bug: [summary]", body: "...", labels: ["bug"] })
-```
+- **Title:** bug: [summary]
+- **Labels:** bug
+- **Body:** ...
 
 #### Issue: [DOC-1 title]
-```typescript
-exarchos_orchestrate({ action: "create_issue", title: "docs: [summary]", body: "...", labels: ["bug"] })
-```
+- **Title:** docs: [summary]
+- **Labels:** bug
+- **Body:** ...
 
 ### Patterns & Trends
 

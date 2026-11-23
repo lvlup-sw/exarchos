@@ -13,9 +13,9 @@ metadata:
 
 ## VCS Provider
 
-This skill uses VCS operations through Exarchos MCP actions (`create_pr`, `merge_pr`, etc.) when the synthesize path is taken.
-These actions automatically detect and route to the correct VCS provider (GitHub, GitLab, Azure DevOps).
-No `gh`/`glab`/`az` commands needed — the MCP server handles provider dispatch.
+This skill makes no VCS provider call through Exarchos.
+When the synthesize path is taken, the coordinator creates and merges the PR through its harness, outside governance.
+The direct-commit path needs no PR.
 
 A lean, four-phase workflow type for changes that are too small to justify the
 full `feature` flow (`plan → plan-review → delegate → review → synthesize → completed`)
@@ -109,7 +109,7 @@ pure functions of `state.oneshot.synthesisPolicy` and the
 |---|---|---|
 | `plan` | Lightweight one-page plan: goal, approach, files to touch, tests to add. No design doc. No subagent dispatch. | `artifacts.plan` set → transition to `implementing` |
 | `implementing` | In-session loop, verification scaled to risk. Defaults to the low tier (static analysis suffices); higher-blast changes add tests covering the changed behavior (test-after) under the `check_test_adequacy` kill-probe. Commit as you go. | Tests pass + typecheck clean + finalize_oneshot called |
-| `synthesize` | Reached **only** when `synthesisOptedIn` is true. Hands off to the existing synthesis flow — see `@skills/synthesize/SKILL.md`. PR created via `exarchos_orchestrate({ action: "create_pr" })`, auto-merge enabled, CI gates apply. | PR merged → `completed` |
+| `synthesize` | Reached **only** when `synthesisOptedIn` is true. Hands off to the existing synthesis flow — see `@skills/synthesize/SKILL.md`. The coordinator creates and merges the PR through its harness, outside governance. CI gates apply. | PR merged → `completed` |
 | `completed` | Terminal. For direct-commit path, commits are already on the branch — there's nothing more to do. For synthesize path, the PR merge event terminates the workflow. | — |
 
 `cancelled` is also reachable from any phase via the universal cancel
@@ -313,11 +313,12 @@ Path: direct-commit
 
 If finalize resolved to `synthesize`, hand off to the standard synthesis
 flow — see `@skills/synthesize/SKILL.md`. The same `prepare_synthesis` /
-`validate_pr_body` / `create_pr` machinery used by the `feature`
-workflow applies, including `prepare_synthesis`'s required `repoRoot`:
+`validate_pr_body` steps used by the `feature`
+workflow apply, including `prepare_synthesis`'s required `repoRoot`:
 pass the absolute path of the repo you have been committing into, since
 every readiness leg runs there rather than in the server's own working
-directory. After the PR merges, the workflow transitions
+directory. The coordinator then creates and merges the PR through its
+harness, outside governance. After the PR merges, the workflow transitions
 `synthesize → completed` via the existing `mergeVerified` guard, same as
 every other workflow type.
 
@@ -397,7 +398,8 @@ Agent:
      → guard sees policy='on-request' + 1 synthesize.requested event
      → resolves to 'synthesize'
  10. hands off to @skills/synthesize/SKILL.md → prepare_synthesis →
-     validate_pr_body → create_pr → merge
+     validate_pr_body → the coordinator creates and merges the PR
+     through its harness, outside governance
 ```
 
 ### Example C — `synthesisPolicy: 'always'` (PR mandatory)

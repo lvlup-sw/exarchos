@@ -396,11 +396,12 @@ describe('skill-migration — T34: gh to MCP action migration', () => {
     expect(content).toContain('action: "list_prs"');
   });
 
-  it('McpActionReferences_CreateIssue_PresentInDogfood', () => {
+  it('McpActionReferences_Dogfood_LeavesIssueFilingToTheHarness', () => {
     const dogfoodPath = resolveSkillPath('dogfood');
     const content = readFileSync(dogfoodPath, 'utf8');
 
-    expect(content).toContain('action: "create_issue"');
+    expect(content).not.toContain('action: "create_issue"');
+    expect(content).toContain('the coordinator files the issue through its harness, outside governance.');
   });
 
   it('McpActionReferences_CheckCi_PresentInTroubleshooting', () => {
