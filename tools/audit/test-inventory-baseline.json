@@ -4,10 +4,10 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1513,
-    "parsedFiles": 1469,
+    "testFiles": 1515,
+    "parsedFiles": 1471,
     "shellFiles": 44,
-    "cases": 16853,
+    "cases": 16860,
     "dynamicTitles": 340,
     "unparseableFiles": 0
   },
@@ -37617,6 +37617,22 @@
         }
       ]
     },
+    "tests/unit/lifecycle/run-verification-command.test.ts": {
+      "file": "tests/unit/lifecycle/run-verification-command.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "the default writers of a verification verb",
+          "name": "DefaultStdout_EndsEachTextWithOneNewline",
+          "dynamic": false
+        },
+        {
+          "suite": "the default writers of a verification verb",
+          "name": "DefaultStderr_EndsEachTextWithOneNewlineOnStderr",
+          "dynamic": false
+        }
+      ]
+    },
     "tests/unit/lifecycle/session-end.test.ts": {
       "file": "tests/unit/lifecycle/session-end.test.ts",
       "runner": "vitest:root",
@@ -67406,6 +67422,37 @@
         {
           "suite": "settle — the text of the action",
           "name": "SettleAction_ItsRequiresRationale_NoLongerSaysTheVerdictReadsNoCurrentState",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/verbs/settle/integration-attempts.test.ts": {
+      "file": "tests/unit/verbs/settle/integration-attempts.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "integration attempts",
+          "name": "IntegrationAttempt_ARedSuite_FailsWithTheTipAndTheVerdict",
+          "dynamic": false
+        },
+        {
+          "suite": "integration attempts",
+          "name": "IntegrationAttempt_TheBoundRequest_IsIntactAndNoOtherIs",
+          "dynamic": false
+        },
+        {
+          "suite": "integration attempts",
+          "name": "IntegrationAttempt_TheSameIdentityOnAnotherCheckout_IsRefused",
+          "dynamic": false
+        },
+        {
+          "suite": "integration attempts",
+          "name": "IntegrationAttempt_AnUnresolvedTerm_NamesTheReasonThatTheSuiteDidNotRun",
+          "dynamic": false
+        },
+        {
+          "suite": "integration observation",
+          "name": "IntegrationObservation_AHeadOutsideTheTip_IsUnmerged",
           "dynamic": false
         }
       ]
