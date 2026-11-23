@@ -2,16 +2,11 @@ import { canonicalJson } from '../../contract/request-context.js';
 import { GateExecutedData, type WorkflowEvent } from '../../events/schemas.js';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { createHash } from 'node:crypto';
-import { lstat, open, realpath, stat } from 'node:fs/promises';
+import { lstat, open, realpath } from 'node:fs/promises';
 import { constants } from 'node:fs';
 import { join } from 'node:path';
-import {
-  DIRTY_CHECKOUT_REFUSAL, VerificationRequest, checkPlanDigest, exchangeHostedVerification, verificationDigest, verificationJson, verificationKey,
-  verificationValueDigest, type CheckPlan, type HostedCheckFacts, type HostedCommandRun,
-  type HostedExchange, type SignedVerification, type VerificationHostConnector, type VerificationRequestTerms,
-} from '../../contract/verification/harness-verification.js';
-import { createGitObserver } from '../../utils/git-observer.js';
-import type { HostedTestRun, RunTestsHost } from '../../lifecycle/run-tests.js';
+import { verificationValueDigest, type HostedCommandRun } from '../../contract/verification/harness-verification.js';
+import type { createGitObserver } from '../../utils/git-observer.js';
 import type { CommandResult } from '../pure/static-analysis.js';
 
 import type { ContentAddressedStore } from '../../storage/artifacts/content-addressed-store.js';
@@ -715,31 +710,6 @@ export async function passingGateReplay(request: GateRunRequest, eventStore: Eve
   return [evidenceRow, signalRow];
 }
 
-/** The error code of an explicit hosted refusal. No local execution follows it. */
-export const HOSTED_VERIFICATION_REFUSED = 'HOSTED_VERIFICATION_REFUSED';
-
-/** The result of a provisioned or bound route that cannot run its check in the verifier. */
-export function hostedRefusal(message: string): ToolResult {
-  return { success: false, error: { code: HOSTED_VERIFICATION_REFUSED, message } };
-}
-
-/** The error code of a lifecycle or team check on a machine with no verifier. No local route runs the check. */
-export const VERIFIER_NOT_PROVISIONED = 'VERIFIER_NOT_PROVISIONED';
-
-/**
- * The result of a lifecycle or team check on a machine with no verifier. It is a failed result with a did-not-run code.
- * The check returns it before the gate runner, any Git read, provider call or process, so it writes no evidence, gate row or event.
- * On a platform other than Linux, the message names that platform.
- */
-export function verifierNotProvisioned(check: string, platform: NodeJS.Platform = process.platform): ToolResult {
-  const message = platform === 'linux'
-    ? `${check} did not run: no verifier is provisioned on this machine. `
-      + 'Provision the verifier client at ~/.exarchos/verifier/client.json, then run the check again.'
-    : `${check} did not run: the hosted verifier does not support the ${platform} platform. `
-      + 'Provision the verifier on a supported Linux machine, then run the check there.';
-  return { success: false, error: { code: VERIFIER_NOT_PROVISIONED, message } };
-}
-
 /** Map one signed child result onto the runner result that the existing pure interpreters read. */
 export function hostedCommandResult(run: HostedCommandRun): CommandResult {
   const output = { stdout: run.stdout, stderr: run.stderr };
@@ -752,98 +722,14 @@ export function hostedCommandResult(run: HostedCommandRun): CommandResult {
   }
 }
 
-/** The facts of one admitted hosted check, or an explicit refusal. A pending outcome throws the pending signal. */
-export type HostedCheckAdmission =
-  | { readonly kind: 'facts'; readonly facts: HostedCheckFacts; readonly signed: SignedVerification }
-  | { readonly kind: 'refused'; readonly result: ToolResult };
-
-/**
- * Admit one exchange. A refusal and a key conflict stay explicit refusals.
- * Busy, incomplete and pending throw the pending signal with distinct causes, so the original segment stays retryable and records no evidence.
- * Evidence must name the exact request, the checkout and the repository.
- */
-export async function admitHostedExchange(
-  exchange: HostedExchange, request: VerificationRequest, checkout: string, repository?: string,
-): Promise<HostedCheckAdmission> {
-  switch (exchange.kind) {
-    case 'refused': return { kind: 'refused', result: hostedRefusal(`The verifier refused the request: ${exchange.reason}`) };
-    case 'conflict': return { kind: 'refused', result: hostedRefusal('The verifier holds a different request under the original key.') };
-    case 'busy': throw new HostedAdequacyPending('The verifier resource is busy. It holds no claim for this request, so a retry can submit it.');
-    case 'incomplete': throw new HostedAdequacyPending('The verifier retains an incomplete original run. Its effects are unknown, so no new run starts.');
-    case 'pending': throw new HostedAdequacyPending(`Hosted verification has no terminal result: ${exchange.reason}`);
-    case 'evidence': break;
-  }
-  const { signed } = exchange;
-  const { evidence } = signed;
-  const canonical = await realpath(checkout).catch(() => checkout);
-  if (evidence.requestDigest !== verificationDigest(request) || verificationJson(evidence.request) !== verificationJson(request)
-    || evidence.resources[0]?.path !== canonical
-    || (repository !== undefined && !evidence.resources.some(resource => resource.path === repository))
-    || !('check' in evidence.outcome) || evidence.outcome.check.operation !== request.operation) {
-    throw new HostedAdequacyPending('The terminal hosted result does not apply to the authenticated subject.');
-  }
-  return { kind: 'facts', facts: evidence.outcome.check, signed };
-}
-
-/** One leg of a lifecycle check: the test command or the typecheck command, as an argument vector. */
-export interface LifecycleLeg {
-  readonly kind: 'command' | 'typecheck';
-  readonly argv: readonly string[];
-}
-
-/** The reviewed typed scope of a lifecycle check. A check whose local route stops after a failed test leg declares the same stop. */
-export function lifecyclePlan(legs: readonly LifecycleLeg[], stopAfterTestFailure = false): CheckPlan {
-  const plan: CheckPlan = {
-    operation: 'lifecycle',
-    legs: legs.map(leg => ({ name: leg.kind === 'command' ? 'test' : 'typecheck', kind: leg.kind, argv: [...leg.argv] })),
-  };
-  return stopAfterTestFailure ? { ...plan, onTestFailure: 'stop' } : plan;
-}
-
-/** The inputs of one lifecycle check. The stream, phase attempt and task only scope the request. */
-export interface HostedLifecycleInput {
-  readonly connector: VerificationHostConnector;
-  readonly checkout: string;
-  readonly legs: readonly LifecycleLeg[];
-  readonly stopAfterTestFailure?: boolean;
-  readonly streamId?: string;
-  readonly phaseAttemptId?: string;
-  readonly taskId?: string;
-  /** Refuse an uncommitted tree before any exchange, because the verifier returns a stored original for the same head first. */
-  readonly requireCleanTree?: boolean;
-}
-
-/** The signed legs of one admitted lifecycle check. */
-export type HostedLifecycleLegs = Extract<HostedCheckFacts, { operation: 'lifecycle' }>['legs'];
-
-/** The closed outcome of one lifecycle check. Refusals and pending results keep a distinct cause and message. */
-export type HostedLifecycleOutcome =
-  | { readonly kind: 'facts'; readonly legs: HostedLifecycleLegs }
-  | { readonly kind: 'refused'; readonly cause: 'refused' | 'dirty' | 'conflict' | 'no-identity' | 'unobserved'; readonly message: string }
-  | { readonly kind: 'pending'; readonly cause: 'busy' | 'incomplete' | 'pending'; readonly message: string };
-
 /** The closed reads of one observer. The clean-tree check uses the reads of the observer that observed the head. */
 type ObserverReads = Awaited<ReturnType<typeof createGitObserver>>['reads'];
 
-/** Observe the registered branch head and the Git directory of an operator checkout. An unregistered checkout gives nothing. */
-async function observeCheckoutHead(
-  gitPath: string, checkout: string, repository: string, branch: string,
-): Promise<{ readonly head: string; readonly gitDir: string; readonly reads: ObserverReads } | undefined> {
-  try {
-    const observer = await createGitObserver(gitPath);
-    const observed = await observer.checkout({ checkout, repository, branch });
-    return observed.kind === 'observed' && observed.value.checkout === checkout
-      ? { head: observed.value.head, gitDir: observed.value.gitDir, reads: observer.reads } : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
-/** The bounds of the tree that the governor hashes before a standalone run. */
+/** The bounds of the tree that the clean-tree check hashes. */
 const CLEAN_TREE_ENTRIES = 32768;
 const CLEAN_TREE_BYTES = 256 * 1024 * 1024;
 
-/** The closed message of an uncommitted standalone tree. */
+/** The closed message of an uncommitted tree. */
 const UNCOMMITTED_TREE_MESSAGE = 'The checkout has uncommitted changes. Commit them first, then run the check again.';
 
 /** The records of one NUL-separated listing. */
@@ -873,7 +759,7 @@ async function trackedBlobId(full: string, oid: string, budget: number): Promise
 }
 
 /**
- * The refusal of a standalone tree that differs from its exact head, or undefined for a clean tree.
+ * The refusal of a tree that differs from its exact head, or undefined for a clean tree.
  * The closed listings compare the index with the head tree and find untracked paths. Each listing is bounded and decodes as strict UTF-8.
  * Each tracked file is hashed in this process, so no checkout filter runs. A missing file, a mode change, an unsupported entry or a tree beyond the bounds refuses.
  */
@@ -881,12 +767,12 @@ async function uncommittedTreeRefusal(reads: ObserverReads, gitDir: string, chec
   const tree = nulRecords(await reads.treeListing(gitDir, checkout, head));
   const index = nulRecords(await reads.indexListing(gitDir, checkout));
   const untracked = nulRecords(await reads.untrackedListing(gitDir, checkout));
-  if (tree.length > CLEAN_TREE_ENTRIES) return 'The checkout tree exceeds the bounds of the standalone clean-tree check.';
+  if (tree.length > CLEAN_TREE_ENTRIES) return 'The checkout tree exceeds the bounds of the clean-tree check.';
   const entries: { readonly path: string; readonly mode: string; readonly oid: string }[] = [];
   for (const record of tree) {
     const match = /^(100644|100755) blob ([a-f0-9]{40}|[a-f0-9]{64})\t(.+)$/s.exec(record);
     const [, mode, oid, path] = match ?? [];
-    if (mode === undefined || oid === undefined || path === undefined) return 'The checkout tree holds an entry that the verifier does not support.';
+    if (mode === undefined || oid === undefined || path === undefined) return 'The checkout tree holds an entry that the clean-tree check does not support.';
     entries.push({ path, mode, oid });
   }
   const expected = entries.map(entry => `${entry.mode} ${entry.oid} 0\t${entry.path}`).sort();
@@ -912,120 +798,86 @@ export async function closedListingCleanTree(reads: ObserverReads, gitDir: strin
   }
 }
 
-/**
- * Run one lifecycle check in the verifier under the operator identity of its checkout and approved command.
- * The request binds the operation, the checkout subject, the resource, the observed head and the command digest, so the same head reads the original.
- * Admission reuses the exchange helpers, and the signed resource must name the path, device and inode of the judged checkout.
- * A call that requires a clean tree refuses an uncommitted tree before any exchange, with the closed Git listings only.
- * This helper starts no checkout-defined process and does not call the gate runner.
- */
-export async function runHostedLifecycleCheck(input: HostedLifecycleInput): Promise<HostedLifecycleOutcome> {
-  const { connector, streamId, phaseAttemptId, taskId } = input;
-  const plan = lifecyclePlan(input.legs, input.stopAfterTestFailure);
-  const commandDigest = checkPlanDigest(plan);
-  const checkout = await realpath(input.checkout).catch(() => undefined);
-  if (checkout === undefined) {
-    return { kind: 'refused', cause: 'unobserved', message: 'The checkout does not exist, so no exact head binds the request.' };
-  }
-  const identity = connector.checks?.lifecycle?.find(entry => entry.checkout === checkout && entry.commandDigest === commandDigest);
-  if (identity === undefined) {
-    return { kind: 'refused', cause: 'no-identity', message: 'The provisioned verifier has no approved identity for this checkout and command. No local route runs it.' };
-  }
-  const observed = await observeCheckoutHead(connector.gitPath, checkout, identity.repository, identity.branch);
-  if (observed === undefined) {
-    return { kind: 'refused', cause: 'unobserved', message: 'The checkout is not registered on its operator branch, so no exact head binds the request.' };
-  }
-  const headCommit = observed.head;
-  if (input.requireCleanTree === true) {
-    let refusal: string | undefined;
-    try { refusal = await uncommittedTreeRefusal(observed.reads, observed.gitDir, checkout, headCommit); }
-    catch { refusal = 'The checkout tree cannot be read with the closed Git listings, so no clean-tree evidence exists.'; }
-    if (refusal !== undefined) return { kind: 'refused', cause: refusal === UNCOMMITTED_TREE_MESSAGE ? 'dirty' : 'refused', message: refusal };
-  }
-  const terms: Extract<VerificationRequestTerms, { operation: 'lifecycle' }> = {
-    version: 1, operation: 'lifecycle', resourceId: identity.resourceId, profileId: identity.profileId, commandDigest,
-    subject: {
-      scope: 'checkout', ...(streamId === undefined ? {} : { streamId }), ...(phaseAttemptId === undefined ? {} : { phaseAttemptId }),
-      ...(taskId === undefined ? {} : { taskId }), headCommit,
-    },
-  };
-  const request = VerificationRequest.parse({ ...terms, key: verificationKey(terms) });
-  const exchange = await exchangeHostedVerification(connector, request);
-  switch (exchange.kind) {
-    case 'refused': return exchange.reason === DIRTY_CHECKOUT_REFUSAL
-      ? { kind: 'refused', cause: 'dirty', message: 'The checkout has uncommitted changes. Commit them first, then run the check again.' }
-      : { kind: 'refused', cause: 'refused', message: `The verifier refused the request: ${exchange.reason}` };
-    case 'conflict': return { kind: 'refused', cause: 'conflict', message: 'The verifier holds a different request under the original key.' };
-    case 'busy': return { kind: 'pending', cause: 'busy', message: 'The verifier resource is busy. It holds no claim for this request, so a retry can submit it.' };
-    case 'incomplete': return { kind: 'pending', cause: 'incomplete', message: 'The verifier retains an incomplete original run. Its effects are unknown, so no new run starts.' };
-    case 'pending': return { kind: 'pending', cause: 'pending', message: `Hosted verification has no terminal result: ${exchange.reason}` };
-    case 'evidence': break;
-  }
-  let admitted: HostedCheckAdmission;
-  try { admitted = await admitHostedExchange(exchange, request, checkout, identity.repository); }
-  catch (error) {
-    if (error instanceof HostedAdequacyPending) return { kind: 'pending', cause: 'pending', message: error.message };
-    throw error;
-  }
-  const signedCheckout = admitted.kind === 'facts' ? admitted.signed.evidence.resources[0] : undefined;
-  const judged = await stat(checkout);
-  if (admitted.kind !== 'facts' || admitted.facts.operation !== 'lifecycle' || signedCheckout === undefined
-    || signedCheckout.device !== String(judged.dev) || signedCheckout.inode !== String(judged.ino)) {
-    return { kind: 'pending', cause: 'pending', message: 'The terminal hosted result does not apply to the judged checkout.' };
-  }
-  return { kind: 'facts', legs: admitted.facts.legs };
+/** One path of a checkout that differs from its exact head. A tracked path with a regular working file names the blob ID of that file. */
+export interface TreeChange {
+  readonly path: string;
+  readonly tracked: boolean;
+  readonly workingBlob?: string;
 }
 
-/** The no-verdict cause of one signed leg, or undefined for a leg that exited. A no-verdict leg never reads as a red suite. */
-export function lifecycleNoVerdict(run: HostedCommandRun): string | undefined {
-  switch (run.end) {
-    case 'exited': return run.exitCode === null ? 'the confined run exited with no status' : undefined;
-    case 'timeout': return 'the verifier stopped the run at its pinned time limit';
-    case 'output-limit': return 'the verifier stopped the run at its pinned output limit';
-    case 'unavailable': return 'the verifier could not start the confined run';
-    case 'signal': return 'a signal stopped the confined run';
+/** The entries of one closed tree listing by path, as `<mode> <object ID>`. An entry that does not parse gives undefined. */
+function treeEntries(records: readonly string[]): Map<string, string> | undefined {
+  const entries = new Map<string, string>();
+  for (const record of records) {
+    const [, mode, oid, path] = /^(\d{6}) [a-z]+ ([a-f0-9]{40}|[a-f0-9]{64})\t(.+)$/s.exec(record) ?? [];
+    if (mode === undefined || oid === undefined || path === undefined) return undefined;
+    entries.set(path, `${mode} ${oid}`);
+  }
+  return entries;
+}
+
+/**
+ * The blob IDs of the regular files of one exact commit by path, from the closed tree listing. It runs no checkout filter.
+ * A failed listing, an entry that does not parse or a tree beyond the bounds gives undefined.
+ */
+export async function closedListingBlobs(reads: ObserverReads, gitDir: string, checkout: string, commit: string): Promise<ReadonlyMap<string, string> | undefined> {
+  try {
+    const records = nulRecords(await reads.treeListing(gitDir, checkout, commit));
+    const entries = records.length > CLEAN_TREE_ENTRIES ? undefined : treeEntries(records);
+    if (entries === undefined) return undefined;
+    const blobs = new Map<string, string>();
+    for (const [path, entry] of entries) {
+      const [mode = '', oid = ''] = entry.split(' ');
+      if (mode === '100644' || mode === '100755') blobs.set(path, oid);
+    }
+    return blobs;
+  } catch {
+    return undefined;
   }
 }
 
 /**
- * The signed legs of a phase or team check, or the gate result of a refusal.
- * A pending outcome and a leg with no verdict throw the pending signal, so the phase handler records no evidence.
+ * The paths of one observed checkout that differ from its exact head, from the closed listings only. It runs no status and no checkout filter.
+ * A tracked path differs when its index entry differs from the head entry.
+ * It also differs when its working file is missing or differs from its index entry.
+ * Each untracked path differs. Each working file is hashed in this process through a handle that follows no link.
+ *
+ * A failed listing, an entry other than a regular file, a conflict stage or a tree beyond the bounds gives undefined.
  */
-export async function admitLifecycleLegs(input: HostedLifecycleInput): Promise<HostedLifecycleLegs | ToolResult> {
-  const outcome = await runHostedLifecycleCheck(input);
-  if (outcome.kind === 'refused') return hostedRefusal(outcome.message);
-  if (outcome.kind === 'pending') throw new HostedAdequacyPending(outcome.message);
-  for (const leg of outcome.legs) {
-    const cause = lifecycleNoVerdict(leg.run);
-    if (cause !== undefined) throw new HostedAdequacyPending(`The hosted ${leg.name} leg gave no verdict: ${cause}. The same head reads the same result.`);
+export async function closedListingChanges(reads: ObserverReads, gitDir: string, checkout: string, head: string): Promise<readonly TreeChange[] | undefined> {
+  try {
+    const tree = nulRecords(await reads.treeListing(gitDir, checkout, head));
+    const index = nulRecords(await reads.indexListing(gitDir, checkout));
+    const untracked = nulRecords(await reads.untrackedListing(gitDir, checkout));
+    if (tree.length > CLEAN_TREE_ENTRIES || index.length > CLEAN_TREE_ENTRIES || untracked.length > CLEAN_TREE_ENTRIES) return undefined;
+    const headEntries = treeEntries(tree);
+    if (headEntries === undefined) return undefined;
+    const indexEntries = new Map<string, { readonly mode: string; readonly oid: string }>();
+    for (const record of index) {
+      const [, mode, oid, path] = /^(100644|100755) ([a-f0-9]{40}|[a-f0-9]{64}) 0\t(.+)$/s.exec(record) ?? [];
+      if (mode === undefined || oid === undefined || path === undefined) return undefined;
+      indexEntries.set(path, { mode, oid });
+    }
+    const changes: TreeChange[] = [];
+    let budget = CLEAN_TREE_BYTES;
+    for (const path of [...new Set([...headEntries.keys(), ...indexEntries.keys()])].sort()) {
+      const staged = indexEntries.get(path);
+      const blob = await trackedBlobId(join(checkout, path), staged?.oid ?? head, budget);
+      if (blob !== undefined) budget -= blob.size;
+      const working = blob === undefined ? {} : { workingBlob: blob.id };
+      if (staged === undefined || blob === undefined || blob.id !== staged.oid || blob.executable !== (staged.mode === '100755')
+        || headEntries.get(path) !== `${staged.mode} ${staged.oid}`) changes.push({ path, tracked: true, ...working });
+    }
+    const reported = new Set(changes.map(change => change.path));
+    for (const path of untracked) if (!reported.has(path)) changes.push({ path, tracked: false });
+    return changes;
+  } catch {
+    return undefined;
   }
-  return outcome.legs;
 }
 
 /** Map the pending signal of a handler to its existing code. Any other error stays thrown. */
 export function hostedPendingResult(error: unknown): ToolResult {
   if (error instanceof HostedAdequacyPending) return { success: false, error: { code: 'HOSTED_ADEQUACY_PENDING', message: error.message } };
   throw error;
-}
-
-/**
- * The verifier host of the standalone test verb. It runs the test command as a lifecycle check with no stream.
- * An uncommitted tree refuses before any exchange, so a stored original of the same head never stands in for the edited tree.
- * A dirty checkout, a host refusal and a key conflict refuse. A busy, incomplete or pending verifier and a leg with no verdict are unavailable.
- * Without a connector it gives no host, and an actual run of the verb then runs nothing and exits 78.
- */
-export function standaloneTestHost(connector?: VerificationHostConnector): RunTestsHost | undefined {
-  if (connector === undefined) return undefined;
-  return {
-    async run(cwd: string, argv: readonly string[]): Promise<HostedTestRun> {
-      const outcome = await runHostedLifecycleCheck({ connector, checkout: cwd, legs: [{ kind: 'command', argv }], requireCleanTree: true });
-      if (outcome.kind === 'refused') return { kind: 'refused', message: outcome.message };
-      if (outcome.kind === 'pending') return { kind: 'unavailable', message: outcome.message };
-      const leg = outcome.legs[0];
-      if (leg === undefined) return { kind: 'unavailable', message: 'The verifier returned no test leg.' };
-      const cause = lifecycleNoVerdict(leg.run);
-      if (cause !== undefined) return { kind: 'unavailable', message: `The hosted test run gave no verdict: ${cause}.` };
-      return { kind: 'exited', exitCode: leg.run.exitCode ?? 1, stdout: leg.run.stdout, stderr: leg.run.stderr };
-    },
-  };
 }

@@ -1,8 +1,7 @@
 /**
  * The post-delegation check. It checks the workflow state, task completion, the tests of each
  * worktree, and state consistency. It returns a markdown report with a task status table.
- * A provisioned verifier runs the tests of each worktree under its own resource identity. No route runs them locally.
- * A machine with no verifier refuses with VERIFIER_NOT_PROVISIONED after argument validation.
+ * The local approved-check executor runs the tests of each worktree as a lifecycle check of the phase attempt, with no verifier provisioning.
  */
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -11,8 +10,9 @@ import { resolveRunnableCommand } from '../../config/test-runtime-resolver.js';
 import type { ToolResult } from '../../format.js';
 import type { EventStore } from '../../events/store.js';
 import { createEvidenceSubject } from '../../workflow/admission/evidence-subject.js';
-import type { VerificationHostConnector } from '../../contract/verification/harness-verification.js';
-import { admitLifecycleLegs, hostedPendingResult, runPhaseGateWithEvidence, verifierNotProvisioned } from '../gates/gate-runner.js';
+import { hostedPendingResult, runPhaseGateWithEvidence } from '../gates/gate-runner.js';
+import { admitLifecycleLegs } from '../verification/lifecycle-check.js';
+import type { CheckExecutor } from '../verification/check-executor.js';
 import { emitGateEvent, sameOperationGateKey } from '../gates/gate-utils.js';
 import { resolveWorkflowState } from '../resolve-state.js';
 
@@ -79,15 +79,16 @@ function checkAllTasksComplete(tasks: readonly TaskEntry[]): CheckResult {
   return checkPass(`All tasks complete (${tasks.length}/${tasks.length})`);
 }
 
-/** The verifier of one call, the stream and the phase attempt that scope each request. */
-interface PostDelegationHost {
-  readonly connector: VerificationHostConnector;
+/** The event store, the executor, the stream and the phase attempt that scope each test run. */
+interface PostDelegationRun {
+  readonly eventStore: EventStore;
+  readonly executor?: CheckExecutor;
   readonly streamId: string;
   readonly phaseAttemptId: () => string | undefined;
 }
 
 /**
- * Runs the resolved test command of each distinct task worktree in the verifier. A path that
+ * Runs the resolved test command of each distinct task worktree in the local executor. A path that
  * resolves outside the repository root fails. The paths use POSIX separators, so the containment
  * check also works on Windows. `resolve` removes `..` segments, so the check holds.
  */
@@ -95,7 +96,7 @@ async function checkWorktreeTests(
   tasks: readonly TaskEntry[],
   repoRoot: string,
   skipTests: boolean,
-  host: PostDelegationHost,
+  run: PostDelegationRun,
 ): Promise<readonly CheckResult[] | ToolResult> {
   if (skipTests) {
     return [checkSkip('Worktree tests (--skip-tests)')];
@@ -130,29 +131,30 @@ async function checkWorktreeTests(
     }
 
     const owners = tasks.filter((t) => t.worktree === wt && t.id !== undefined && t.id !== null);
-    const hosted = await runHostedWorktreeTests(wt, wtPath, host, owners.length === 1 ? owners[0]?.id : undefined);
-    if ('success' in hosted) return hosted;
-    results.push(hosted);
+    const tested = await runWorktreeTests(wt, wtPath, run, owners.length === 1 ? owners[0]?.id : undefined);
+    if ('success' in tested) return tested;
+    results.push(tested);
   }
 
   return results;
 }
 
 /**
- * Run the resolved test command of one worktree in the verifier. Each worktree has its own operator resource.
+ * Run the resolved test command of one worktree in the local executor, read-only in that worktree.
  * The request names the stream, the phase attempt and the one task that owns the worktree.
- * No resolvable command fails the check with no request. A refusal returns as the gate result.
+ * No resolvable command fails the check with no run. A refusal returns as the gate result.
  */
-async function runHostedWorktreeTests(
-  wt: string, wtPath: string, host: PostDelegationHost, taskId: string | undefined,
+async function runWorktreeTests(
+  wt: string, wtPath: string, run: PostDelegationRun, taskId: string | undefined,
 ): Promise<CheckResult | ToolResult> {
   const label = `Worktree tests: ${wt}`;
   const resolved = resolveRunnableCommand(wtPath, 'test');
   if (resolved.kind !== 'runnable') return checkFail(label, `No test command resolved: ${resolved.reason}`);
-  const phaseAttemptId = host.phaseAttemptId();
+  const phaseAttemptId = run.phaseAttemptId();
   const legs = await admitLifecycleLegs({
-    connector: host.connector, checkout: wtPath, legs: [{ kind: 'command', argv: [resolved.bin, ...resolved.args] }],
-    streamId: host.streamId, ...(phaseAttemptId === undefined ? {} : { phaseAttemptId }), ...(taskId === undefined ? {} : { taskId }),
+    eventStore: run.eventStore, checkout: wtPath, legs: [{ kind: 'command', argv: [resolved.bin, ...resolved.args] }],
+    streamId: run.streamId, ...(phaseAttemptId === undefined ? {} : { phaseAttemptId }), ...(taskId === undefined ? {} : { taskId }),
+    ...(run.executor === undefined ? {} : { executor: run.executor }),
   });
   if ('success' in legs) return legs;
   return legs[0]?.run.exitCode === 0 ? checkPass(`${label} (${resolved.command})`) : checkFail(label, `${resolved.command} failed`);
@@ -215,10 +217,11 @@ function buildReport(
 /**
  * Runs the check through the shared phase-gate runner, which records durable gate evidence before a
  * success carrier returns. The provider also records the declared gate event.
- * A connector comes only from the dispatch context. With no connector, the check refuses after argument validation, also for `skipTests`.
- * A pending hosted result maps to its existing code with no evidence.
+ * The tests run in the local executor with no verifier provisioning. A pending result maps to its existing code with no evidence.
+ *
+ * @param executor - The local check executor. The default is the real executor. A test passes its own executor.
  */
-export async function handlePostDelegationCheck(args: PostDelegationCheckArgs, connector?: VerificationHostConnector): Promise<ToolResult> {
+export async function handlePostDelegationCheck(args: PostDelegationCheckArgs, executor?: CheckExecutor): Promise<ToolResult> {
   if (!args.featureId) {
     return {
       success: false,
@@ -236,10 +239,8 @@ export async function handlePostDelegationCheck(args: PostDelegationCheckArgs, c
     };
   }
 
-  if (connector === undefined) return verifierNotProvisioned('post_delegation_check');
-
   let attempt: string | undefined;
-  const host: PostDelegationHost = { connector, streamId: args.featureId, phaseAttemptId: () => attempt };
+  const run: PostDelegationRun = { eventStore, ...(executor === undefined ? {} : { executor }), streamId: args.featureId, phaseAttemptId: () => attempt };
   try {
     return await runPhaseGateWithEvidence({
       streamId: args.featureId,
@@ -255,7 +256,7 @@ export async function handlePostDelegationCheck(args: PostDelegationCheckArgs, c
         );
       },
       providerInput: args,
-      executeProvider: async () => executePostDelegationCheck(args, eventStore, host),
+      executeProvider: async () => executePostDelegationCheck(args, eventStore, run),
     });
   } catch (error) {
     return hostedPendingResult(error);
@@ -269,7 +270,7 @@ export async function handlePostDelegationCheck(args: PostDelegationCheckArgs, c
 async function executePostDelegationCheck(
   args: PostDelegationCheckArgs,
   store: EventStore,
-  host: PostDelegationHost,
+  run: PostDelegationRun,
 ): Promise<ToolResult> {
   const { stateFile, featureId, eventStore, repoRoot, skipTests = false } = args;
 
@@ -304,7 +305,7 @@ async function executePostDelegationCheck(
 
   addCheck(checkAllTasksComplete(tasks));
 
-  const worktreeResults = await checkWorktreeTests(tasks, repoRoot, skipTests, host);
+  const worktreeResults = await checkWorktreeTests(tasks, repoRoot, skipTests, run);
   if ('success' in worktreeResults) return worktreeResults;
   for (const wr of worktreeResults) {
     addCheck(wr);

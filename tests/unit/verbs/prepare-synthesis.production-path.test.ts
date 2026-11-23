@@ -5,8 +5,8 @@
  * `dispatch()` gives the handler only the keys that the parsed action schema keeps.
  * Thus the action schema must declare `repoRoot`, or no production call reaches the handler with it.
  *
- * Each case here runs through `dispatch()` with a provisioned context. The verifier admission is a stub that records each request.
- * The stack and changed-file legs read a real Git fixture through the constrained reader with the connector Git path.
+ * Each case here runs through `dispatch()` with no verifier provisioning. The lifecycle check of the local executor is a stub that records each request.
+ * The stack and changed-file legs read a real Git fixture through the constrained reader with the Git executable on PATH.
  * The mock stubs `execSync` and `execFileSync`, so no leg can start a plain process unseen.
  */
 
@@ -24,11 +24,9 @@ vi.mock('node:child_process', async (importOriginal) => {
   };
 });
 
-vi.mock('../../../src/verbs/gates/gate-runner.js', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../../src/verbs/gates/gate-runner.js')>();
-  const run = { end: 'exited' as const, exitCode: 0, stdout: 'Tests: 3 passed, 0 failed', stderr: '', outputDigest: 'a'.repeat(64) };
+vi.mock('../../../src/verbs/verification/lifecycle-check.js', () => {
+  const run = { argv: ['leg'], end: 'exited' as const, exitCode: 0, stdout: 'Tests: 3 passed, 0 failed', stderr: '' };
   return {
-    ...actual,
     admitLifecycleLegs: vi.fn(async () => [{ name: 'test', kind: 'command', run }, { name: 'typecheck', kind: 'typecheck', run }]),
   };
 });
@@ -41,8 +39,7 @@ import type { DispatchContext } from '../../../src/dispatch/core/dispatch.js';
 import { dispatch } from '../../../src/dispatch/core/dispatch.js';
 import { seedActivePhaseAttempt, withTrustedCaller } from '../../../tools/test-helpers/trusted-context.js';
 import { TOOL_REGISTRY } from '../../../src/registry.js';
-import { admitLifecycleLegs } from '../../../src/verbs/gates/gate-runner.js';
-import type { VerificationHostConnector } from '../../../src/contract/verification/harness-verification.js';
+import { admitLifecycleLegs } from '../../../src/verbs/verification/lifecycle-check.js';
 import { execFileAsync } from '../../../tools/test-helpers/spawn.js';
 
 /** The absolute real path of the Git executable on the test process PATH. */
@@ -68,12 +65,6 @@ async function fixtureGit(cwd: string, ...args: string[]): Promise<void> {
     },
   });
 }
-
-/** A provisioned context whose Git path is the real executable. The verifier admission is stubbed, so the client never runs. */
-const connector: VerificationHostConnector = {
-  publicKey: 'unused', gitPath: GIT, resourceId: 'unused', profileId: 'unused',
-  client: { submit: async () => ({ kind: 'unavailable', reason: 'unused' }), retrieve: async () => ({ kind: 'unavailable', reason: 'unused' }) },
-};
 
 describe('prepare_synthesis production path (DR-8 / #1756)', () => {
   const cleanups: Array<() => void> = [];
@@ -111,7 +102,6 @@ describe('prepare_synthesis production path (DR-8 / #1756)', () => {
       stateDir,
       eventStore,
       enableTelemetry: false,
-      verificationHost: connector,
     } as DispatchContext);
   });
 

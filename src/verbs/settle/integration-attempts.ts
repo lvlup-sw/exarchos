@@ -23,11 +23,19 @@ import type { ToolResult } from '../../format.js';
 import { ContentDigestV1Schema } from '../../workflow/admission/types.js';
 import type { VerificationProfile } from '../../workflow/verification/profile.js';
 import { integrationSuitePlan } from '../gates/check-integration-suite.js';
-import { HostedAdequacyPending, hostedPendingResult, hostedRefusal } from '../gates/gate-runner.js';
+import { HostedAdequacyPending, hostedPendingResult } from '../gates/gate-runner.js';
 import { NO_EXIT_STATUS, interpretReducedIntegration, runIntegrationSuite, type RunIntegrationSuiteResult } from '../pure/integration-suite.js';
 import { resolveWorkflowState } from '../resolve-state.js';
 import { resolveActivePhaseAttemptId } from '../tasks/active-phase-attempt.js';
-import { commandResultOf, runApprovedCheck, type ApprovedCheckOutcome, type CheckExecutor } from '../verification/check-executor.js';
+import { commandResultOf, refusedCheckResult, runApprovedCheck, type ApprovedCheckOutcome, type CheckExecutor } from '../verification/check-executor.js';
+
+/** The error code of an integration gate that refuses before or after its suite for a reason in the integration terms. Nothing is recorded. */
+const INTEGRATION_REFUSED = 'INTEGRATION_REFUSED';
+
+/** The failed result of an integration refusal. */
+export function integrationRefusal(message: string): ToolResult {
+  return { success: false, error: { code: INTEGRATION_REFUSED, message } };
+}
 
 /** The prefix of each attempt binding operation id. It keeps the ids apart from task segments and gate bindings. */
 const ATTEMPT_PREFIX = 'settle-integration:';
@@ -196,7 +204,7 @@ export async function runIntegrationAttempt(terms: IntegrationAttemptTerms): Pro
   try { request = await bindAttempt(terms, attemptId); }
   catch (error) {
     if (error instanceof HostedAdequacyPending) return { outcome: { kind: 'pending', result: hostedPendingResult(error) } };
-    return { outcome: { kind: 'refused', result: hostedRefusal(error instanceof Error ? error.message : String(error)) } };
+    return { outcome: { kind: 'refused', result: integrationRefusal(error instanceof Error ? error.message : String(error)) } };
   }
   const binding = { attemptId, request: canonicalJson(request) };
   const integration = terms.profile.integration;
@@ -215,7 +223,7 @@ export async function runIntegrationAttempt(terms: IntegrationAttemptTerms): Pro
     if (error instanceof HostedAdequacyPending) return { outcome: { kind: 'pending', result: hostedPendingResult(error) }, binding };
     throw error;
   }
-  if (ran.kind === 'refused') return { outcome: { kind: 'refused', result: hostedRefusal(`The integration suite did not run: ${ran.reason}`) }, binding };
+  if (ran.kind === 'refused') return { outcome: { kind: 'refused', result: refusedCheckResult(`The integration suite did not run: ${ran.reason}`) }, binding };
   const verdict = ran.value;
   const outcome: IntegrationAttemptOutcome = verdict.passed && verdict.verdict === 'pass'
     ? { kind: 'passed', attemptBinding: attemptId, evidenceDigest: ran.observation }

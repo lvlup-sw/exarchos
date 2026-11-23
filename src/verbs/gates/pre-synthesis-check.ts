@@ -8,9 +8,9 @@
  *   6. A PR stack exists (skippable).
  *   7. The tests pass (skippable).
  * Checks 2 to 5 run only when check 1 passes.
- * A provisioned verifier runs check 7 under a checkout subject of the phase attempt. No route runs it locally.
- * Check 6 reads the current branch through the constrained reader with the connector Git path.
- * A machine with no verifier refuses with VERIFIER_NOT_PROVISIONED after argument validation.
+ * The local approved-check executor runs check 7 as a lifecycle check of the phase attempt, with no verifier provisioning.
+ * A caller test-command override takes the override layer of the resolver, so the approved plan holds the override.
+ * Check 6 reads the current branch through the constrained reader with the process-wide Git path.
  */
 
 import { resolve } from 'node:path';
@@ -22,11 +22,11 @@ import type { VcsProvider } from '../../vcs/provider.js';
 import { createVcsProvider } from '../../vcs/factory.js';
 import { classifyStateFile, resolveWorkflowState } from '../resolve-state.js';
 import { createEvidenceSubject } from '../../workflow/admission/evidence-subject.js';
-import type { VerificationHostConnector } from '../../contract/verification/harness-verification.js';
-import {
-  admitLifecycleLegs, hostedPendingResult, hostedRefusal, runPhaseGateWithEvidence, verifierNotProvisioned, type LifecycleLeg,
-} from './gate-runner.js';
+import { processObservationalGitPath } from '../../utils/git-tree.js';
+import { hostedPendingResult, runPhaseGateWithEvidence } from './gate-runner.js';
 import { emitGateEvent, observeCurrentCheckout, sameOperationGateKey } from './gate-utils.js';
+import { admitLifecycleLegs, type LifecycleLeg } from '../verification/lifecycle-check.js';
+import type { CheckExecutor } from '../verification/check-executor.js';
 
 export interface PreSynthesisCheckArgs {
   /**
@@ -336,15 +336,15 @@ function checkNoFixRequests(
 /**
  * Check 6: passes when the current branch has an open PR. It is skipped with
  * `skipStack`, or when the provider is not GitHub.
- * The branch is the symbolic HEAD of the checkout root above `repoRoot`, read with the connector Git path.
- * A detached HEAD and a refused observation fail the check.
+ * The branch is the symbolic HEAD of the checkout root above `repoRoot`, read with the process-wide Git path.
+ * No usable Git, a detached HEAD and a refused observation fail the check.
  */
 async function checkPrStack(
   ctx: CheckContext,
   repoRoot: string,
   skipStack: boolean,
   provider: VcsProvider,
-  gitPath: string,
+  gitPath: string | undefined,
 ): Promise<void> {
   if (skipStack) {
     checkSkip(ctx, 'PR stack exists (--skip-stack)');
@@ -356,8 +356,8 @@ async function checkPrStack(
     return;
   }
 
-  const observed = await observeCurrentCheckout(gitPath, resolve(repoRoot));
-  const currentBranch = observed.kind === 'observed' ? observed.checkout.branch.slice('refs/heads/'.length) : '';
+  const observed = gitPath === undefined ? undefined : await observeCurrentCheckout(gitPath, resolve(repoRoot));
+  const currentBranch = observed?.kind === 'observed' ? observed.checkout.branch.slice('refs/heads/'.length) : '';
   if (!currentBranch) {
     checkFail(ctx, 'PR stack exists', 'Could not determine current branch');
     return;
@@ -376,9 +376,10 @@ async function checkPrStack(
   }
 }
 
-/** The verifier of one call and the phase attempt that scopes its request. */
-interface PreSynthesisHost {
-  readonly connector: VerificationHostConnector;
+/** The event store, the executor and the phase attempt that scope the test run of one call. */
+interface PreSynthesisRun {
+  readonly eventStore: EventStore;
+  readonly executor?: CheckExecutor;
   readonly phaseAttemptId: () => string | undefined;
 }
 
@@ -393,14 +394,15 @@ function argvOf(command: string): readonly string[] | undefined {
 }
 
 /**
- * Check 7 in the verifier. The test leg and the typecheck leg run in one request, and a failed test leg stops it, as the local route stops.
- * A refusal returns as the gate result. A pending result and a leg with no verdict throw the pending signal.
+ * Check 7 in the local executor. The test leg and the typecheck leg run in one check, and a failed test leg stops it.
+ * A caller test-command override takes the override layer of the resolver. A refusal returns as the gate result.
+ * A pending result and a leg with no verdict throw the pending signal.
  */
-async function checkTestsPassHosted(
+async function checkTestsPass(
   ctx: CheckContext,
   args: PreSynthesisCheckArgs,
   repoRoot: string,
-  host: PreSynthesisHost,
+  run: PreSynthesisRun,
 ): Promise<ToolResult | undefined> {
   if (args.skipTests) {
     checkSkip(ctx, 'Tests pass (--skip-tests)');
@@ -408,7 +410,7 @@ async function checkTestsPassHosted(
   }
   let resolved: ReturnType<typeof resolveTestRuntime>;
   try {
-    resolved = resolveTestRuntime(repoRoot);
+    resolved = resolveTestRuntime(repoRoot, args.testCommand === undefined ? undefined : { override: { test: args.testCommand } });
   } catch (err) {
     checkFail(ctx, 'Tests pass', err instanceof Error ? err.message : String(err));
     return undefined;
@@ -429,10 +431,11 @@ async function checkTestsPassHosted(
   const typecheck = resolved.typecheck === null ? undefined : argvOf(resolved.typecheck);
   const legs: LifecycleLeg[] = [{ kind: 'command', argv: test }];
   if (typecheck !== undefined) legs.push({ kind: 'typecheck', argv: typecheck });
-  const phaseAttemptId = host.phaseAttemptId();
+  const phaseAttemptId = run.phaseAttemptId();
   const admitted = await admitLifecycleLegs({
-    connector: host.connector, checkout: repoRoot, legs, stopAfterTestFailure: true,
+    eventStore: run.eventStore, checkout: repoRoot, legs, stopAfterTestFailure: true,
     streamId: args.featureId, ...(phaseAttemptId === undefined ? {} : { phaseAttemptId }),
+    ...(run.executor === undefined ? {} : { executor: run.executor }),
   });
   if ('success' in admitted) return admitted;
   if (admitted[0]?.run.exitCode !== 0) {
@@ -450,13 +453,15 @@ async function checkTestsPassHosted(
 /**
  * Runs the readiness checks through `runPhaseGateWithEvidence`. The runner
  * records durable gate evidence before a success result returns.
- * A connector comes only from the dispatch context. With no connector, the handler refuses after argument validation, also for `skipTests` and `skipStack`.
- * With a connector, a caller test-command override refuses before any request, and a pending hosted result maps to its existing code with no evidence.
+ * Check 7 runs in the local executor with no verifier provisioning. `skipTests`, `skipStack` and a caller test-command override apply.
+ * A pending result maps to its existing code with no evidence.
+ *
+ * @param executor - The local check executor. The default is the real executor. A test passes its own executor.
  */
 export async function handlePreSynthesisCheck(
   args: PreSynthesisCheckArgs,
   provider?: VcsProvider,
-  connector?: VerificationHostConnector,
+  executor?: CheckExecutor,
 ): Promise<ToolResult> {
   if (!args.featureId) {
     return {
@@ -475,13 +480,8 @@ export async function handlePreSynthesisCheck(
     };
   }
 
-  if (connector === undefined) return verifierNotProvisioned('pre_synthesis_check');
-  if (args.testCommand !== undefined) {
-    return hostedRefusal('A provisioned verifier refuses a caller test-command override. Only the approved command runs in the verifier.');
-  }
-
   let attempt: string | undefined;
-  const host: PreSynthesisHost = { connector, phaseAttemptId: () => attempt };
+  const run: PreSynthesisRun = { eventStore, ...(executor === undefined ? {} : { executor }), phaseAttemptId: () => attempt };
   try {
     return await runPhaseGateWithEvidence({
       streamId: args.featureId,
@@ -497,7 +497,7 @@ export async function handlePreSynthesisCheck(
         );
       },
       providerInput: args,
-      executeProvider: async () => executePreSynthesisCheck(args, eventStore, provider, host),
+      executeProvider: async () => executePreSynthesisCheck(args, eventStore, provider, run),
     });
   } catch (error) {
     return hostedPendingResult(error);
@@ -515,10 +515,11 @@ async function executePreSynthesisCheck(
   args: PreSynthesisCheckArgs,
   store: EventStore,
   provider: VcsProvider | undefined,
-  host: PreSynthesisHost,
+  run: PreSynthesisRun,
 ): Promise<ToolResult> {
   const { stateFile, featureId, eventStore, repoRoot = '.', skipStack = false } = args;
-  const vcs = provider ?? await createVcsProvider({ detectorDeps: { gitPath: host.connector.gitPath, cwd: repoRoot } });
+  const gitPath = processObservationalGitPath();
+  const vcs = provider ?? await createVcsProvider(gitPath === undefined ? undefined : { detectorDeps: { gitPath, cwd: repoRoot } });
 
   const ctx: CheckContext = {
     results: [],
@@ -551,9 +552,9 @@ async function executePreSynthesisCheck(
     checkNoFixRequests(ctx, state);
   }
 
-  await checkPrStack(ctx, repoRoot, skipStack, vcs, host.connector.gitPath);
+  await checkPrStack(ctx, repoRoot, skipStack, vcs, gitPath);
 
-  const refused = await checkTestsPassHosted(ctx, args, repoRoot, host);
+  const refused = await checkTestsPass(ctx, args, repoRoot, run);
   if (refused !== undefined) return refused;
 
   const total = ctx.counters.pass + ctx.counters.fail;

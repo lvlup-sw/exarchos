@@ -3,7 +3,7 @@
  * toolchain row takes the `projectType` of that profile or row. A refusal names the markers of the registry.
  *
  * Each case writes a real root with an empty `.git` directory in a temporary directory, so the process-free climb finds a worktree.
- * The label appears only on the provisioned route, so each case passes a stub connector and a stubbed signed test leg.
+ * The lifecycle check of the local executor is a stub, so each case reads the label of a stubbed test leg.
  * It mocks `node:child_process`, as the handler suite does, so no git and no test command runs.
  *
  * @oracle-sources: ../../../../src/config/toolchains.ts, the seven labels of the gate at the base commit written here as literals
@@ -15,10 +15,9 @@ vi.mock('node:child_process', () => ({
   execFileSync: vi.fn(),
 }));
 
-vi.mock('../../../../src/verbs/gates/gate-runner.js', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('../../../../src/verbs/gates/gate-runner.js')>()),
+vi.mock('../../../../src/verbs/verification/lifecycle-check.js', () => ({
   admitLifecycleLegs: vi.fn(async () => [
-    { name: 'test', kind: 'command', run: { end: 'exited', exitCode: 0, stdout: 'passed\n', stderr: '', outputDigest: 'a'.repeat(64) } },
+    { name: 'test', kind: 'command', run: { argv: ['test'], end: 'exited', exitCode: 0, stdout: 'passed\n', stderr: '' } },
   ]),
 }));
 
@@ -28,15 +27,12 @@ import path from 'node:path';
 
 import { BUILTIN_TOOLCHAINS } from '../../../../src/config/toolchains.js';
 import { handleVerifyWorktreeBaseline } from '../../../../src/verbs/gates/verify-worktree-baseline.js';
-import { admitLifecycleLegs } from '../../../../src/verbs/gates/gate-runner.js';
-import type { VerificationHostConnector } from '../../../../src/contract/verification/harness-verification.js';
+import { admitLifecycleLegs } from '../../../../src/verbs/verification/lifecycle-check.js';
+import type { EventStore } from '../../../../src/events/store.js';
 import { makeTempDir, rmrf } from '../../../../tools/test-helpers/temp-dir.js';
 
-/** A provisioned context with a stub client. The signed test leg is stubbed, so the client never runs. */
-const connector: VerificationHostConnector = {
-  publicKey: 'unused', gitPath: '/nonexistent/git', resourceId: 'unused', profileId: 'unused',
-  client: { submit: async () => ({ kind: 'unavailable', reason: 'unused' }), retrieve: async () => ({ kind: 'unavailable', reason: 'unused' }) },
-};
+/** The event store of each call. The lifecycle check is a stub, so no case reads it. */
+const store = { query: vi.fn(), append: vi.fn() } as unknown as EventStore;
 
 /** The state directory of the handler. The handler does not read it. */
 const STATE_DIR = '/tmp/worktree-baseline-label-state';
@@ -99,7 +95,7 @@ function baselineLabel(data: unknown): BaselineLabel {
 
 /** Runs the baseline at a root and returns its label. */
 async function labelAt(root: string): Promise<BaselineLabel> {
-  const result = await handleVerifyWorktreeBaseline({ worktreePath: root }, STATE_DIR, connector);
+  const result = await handleVerifyWorktreeBaseline({ worktreePath: root }, STATE_DIR, store);
   expect(result.success, JSON.stringify(result.error)).toBe(true);
   return baselineLabel(result.data);
 }
@@ -146,7 +142,7 @@ describe('the label of the worktree baseline', () => {
     const root = makeRoot({ 'README.md': '# app\n' });
     const markers = BUILTIN_TOOLCHAINS.flatMap((toolchain) => toolchain.markers);
 
-    const result = await handleVerifyWorktreeBaseline({ worktreePath: root }, STATE_DIR, connector);
+    const result = await handleVerifyWorktreeBaseline({ worktreePath: root }, STATE_DIR, store);
 
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe('UNKNOWN_PROJECT_TYPE');

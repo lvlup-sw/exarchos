@@ -1,7 +1,7 @@
 // Tests the provider verdict of `handleDebugReviewGate`.
 // The gate records durable evidence through the shared phase-gate runner, and these tests stub that runner down to its provider call.
 // `unrunbooked-gate-evidence-dispatch.test.ts` proves the evidence over real dispatch.
-// The changed files come from a stubbed constrained observation, and the test leg from a stubbed verifier admission.
+// The changed files come from a stubbed constrained observation, and the test leg from a stubbed lifecycle check of the local executor.
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { mkdtempSync, writeFileSync } from 'node:fs';
@@ -22,16 +22,25 @@ vi.mock('../../../../src/verbs/gates/gate-utils.js', async (importOriginal) => (
   observeCurrentCheckout: vi.fn(),
 }));
 
+vi.mock('../../../../src/utils/git-tree.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../../../src/utils/git-tree.js')>()),
+  processObservationalGitPath: vi.fn(() => '/usr/bin/git'),
+}));
+
+vi.mock('../../../../src/verbs/verification/lifecycle-check.js', () => ({
+  admitLifecycleLegs: vi.fn(),
+}));
+
 import { execFileSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { handleDebugReviewGate } from '../../../../src/verbs/review/debug-review-gate.js';
-import { admitLifecycleLegs, runPhaseGateWithEvidence } from '../../../../src/verbs/gates/gate-runner.js';
+import { runPhaseGateWithEvidence } from '../../../../src/verbs/gates/gate-runner.js';
+import { admitLifecycleLegs } from '../../../../src/verbs/verification/lifecycle-check.js';
 import { observeCurrentCheckout, type CurrentCheckoutRead } from '../../../../src/verbs/gates/gate-utils.js';
-import type { VerificationHostConnector } from '../../../../src/contract/verification/harness-verification.js';
+import { processObservationalGitPath } from '../../../../src/utils/git-tree.js';
 import type { EventStore } from '../../../../src/events/store.js';
 import { rmrf } from '../../../../tools/test-helpers/temp-dir.js';
-vi.mock('../../../../src/verbs/gates/gate-runner.js', async (importOriginal) => ({
-  verifierNotProvisioned: (await importOriginal<typeof import('../../../../src/verbs/gates/gate-runner.js')>()).verifierNotProvisioned,
+vi.mock('../../../../src/verbs/gates/gate-runner.js', () => ({
   runPhaseGateWithEvidence: vi.fn(async (request) => {
     try {
       return await request.executeProvider(
@@ -52,7 +61,6 @@ vi.mock('../../../../src/verbs/gates/gate-runner.js', async (importOriginal) => 
       };
     }
   }),
-  admitLifecycleLegs: vi.fn(),
   hostedPendingResult: vi.fn((error: unknown) => { throw error; }),
 }));
 
@@ -65,12 +73,6 @@ const eventStore = {
   append: vi.fn().mockResolvedValue(undefined),
   query: vi.fn().mockResolvedValue([]),
 } as unknown as EventStore;
-
-/** A provisioned context with a stub client. The verifier admission is stubbed, so the client never runs. */
-const connector: VerificationHostConnector = {
-  publicKey: 'unused', gitPath: '/nonexistent/git', resourceId: 'unused', profileId: 'unused',
-  client: { submit: async () => ({ kind: 'unavailable', reason: 'unused' }), retrieve: async () => ({ kind: 'unavailable', reason: 'unused' }) },
-};
 
 const realFs = await vi.importActual<typeof import('node:fs')>('node:fs');
 const fixtureDirs: string[] = [];
@@ -109,9 +111,9 @@ function observe(checkout: string, reads: ObservedReads) {
   return { mergeBase, nameOnly, base };
 }
 
-/** Stub the signed test leg of the verifier with an exit code. */
-function hostedExit(exitCode: number): void {
-  const run = { end: 'exited' as const, exitCode, stdout: '', stderr: '', outputDigest: 'a'.repeat(64) };
+/** Stub the test leg of the local executor with an exit code. */
+function localExit(exitCode: number): void {
+  const run = { argv: ['test'], end: 'exited' as const, exitCode, stdout: '', stderr: '' };
   vi.mocked(admitLifecycleLegs).mockResolvedValue([{ name: 'test', kind: 'command', run }]);
 }
 
@@ -128,30 +130,30 @@ describe('handleDebugReviewGate', () => {
     for (const dir of fixtureDirs.splice(0)) rmrf(dir);
   });
 
-  /** A provisioned route runs the resolved test command only in the verifier. The diff reads go through the constrained reader with the connector Git path. */
-  it('provisioned route runs the tests only in the verifier', async () => {
+  /** With no verifier provisioning, the resolved test command runs in the local executor. The diff reads go through the constrained reader with the process-wide Git path. */
+  it('runs the tests in the local executor with no verifier provisioning', async () => {
     observe(repoRoot, { threeDot: 'src/widget.ts\nsrc/widget.test.ts\n' });
-    hostedExit(0);
+    localExit(0);
 
-    const result = await handleDebugReviewGate({ featureId: FEATURE_ID, repoRoot, baseBranch: 'main' }, STATE_DIR, eventStore, connector);
+    const result = await handleDebugReviewGate({ featureId: FEATURE_ID, repoRoot, baseBranch: 'main' }, STATE_DIR, eventStore);
 
     expect(execFileSync).not.toHaveBeenCalled();
-    expect(observeCurrentCheckout).toHaveBeenCalledWith(connector.gitPath, repoRoot);
+    expect(observeCurrentCheckout).toHaveBeenCalledWith('/usr/bin/git', repoRoot);
     expect(admitLifecycleLegs).toHaveBeenCalledWith(expect.objectContaining({
-      connector, checkout: repoRoot, streamId: FEATURE_ID, legs: [{ kind: 'command', argv: ['vitest', 'run'] }],
+      eventStore, checkout: repoRoot, streamId: FEATURE_ID, legs: [{ kind: 'command', argv: ['vitest', 'run'] }],
     }));
     expect((result.data as { report: string }).report).toContain('**PASS**: Tests pass (vitest run)');
   });
 
   it('returns passed when test files exist and tests pass', async () => {
     observe(repoRoot, { threeDot: 'src/widget.ts\nsrc/widget.test.ts\nsrc/utils.ts\n' });
-    hostedExit(0);
+    localExit(0);
 
     const result = await handleDebugReviewGate({
       featureId: FEATURE_ID,
       repoRoot,
       baseBranch: 'main',
-    }, STATE_DIR, eventStore, connector);
+    }, STATE_DIR, eventStore);
 
     expect(result.success).toBe(true);
     const data = result.data as {
@@ -168,13 +170,13 @@ describe('handleDebugReviewGate', () => {
 
   it('returns failed when no test files in diff', async () => {
     observe(repoRoot, { threeDot: 'src/widget.ts\nsrc/utils.ts\n' });
-    hostedExit(0);
+    localExit(0);
 
     const result = await handleDebugReviewGate({
       featureId: FEATURE_ID,
       repoRoot,
       baseBranch: 'main',
-    }, STATE_DIR, eventStore, connector);
+    }, STATE_DIR, eventStore);
 
     expect(result.success).toBe(true);
     const data = result.data as {
@@ -194,7 +196,7 @@ describe('handleDebugReviewGate', () => {
       featureId: FEATURE_ID,
       repoRoot,
       baseBranch: 'main',
-    }, STATE_DIR, eventStore, connector);
+    }, STATE_DIR, eventStore);
 
     expect(result.success).toBe(true);
     const data = result.data as {
@@ -210,13 +212,13 @@ describe('handleDebugReviewGate', () => {
 
   it('returns failed when the resolved test command fails', async () => {
     observe(repoRoot, { threeDot: 'src/widget.ts\nsrc/widget.test.ts\n' });
-    hostedExit(1);
+    localExit(1);
 
     const result = await handleDebugReviewGate({
       featureId: FEATURE_ID,
       repoRoot,
       baseBranch: 'main',
-    }, STATE_DIR, eventStore, connector);
+    }, STATE_DIR, eventStore);
 
     expect(result.success).toBe(true);
     const data = result.data as {
@@ -229,7 +231,7 @@ describe('handleDebugReviewGate', () => {
     expect(data.report).toContain('FAIL');
   });
 
-  /** With `skipRun`, the gate reads the diff and asks the verifier for no test run. */
+  /** With `skipRun`, the gate reads the diff and asks the executor for no test run. */
   it('skips test execution when skipRun is true', async () => {
     observe(repoRoot, { threeDot: 'src/widget.ts\nsrc/widget.test.ts\n' });
 
@@ -238,7 +240,7 @@ describe('handleDebugReviewGate', () => {
       repoRoot,
       baseBranch: 'main',
       skipRun: true,
-    }, STATE_DIR, eventStore, connector);
+    }, STATE_DIR, eventStore);
 
     expect(result.success).toBe(true);
     const data = result.data as {
@@ -259,7 +261,7 @@ describe('handleDebugReviewGate', () => {
       featureId: FEATURE_ID,
       repoRoot: '/nonexistent',
       baseBranch: 'main',
-    }, STATE_DIR, eventStore, connector);
+    }, STATE_DIR, eventStore);
 
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe('INVALID_INPUT');
@@ -268,13 +270,13 @@ describe('handleDebugReviewGate', () => {
 
   it('detects all supported test file extensions', async () => {
     observe(repoRoot, { threeDot: 'src/a.test.ts\nsrc/b.spec.ts\nscripts/c.test.sh\nsrc/d.test.js\nsrc/e.spec.js\n' });
-    hostedExit(0);
+    localExit(0);
 
     const result = await handleDebugReviewGate({
       featureId: FEATURE_ID,
       repoRoot,
       baseBranch: 'main',
-    }, STATE_DIR, eventStore, connector);
+    }, STATE_DIR, eventStore);
 
     expect(result.success).toBe(true);
     const data = result.data as {
@@ -286,17 +288,17 @@ describe('handleDebugReviewGate', () => {
     expect(data.report).toContain('5 test file(s)');
   });
 
-  /** A Go module resolves `go test ./...` from the toolchain registry, and the verifier runs that command in the module. */
+  /** A Go module resolves `go test ./...` from the toolchain registry, and the executor runs that command in the module. */
   it('runs the resolved test command for a Go module', async () => {
     const goRepo = fixtureRepo({ 'go.mod': 'module example.com/fixture\n' });
     observe(goRepo, { threeDot: 'widget.go\nscripts/widget.test.sh\n' });
-    hostedExit(0);
+    localExit(0);
 
     const result = await handleDebugReviewGate({
       featureId: FEATURE_ID,
       repoRoot: goRepo,
       baseBranch: 'main',
-    }, STATE_DIR, eventStore, connector);
+    }, STATE_DIR, eventStore);
 
     expect(admitLifecycleLegs).toHaveBeenCalledTimes(1);
     expect(admitLifecycleLegs).toHaveBeenCalledWith(expect.objectContaining({
@@ -307,7 +309,7 @@ describe('handleDebugReviewGate', () => {
     expect(data.report).toContain('- **PASS**: Tests pass (go test ./...)');
   });
 
-  /** No project markers and no configuration: the test check fails closed and asks the verifier for nothing. */
+  /** No project markers and no configuration: the test check fails closed and asks the executor for nothing. */
   it('fails the test check when no test command resolves', async () => {
     const emptyRepo = fixtureRepo({});
     observe(emptyRepo, { threeDot: 'src/widget.test.ts\n' });
@@ -316,7 +318,7 @@ describe('handleDebugReviewGate', () => {
       featureId: FEATURE_ID,
       repoRoot: emptyRepo,
       baseBranch: 'main',
-    }, STATE_DIR, eventStore, connector);
+    }, STATE_DIR, eventStore);
 
     expect(admitLifecycleLegs).not.toHaveBeenCalled();
     const data = result.data as { passed: boolean; report: string; checks: { fail: number; skip: number } };
@@ -330,21 +332,25 @@ describe('handleDebugReviewGate', () => {
       featureId: FEATURE_ID,
       repoRoot,
       baseBranch: '',
-    }, STATE_DIR, eventStore, connector);
+    }, STATE_DIR, eventStore);
 
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe('INVALID_INPUT');
     expect(result.error?.message).toContain('baseBranch');
   });
 
-  /** With no connector, the gate refuses after the `featureId` check and before the provider checks, so a call with no repoRoot also refuses. */
-  it('DebugReviewGate_NoConnectorAndNoRepoRoot_RefusesWithVerifierNotProvisioned', async () => {
-    const result = await handleDebugReviewGate({ featureId: FEATURE_ID, repoRoot: '', baseBranch: '' }, STATE_DIR, eventStore);
+  /** A refusal of the local executor returns as the gate result. With no usable Git, the diff read fails closed and no test runs. */
+  it('DebugReviewGate_LocalRefusalAndNoGit_FailClosed', async () => {
+    observe(repoRoot, { threeDot: 'src/widget.test.ts\n' });
+    vi.mocked(admitLifecycleLegs).mockResolvedValue({ success: false, error: { code: 'LOCAL_CHECK_REFUSED', message: 'refused' } });
+    const refused = await handleDebugReviewGate({ featureId: FEATURE_ID, repoRoot, baseBranch: 'main' }, STATE_DIR, eventStore);
+    expect(refused).toEqual({ success: false, error: { code: 'LOCAL_CHECK_REFUSED', message: 'refused' } });
+    expect(runPhaseGateWithEvidence).toHaveBeenCalledTimes(1);
 
-    expect(result.success).toBe(false);
-    expect(result.error?.code).toBe('VERIFIER_NOT_PROVISIONED');
-    expect(runPhaseGateWithEvidence).not.toHaveBeenCalled();
-    expect(observeCurrentCheckout).not.toHaveBeenCalled();
+    vi.mocked(admitLifecycleLegs).mockClear();
+    vi.mocked(processObservationalGitPath).mockReturnValueOnce(undefined);
+    const noGit = await handleDebugReviewGate({ featureId: FEATURE_ID, repoRoot, baseBranch: 'main' }, STATE_DIR, eventStore);
+    expect(noGit.error?.code).toBe('DIFF_FAILED');
     expect(admitLifecycleLegs).not.toHaveBeenCalled();
     expect(execFileSync).not.toHaveBeenCalled();
   });
@@ -352,21 +358,21 @@ describe('handleDebugReviewGate', () => {
   /** The first read diffs from the merge base. When it fails, the second read diffs the base and the head, and only when both fail does the gate give DIFF_FAILED. */
   it('DebugReviewGate_ConstrainedDiff_ThreeDotThenTwoDotThenDiffFailed', async () => {
     const fallback = observe(repoRoot, { mergeBase: new Error('no merge base'), twoDot: 'src/widget.test.ts\n' });
-    hostedExit(0);
-    const fellBack = await handleDebugReviewGate({ featureId: FEATURE_ID, repoRoot, baseBranch: 'main' }, STATE_DIR, eventStore, connector);
+    localExit(0);
+    const fellBack = await handleDebugReviewGate({ featureId: FEATURE_ID, repoRoot, baseBranch: 'main' }, STATE_DIR, eventStore);
     expect((fellBack.data as { passed: boolean }).passed).toBe(true);
     expect(fallback.nameOnly).toHaveBeenCalledWith(`${repoRoot}/.git`, repoRoot, BASE, HEAD);
 
     observe(repoRoot, { threeDot: new Error('diff failed'), twoDot: new Error('diff failed') });
-    const failed = await handleDebugReviewGate({ featureId: FEATURE_ID, repoRoot, baseBranch: 'main' }, STATE_DIR, eventStore, connector);
+    const failed = await handleDebugReviewGate({ featureId: FEATURE_ID, repoRoot, baseBranch: 'main' }, STATE_DIR, eventStore);
     expect(failed.error?.code).toBe('DIFF_FAILED');
 
     observe(repoRoot, { base: 'refused', threeDot: 'src/widget.test.ts\n' });
-    const refusedBase = await handleDebugReviewGate({ featureId: FEATURE_ID, repoRoot, baseBranch: 'v1..main' }, STATE_DIR, eventStore, connector);
+    const refusedBase = await handleDebugReviewGate({ featureId: FEATURE_ID, repoRoot, baseBranch: 'v1..main' }, STATE_DIR, eventStore);
     expect(refusedBase.error?.code).toBe('DIFF_FAILED');
 
     vi.mocked(observeCurrentCheckout).mockResolvedValue({ kind: 'refused', reason: 'The checkout HEAD is detached' });
-    const detached = await handleDebugReviewGate({ featureId: FEATURE_ID, repoRoot, baseBranch: 'main' }, STATE_DIR, eventStore, connector);
+    const detached = await handleDebugReviewGate({ featureId: FEATURE_ID, repoRoot, baseBranch: 'main' }, STATE_DIR, eventStore);
     expect(detached.error?.code).toBe('DIFF_FAILED');
     expect(execFileSync).not.toHaveBeenCalled();
   });

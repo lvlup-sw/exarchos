@@ -1,32 +1,22 @@
-// @oracle-sources: the packaged exarchos binary on PATH, an independently compiled verifier, a PATH Git shim log, marker files and real disposable repositories
+// @oracle-sources: the packaged exarchos binary on PATH, a PATH Git shim log, marker files and real disposable repositories
 /**
  * Prove through the packaged binary that governed startup and callbacks are data-only.
  * Each binary run gets a scratch HOME, so the verifier provisioning of the real machine cannot change a verdict.
- * A PATH Git shim records each call, and marker files show that no configuration, hook or test command ran locally.
+ * A PATH Git shim records each call. Marker files show that no configuration or hook ran, and that no test command ran outside a checkout.
  * Startup starts no Git with the provisioning absent, unusable or usable, and packaged workflow init starts none.
+ * The standalone test verb reads no provisioning and runs the test command only in the local approved-check executor.
  */
-import { createHash, generateKeyPairSync } from 'node:crypto';
-import { execFile, spawn, type ChildProcess } from 'node:child_process';
-import { once } from 'node:events';
+import { generateKeyPairSync } from 'node:crypto';
 import { constants } from 'node:fs';
-import { access, chmod, copyFile, mkdir, readFile, realpath, rm, writeFile } from 'node:fs/promises';
+import { access, chmod, mkdir, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { delimiter, join, resolve } from 'node:path';
-import { promisify } from 'node:util';
-import { afterAll, expect, it } from 'vitest';
-import { checkPlanDigest } from '../../src/contract/verification/harness-verification.js';
-import { lifecyclePlan } from '../../src/verbs/gates/gate-runner.js';
+import { expect, it } from 'vitest';
 import { runCli } from '../helpers/cli-runner.js';
 import { spawnMcpClient } from '../helpers/mcp-client.js';
 import { extractEnvelope } from '../helpers/mcp-envelope.js';
 import { scopedRepository } from '../helpers/scoped-repository.js';
 import { data, prepareRequest, record, withRaceRepository } from '../helpers/capsule/s6-process-race.js';
 import { makeTempDir, rmrfAsync } from '../../tools/test-helpers/temp-dir.js';
-
-const execute = promisify(execFile);
-const buildRoot = makeTempDir('1928-data-only-build-');
-let builtVerifier: Promise<string> | undefined;
-
-afterAll(async () => { await rmrfAsync(buildRoot); });
 
 /** Resolve one executable from the PATH of the test process, before any shim directory goes first. */
 async function onPath(name: string): Promise<string> {
@@ -37,24 +27,14 @@ async function onPath(name: string): Promise<string> {
   throw new Error(`The fixture requires ${name} on PATH`);
 }
 
-/** Build the independent verifier once for every case in this file. */
-function verifierBinary(): Promise<string> {
-  builtVerifier ??= (async () => {
-    const out = join(buildRoot, 'binary');
-    await execute('bun', ['run', 'tools/release/build-binary.ts', '--component=verifier', '--outdir', out], { timeout: 180000 });
-    return join(out, `exarchos-verifier-linux-${process.arch}`);
-  })();
-  return builtVerifier;
-}
-
 /** True when a marker path exists. */
 async function exists(path: string): Promise<boolean> {
   try { await access(path); return true; } catch { return false; }
 }
 
-/** A script that writes a marker when it runs on the governor host. Inside the verifier the marker directory is not mounted. */
+/** A script that writes a marker when it runs. */
 function markerScript(marker: string, body = ''): string {
-  return `try { require('node:fs').writeFileSync(${JSON.stringify(marker)}, 'ran'); } catch {}\n${body}\n`;
+  return `require('node:fs').writeFileSync(${JSON.stringify(marker)}, 'ran');\n${body}\n`;
 }
 
 /**
@@ -132,8 +112,9 @@ it.runIf(process.platform === 'linux')('DataOnly_PackagedEntries_StartNoGitAndRu
     expect(hook.exitCode).toBe(0);
     expect(JSON.parse(hook.stdout)).toEqual({ continue: true });
     const runTests = await f.cli(['run-tests'], checkout);
-    expect(runTests.exitCode).toBe(78);
-    expect(runTests.stderr).toContain('Provision the verifier');
+    expect(runTests.exitCode).toBe(77);
+    expect(runTests.stderr).toContain('not a registered branch checkout');
+    expect(runTests.stderr).not.toContain('Provision the verifier');
     const nested = join(checkout, 'nested', 'deeper');
     await mkdir(join(checkout, '.git'));
     await mkdir(nested, { recursive: true });
@@ -176,29 +157,30 @@ it.runIf(process.platform === 'linux')('DataOnly_OldTerminalWorkflow_ReadsWithNo
   } finally { await f.close(); await rmrfAsync(repo.root); }
 }, 240000);
 
-it.runIf(process.platform === 'linux')('DataOnly_UnusableProvisioning_RunTestsExits77AndUnboundAdequacyRunsLocallyWithNoTestCommand', async () => {
+/**
+ * The standalone test verb reads no provisioning. An unreadable or unusable provisioning does not change its outcome.
+ * A directory that no checkout holds refuses with exit 77 in the local executor, and the test command does not run.
+ */
+it.runIf(process.platform === 'linux')('DataOnly_UnusableProvisioning_RunTestsIgnoresItAndUnboundAdequacyRunsLocallyWithNoTestCommand', async () => {
   const f = await dataOnlyFixture();
   try {
     const checkout = join(f.root, 'checkout');
     await mkdir(checkout);
     await writeFile(join(checkout, '.exarchos.yml'), 'test: node test.cjs\n');
     await writeFile(join(checkout, 'test.cjs'), markerScript(f.marker('test')));
+    const refusedOutsideACheckout = async () => {
+      const run = await f.cli(['run-tests'], checkout);
+      expect(run.exitCode, run.stderr).toBe(77);
+      expect(run.stderr).toContain('not a registered branch checkout');
+      expect(run.stderr).not.toContain('provisioning');
+    };
     await writeFile(join(f.home, '.exarchos'), 'not a directory\n');
-    const notDirectory = await f.cli(['run-tests'], checkout);
-    expect(notDirectory.exitCode).toBe(77);
-    expect(notDirectory.stderr).toContain(`The provisioning ancestor ${join(f.home, '.exarchos')} is not a directory`);
+    await refusedOutsideACheckout();
     await rm(join(f.home, '.exarchos'));
     await provision(f.home, { version: 1 }, 0o775);
-
-    const runTests = await f.cli(['run-tests'], checkout);
-    expect(runTests.exitCode).toBe(77);
-    expect(runTests.stderr).toContain('The verifier client provisioning is not usable');
-    expect(runTests.stderr).toContain(`${join(f.home, '.exarchos')} is group or world writable`);
-
+    await refusedOutsideACheckout();
     await chmod(join(f.home, '.exarchos'), 0o700);
-    const schema = await f.cli(['run-tests'], checkout);
-    expect(schema.exitCode).toBe(77);
-    expect(schema.stderr).toContain('does not match its strict schema');
+    await refusedOutsideACheckout();
 
     const adequacy = await f.json(['orchestrate', 'check_test_adequacy', '--feature-id', 'unbound', '--task-id', 'task-1',
       '--repo-root', checkout, '--base-branch', 'main'], checkout);
@@ -212,83 +194,46 @@ it.runIf(process.platform === 'linux')('DataOnly_UnusableProvisioning_RunTestsEx
   } finally { await f.close(); }
 }, 240000);
 
-it.runIf(process.platform === 'linux')('DataOnly_ProvisionedVerifier_RunTestsExitsWithTheChildCode77Or75', async () => {
+/**
+ * A usable verifier provisioning does not route the standalone test verb. The command runs in the local executor at the checkout root.
+ * The verb exits with the child code, and a dirty tree refuses with exit 77 before any run. These runs use the plain PATH, so Git is real.
+ */
+it.runIf(process.platform === 'linux')('DataOnly_ProvisionedVerifier_RunTestsRunsLocallyWithTheChildCodeAndRefusesADirtyTree', async () => {
   const f = await dataOnlyFixture();
+  const marker = join(f.root, 'markers', 'local-test');
   const repo = await scopedRepository({ integrationBranch: 'integration', files: {
     '.exarchos.yml': 'test: node test.cjs\n',
-    'test.cjs': markerScript(join(f.root, 'markers', 'local-test'), "process.stdout.write('tests ok\\n'); process.exit(3);"),
+    'test.cjs': `require('node:fs').appendFileSync(${JSON.stringify(marker)}, 'ran\\n');\nprocess.stdout.write('tests ok\\n'); process.exit(3);\n`,
   } });
-  let child: ChildProcess | undefined;
   try {
     const control = join(f.root, 'control');
-    const state = join(control, 'state');
-    const runtime = join(f.root, 'runtime');
     await mkdir(control, { mode: 0o700 });
-    await mkdir(state, { mode: 0o700 });
-    await mkdir(runtime);
-    const node = join(runtime, 'node');
-    await copyFile(await realpath(process.execPath), node);
-    await chmod(node, 0o500);
-    const runnerDigest = createHash('sha256').update(await readFile(node)).digest('hex');
-    const signer = generateKeyPairSync('ed25519');
-    const publicKey = signer.publicKey.export({ format: 'pem', type: 'spki' }).toString();
     const tokenPath = join(control, 'token');
-    const privateKeyPath = join(control, 'key');
-    const socketPath = join(control, 's');
-    const hostConfig = join(control, 'host.json');
     await writeFile(tokenPath, 'disposable-data-only-fixture-token', { mode: 0o600 });
-    await writeFile(privateKeyPath, signer.privateKey.export({ format: 'pem', type: 'pkcs8' }), { mode: 0o600 });
-    const gitPath = await onPath('git');
-    const bwrapPath = await onPath('bwrap');
-    const plan = lifecyclePlan([{ kind: 'command', argv: ['node', 'test.cjs'] }]);
-    const repository = join(repo.checkout, '.git');
-    const branch = 'refs/heads/integration';
-    await writeFile(hostConfig, JSON.stringify({
-      version: 1, socketPath, stateDir: state, tokenPath, privateKeyPath, publicKey, bwrapPath, gitPath, runtimePaths: ['/usr', runtime],
-      profiles: [{ id: 'main-test', digest: 'e'.repeat(64), executable: node, args: [], timeoutMs: 30000,
-        check: { ...plan, runnerDigest, timeoutMs: 60000, outputBytes: 4 * 1024 * 1024 } }],
-      resources: [{ id: 'main-test', checkout: repo.checkout, repository, gitDir: repository, branch, subject: { scope: 'checkout', profileId: 'main-test' } }],
-    }), { mode: 0o600 });
+    const publicKey = generateKeyPairSync('ed25519').publicKey.export({ format: 'pem', type: 'spki' }).toString();
     await provision(f.home, {
-      version: 1, socketPath, tokenPath, publicKey, exchangeMs: 1000, pollMs: 120000, gitPath, resourceId: 'unused', profileId: 'unused',
-      checks: { lifecycle: [{ checkout: repo.checkout, repository, branch, commandDigest: checkPlanDigest(plan), resourceId: 'main-test', profileId: 'main-test' }] },
+      version: 1, socketPath: join(control, 's'), tokenPath, publicKey, gitPath: await onPath('git'), resourceId: 'unused', profileId: 'unused',
     }, 0o700);
+    const plain = { PATH: process.env.PATH ?? '' };
 
-    const stopped = await f.cli(['run-tests'], repo.checkout);
-    expect(stopped.exitCode, stopped.stderr).toBe(75);
-    expect(stopped.stderr).toContain('the verifier gave no result');
-
-    child = spawn(await verifierBinary(), ['--config', hostConfig], { stdio: ['ignore', 'pipe', 'pipe'] });
-    const started = child;
-    await new Promise<void>((done, reject) => {
-      const deadline = setTimeout(() => reject(new Error('Verifier readiness deadline')), 10000);
-      let output = '';
-      started.once('close', code => { clearTimeout(deadline); reject(new Error(`Verifier exited ${code}`)); });
-      started.stdout?.on('data', bytes => { output += String(bytes); if (output.includes('VERIFIER_READY')) { clearTimeout(deadline); done(); } });
-    });
-
-    const exited = await f.cli(['run-tests'], repo.checkout);
+    const exited = await f.cli(['run-tests'], repo.checkout, { env: plain });
     expect(exited.exitCode, exited.stderr).toBe(3);
     expect(exited.stdout).toContain('tests ok');
+    expect((await readFile(marker, 'utf8')).split('\n').filter(Boolean)).toHaveLength(1);
 
     await writeFile(join(repo.checkout, 'untracked.txt'), 'dirty\n');
-    const dirty = await f.cli(['run-tests'], repo.checkout);
+    const dirty = await f.cli(['run-tests'], repo.checkout, { env: plain });
     expect(dirty.exitCode).toBe(77);
     expect(dirty.stderr).toContain('Commit them first');
     await rm(join(repo.checkout, 'untracked.txt'));
 
-    expect(await f.gitCalls()).toEqual([]);
-    expect(await exists(join(f.root, 'markers', 'local-test'))).toBe(false);
+    expect((await readFile(marker, 'utf8')).split('\n').filter(Boolean)).toHaveLength(1);
+    expect(await exists(join(control, 's'))).toBe(false);
   } finally {
-    if (child !== undefined && child.exitCode === null && child.signalCode === null) {
-      const ended = once(child, 'exit');
-      child.kill('SIGTERM');
-      await ended;
-    }
     await f.close();
     await rmrfAsync(repo.root);
   }
-}, 400000);
+}, 240000);
 
 it.runIf(process.platform === 'linux')('DataOnly_FormerExecutableConfigurationType_RefusesAsNoDefinitionAndConfigNeverRuns', async () => {
   await withRaceRepository(async fixture => {

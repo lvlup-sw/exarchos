@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { handleRunTests, type HostedTestRun, type RunTestsDeps, type RunTestsHost } from '../../../src/lifecycle/run-tests.js';
+import { handleRunTests, type LocalTestRun, type RunTestsDeps, type RunTestsHost } from '../../../src/lifecycle/run-tests.js';
 import type { ResolvedRuntime } from '../../../src/config/test-runtime-resolver.js';
 
 interface Recorder {
@@ -14,6 +14,7 @@ function makeDeps(
   const rec: Recorder = { out: [], err: [] };
   const deps: RunTestsDeps = {
     cwd: '/repo',
+    host: { run: async () => { throw new Error('This case runs no test command'); } },
     resolve: () => {
       if (resolved instanceof Error) throw resolved;
       return resolved;
@@ -33,36 +34,13 @@ const RESOLVED = (test: string | null, extra: Partial<ResolvedRuntime> = {}): Re
   ...extra,
 });
 
-/** A host that records each hosted call and returns one fixed outcome. */
-function hostOf(outcome: HostedTestRun): { host: RunTestsHost; calls: Array<{ cwd: string; argv: readonly string[] }> } {
+/** A host that records each local call and returns one fixed outcome. */
+function hostOf(outcome: LocalTestRun): { host: RunTestsHost; calls: Array<{ cwd: string; argv: readonly string[] }> } {
   const calls: Array<{ cwd: string; argv: readonly string[] }> = [];
   return { calls, host: { run: async (cwd, argv) => { calls.push({ cwd, argv }); return outcome; } } };
 }
 
 describe('handleRunTests', () => {
-  /** Without a verifier host, an actual run runs nothing, exits 78 and tells the user to provision the verifier. */
-  it('RunTests_NoHost_Exits78AndTellsTheUserToProvision', async () => {
-    const { deps, rec } = makeDeps(RESOLVED('pytest -q'), { platform: 'linux' });
-
-    const code = await handleRunTests([], deps);
-
-    expect(code).toBe(78);
-    expect(rec.out).toEqual([]);
-    expect(rec.err.join('\n')).toContain('no verifier is provisioned');
-    expect(rec.err.join('\n')).toContain('~/.exarchos/verifier/client.json');
-  });
-
-  /** On a platform other than Linux, the exit 78 message names that platform. */
-  it('RunTests_NoHostOnAnotherPlatform_Exits78NamingThePlatform', async () => {
-    const { deps, rec } = makeDeps(RESOLVED('cargo test'), { platform: 'darwin' });
-
-    const code = await handleRunTests([], deps);
-
-    expect(code).toBe(78);
-    expect(rec.err.join('\n')).toContain('does not support the darwin platform');
-    expect(rec.err.join('\n')).toContain('Provision the verifier');
-  });
-
   /** The skip is visible because its reason goes to stderr. */
   it('RunTests_Unresolved_SkipsVisiblyAndExitsZero', async () => {
     const { deps, rec } = makeDeps(
@@ -95,8 +73,8 @@ describe('handleRunTests', () => {
     expect(rec.out.join('\n')).toContain('npm run test:run');
   });
 
-  /** A provisioned machine waits for the signed result and returns the actual child exit code. No local run starts. */
-  it('RunTests_Hosted_ReturnsSignedChildExitCodeWithoutLocalRun', async () => {
+  /** The local host runs the resolved argv in the cwd, and the verb returns the child exit code with its output. */
+  it('RunTests_LocalHost_ReturnsTheChildExitCodeAndOutput', async () => {
     const { host, calls } = hostOf({ kind: 'exited', exitCode: 3, stdout: 'suite output', stderr: 'suite diagnostics' });
     const { deps, rec } = makeDeps(RESOLVED('node test.cjs --flag'), { host });
 
@@ -108,24 +86,24 @@ describe('handleRunTests', () => {
     expect(rec.err).toEqual(['suite diagnostics']);
   });
 
-  /** A host refusal, a key conflict and a dirty tree exit 77. An unavailable or pending verifier exits 75. Each keeps its own message. */
-  it('RunTests_Hosted_RefusalExits77AndUnavailableExits75WithDistinctMessages', async () => {
+  /** A refused run exits 77, and a run with no verdict exits 75. Each keeps its own message. No outcome exits 78. */
+  it('RunTests_LocalHost_RefusalExits77AndNoVerdictExits75WithDistinctMessages', async () => {
     const refused = hostOf({ kind: 'refused', message: 'The checkout has uncommitted changes. Commit them first, then run the check again.' });
     const first = makeDeps(RESOLVED('node test.cjs'), { host: refused.host });
     expect(await handleRunTests([], first.deps)).toBe(77);
     expect(first.rec.err.join('\n')).toContain('Commit them first');
     expect(first.rec.err.join('\n')).toContain('refused');
 
-    const unavailable = hostOf({ kind: 'unavailable', message: 'The hosted test run gave no verdict: the verifier stopped the run at its pinned time limit.' });
+    const unavailable = hostOf({ kind: 'unavailable', message: 'The test run gave no verdict: the executor stopped the run at its time cap.' });
     const second = makeDeps(RESOLVED('node test.cjs'), { host: unavailable.host });
     expect(await handleRunTests([], second.deps)).toBe(75);
-    expect(second.rec.err.join('\n')).toContain('pinned time limit');
+    expect(second.rec.err.join('\n')).toContain('time cap');
     expect(second.rec.err.join('\n')).toContain('no result');
     expect([...refused.calls, ...unavailable.calls]).toHaveLength(2);
   });
 
-  /** With a host, an unresolved command, a malformed config and a dry run keep their own exits and make no hosted request. */
-  it('RunTests_Hosted_UnresolvedMalformedAndDryRunMakeNoRequest', async () => {
+  /** An unresolved command, a malformed config and a dry run keep their own exits and run nothing. */
+  it('RunTests_LocalHost_UnresolvedMalformedAndDryRunRunNothing', async () => {
     const { host, calls } = hostOf({ kind: 'exited', exitCode: 0, stdout: '', stderr: '' });
 
     expect(await handleRunTests([], makeDeps(RESOLVED(null, { remediation: 'No project markers detected.' }), { host }).deps)).toBe(0);

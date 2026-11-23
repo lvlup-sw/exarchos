@@ -222,14 +222,14 @@ describe('compiler 8-vcs settlement', () => {
     const before = await f.rows();
     await git(f.scope.checkout, 'checkout', '-q', '-b', 'elsewhere');
     const wrong = await f.settle(['root'], 'wrong');
-    expect(wrong, JSON.stringify(wrong)).toMatchObject({ success: false, error: { code: 'HOSTED_VERIFICATION_REFUSED' } });
+    expect(wrong, JSON.stringify(wrong)).toMatchObject({ success: false, error: { code: 'INTEGRATION_REFUSED' } });
     expect(wrong.error?.message).toContain('does not hold refs/heads/integration');
     expect(await f.rows()).toEqual(before);
     expect(f.backend().lookupSegmentInput(f.attemptId('wrong', tip, ['root']))).toBeUndefined();
     await git(f.scope.checkout, 'checkout', '-q', 'integration');
     await writeFile(join(f.scope.checkout, 'stray.txt'), 'not committed\n');
     const dirty = await f.settle(['root'], 'dirty');
-    expect(dirty, JSON.stringify(dirty)).toMatchObject({ success: false, error: { code: 'HOSTED_VERIFICATION_REFUSED' } });
+    expect(dirty, JSON.stringify(dirty)).toMatchObject({ success: false, error: { code: 'LOCAL_CHECK_REFUSED' } });
     expect(dirty.error?.message).toContain('uncommitted changes');
     expect(settled(await f.rows())).toEqual([]);
     expect(await f.suiteTips()).toEqual([]);
@@ -305,7 +305,7 @@ describe('compiler 8-vcs settlement', () => {
     await git(f.scope.checkout, 'commit', '-q', '-am', 'a suite that leaves a file');
     const tip = await git(f.scope.checkout, 'rev-parse', 'HEAD');
     const changed = await f.settle(['root'], 'changed');
-    expect(changed, JSON.stringify(changed)).toMatchObject({ success: false, error: { code: 'HOSTED_VERIFICATION_REFUSED' } });
+    expect(changed, JSON.stringify(changed)).toMatchObject({ success: false, error: { code: 'LOCAL_CHECK_REFUSED' } });
     expect(changed.error?.message).toContain('changed the working directory');
     expect(settled(await f.rows())).toEqual([]);
     expect(await f.standing('root')).not.toBe('accepted');

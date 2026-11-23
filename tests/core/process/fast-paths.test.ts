@@ -5,9 +5,10 @@
  * the version forms, the hook commands, `run-tests` and `verify-worktree-boundary`. Claude Code
  * runs the hooks on every session event and every subagent write, so a change to the entry must
  * keep these answers. Each test spawns the binary that `ensureBinaryBuilt` builds from this tree.
- * `HOME` is a scratch directory, so the verifier provisioning of the real machine cannot change a verdict.
+ * `HOME` is a scratch directory, so no configuration of the real machine can change a verdict.
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { devNull } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -83,17 +84,37 @@ describe('fast paths of the compiled binary', () => {
     expect((JSON.parse(result.stdout) as { error: { code: string } }).error.code).toBe('MISSING_SESSION_ID');
   });
 
-  /** With no verifier provisioning, `run-tests` runs nothing, exits 78 and tells the user to provision the verifier. */
-  it('RunTests_NoVerifierProvisioning_Exits78WithoutRunningTheCommand', async () => {
+  /**
+   * With no verifier provisioning, `run-tests` runs the resolved command in the local executor and exits with the child exit code.
+   * A working directory that is not a checkout root refuses with exit 77.
+   * A program that does not start gives no verdict with exit 75.
+   * No outcome exits 78.
+   */
+  it('RunTests_NoVerifierProvisioning_RunsLocallyAndKeepsExits77And75', async () => {
     const project = join(scratch, 'project');
     mkdirSync(project, { recursive: true });
-    const marker = join(project, 'ran');
+    const marker = join(scratch, 'ran');
     writeFileSync(join(project, 'exit3.mjs'), `import { writeFileSync } from 'node:fs';\nwriteFileSync(${JSON.stringify(marker)}, 'ran');\nprocess.exit(3);\n`);
     writeFileSync(join(project, '.exarchos.yml'), 'test: node exit3.mjs\n');
-    const result = await run(['run-tests'], { cwd: project });
-    expect(result.status).toBe(78);
-    expect(result.stderr).toContain('Provision the verifier');
+    const env = { ...process.env, GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: devNull, GIT_AUTHOR_NAME: 'Fixture', GIT_AUTHOR_EMAIL: 'fixture@example.invalid',
+      GIT_COMMITTER_NAME: 'Fixture', GIT_COMMITTER_EMAIL: 'fixture@example.invalid' };
+
+    const unregistered = await run(['run-tests'], { cwd: project });
+    expect(unregistered.status).toBe(77);
     expect(existsSync(marker)).toBe(false);
+
+    for (const args of [['init', '-q', '-b', 'main'], ['add', '.'], ['commit', '-q', '-m', 'fixture']]) {
+      await spawnAsync('git', args, { cwd: project, env });
+    }
+    const ran = await run(['run-tests'], { cwd: project });
+    expect(ran.status, ran.stderr).toBe(3);
+    expect(existsSync(marker)).toBe(true);
+
+    writeFileSync(join(project, '.exarchos.yml'), 'test: exarchos-fixture-missing-program\n');
+    await spawnAsync('git', ['commit', '-q', '-am', 'a missing program'], { cwd: project, env });
+    const missing = await run(['run-tests'], { cwd: project });
+    expect(missing.status).toBe(75);
+    expect(missing.stderr).not.toContain('Provision the verifier');
   });
 
   /** The PreToolUse guard blocks a write outside the worktree with exit 2. */

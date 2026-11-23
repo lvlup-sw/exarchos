@@ -25,7 +25,6 @@ import type { DispatchContext } from './dispatch/core/dispatch.js';
 import type { McpSessionGrant } from './dispatch/caller-identity.js';
 import type { VerifierProvisioning } from './dispatch/core/verifier-client.js';
 import type { VerificationHostConnector } from './contract/verification/harness-verification.js';
-import type { RunTestsHost } from './lifecycle/run-tests.js';
 
 export const SERVER_NAME = 'exarchos-mcp';
 /**
@@ -72,24 +71,6 @@ function readVerifierProvisioning(): Promise<VerifierProvisioning> {
 /** The connector of a provisioning read. Only an absent provisioning gives no connector. */
 function connectorOfProvisioning(provisioning: VerifierProvisioning): VerificationHostConnector | undefined {
   return provisioning.kind === 'absent' ? undefined : provisioning.connector;
-}
-
-/**
- * The standalone test host of a provisioning read. An absent provisioning gives no host, so an actual run exits 78.
- * An unusable provisioning gives a host that refuses with the provisioning reason, so the run exits 77 and starts no exchange.
- */
-function runTestsHostOf(
-  provisioning: VerifierProvisioning,
-  standaloneTestHost: (connector?: VerificationHostConnector) => RunTestsHost | undefined,
-): RunTestsHost | undefined {
-  switch (provisioning.kind) {
-    case 'absent': return undefined;
-    case 'unusable': {
-      const message = `The verifier client provisioning is not usable: ${provisioning.reason}`;
-      return { run: async () => ({ kind: 'refused', message }) };
-    }
-    case 'usable': return standaloneTestHost(provisioning.connector);
-  }
 }
 
 /**
@@ -252,8 +233,7 @@ function hookReadStdin(): Promise<string> {
  * `--version`, `-V` and a plain `version` print the version with no backend, because concurrent backend opens can race on WAL recovery and fail with SQLITE_BUSY_RECOVERY.
  *
  * `run-tests` runs the consumer test command for the PostToolUse hook. It is not a hook command, because hook commands only observe.
- * It reads the verifier provisioning and waits for the hosted result. Without provisioning, an actual run exits 78 and runs nothing.
- * The provisioning read comes after the hook, version and boundary fast paths, so those paths do not pay for it.
+ * It runs the command in the local approved-check executor with no store, and it reads no verifier provisioning.
  *
  * `verify-worktree-boundary` is the PreToolUse guard. It denies a write outside the worktree with exit code 2, and allows when stdin is a TTY.
  *
@@ -291,10 +271,9 @@ async function main() {
   if (process.argv[2] === 'run-tests') {
     const [{ handleRunTests }, { standaloneTestHost }] = await Promise.all([
       import('./lifecycle/run-tests.js'),
-      import('./verbs/gates/gate-runner.js'),
+      import('./verbs/verification/lifecycle-check.js'),
     ]);
-    const host = runTestsHostOf(await readVerifierProvisioning(), standaloneTestHost);
-    process.exitCode = await handleRunTests(process.argv.slice(3), { cwd: process.cwd(), ...(host === undefined ? {} : { host }) });
+    process.exitCode = await handleRunTests(process.argv.slice(3), { cwd: process.cwd(), host: standaloneTestHost() });
     return;
   }
 

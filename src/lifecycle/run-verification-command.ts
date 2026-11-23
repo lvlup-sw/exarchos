@@ -13,9 +13,9 @@
 
 import { splitCommand } from '../config/tokenize-command.js';
 
-/** The output writers and the runner of one verb. The runner is the verifier host of the verb, or its refusal. */
+/** The output writers and the runner of one verb. The runner is the local host of the verb. */
 export interface RunCommandIo {
-  /** Command runner. Returns the child exit code. A hosted runner returns it after the authenticated result arrives. */
+  /** Command runner. Returns the child exit code, or the exit code of a refused run or of a run with no verdict. */
   run: (cmd: string, args: readonly string[], cwd: string) => number | Promise<number>;
   stdout: (s: string) => void;
   stderr: (s: string) => void;

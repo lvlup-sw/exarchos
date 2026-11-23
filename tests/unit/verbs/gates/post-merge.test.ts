@@ -1,7 +1,7 @@
 /**
  * Tests for `handlePostMerge`. These cases test the provider verdict, so the file stubs the phase-gate runner down to its provider call.
  * `gate-runner.test.ts` covers the runner against a real store. `unrunbooked-gate-evidence-dispatch.test.ts` covers the evidence over real dispatch.
- * A call with no connector refuses before the runner, so each verdict case passes a stub connector.
+ * The lifecycle check of the local executor is a mock, so each case reads only the handling of its legs.
  */
 
 import { vi, describe, it, expect, beforeEach } from 'vitest';
@@ -18,8 +18,11 @@ vi.mock('../../../../src/utils/process.js', async (importOriginal) => ({
   spawnCommandSync: vi.fn(() => ({ status: 0, stdout: '', stderr: '' })),
 }));
 
-vi.mock('../../../../src/verbs/gates/gate-runner.js', async (importOriginal) => ({
-  verifierNotProvisioned: (await importOriginal<typeof import('../../../../src/verbs/gates/gate-runner.js')>()).verifierNotProvisioned,
+vi.mock('../../../../src/verbs/verification/lifecycle-check.js', () => ({
+  admitLifecycleLegs: vi.fn(),
+}));
+
+vi.mock('../../../../src/verbs/gates/gate-runner.js', () => ({
   runPhaseGateWithEvidence: vi.fn(async (request) => {
     try {
       return await request.executeProvider(
@@ -41,7 +44,6 @@ vi.mock('../../../../src/verbs/gates/gate-runner.js', async (importOriginal) => 
     }
   }),
   HostedAdequacyPending: class extends Error {},
-  admitLifecycleLegs: vi.fn(),
   hostedPendingResult: vi.fn((error: unknown) => { throw error; }),
 }));
 
@@ -55,18 +57,12 @@ vi.mock('../../../../src/projections/views/tools.js', () => ({
 }));
 
 import { handlePostMerge } from '../../../../src/verbs/gates/post-merge.js';
-import { admitLifecycleLegs, runPhaseGateWithEvidence } from '../../../../src/verbs/gates/gate-runner.js';
-import type { VerificationHostConnector } from '../../../../src/contract/verification/harness-verification.js';
+import { runPhaseGateWithEvidence } from '../../../../src/verbs/gates/gate-runner.js';
+import { admitLifecycleLegs } from '../../../../src/verbs/verification/lifecycle-check.js';
 import { spawnCommandSync } from '../../../../src/utils/process.js';
 
 const STATE_DIR = '/tmp/test-post-merge';
 const REPO_ROOT = '/repo';
-
-/** A provisioned context with a stub client. The verdict cases mock the pure check, so the client never runs. */
-const STUB_CONNECTOR: VerificationHostConnector = {
-  publicKey: 'unused', gitPath: '/nonexistent/git', resourceId: 'unused', profileId: 'unused',
-  client: { submit: async () => ({ kind: 'unavailable', reason: 'unused' }), retrieve: async () => ({ kind: 'unavailable', reason: 'unused' }) },
-};
 
 function makePassingResult() {
   return {
@@ -117,7 +113,6 @@ describe('handlePostMerge', () => {
       { featureId: 'feat-123', prUrl: 'https://github.com/org/repo/pull/42', mergeSha: 'abc1234', repoRoot: REPO_ROOT },
       STATE_DIR,
       mockStore as unknown as EventStore,
-      STUB_CONNECTOR,
     );
 
     expect(result.success).toBe(true);
@@ -136,7 +131,6 @@ describe('handlePostMerge', () => {
       { featureId: 'feat-123', prUrl: 'https://github.com/org/repo/pull/42', mergeSha: 'abc1234', repoRoot: REPO_ROOT },
       STATE_DIR,
       mockStore as unknown as EventStore,
-      STUB_CONNECTOR,
     );
 
     expect(result.success).toBe(true);
@@ -155,7 +149,6 @@ describe('handlePostMerge', () => {
       { featureId: 'feat-123', prUrl: 'https://github.com/org/repo/pull/42', mergeSha: 'abc1234', repoRoot: REPO_ROOT },
       STATE_DIR,
       mockStore as unknown as EventStore,
-      STUB_CONNECTOR,
     );
 
     expect(mockStore.append).toHaveBeenCalledTimes(1);
@@ -179,7 +172,6 @@ describe('handlePostMerge', () => {
       { featureId: 'feat-123', prUrl: 'https://github.com/org/repo/pull/42', mergeSha: 'abc1234', repoRoot: REPO_ROOT },
       STATE_DIR,
       mockStore as unknown as EventStore,
-      STUB_CONNECTOR,
     );
 
     expect(mockStore.append).toHaveBeenCalledTimes(1);
@@ -224,15 +216,14 @@ describe('handlePostMerge', () => {
     expect(result.error?.message).toContain('featureId');
   });
 
-  /** The handler gives the pure check only the hosted test runner, so the pure check never reaches a local runner. */
-  it('handlePostMerge_PassesOnlyTheHostedTestRunner', async () => {
+  /** The handler gives the pure check only the local test runner, so the pure check never reaches its own runner. */
+  it('handlePostMerge_PassesOnlyTheLocalTestRunner', async () => {
     mockCheckPostMerge.mockReturnValue(makePassingResult());
 
     await handlePostMerge(
       { featureId: 'feat-123', prUrl: 'https://github.com/org/repo/pull/42', mergeSha: 'abc1234', repoRoot: REPO_ROOT },
       STATE_DIR,
       mockStore as unknown as EventStore,
-      STUB_CONNECTOR,
     );
 
     expect(mockCheckPostMerge).toHaveBeenCalledTimes(1);
@@ -241,52 +232,54 @@ describe('handlePostMerge', () => {
       mergeSha: string;
       repoRoot: string;
       runCommand: unknown;
-      hostedTestRun: unknown;
+      localTestRun: unknown;
     };
     expect(callArgs.prUrl).toBe('https://github.com/org/repo/pull/42');
     expect(callArgs.mergeSha).toBe('abc1234');
     expect(callArgs.repoRoot).toBe(REPO_ROOT);
     expect(callArgs.runCommand).toBeUndefined();
-    expect(typeof callArgs.hostedTestRun).toBe('function');
+    expect(typeof callArgs.localTestRun).toBe('function');
   });
 
-  /** The hosted runner asks the verifier for the command that checkPostMerge resolved, in the named repository. */
-  it('handlePostMerge_HostedTestRunner_RunsInRepoRoot', async () => {
+  /** The local runner asks the executor for the command that checkPostMerge resolved, in the named repository. */
+  it('handlePostMerge_LocalTestRunner_RunsInRepoRoot', async () => {
     mockCheckPostMerge.mockReturnValue(makePassingResult());
     vi.mocked(admitLifecycleLegs).mockResolvedValue([
-      { name: 'test', kind: 'command', run: { end: 'exited', exitCode: 0, stdout: '', stderr: '', outputDigest: 'a'.repeat(64) } },
+      { name: 'test', kind: 'command', run: { argv: ['go', 'test', './...'], end: 'exited', exitCode: 0, stdout: '', stderr: '' } },
     ]);
 
     await handlePostMerge(
       { featureId: 'feat-123', prUrl: 'https://github.com/org/repo/pull/42', mergeSha: 'abc1234', repoRoot: REPO_ROOT },
       STATE_DIR,
       mockStore as unknown as EventStore,
-      STUB_CONNECTOR,
     );
-    const { hostedTestRun } = mockCheckPostMerge.mock.calls[0][0] as {
-      hostedTestRun: (cmd: string, args: readonly string[]) => Promise<unknown>;
+    const { localTestRun } = mockCheckPostMerge.mock.calls[0][0] as {
+      localTestRun: (cmd: string, args: readonly string[]) => Promise<unknown>;
     };
-    await hostedTestRun('go', ['test', './...']);
+    await localTestRun('go', ['test', './...']);
 
     expect(admitLifecycleLegs).toHaveBeenCalledWith(expect.objectContaining({
-      checkout: REPO_ROOT, legs: [{ kind: 'command', argv: ['go', 'test', './...'] }],
+      eventStore: mockStore, checkout: REPO_ROOT, legs: [{ kind: 'command', argv: ['go', 'test', './...'] }],
     }));
     expect(vi.mocked(spawnCommandSync)).not.toHaveBeenCalled();
   });
 
-  /** With no connector, the gate refuses after argument validation, before the runner, the pure check, any event and any process. */
-  it('handlePostMerge_NoConnector_RefusesWithVerifierNotProvisioned', async () => {
+  /** A refusal of the local executor stops the gate run. The handler returns it with no gate event and no local process. */
+  it('handlePostMerge_LocalRefusal_ReturnsTheRefusalWithNoGateEvent', async () => {
+    vi.mocked(admitLifecycleLegs).mockResolvedValue({ success: false, error: { code: 'LOCAL_CHECK_REFUSED', message: 'The working directory has uncommitted changes.' } });
+    mockCheckPostMerge.mockImplementation(async (options: { localTestRun?: (bin: string, args: readonly string[]) => Promise<unknown> }) => {
+      await options.localTestRun?.('node', ['test.cjs']);
+      return makePassingResult();
+    });
+
     const result = await handlePostMerge(
       { featureId: 'feat-123', prUrl: 'https://github.com/org/repo/pull/42', mergeSha: 'abc1234', repoRoot: REPO_ROOT },
       STATE_DIR,
       mockStore as unknown as EventStore,
     );
 
-    expect(result.success).toBe(false);
-    expect(result.error?.code).toBe('VERIFIER_NOT_PROVISIONED');
-    expect(result.error?.message).toContain('Provision the verifier');
-    expect(runPhaseGateWithEvidence).not.toHaveBeenCalled();
-    expect(mockCheckPostMerge).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ success: false, error: { code: 'LOCAL_CHECK_REFUSED' } });
+    expect(runPhaseGateWithEvidence).toHaveBeenCalledTimes(1);
     expect(mockStore.append).not.toHaveBeenCalled();
     expect(spawnCommandSync).not.toHaveBeenCalled();
   });
@@ -317,7 +310,6 @@ describe('handlePostMerge', () => {
       { featureId: 'feat-123', prUrl: 'https://github.com/org/repo/pull/42', mergeSha: 'abc1234', repoRoot: REPO_ROOT },
       STATE_DIR,
       mockStore as unknown as EventStore,
-      STUB_CONNECTOR,
     );
 
     expect(result.success).toBe(false);
@@ -327,47 +319,43 @@ describe('handlePostMerge', () => {
     expect(data.prUrl).toBe('https://github.com/org/repo/pull/42');
   });
 
-  /** A provisioned route gives the pure check a hosted test runner. Its signed exit code reads as the suite result, and no local runner starts. */
-  it('handlePostMerge_Provisioned_RunsTheSuiteOnlyInTheVerifier', async () => {
-    const run = { end: 'exited' as const, exitCode: 1, stdout: 'red', stderr: '', outputDigest: 'a'.repeat(64) };
+  /** The pure check gets the local test runner. The exit code of the observed leg reads as the suite result, and the pure check starts no runner. */
+  it('handlePostMerge_LocalExecutor_TheLegExitCodeReadsAsTheSuiteResult', async () => {
+    const run = { argv: ['node', 'test.cjs'], end: 'exited' as const, exitCode: 1, stdout: 'red', stderr: '' };
     vi.mocked(admitLifecycleLegs).mockResolvedValue([{ name: 'test', kind: 'command', run }]);
     let observed: unknown;
-    mockCheckPostMerge.mockImplementation(async (options: { hostedTestRun?: (bin: string, args: readonly string[]) => Promise<unknown> }) => {
-      observed = await options.hostedTestRun?.('node', ['test.cjs']);
+    mockCheckPostMerge.mockImplementation(async (options: { localTestRun?: (bin: string, args: readonly string[]) => Promise<unknown> }) => {
+      observed = await options.localTestRun?.('node', ['test.cjs']);
       return makeFailingResult();
     });
-    const connector = STUB_CONNECTOR;
 
     const result = await handlePostMerge(
       { featureId: 'feat-123', prUrl: 'https://github.com/org/repo/pull/42', mergeSha: 'abc1234', repoRoot: REPO_ROOT },
       STATE_DIR,
       mockStore as unknown as EventStore,
-      connector,
     );
 
     expect(result.success).toBe(true);
     expect(observed).toEqual({ exitCode: 1, stdout: 'red', stderr: '' });
     expect(admitLifecycleLegs).toHaveBeenCalledWith(expect.objectContaining({
-      connector, checkout: REPO_ROOT, streamId: 'feat-123', legs: [{ kind: 'command', argv: ['node', 'test.cjs'] }],
+      eventStore: mockStore, checkout: REPO_ROOT, streamId: 'feat-123', legs: [{ kind: 'command', argv: ['node', 'test.cjs'] }],
     }));
     expect(spawnCommandSync).not.toHaveBeenCalled();
   });
 
-  /** A hosted result with no test leg gives no verdict. It never reads as a red suite. */
-  it('handlePostMerge_Provisioned_MissingSignedLeg_GivesNoVerdict', async () => {
+  /** A local result with no test leg gives no verdict. It never reads as a red suite. */
+  it('handlePostMerge_MissingLeg_GivesNoVerdict', async () => {
     vi.mocked(admitLifecycleLegs).mockResolvedValue([]);
     let failure: unknown;
-    mockCheckPostMerge.mockImplementation(async (options: { hostedTestRun?: (bin: string, args: readonly string[]) => Promise<unknown> }) => {
-      failure = await options.hostedTestRun?.('node', ['test.cjs']).catch((error: unknown) => error);
+    mockCheckPostMerge.mockImplementation(async (options: { localTestRun?: (bin: string, args: readonly string[]) => Promise<unknown> }) => {
+      failure = await options.localTestRun?.('node', ['test.cjs']).catch((error: unknown) => error);
       return makePassingResult();
     });
-    const connector = STUB_CONNECTOR;
 
     await handlePostMerge(
       { featureId: 'feat-123', prUrl: 'https://github.com/org/repo/pull/42', mergeSha: 'abc1234', repoRoot: REPO_ROOT },
       STATE_DIR,
       mockStore as unknown as EventStore,
-      connector,
     );
 
     expect(failure).toBeInstanceOf(Error);

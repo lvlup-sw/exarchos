@@ -3,9 +3,8 @@
  * A changed file is a test when a test-name glob of the verification profile matches it.
  * The gate runs the test command that the resolver gives when the diff is not empty and `skipRun` is not set.
  *
- * A provisioned verifier runs that command under a checkout subject of the phase attempt. No route runs it locally.
- * The changed files come from the constrained reader with the connector Git path.
- * A machine with no verifier refuses with VERIFIER_NOT_PROVISIONED after argument validation.
+ * The local approved-check executor runs that command as a lifecycle check of the phase attempt, with no verifier provisioning.
+ * The changed files come from the constrained reader with the process-wide Git path.
  */
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -15,9 +14,11 @@ import { matchesTestName } from '../../config/verification-profile.js';
 import type { EventStore } from '../../events/store.js';
 import { createEvidenceSubject } from '../../workflow/admission/evidence-subject.js';
 import { PROFILE_UNRESOLVED } from '../../workflow/verification/profile.js';
-import type { VerificationHostConnector } from '../../contract/verification/harness-verification.js';
-import { admitLifecycleLegs, hostedPendingResult, runPhaseGateWithEvidence, verifierNotProvisioned } from '../gates/gate-runner.js';
+import { processObservationalGitPath } from '../../utils/git-tree.js';
+import { hostedPendingResult, runPhaseGateWithEvidence } from '../gates/gate-runner.js';
 import { observeCurrentCheckout, profileOf, withProfileRoute, type ProfiledGateArgs } from '../gates/gate-utils.js';
+import { admitLifecycleLegs } from '../verification/lifecycle-check.js';
+import type { CheckExecutor } from '../verification/check-executor.js';
 
 export interface DebugReviewGateArgs extends ProfiledGateArgs {
   /** The stream the gate's durable evidence is recorded against. */
@@ -33,23 +34,25 @@ interface CheckCounts {
   skip: number;
 }
 
-/** The verifier of one call and the phase attempt that scopes its request. */
-interface DebugReviewHost {
-  readonly connector: VerificationHostConnector;
+/** The event store, the executor and the phase attempt that scope the test run of one call. */
+interface DebugReviewRun {
+  readonly eventStore: EventStore;
+  readonly executor?: CheckExecutor;
   readonly phaseAttemptId: () => string | undefined;
 }
 
 /**
  * Runs the gate through the shared phase-gate runner, which records durable gate evidence before a
  * success carrier returns. The action declares no catalog emission, so the gate appends no `gate.executed` row.
- * A connector comes only from the dispatch context. With no connector, the gate refuses after the `featureId` check, before the provider checks.
- * A pending hosted result maps to its existing code with no evidence.
+ * The tests run in the local executor with no verifier provisioning. A pending result maps to its existing code with no evidence.
+ *
+ * @param executor - The local check executor. The default is the real executor. A test passes its own executor.
  */
 export async function handleDebugReviewGate(
   args: DebugReviewGateArgs,
   stateDir: string,
   eventStore: EventStore,
-  connector?: VerificationHostConnector,
+  executor?: CheckExecutor,
 ): Promise<ToolResult> {
   if (!args.featureId) {
     return {
@@ -58,10 +61,8 @@ export async function handleDebugReviewGate(
     };
   }
 
-  if (connector === undefined) return verifierNotProvisioned('debug_review_gate');
-
   let attempt: string | undefined;
-  const host: DebugReviewHost = { connector, phaseAttemptId: () => attempt };
+  const run: DebugReviewRun = { eventStore, ...(executor === undefined ? {} : { executor }), phaseAttemptId: () => attempt };
   try {
     return await runPhaseGateWithEvidence({
       streamId: args.featureId,
@@ -82,14 +83,14 @@ export async function handleDebugReviewGate(
         );
       },
       providerInput: args,
-      executeProvider: async () => executeDebugReviewGate(args, host),
+      executeProvider: async () => executeDebugReviewGate(args, run),
     });
   } catch (error) {
     return hostedPendingResult(error);
   }
 }
 
-async function executeDebugReviewGate(args: DebugReviewGateArgs, host: DebugReviewHost): Promise<ToolResult> {
+async function executeDebugReviewGate(args: DebugReviewGateArgs, run: DebugReviewRun): Promise<ToolResult> {
   if (!args.repoRoot) {
     return {
       success: false,
@@ -117,7 +118,7 @@ async function executeDebugReviewGate(args: DebugReviewGateArgs, host: DebugRevi
   const checks: CheckCounts = { pass: 0, fail: 0, skip: 0 };
   const results: string[] = [];
 
-  const changedFiles = await getChangedFiles(host.connector.gitPath, args.repoRoot, args.baseBranch);
+  const changedFiles = await getChangedFiles(processObservationalGitPath(), args.repoRoot, args.baseBranch);
 
   if (changedFiles === null) {
     return {
@@ -162,13 +163,13 @@ async function executeDebugReviewGate(args: DebugReviewGateArgs, host: DebugRevi
     results.push('- **SKIP**: Tests pass (--skip-run)');
     checks.skip++;
   } else if (changedFiles.length > 0) {
-    const run = await runHostedTests(args, host);
-    if ('success' in run) return run;
-    if (run.passed) {
-      results.push(`- **PASS**: Tests pass (${run.detail})`);
+    const tests = await runLocalTests(args, run);
+    if ('success' in tests) return tests;
+    if (tests.passed) {
+      results.push(`- **PASS**: Tests pass (${tests.detail})`);
       checks.pass++;
     } else {
-      results.push(`- **FAIL**: Tests pass — ${run.detail}`);
+      results.push(`- **FAIL**: Tests pass — ${tests.detail}`);
       checks.fail++;
     }
   } else {
@@ -197,12 +198,14 @@ function nameLines(output: string): string[] {
 }
 
 /**
- * Lists the files changed since `baseBranch` through the constrained reader with the connector Git path. It starts no PATH git.
+ * Lists the files changed since `baseBranch` through the constrained reader with the process-wide Git path. It starts no bare `git` name.
  * The repo root climbs to its checkout root, and the base resolves by the closed base-name order.
  * The first read is a name-only diff from the merge base of the base and the head, which is the meaning of `base...HEAD`.
- * When that read fails, the second read is a name-only diff of the base and the head. It returns `null` when the observation, the base or both reads fail.
+ * When that read fails, the second read is a name-only diff of the base and the head.
+ * It returns `null` when no Git is usable, or when the observation, the base or both reads fail.
  */
-async function getChangedFiles(gitPath: string, repoRoot: string, baseBranch: string): Promise<string[] | null> {
+async function getChangedFiles(gitPath: string | undefined, repoRoot: string, baseBranch: string): Promise<string[] | null> {
+  if (gitPath === undefined) return null;
   const observed = await observeCurrentCheckout(gitPath, resolve(repoRoot));
   if (observed.kind === 'refused') return null;
   const { observer, checkout } = observed;
@@ -222,18 +225,19 @@ async function getChangedFiles(gitPath: string, repoRoot: string, baseBranch: st
 }
 
 /**
- * Run the resolved test command in the verifier. No resolvable command fails the check with no request.
+ * Run the resolved test command in the local executor. No resolvable command fails the check with no run.
  * A refusal returns as the gate result. A pending result and a run with no verdict throw the pending signal.
  */
-async function runHostedTests(
-  args: DebugReviewGateArgs, host: DebugReviewHost,
+async function runLocalTests(
+  args: DebugReviewGateArgs, run: DebugReviewRun,
 ): Promise<{ readonly passed: boolean; readonly detail: string } | ToolResult> {
   const resolved = resolveRunnableCommand(args.repoRoot, 'test');
   if (resolved.kind !== 'runnable') return { passed: false, detail: `no test command resolved: ${resolved.reason}` };
-  const phaseAttemptId = host.phaseAttemptId();
+  const phaseAttemptId = run.phaseAttemptId();
   const legs = await admitLifecycleLegs({
-    connector: host.connector, checkout: args.repoRoot, legs: [{ kind: 'command', argv: [resolved.bin, ...resolved.args] }],
+    eventStore: run.eventStore, checkout: args.repoRoot, legs: [{ kind: 'command', argv: [resolved.bin, ...resolved.args] }],
     streamId: args.featureId, ...(phaseAttemptId === undefined ? {} : { phaseAttemptId }),
+    ...(run.executor === undefined ? {} : { executor: run.executor }),
   });
   if ('success' in legs) return legs;
   return legs[0]?.run.exitCode === 0 ? { passed: true, detail: resolved.command } : { passed: false, detail: `${resolved.command} failed` };

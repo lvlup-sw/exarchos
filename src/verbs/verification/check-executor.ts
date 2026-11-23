@@ -1,5 +1,5 @@
 /**
- * The local executor of the approved checks: static analysis, the integration suites, contract drift, spec coverage and source-revert adequacy.
+ * The local executor of the approved checks: static analysis, the integration suites, contract drift, spec coverage, source-revert adequacy and the lifecycle checks.
  * A command runs only when its argv is a leg of the approved plan, which the pinned or the live resolved profile gives.
  * The program resolves once through PATH. A program inside the checkout refuses, except a runner under node_modules/.bin.
  * Each leg runs in its own process group with a time cap, an output cap and the scrubbed store environment.
@@ -89,7 +89,7 @@ const MAXIMUM_ATTEMPTS = 64;
 const COMMIT_PLACEHOLDERS: readonly string[] = ['@baseCommit@', '@headCommit@'];
 
 /** The checks that run in this executor. */
-export type CheckOperation = 'static-analysis' | 'contract-drift' | 'integration-suite' | 'spec-coverage' | 'test-adequacy';
+export type CheckOperation = 'static-analysis' | 'contract-drift' | 'integration-suite' | 'spec-coverage' | 'test-adequacy' | 'lifecycle';
 
 /** The source image of one leg. The head image is the exact head. The reverted image holds the task sources at the base. */
 export type SourceImage = 'head' | 'reverted';
@@ -154,11 +154,15 @@ export interface IntegrationCheckSubject {
   readonly attempt: string;
 }
 
-/** One request of one check. The plan holds every approved leg, and the coordinate binds a task segment. */
+/**
+ * One request of one check. The plan holds every approved leg, and the coordinate binds a task segment.
+ * A check with no stream runs in any registered branch checkout. A check of a stream with a prepared scope runs only in a worktree of that repository.
+ */
 export interface ApprovedCheckRequest {
   readonly eventStore: EventStore;
   readonly operation: CheckOperation;
-  readonly streamId: string;
+  readonly streamId?: string;
+  readonly phaseAttemptId?: string;
   readonly taskId?: string;
   readonly plan: CheckPlan;
   readonly profileDigest: string;
@@ -390,9 +394,13 @@ type CheckoutRead =
     readonly reads: Extract<CurrentCheckoutRead, { readonly kind: 'observed' }> }
   | { readonly kind: 'refused'; readonly reason: string };
 
-/** The prepared scope of the stream, undefined when the stream has none, or a refusal when it cannot be read. */
-async function preparedScope(eventStore: EventStore, streamId: string):
+/**
+ * The prepared scope of the stream, or a refusal when it cannot be read.
+ * It is undefined when the check names no stream or the stream has none.
+ */
+async function preparedScope(eventStore: EventStore | undefined, streamId: string | undefined):
   Promise<{ readonly repository: string; readonly checkout: string } | undefined | { readonly refused: string }> {
+  if (eventStore === undefined || streamId === undefined) return undefined;
   const selection = selectPreparedAuthority(await eventStore.query(streamId), streamId);
   if (selection === undefined) return undefined;
   try {
@@ -407,12 +415,15 @@ async function samePath(left: string, right: string): Promise<boolean> {
   return await realpath(left).catch(() => left) === await realpath(right).catch(() => right);
 }
 
+/** The terms of the working directory of one check. A standalone check names no store and no stream. */
+type WorkingDirectoryTerms = Pick<ApprovedCheckRequest, 'checkout' | 'head' | 'coordinate' | 'integration' | 'streamId'> & { readonly eventStore?: EventStore };
+
 /**
  * Observe the working directory. It must be the canonical root of a registered branch checkout.
  * A segment checkout must hold the coordinate repository and head. A direct call must name the repository of the prepared scope, when one exists.
  * An integration suite must run in the checkout of the prepared scope, on the integration ref at the observed tip.
  */
-async function observeWorkingDirectory(request: ApprovedCheckRequest): Promise<CheckoutRead> {
+async function observeWorkingDirectory(request: WorkingDirectoryTerms): Promise<CheckoutRead> {
   const checkout = await realpath(request.checkout).catch(() => undefined);
   if (checkout === undefined) return { kind: 'refused', reason: `The working directory ${request.checkout} does not exist.` };
   const gitPath = processObservationalGitPath();
@@ -556,9 +567,12 @@ async function inDisposableCopies<T>(
   });
 }
 
+/** The terms of the workspace of one attempt. */
+type AttemptTerms = Pick<ApprovedCheckRequest, 'plan' | 'workspace' | 'revert' | 'coordinate' | 'legTimeoutMs'>;
+
 /** The live run of one claimed attempt. It builds the workspace, runs the body and checks the live checkout after the run. */
 async function runAttempt<T>(
-  request: ApprovedCheckRequest, read: Extract<CheckoutRead, { kind: 'observed' }>, body: (session: CheckSession) => Promise<T>,
+  request: AttemptTerms, read: Extract<CheckoutRead, { kind: 'observed' }>, body: (session: CheckSession) => Promise<T>,
 ): Promise<{ readonly value: T; readonly observation: CheckObservation }> {
   const legs: LegObservation[] = [];
   const timeoutMs = legTimeout(request.legTimeoutMs);
@@ -600,8 +614,8 @@ export const runApprovedCheck: CheckExecutor = async <T>(request: ApprovedCheckR
     return { kind: 'refused', reason: 'A reverted source image runs only in a disposable copy.' };
   }
   const requestKey = verificationValueDigest({
-    version: 1, operation: request.operation, operationId: request.integration?.attempt ?? operationId, streamId: request.streamId,
-    taskId: request.taskId ?? null, checkout: read.checkout, repository: read.repository, head: read.head,
+    version: 1, operation: request.operation, operationId: request.integration?.attempt ?? operationId, streamId: request.streamId ?? null,
+    ...(request.phaseAttemptId === undefined ? {} : { phaseAttemptId: request.phaseAttemptId }), taskId: request.taskId ?? null, checkout: read.checkout, repository: read.repository, head: read.head,
     base: request.coordinate?.diffBaseCommit ?? null, blockers: request.coordinate?.blockers.map(blocker => blocker.headCommit) ?? [],
     profileDigest: request.profileDigest, planDigest: checkPlanDigest(request.plan), selection: request.selection ?? [], workspace: request.workspace,
     ...(request.revert === undefined ? {} : { revert: { base: request.revert.base, sources: [...request.revert.sources] } }),
@@ -644,3 +658,27 @@ export const runApprovedCheck: CheckExecutor = async <T>(request: ApprovedCheckR
     activeRequests.delete(requestKey);
   }
 };
+
+/** The request of one standalone check: the approved plan and the working directory. No store records it. */
+export interface StandaloneCheckRequest {
+  readonly plan: CheckPlan;
+  readonly checkout: string;
+  readonly legTimeoutMs?: number;
+}
+
+/** The outcome of one standalone check: the value of its body, or a refusal before or after the legs. */
+export type StandaloneCheckOutcome<T> = { readonly kind: 'ran'; readonly value: T } | { readonly kind: 'refused'; readonly reason: string };
+
+/**
+ * Run one approved check outside a dispatched operation, as the standalone test verb does. It has no store, so it claims, records and replays nothing.
+ * The policy of each leg is the policy of {@link runApprovedCheck}. The working directory must be the root of a registered branch checkout with a clean tree.
+ * A run that changes the checkout refuses after its legs.
+ */
+export async function runStandaloneCheck<T>(request: StandaloneCheckRequest, body: (session: CheckSession) => Promise<T>): Promise<StandaloneCheckOutcome<T>> {
+  const read = await observeWorkingDirectory({ checkout: request.checkout });
+  if (read.kind === 'refused') return read;
+  if (!await cleanAt(read)) return { kind: 'refused', reason: 'The working directory has uncommitted changes. Commit them first, then run the check again.' };
+  const terms: AttemptTerms = { plan: request.plan, workspace: 'checkout', ...(request.legTimeoutMs === undefined ? {} : { legTimeoutMs: request.legTimeoutMs }) };
+  const { value, observation } = await runAttempt(terms, read, body);
+  return observation.tree === 'changed' ? { kind: 'refused', reason: CHANGED_TREE_REASON } : { kind: 'ran', value };
+}

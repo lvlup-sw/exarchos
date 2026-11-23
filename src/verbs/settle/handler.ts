@@ -134,8 +134,8 @@ import {
   type SettlementVerificationTrace,
 } from './types.js';
 import { compilerPolicy } from '../../contract/capsule/compiler-policy.js';
-import { HostedAdequacyPending, hostedPendingResult, hostedRefusal } from '../gates/gate-runner.js';
-import { integrationAttemptIntact, runIntegrationAttempt, unresolvedIntegrationMessage } from './integration-attempts.js';
+import { HostedAdequacyPending, hostedPendingResult } from '../gates/gate-runner.js';
+import { integrationAttemptIntact, integrationRefusal, runIntegrationAttempt, unresolvedIntegrationMessage } from './integration-attempts.js';
 import { observeIntegration } from './integration-observation.js';
 
 /** The runbook every accepted task's verification is compiled from. */
@@ -1646,13 +1646,13 @@ async function integrationPrecheck(capsule: ExarchosCapsuleV1): Promise<ToolResu
   if (!compilerPolicy(capsule.provenance.compilerVersion).integration) return undefined;
   const { integration, scope, verificationProfile } = capsule.settlementContract;
   if (integration === undefined || scope === undefined || verificationProfile === undefined) {
-    return hostedRefusal('The compiler 8-vcs capsule lacks its integration ref, scope or profile. Nothing was recorded.');
+    return integrationRefusal('The compiler 8-vcs capsule lacks its integration ref, scope or profile. Nothing was recorded.');
   }
   const gitPath = processObservationalGitPath();
-  if (gitPath === undefined) return hostedRefusal('No usable Git executable observes the integration checkout. Nothing was recorded.');
+  if (gitPath === undefined) return integrationRefusal('No usable Git executable observes the integration checkout. Nothing was recorded.');
   const observed = await observeIntegration(gitPath, scope, integration.ref, []);
   if (observed.kind === 'refused') {
-    return hostedRefusal(`The integration checkout of the capsule scope does not hold ${integration.ref}: ${observed.reason}. Nothing was recorded.`);
+    return integrationRefusal(`The integration checkout of the capsule scope does not hold ${integration.ref}: ${observed.reason}. Nothing was recorded.`);
   }
   return undefined;
 }
@@ -1695,21 +1695,21 @@ async function integrationGate(call: SettlementCall, judgement: SettlementJudgem
   const { integration, scope, verificationProfile } = capsule.settlementContract;
   const gitPath = processObservationalGitPath();
   if (integration === undefined || scope === undefined || verificationProfile === undefined) {
-    return { kind: 'refused', result: hostedRefusal('The integration gate lacks its pinned terms. Nothing was recorded.') };
+    return { kind: 'refused', result: integrationRefusal('The integration gate lacks its pinned terms. Nothing was recorded.') };
   }
   if (gitPath === undefined) {
-    return { kind: 'refused', result: hostedRefusal('No usable Git executable observes the integration ref. Nothing was recorded.') };
+    return { kind: 'refused', result: integrationRefusal('No usable Git executable observes the integration ref. Nothing was recorded.') };
   }
   const heads = integrationHeads(call, judgement);
-  if (heads === undefined) return { kind: 'refused', result: hostedRefusal('An accepted task has no exact head for the integration gate. Nothing was recorded.') };
+  if (heads === undefined) return { kind: 'refused', result: integrationRefusal('An accepted task has no exact head for the integration gate. Nothing was recorded.') };
   if (heads.length > 64) {
-    return { kind: 'refused', result: hostedRefusal(`The integration subject binds at most 64 accepted heads, and this batch has ${heads.length}. Nothing was recorded.`) };
+    return { kind: 'refused', result: integrationRefusal(`The integration subject binds at most 64 accepted heads, and this batch has ${heads.length}. Nothing was recorded.`) };
   }
   const bundles = call.deps.bundleStore ?? call.ctx.eventStore.bundleStore;
   const ref = integration.ref;
   for (;;) {
     const first = await observeIntegration(gitPath, scope, ref, heads);
-    if (first.kind === 'refused') return { kind: 'refused', result: hostedRefusal(`The integration observation refused: ${first.reason}. Nothing was recorded.`) };
+    if (first.kind === 'refused') return { kind: 'refused', result: integrationRefusal(`The integration observation refused: ${first.reason}. Nothing was recorded.`) };
     let failure: IntegrationFailure | undefined;
     let bound: { readonly attemptId: string; readonly request: string; readonly evidenceDigest: string } | undefined;
     let stopped: ToolResult | undefined;
@@ -1723,14 +1723,14 @@ async function integrationGate(call: SettlementCall, judgement: SettlementJudgem
       if (outcome.kind === 'refused' || outcome.kind === 'pending') {
         stopped = outcome.result;
       } else if (binding === undefined) {
-        return { kind: 'refused', result: hostedRefusal('The integration attempt has no binding. Nothing was recorded.') };
+        return { kind: 'refused', result: integrationRefusal('The integration attempt has no binding. Nothing was recorded.') };
       } else {
         bound = { attemptId: binding.attemptId, request: binding.request, evidenceDigest: outcome.evidenceDigest };
         if (outcome.kind === 'failed') failure = { ref, message: outcome.message };
       }
     }
     const final = await observeIntegration(gitPath, scope, ref, heads);
-    if (final.kind === 'refused') return { kind: 'refused', result: hostedRefusal(`The integration observation refused: ${final.reason}. Nothing was recorded.`) };
+    if (final.kind === 'refused') return { kind: 'refused', result: integrationRefusal(`The integration observation refused: ${final.reason}. Nothing was recorded.`) };
     const moved = final.tip !== first.tip || canonicalJson(final.unmerged) !== canonicalJson(first.unmerged);
     if (stopped !== undefined && !moved) return { kind: 'refused', result: stopped };
     const intact = bound === undefined || await integrationAttemptIntact(call.ctx.eventStore, bundles, bound.attemptId, bound.request);

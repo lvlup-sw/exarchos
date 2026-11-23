@@ -406,8 +406,11 @@ describe('handleOrchestrate', () => {
       );
     });
 
-    /** A provisioned context supplies its connector as an extra argument. A caller copy of a private verifier term never reaches the handler. */
-    it('HandleOrchestrate_ProvisionedLifecycleActions_PassContextConnectorOnly', async () => {
+    /**
+     * The lifecycle actions run their checks in the local executor, so a provisioned context gives them no connector.
+     * A caller copy of a private verifier term never reaches the handler.
+     */
+    it('HandleOrchestrate_ProvisionedLifecycleActions_GetNoConnector', async () => {
       const verificationHost: VerificationHostConnector = {
         publicKey: 'unused', gitPath: '/nonexistent/git', resourceId: 'unused', profileId: 'unused',
         client: {
@@ -424,10 +427,10 @@ describe('handleOrchestrate', () => {
         verificationHost: 'caller copy' }, ctx);
       await handleOrchestrate({ action: 'prepare_synthesis', featureId: 'feat-1', hostCheck: 'caller copy' }, ctx);
 
-      expect(handlePostMerge).toHaveBeenCalledWith(
-        { featureId: 'feat-1', prUrl: 'u', mergeSha: 'abc1234', repoRoot: '/repo' }, STATE_DIR, CTX.eventStore, verificationHost,
-      );
-      expect(handlePrepareSynthesis).toHaveBeenCalledWith({ featureId: 'feat-1' }, STATE_DIR, CTX.eventStore, verificationHost);
+      expect(vi.mocked(handlePostMerge).mock.calls).toEqual([
+        [{ featureId: 'feat-1', prUrl: 'u', mergeSha: 'abc1234', repoRoot: '/repo' }, STATE_DIR, CTX.eventStore],
+      ]);
+      expect(vi.mocked(handlePrepareSynthesis).mock.calls).toEqual([[{ featureId: 'feat-1' }, STATE_DIR, CTX.eventStore]]);
     });
 
     it('HandleOrchestrate_AssessStack_DelegatesToHandler', async () => {

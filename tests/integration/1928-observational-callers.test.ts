@@ -1,7 +1,7 @@
 // @oracle-sources: real git rev-parse run outside the PATH shim, the PATH shim invocation log and observable marker files
 /**
  * The observational callers read Git only through the constrained reader with the connector Git path on a provisioned route.
- * The six retired lifecycle and team routes refuse on a machine with no verifier, with no Git, provider or test process start.
+ * The lifecycle and team routes run their approved legs in the local executor and read Git only through the process-wide path.
  * The repository key, workflow init, the pipeline view and the worktree boundary walk start no Git process.
  * A PATH Git shim logs every plain Git start and then runs the real Git, so the fixtures stay real.
  */
@@ -33,9 +33,8 @@ import { resetMaterializerCache } from '../../src/projections/views/tools.js';
 import { handlePreSynthesisCheck } from '../../src/verbs/gates/pre-synthesis-check.js';
 import { handleDebugReviewGate } from '../../src/verbs/review/debug-review-gate.js';
 import { handlePrepareSynthesis } from '../../src/verbs/team/prepare-synthesis.js';
-import { checkPlanDigest } from '../../src/contract/verification/harness-verification.js';
 import type { VerificationHostConnector } from '../../src/contract/verification/harness-verification.js';
-import { lifecyclePlan, standaloneTestHost } from '../../src/verbs/gates/gate-runner.js';
+import { standaloneTestHost } from '../../src/verbs/verification/lifecycle-check.js';
 import { TaskVerificationCoordinateSchema } from '../../src/contract/capsule/exarchos-capsule.js';
 import { profiledValidCapsule } from '../../src/contract/capsule/exarchos-capsule-fixtures.js';
 import { resolveConfig } from '../../src/config/resolve.js';
@@ -217,22 +216,29 @@ async function gitKey(dir: string): Promise<string> {
   }
 }
 
-describe('retired lifecycle and team routes', () => {
-  /** Each retired route refuses after argument validation, also with skip flags. No Git, provider or test process starts, and no event lands. */
-  it('RetiredRoutes_NoConnector_RefuseWithNoGitProviderOrProcessStart', async () => {
-    const root = await tempRoot('observational-retired-');
+/** The number of runs that the marker program recorded. */
+async function markerRuns(marker: string): Promise<number> {
+  try { return (await readFile(marker, 'utf8')).split('\n').filter(Boolean).length; } catch { return 0; }
+}
+
+describe('lifecycle and team routes in the local executor', () => {
+  /**
+   * With no connector, each lifecycle and team route runs its approved legs in the local executor, also with skip flags.
+   * The marker program lies outside the checkout, so it runs. No plain Git starts.
+   * Each pre-synthesis call makes its VCS provider with the process-wide Git path, and `skipStack` asks it for no pull request.
+   */
+  it('LocalRoutes_NoConnector_RunTheApprovedLegsWithNoPlainGitStart', async () => {
+    const root = await tempRoot('observational-local-');
     const { program, marker } = await markerProgram(root);
     const { main } = await repository(root, { '.exarchos.yml': `test: '${program} test'\ntypecheck: '${program} typecheck'\n` });
     const { stateDir, store } = await storeWith(FEATURE, 'synthesize');
-    const before = (await store.query(FEATURE)).length;
+    primeObservationalGitPath(GIT);
     const shimCalls = await pathShim(root);
 
     const calls: Record<string, unknown>[] = [
       { action: 'verify_worktree_baseline', worktreePath: main },
-      { action: 'verify_worktree_baseline', worktreePath: main, agentBranch: 'task' },
-      { action: 'pre_synthesis_check', featureId: FEATURE, repoRoot: main },
+      { action: 'pre_synthesis_check', featureId: FEATURE, repoRoot: main, skipStack: true },
       { action: 'pre_synthesis_check', featureId: FEATURE, repoRoot: main, skipTests: true, skipStack: true },
-      { action: 'check_post_merge', featureId: FEATURE, prUrl: 'https://example.invalid/pull/1', mergeSha: 'abc1234', repoRoot: main },
       { action: 'debug_review_gate', featureId: FEATURE, repoRoot: main, baseBranch: 'main' },
       { action: 'debug_review_gate', featureId: FEATURE, repoRoot: main, baseBranch: 'main', skipRun: true },
       { action: 'post_delegation_check', featureId: FEATURE, repoRoot: main },
@@ -241,20 +247,20 @@ describe('retired lifecycle and team routes', () => {
     ];
     for (const args of calls) {
       const result = await orchestrate(stateDir, store, args);
-      expect(result.error?.code, JSON.stringify(args)).toBe('VERIFIER_NOT_PROVISIONED');
-      expect(result.error?.message).toContain('Provision the verifier');
+      expect(result.success, `${JSON.stringify(args)} ${JSON.stringify(result.error)}`).toBe(true);
     }
 
+    expect(await markerRuns(marker)).toBe(5);
     expect(await shimCalls()).toHaveLength(0);
-    expect(createVcsProvider).not.toHaveBeenCalled();
-    expect(await markerRan(marker)).toBe(false);
-    expect(await store.query(FEATURE)).toHaveLength(before);
+    expect(vi.mocked(createVcsProvider).mock.calls.map(([options]) => options?.detectorDeps?.gitPath)).toEqual([GIT, GIT]);
+    expect(await git(main, 'status', '--porcelain')).toBe('');
   });
 
-  /** A gate that the project config disables still refuses on a machine with no verifier, and records no disabled skip row. */
-  it('RetiredRoutes_ConfigDisabledGateWithNoConnector_RefusesWithNoSkipRow', async () => {
+  /** A gate that the project config disables records its disabled skip and runs no leg. */
+  it('LocalRoutes_ConfigDisabledGate_RecordsTheSkipWithNoRun', async () => {
     const root = await tempRoot('observational-disabled-');
-    const { main } = await repository(root, { 'README.md': '# fixture\n' });
+    const { program, marker } = await markerProgram(root);
+    const { main } = await repository(root, { '.exarchos.yml': `test: '${program} test'\n` });
     const { stateDir, store } = await storeWith(FEATURE, 'synthesize');
     const projectConfig = resolveConfig({ review: { gates: { check_post_merge: { enabled: false } } } });
     expect(projectConfig.review.gates.check_post_merge?.enabled).toBe(false);
@@ -263,15 +269,16 @@ describe('retired lifecycle and team routes', () => {
       action: 'check_post_merge', featureId: FEATURE, prUrl: 'https://example.invalid/pull/1', mergeSha: 'abc1234', repoRoot: main,
     }, { projectConfig });
 
-    expect(result.error?.code).toBe('VERIFIER_NOT_PROVISIONED');
-    expect(await store.query(FEATURE, { type: 'admission.evidence-recorded' })).toHaveLength(0);
-    expect(await store.query(FEATURE, { type: 'gate.executed' })).toHaveLength(0);
+    expect(result.error?.code).not.toBe('VERIFIER_NOT_PROVISIONED');
+    expect(await markerRuns(marker)).toBe(0);
+    expect(createVcsProvider).not.toHaveBeenCalled();
   });
 
-  /** Real dispatch keeps the did-not-run code and does not report an ensure violation. */
-  it('RetiredRoutes_ThroughRealDispatch_KeepVerifierNotProvisioned', async () => {
+  /** Real dispatch runs the baseline in the local executor with no verifier provisioning. */
+  it('LocalRoutes_ThroughRealDispatch_RunInTheLocalExecutor', async () => {
     const root = await tempRoot('observational-dispatch-');
-    const { main } = await repository(root, { 'README.md': '# fixture\n' });
+    const { program, marker } = await markerProgram(root);
+    const { main } = await repository(root, { '.exarchos.yml': `test: '${program} test'\n` });
     const { stateDir, store } = await storeWith(FEATURE, 'synthesize');
     const ctx: DispatchContext = {
       stateDir, eventStore: store, enableTelemetry: false,
@@ -279,16 +286,14 @@ describe('retired lifecycle and team routes', () => {
       capabilityResolver: createInMemoryResolver(['fs:read', 'fs:write', 'shell:exec', 'isolation:worktree', 'mcp:exarchos', 'admission:issue-gate-evidence']),
     };
 
-    const result = await dispatch('exarchos_orchestrate', {
-      action: 'check_post_merge', featureId: FEATURE, prUrl: 'https://example.invalid/pull/1', mergeSha: 'abc1234', repoRoot: main,
-    }, ctx);
+    const result = await dispatch('exarchos_orchestrate', { action: 'verify_worktree_baseline', worktreePath: main }, ctx);
 
-    expect(result.error?.code, JSON.stringify(result.error)).toBe('VERIFIER_NOT_PROVISIONED');
-    expect(await store.query(FEATURE, { type: 'admission.evidence-recorded' })).toHaveLength(0);
+    expect(result, JSON.stringify(result.error)).toMatchObject({ success: true, data: { passed: true } });
+    expect(await markerRuns(marker)).toBe(1);
   });
 
-  /** An unusable connector is a provisioned context. Its test legs keep HOSTED_VERIFICATION_REFUSED, and no route runs them locally. */
-  it('RetiredRoutes_UnusableConnector_StaysOnTheProvisionedRoute', async () => {
+  /** An unusable connector is ignored. The test leg runs in the local executor, as with no connector. */
+  it('LocalRoutes_UnusableConnector_IsIgnored', async () => {
     const root = await tempRoot('observational-unusable-');
     const { program, marker } = await markerProgram(root);
     const { main } = await repository(root, { '.exarchos.yml': `test: '${program} test'\n` });
@@ -297,14 +302,15 @@ describe('retired lifecycle and team routes', () => {
 
     const result = await orchestrate(stateDir, store, { action: 'pre_synthesis_check', featureId: FEATURE, repoRoot: main, skipStack: true }, { verificationHost: unusable });
 
-    expect(result.error?.code).toBe('HOSTED_VERIFICATION_REFUSED');
-    expect(await markerRan(marker)).toBe(false);
+    expect(result.success, JSON.stringify(result.error)).toBe(true);
+    expect(await markerRuns(marker)).toBe(1);
+    expect(unusable.exchanges).toEqual([]);
   });
 });
 
-describe('converted reads on a provisioned route', () => {
-  /** The pre-synthesis branch read observes the checkout root above a subdirectory with the connector Git path. A detached HEAD fails the check. */
-  it('PreSynthesisBranchRead_ConnectorGitPath_NoPathGitAndDetachedFailsClosed', async () => {
+describe('converted reads of the lifecycle and team routes', () => {
+  /** The pre-synthesis branch read observes the checkout root above a subdirectory with the process-wide Git path. A detached HEAD fails the check. */
+  it('PreSynthesisBranchRead_ProcessGitPath_NoPathGitAndDetachedFailsClosed', async () => {
     const root = await tempRoot('observational-branch-');
     const { main } = await repository(root, { 'src/a.ts': 'export {};\n' });
     await git(main, 'checkout', '-q', '-b', 'feature/stack');
@@ -314,12 +320,13 @@ describe('converted reads on a provisioned route', () => {
       name: 'github',
       listPrs: async (filter?: { head?: string }) => { heads.push(filter?.head); return [{ number: 1, url: '', title: '', headRefName: 'feature/stack', baseRefName: 'main', state: 'OPEN' }]; },
     } as unknown as VcsProvider;
+    primeObservationalGitPath(GIT);
     const shimCalls = await pathShim(root);
     const args = { featureId: FEATURE, eventStore: store, stateDir, repoRoot: join(main, 'src'), skipTests: true };
 
-    const attached = await runAsTrustedCaller(stateDir, () => handlePreSynthesisCheck(args, provider, connector(GIT)));
+    const attached = await runAsTrustedCaller(stateDir, () => handlePreSynthesisCheck(args, provider));
     await git(main, 'checkout', '-q', '--detach');
-    const detached = await runAsTrustedCaller(stateDir, () => handlePreSynthesisCheck(args, provider, connector(GIT)));
+    const detached = await runAsTrustedCaller(stateDir, () => handlePreSynthesisCheck(args, provider));
 
     expect(heads).toEqual(['feature/stack']);
     expect((attached.data as { report: string }).report).toContain("PR stack exists (1 open PRs for 'feature/stack')");
@@ -327,17 +334,18 @@ describe('converted reads on a provisioned route', () => {
     expect(await shimCalls()).toHaveLength(0);
   });
 
-  /** The debug-review reads diff from the merge base through the connector Git path. A refused base or a detached head gives DIFF_FAILED. */
-  it('DebugReviewReads_ConnectorGitPath_RefusedBaseAndDetachedGiveDiffFailed', async () => {
+  /** The debug-review reads diff from the merge base through the process-wide Git path. A refused base or a detached head gives DIFF_FAILED. */
+  it('DebugReviewReads_ProcessGitPath_RefusedBaseAndDetachedGiveDiffFailed', async () => {
     const root = await tempRoot('observational-debug-');
     const { main } = await repository(root, { 'package.json': '{}', 'src/a.ts': 'export {};\n' });
     await git(main, 'tag', 'only-a-tag');
     await git(main, 'checkout', '-q', '-b', 'fix');
     await commitIn(main, 'the fix', { 'src/a.ts': 'export const a = 1;\n', 'src/a.test.ts': 'test\n' });
     const { stateDir, store } = await storeWith(FEATURE, 'debug-review');
+    primeObservationalGitPath(GIT);
     const shimCalls = await pathShim(root);
     const run = (baseBranch: string) => runAsTrustedCaller(stateDir, () =>
-      handleDebugReviewGate({ featureId: FEATURE, repoRoot: join(main, 'src'), baseBranch, skipRun: true }, stateDir, store, connector(GIT)));
+      handleDebugReviewGate({ featureId: FEATURE, repoRoot: join(main, 'src'), baseBranch, skipRun: true }, stateDir, store));
 
     const passed = await run('main');
     const tag = await run('only-a-tag');
@@ -350,27 +358,22 @@ describe('converted reads on a provisioned route', () => {
     expect(await shimCalls()).toHaveLength(0);
   });
 
-  /** The clean-tree listings read through the closed operations with the connector Git path. A dirty tree and an unreadable index refuse before any exchange. */
-  it('GateRunnerListings_ConnectorGitPath_DirtyAndUnreadableRefuseBeforeExchange', async ({ skip }) => {
+  /**
+   * The standalone test host reads the clean-tree listings through the closed operations with the process-wide Git path.
+   * A clean tree runs the test leg. A dirty tree and an unreadable index refuse before any run.
+   */
+  it('StandaloneListings_ProcessGitPath_DirtyAndUnreadableRefuseBeforeAnyRun', async ({ skip }) => {
     if (process.platform !== 'linux') return skip();
     const root = await tempRoot('observational-listing-');
+    const { program, marker } = await markerProgram(root);
     const { main } = await repository(root, { 'src/a.ts': 'export {};\n' });
-    const argv = ['node', 'test.cjs'];
-    const checkout = realpathSync(main);
-    const host = connector(GIT, {
-      lifecycle: [{
-        checkout, repository: realpathSync(join(main, '.git')), branch: 'refs/heads/main',
-        commandDigest: checkPlanDigest(lifecyclePlan([{ kind: 'command', argv }])), resourceId: 'resource', profileId: 'profile',
-      }],
-    });
-    const testHost = standaloneTestHost(host);
-    if (testHost === undefined) throw new Error('A connector gives a test host');
+    const argv = [program, 'test'];
+    const testHost = standaloneTestHost();
+    primeObservationalGitPath(GIT);
     const shimCalls = await pathShim(root);
 
     const clean = await testHost.run(main, argv);
-    expect(clean.kind).toBe('unavailable');
-    const exchanged = host.exchanges.length;
-    expect(exchanged).toBeGreaterThan(0);
+    expect(clean).toMatchObject({ kind: 'exited', exitCode: 0 });
     await writeFile(join(main, 'untracked.txt'), 'dirty\n');
     const dirty = await testHost.run(main, argv);
     await git(main, 'clean', '-fdq');
@@ -379,8 +382,8 @@ describe('converted reads on a provisioned route', () => {
     await chmod(join(main, '.git', 'index'), 0o644);
 
     expect(dirty).toMatchObject({ kind: 'refused', message: expect.stringContaining('uncommitted changes') });
-    expect(unreadable).toMatchObject({ kind: 'refused', message: expect.stringContaining('closed Git listings') });
-    expect(host.exchanges).toHaveLength(exchanged);
+    expect(unreadable).toMatchObject({ kind: 'refused' });
+    expect(await markerRuns(marker)).toBe(1);
     expect(await shimCalls()).toHaveLength(0);
   });
 });
@@ -406,7 +409,7 @@ describe('the mock-boundary diff and the prepare-synthesis changed files', () =>
     const shimCalls = await pathShim(root);
 
     const mocks = await orchestrate(stateDir, store, { action: 'check_mock_boundary', featureId: FEATURE, taskId: 'task', repoRoot: task, baseBranch: 'main' }, { verificationHost: connector(GIT) });
-    const synthesis = await runAsTrustedCaller(stateDir, () => handlePrepareSynthesis({ featureId: FEATURE, repoRoot: task, projectConfig: blockingDocs }, stateDir, store, connector(GIT)));
+    const synthesis = await runAsTrustedCaller(stateDir, () => handlePrepareSynthesis({ featureId: FEATURE, repoRoot: task, projectConfig: blockingDocs }, stateDir, store));
 
     expect(mocks.success, JSON.stringify(mocks.error)).toBe(true);
     expect(mockTargets(mocks)).toEqual(['lodash']);
@@ -428,7 +431,7 @@ describe('the mock-boundary diff and the prepare-synthesis changed files', () =>
     const { stateDir, store } = await storeWith(FEATURE, 'delegate');
 
     const mocks = await orchestrate(stateDir, store, { action: 'check_mock_boundary', featureId: FEATURE, taskId: 'task', repoRoot: task, baseBranch: 'main' }, { verificationHost: connector(GIT) });
-    const synthesis = await runAsTrustedCaller(stateDir, () => handlePrepareSynthesis({ featureId: FEATURE, repoRoot: task, projectConfig: blockingDocs }, stateDir, store, connector(GIT)));
+    const synthesis = await runAsTrustedCaller(stateDir, () => handlePrepareSynthesis({ featureId: FEATURE, repoRoot: task, projectConfig: blockingDocs }, stateDir, store));
 
     expect(mocks.error?.code).toBe('DIFF_ERROR');
     const data = synthesis.data as { document: { message?: string }; readiness: { documentReady: boolean } };

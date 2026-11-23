@@ -29,10 +29,10 @@ export interface PostMergeOptions {
   /** VcsProvider for CI status queries. Falls back to createVcsProvider(). */
   provider?: VcsProvider;
   /**
-   * The hosted test runner of a provisioned route. When present, it replaces `runCommand` and waits for the authenticated result.
-   * A hosted run with no verdict throws, so it never reads as a red suite.
+   * The test runner of the local approved-check executor. When present, it replaces `runCommand`.
+   * A run with no verdict throws, so it never reads as a red suite.
    */
-  hostedTestRun?: (bin: string, args: readonly string[]) => Promise<CommandResult>;
+  localTestRun?: (bin: string, args: readonly string[]) => Promise<CommandResult>;
 }
 
 export interface PostMergeResult {
@@ -189,8 +189,8 @@ export async function checkPostMerge(options: PostMergeOptions): Promise<PostMer
       return;
     }
 
-    const testResult = options.hostedTestRun === undefined
-      ? runCommand(resolved.bin, resolved.args) : await options.hostedTestRun(resolved.bin, resolved.args);
+    const testResult = options.localTestRun === undefined
+      ? runCommand(resolved.bin, resolved.args) : await options.localTestRun(resolved.bin, resolved.args);
 
     if (testResult.exitCode !== 0) {
       findings.push(

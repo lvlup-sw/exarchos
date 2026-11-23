@@ -127,6 +127,14 @@ function withoutPrivateTerms(args: Record<string, unknown>): Record<string, unkn
   return Object.fromEntries(Object.entries(args).filter(([key]) => !PRIVATE_VERIFIER_TERMS.includes(key)));
 }
 
+/**
+ * The handler `inner` with a caller copy of the private verifier terms removed from the args.
+ * A lifecycle or team action reads no connector, but its args still never carry a caller copy of a private term.
+ */
+function privateTermsRemoved(inner: ActionHandler): ActionHandler {
+  return (args, stateDir, ctx) => inner(withoutPrivateTerms(args), stateDir, ctx);
+}
+
 /** The connector of a provisioned context. A caller argument never supplies it. */
 function connectorOf(ctx: DispatchContext): VerificationHostConnector | undefined {
   return ctx.verificationHost;
@@ -482,7 +490,7 @@ export const ACTION_HANDLERS: Readonly<Record<string, ActionHandler>> = {
   task_fail: adaptWithEventStore(handleTaskFail),
   review_triage: adaptWithEventStore(handleReviewTriage),
   prepare_delegation: adaptWithCtx(handlePrepareDelegation),
-  prepare_synthesis: adaptWithEventStoreAndConfig(handlePrepareSynthesis, connectorOf),
+  prepare_synthesis: privateTermsRemoved(adaptWithEventStoreAndConfig(handlePrepareSynthesis)),
   assess_stack: adaptWithEventStoreAndConfig(handleAssessStack),
   check_design_completeness: adaptWithEventStore(handleDesignCompleteness),
   check_plan_coverage: adaptWithEventStore(handlePlanCoverage),
@@ -501,7 +509,7 @@ export const ACTION_HANDLERS: Readonly<Record<string, ActionHandler>> = {
    * An explicit `review.gates['mutation-adequacy']` override can make it blocking.
    */
   [MUTATION_GATE_NAME]: adaptLadderGate(handleMutationAdequacy, false, connectorOf),
-  check_post_merge: adaptWithEventStore(handlePostMerge, connectorOf),
+  check_post_merge: privateTermsRemoved(adaptWithEventStore(handlePostMerge)),
   check_static_analysis: adaptLadderGate(handleStaticAnalysis, true),
   check_integration_suite: adaptLadderGate(handleCheckIntegrationSuite, true),
   check_security_scan: adaptWithEventStore(handleSecurityScan),
@@ -524,19 +532,18 @@ export const ACTION_HANDLERS: Readonly<Record<string, ActionHandler>> = {
   check_pr_comments: adaptArgs(handleCheckPrComments),
   validate_pr_body: adaptWithOptionalEventStore(handleValidatePrBody),
   validate_pr_stack: adaptWithEventStore(handleValidatePrStack),
-  debug_review_gate: adaptWithEventStore(handleDebugReviewGate, connectorOf),
+  debug_review_gate: privateTermsRemoved(adaptWithEventStore(handleDebugReviewGate)),
   extract_fix_tasks: adaptArgsWithStateDirAndEventStore(handleExtractFixTasks),
   classify_review_items: adaptArgsWithEventStore(handleClassifyReviewItems),
   generate_traceability: adaptArgs(handleGenerateTraceability),
   /** Spec coverage runs its declared tests in the local approved-check executor. It reads no connector. */
   spec_coverage_check: adaptWithEventStore(handleSpecCoverageCheck),
-  verify_worktree_baseline: adapt(handleVerifyWorktreeBaseline, connectorOf),
+  verify_worktree_baseline: privateTermsRemoved(adaptWithEventStore(handleVerifyWorktreeBaseline)),
   setup_worktree: adaptSetupWorktree(),
   verify_delegation_saga: adaptArgs(handleVerifyDelegationSaga),
-  post_delegation_check: adaptArgsWithStateDirAndEventStore(handlePostDelegationCheck, connectorOf),
+  post_delegation_check: privateTermsRemoved(adaptArgsWithStateDirAndEventStore(handlePostDelegationCheck)),
   reconcile_state: adaptArgsWithEventStore(handleReconcileState),
-  pre_synthesis_check: adaptArgsWithStateDirAndEventStore((args: PreSynthesisCheckArgs, connector?: VerificationHostConnector) =>
-    connector === undefined ? handlePreSynthesisCheck(args) : handlePreSynthesisCheck(args, undefined, connector), connectorOf),
+  pre_synthesis_check: privateTermsRemoved(adaptArgsWithStateDirAndEventStore((args: PreSynthesisCheckArgs) => handlePreSynthesisCheck(args))),
   check_coderabbit: adaptArgs(handleCheckCoderabbit),
   check_polish_scope: adapt((args: CheckPolishScopeArgs, _stateDir: string, gitPath?: string) =>
     handleCheckPolishScope(args, gitPath), observationalGitPathOf),

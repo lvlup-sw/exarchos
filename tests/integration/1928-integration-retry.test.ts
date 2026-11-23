@@ -149,10 +149,10 @@ describe('integration attempts in the local executor', () => {
     expect(later).toMatchObject({ phaseAttemptId: earlier.phaseAttemptId, tip: second });
     expect(earlier).toMatchObject({ tip: first });
     const original = await f.attempt('outer-1', first, [f.heads.a]);
-    expect(original.outcome).toMatchObject({ kind: 'refused', result: { error: { code: 'HOSTED_VERIFICATION_REFUSED',
+    expect(original.outcome).toMatchObject({ kind: 'refused', result: { error: { code: 'LOCAL_CHECK_REFUSED',
       message: expect.stringContaining('does not hold the integration ref at the observed tip') } } });
     const stale = await f.attempt('outer-2', first, [f.heads.a]);
-    expect(stale.outcome).toMatchObject({ kind: 'refused', result: { error: { code: 'HOSTED_VERIFICATION_REFUSED' } } });
+    expect(stale.outcome).toMatchObject({ kind: 'refused', result: { error: { code: 'LOCAL_CHECK_REFUSED' } } });
     expect(await f.suiteTips()).toEqual([first, second]);
   }, 120000);
 
@@ -164,11 +164,11 @@ describe('integration attempts in the local executor', () => {
     const f = await localAttempts();
     const tip = await f.land('task/a');
     const elsewhere = await f.attempt('outer-1', tip, [f.heads.a], { scope: { ...f.scope, checkout: f.trees.a } });
-    expect(elsewhere.outcome).toMatchObject({ kind: 'refused', result: { error: { code: 'HOSTED_VERIFICATION_REFUSED',
+    expect(elsewhere.outcome).toMatchObject({ kind: 'refused', result: { error: { code: 'LOCAL_CHECK_REFUSED',
       message: expect.stringContaining('not the integration checkout of the prepared scope') } } });
     const taskTip = await git(f.trees.c, 'rev-parse', 'HEAD');
     const otherBranch = await f.attempt('outer-1', taskTip, [f.heads.c], { ref: 'refs/heads/task/c' });
-    expect(otherBranch.outcome).toMatchObject({ kind: 'refused', result: { error: { code: 'HOSTED_VERIFICATION_REFUSED' } } });
+    expect(otherBranch.outcome).toMatchObject({ kind: 'refused', result: { error: { code: 'LOCAL_CHECK_REFUSED' } } });
     expect(await f.suiteTips()).toEqual([]);
   }, 120000);
 });

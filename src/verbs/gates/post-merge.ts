@@ -1,16 +1,16 @@
 /**
  * The post-merge regression gate at the boundary between synthesize and cleanup. It runs the pure
  * `checkPostMerge` check and records the gate result for the feature.
- * A provisioned verifier runs the test suite of the selected checkout under a checkout subject. No route runs it locally.
- * A machine with no verifier refuses with VERIFIER_NOT_PROVISIONED after argument validation.
+ * The local approved-check executor runs the test suite of the selected checkout as a lifecycle check of the phase attempt.
  */
 
 import { isAbsolute } from 'node:path';
 import type { ToolResult } from '../../format.js';
 import type { EventStore } from '../../events/store.js';
 import { createEvidenceSubject } from '../../workflow/admission/evidence-subject.js';
-import type { VerificationHostConnector } from '../../contract/verification/harness-verification.js';
-import { HostedAdequacyPending, admitLifecycleLegs, hostedPendingResult, runPhaseGateWithEvidence, verifierNotProvisioned } from './gate-runner.js';
+import { HostedAdequacyPending, hostedPendingResult, runPhaseGateWithEvidence } from './gate-runner.js';
+import { admitLifecycleLegs } from '../verification/lifecycle-check.js';
+import type { CheckExecutor } from '../verification/check-executor.js';
 import { requireGateEvent, sameOperationGateKey } from './gate-utils.js';
 import { checkPostMerge } from '../pure/post-merge.js';
 import type { CommandResult } from '../pure/post-merge.js';
@@ -31,32 +31,34 @@ interface PostMergeResult {
   readonly report: string;
 }
 
-/** A refusal of the verifier. It stops the gate run, and the handler returns its result. */
-class HostedRefusal extends Error {
+/** A refusal of the local executor. It stops the gate run, and the handler returns its result. */
+class LocalRefusal extends Error {
   constructor(readonly result: ToolResult) { super(result.error?.message); }
 }
 
-/** The verifier of one call and the phase attempt that scopes its request. */
-interface PostMergeHost {
-  readonly connector: VerificationHostConnector;
+/** The event store, the executor and the phase attempt that scope the test run of one call. */
+interface PostMergeRun {
+  readonly eventStore: EventStore;
+  readonly executor?: CheckExecutor;
   readonly phaseAttemptId: () => string | undefined;
 }
 
 /**
- * The hosted test runner of the post-merge check. Its signed exit code reads as the suite result.
+ * The local test runner of the post-merge check. The exit code of its one leg reads as the suite result.
  * A refusal stops the gate run. A pending result, a run with no verdict and a missing leg throw the pending signal.
  */
-function hostedTestRunner(args: PostMergeArgs, host: PostMergeHost) {
+function localTestRunner(args: PostMergeArgs, run: PostMergeRun) {
   return async (bin: string, cmdArgs: readonly string[]): Promise<CommandResult> => {
-    const phaseAttemptId = host.phaseAttemptId();
+    const phaseAttemptId = run.phaseAttemptId();
     const legs = await admitLifecycleLegs({
-      connector: host.connector, checkout: args.repoRoot, legs: [{ kind: 'command', argv: [bin, ...cmdArgs] }],
+      eventStore: run.eventStore, checkout: args.repoRoot, legs: [{ kind: 'command', argv: [bin, ...cmdArgs] }],
       streamId: args.featureId, ...(phaseAttemptId === undefined ? {} : { phaseAttemptId }),
+      ...(run.executor === undefined ? {} : { executor: run.executor }),
     });
-    if ('success' in legs) throw new HostedRefusal(legs);
-    const run = legs[0]?.run;
-    if (run?.exitCode === undefined || run.exitCode === null) throw new HostedAdequacyPending('The verifier returned no exited test leg, so the suite has no verdict.');
-    return { exitCode: run.exitCode, stdout: run.stdout, stderr: run.stderr };
+    if ('success' in legs) throw new LocalRefusal(legs);
+    const leg = legs[0]?.run;
+    if (leg?.exitCode === undefined || leg.exitCode === null) throw new HostedAdequacyPending('The executor returned no exited test leg, so the suite has no verdict.');
+    return { exitCode: leg.exitCode, stdout: leg.stdout, stderr: leg.stderr };
   };
 }
 
@@ -66,13 +68,15 @@ function hostedTestRunner(args: PostMergeArgs, host: PostMergeHost) {
  * evidence before a success result returns. `repoRoot` must be an absolute path, because the gate runs
  * the resolved test command there.
  *
- * A connector comes only from the dispatch context. With no connector, the gate refuses after argument validation. A pending hosted result maps to its existing code with no evidence.
+ * The suite runs in the local executor with no verifier provisioning. A pending result maps to its existing code with no evidence.
+ *
+ * @param executor - The local check executor. The default is the real executor. A test passes its own executor.
  */
 export async function handlePostMerge(
   args: PostMergeArgs,
   stateDir: string,
   eventStore: EventStore,
-  connector?: VerificationHostConnector,
+  executor?: CheckExecutor,
 ): Promise<ToolResult> {
   if (!args.featureId) {
     return {
@@ -108,10 +112,8 @@ export async function handlePostMerge(
     };
   }
 
-  if (connector === undefined) return verifierNotProvisioned('check_post_merge');
-
   let attempt: string | undefined;
-  const host: PostMergeHost = { connector, phaseAttemptId: () => attempt };
+  const run: PostMergeRun = { eventStore, ...(executor === undefined ? {} : { executor }), phaseAttemptId: () => attempt };
   try {
     return await runPhaseGateWithEvidence({
       streamId: args.featureId,
@@ -132,18 +134,18 @@ export async function handlePostMerge(
         );
       },
       providerInput: args,
-      executeProvider: async () => executePostMerge(args, eventStore, host),
+      executeProvider: async () => executePostMerge(args, eventStore, run),
     });
   } catch (error) {
     return hostedPendingResult(error);
   }
 }
 
-/** Run the pure check with the hosted test runner. The handler always passes it, so the pure check never reaches a local runner. */
+/** Run the pure check with the local test runner. The handler always passes it, so the pure check never reaches its own runner. */
 async function executePostMerge(
   args: PostMergeArgs,
   eventStore: EventStore,
-  host: PostMergeHost,
+  run: PostMergeRun,
 ): Promise<ToolResult> {
   const { repoRoot } = args;
   let checkResult: Awaited<ReturnType<typeof checkPostMerge>>;
@@ -152,10 +154,10 @@ async function executePostMerge(
       prUrl: args.prUrl,
       mergeSha: args.mergeSha,
       repoRoot,
-      hostedTestRun: hostedTestRunner(args, host),
+      localTestRun: localTestRunner(args, run),
     });
   } catch (error) {
-    if (error instanceof HostedRefusal) return error.result;
+    if (error instanceof LocalRefusal) return error.result;
     throw error;
   }
 

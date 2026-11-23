@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { fileURLToPath } from 'node:url';
+import { mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { z } from 'zod';
 import {
   applicableEnsures,
@@ -16,7 +17,7 @@ import {
 import { deriveMcpCallerIdentity } from '../../src/dispatch/caller-identity.js';
 import { EventStore as DurableEventStore } from '../../src/events/store.js';
 import type { VerificationHostConnector } from '../../src/contract/verification/harness-verification.js';
-import { HostedAdequacyPending, hostedPendingResult, hostedRefusal, verifierNotProvisioned } from '../../src/verbs/gates/gate-runner.js';
+import { HostedAdequacyPending, hostedPendingResult } from '../../src/verbs/gates/gate-runner.js';
 import { handleMutationAdequacy } from '../../src/verbs/gates/mutation-adequacy.js';
 import { createInMemoryResolver } from '../../src/workflow/capabilities/resolver.js';
 import { getDispatchContext } from '../../src/dispatch/dispatch-context.js';
@@ -918,20 +919,20 @@ describe('dispatch keeps the code of a check that did not run', () => {
     clearCustomTools();
   });
 
-  /** Each of the four live literals equals the code of its producer. The gate runner produces the code of a machine with no verifier. */
-  it('DidNotRunCodes_LiveLiteralsMatchTheirProducers', async () => {
+  /**
+   * Two literals have a live producer: the pending result and the retired mutation gate.
+   * The hosted refusal and the code of a machine with no verifier stay in the set for stored receipts.
+   * No source file outside dispatch names them.
+   * The census reads every TypeScript file under `src` and must find each reserved literal in dispatch, so an empty scan cannot pass.
+   */
+  it('DidNotRunCodes_TwoLiveProducersAndTwoLiteralsReservedForHistory', async () => {
     const stateDir = await mkdtemp(path.join(os.tmpdir(), 'did-not-run-producers-'));
     const store = new DurableEventStore(stateDir);
     await store.initialize();
     try {
       const retired = await handleMutationAdequacy({ featureId: 'feat-retired', base: 'main' }, stateDir, store, countingConnector().connector);
-      const produced = [
-        hostedRefusal('refused').error?.code,
-        hostedPendingResult(new HostedAdequacyPending('pending')).error?.code,
-        retired.error?.code,
-        verifierNotProvisioned('check').error?.code,
-      ];
-      expect(DID_NOT_RUN_CODES).toEqual(produced);
+      expect([hostedPendingResult(new HostedAdequacyPending('pending')).error?.code, retired.error?.code])
+        .toEqual(['HOSTED_ADEQUACY_PENDING', 'MUTATION_TESTING_RETIRED']);
       expect(DID_NOT_RUN_CODES).toEqual([
         'HOSTED_VERIFICATION_REFUSED', 'HOSTED_ADEQUACY_PENDING', 'MUTATION_TESTING_RETIRED', 'VERIFIER_NOT_PROVISIONED',
       ]);
@@ -939,6 +940,20 @@ describe('dispatch keeps the code of a check that did not run', () => {
       store.close();
       await rmrfAsync(stateDir);
     }
+    const sourceRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../src');
+    const files = (await readdir(sourceRoot, { recursive: true })).filter((file) => file.endsWith('.ts'));
+    const naming = new Map<string, string[]>();
+    for (const file of files) {
+      const text = await readFile(path.join(sourceRoot, file), 'utf8');
+      for (const code of ['HOSTED_VERIFICATION_REFUSED', 'VERIFIER_NOT_PROVISIONED']) {
+        if (text.includes(`'${code}'`) || text.includes(`"${code}"`) || text.includes(`\`${code}\``)) naming.set(code, [...naming.get(code) ?? [], file.split(path.sep).join('/')]);
+      }
+    }
+    expect(files.length).toBeGreaterThan(500);
+    expect(Object.fromEntries(naming)).toEqual({
+      HOSTED_VERIFICATION_REFUSED: ['dispatch/core/dispatch.ts'],
+      VERIFIER_NOT_PROVISIONED: ['dispatch/core/dispatch.ts'],
+    });
   });
 
   /** An always ensure with no observed row masks no did-not-run code. Any other failed code still gives the ensure violation. */

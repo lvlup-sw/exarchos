@@ -2,9 +2,8 @@
  * Handler for the `prepare_synthesis` action. It runs the readiness checks before synthesis: task completion, test suite, typecheck, document coverage and branch stack.
  * It emits a `gate.executed` event for the test suite, the typecheck and the document leg.
  *
- * A provisioned verifier runs the test and typecheck legs in one request under a checkout subject. No route runs them locally.
- * The stack and changed-file legs read Git only through the constrained reader with the connector Git path.
- * A machine with no verifier refuses with VERIFIER_NOT_PROVISIONED after the `featureId` check.
+ * The local approved-check executor runs the test and typecheck legs in one lifecycle check of the phase attempt, with no verifier provisioning.
+ * The stack and changed-file legs read Git only through the constrained reader with the process-wide Git path.
  */
 
 import type { ToolResult } from '../../format.js';
@@ -15,10 +14,10 @@ import { emitGateEvent, observeCurrentCheckout, type CurrentCheckoutRead } from 
 import type { ResolvedProjectConfig } from '../../config/resolve.js';
 import { globToRegExp } from '../../architecture/glob-to-regexp.js';
 import { createEvidenceSubject } from '../../workflow/admission/evidence-subject.js';
-import type { VerificationHostConnector } from '../../contract/verification/harness-verification.js';
-import {
-  HostedAdequacyPending, admitLifecycleLegs, hostedPendingResult, runPhaseGateWithEvidence, verifierNotProvisioned, type LifecycleLeg,
-} from '../gates/gate-runner.js';
+import { processObservationalGitPath } from '../../utils/git-tree.js';
+import { HostedAdequacyPending, hostedPendingResult, runPhaseGateWithEvidence } from '../gates/gate-runner.js';
+import { admitLifecycleLegs, type LifecycleLeg } from '../verification/lifecycle-check.js';
+import type { CheckExecutor } from '../verification/check-executor.js';
 
 interface SynthesisReadinessState {
   tasksComplete: boolean;
@@ -77,17 +76,14 @@ interface LegRun {
   readonly output: string;
 }
 
-/** The runner of one leg. A hosted runner reads the signed leg of that kind. */
+/** The runner of one leg. The local runner reads the observed leg of that kind. */
 type LegRunner = (
   kind: LifecycleLeg['kind'], command: Extract<RunnableCommand, { kind: 'runnable' }>, repoRoot: string, timeout: number,
 ) => LegRun;
 
-/**
- * A provisioned call with no planned leg never runs a leg in the governor.
- * A leg that the plan does not hold refuses here instead of running locally.
- */
-const unplannedHostedLeg: LegRunner = (kind) => {
-  throw new Error(`The ${kind} leg is not in the verifier request, so the governor refuses to run it`);
+/** A leg that the approved plan does not hold refuses here and never runs. */
+const unplannedLeg: LegRunner = (kind) => {
+  throw new Error(`The ${kind} leg is not in the approved plan, so it does not run`);
 };
 
 /** The test and typecheck commands of one call. The call reads them once, so the plan and the legs see the same commands. */
@@ -101,37 +97,39 @@ function legCommandsOf(repoRoot: string): LegCommands {
   return { test: resolveRunnableCommand(repoRoot, 'test'), typecheck: resolveRunnableCommand(repoRoot, 'typecheck') };
 }
 
-/** The verifier of one call, the stream and the phase attempt that scope its request. */
-interface PrepareSynthesisHost {
-  readonly connector: VerificationHostConnector;
+/** The event store, the executor and the phase attempt that scope the legs of one call. */
+interface PrepareSynthesisRun {
+  readonly eventStore: EventStore;
+  readonly executor?: CheckExecutor;
   readonly phaseAttemptId: () => string | undefined;
 }
 
 /**
- * Run each resolvable leg in one verifier request and return a runner that reads the signed legs.
- * Both legs run in the one request. A refusal returns as the gate result. A pending result and a leg with no verdict throw the pending signal.
- * The runner refuses a leg whose command differs from the planned leg, so no command outside the request runs.
+ * Run each resolvable leg in one local check and return a runner that reads the observed legs.
+ * Both legs run in the one check. A refusal returns as the gate result. A pending result and a leg with no verdict throw the pending signal.
+ * The runner refuses a leg whose command differs from the planned leg, so no command outside the plan runs.
  */
-async function hostedLegRunner(
-  streamId: string, repoRoot: string, host: PrepareSynthesisHost, commands: LegCommands,
+async function localLegRunner(
+  streamId: string, repoRoot: string, run: PrepareSynthesisRun, commands: LegCommands,
 ): Promise<LegRunner | ToolResult> {
   const legs: LifecycleLeg[] = [];
   for (const [kind, resolved] of [['command', commands.test], ['typecheck', commands.typecheck]] satisfies [LifecycleLeg['kind'], RunnableCommand][]) {
     if (resolved.kind === 'runnable') legs.push({ kind, argv: [resolved.bin, ...resolved.args] });
   }
-  if (legs.length === 0) return unplannedHostedLeg;
-  const phaseAttemptId = host.phaseAttemptId();
+  if (legs.length === 0) return unplannedLeg;
+  const phaseAttemptId = run.phaseAttemptId();
   const admitted = await admitLifecycleLegs({
-    connector: host.connector, checkout: repoRoot, legs, streamId, ...(phaseAttemptId === undefined ? {} : { phaseAttemptId }),
+    eventStore: run.eventStore, checkout: repoRoot, legs, streamId, ...(phaseAttemptId === undefined ? {} : { phaseAttemptId }),
+    ...(run.executor === undefined ? {} : { executor: run.executor }),
   });
   if ('success' in admitted) return admitted;
   return (kind, command) => {
     const planned = legs.find((leg) => leg.kind === kind);
-    if (planned === undefined || planned.argv.join('\0') !== [command.bin, ...command.args].join('\0')) return unplannedHostedLeg(kind, command, repoRoot, 0);
-    const run = admitted.find((leg) => leg.kind === kind)?.run;
-    if (run === undefined) throw new Error(`The verifier returned no ${kind} leg`);
-    const output = [run.stdout, run.stderr].filter((chunk) => chunk.length > 0).join('\n');
-    return { exitedZero: run.exitCode === 0, output };
+    if (planned === undefined || planned.argv.join('\0') !== [command.bin, ...command.args].join('\0')) return unplannedLeg(kind, command, repoRoot, 0);
+    const observed = admitted.find((leg) => leg.kind === kind)?.run;
+    if (observed === undefined) throw new Error(`The executor returned no ${kind} leg`);
+    const output = [observed.stdout, observed.stderr].filter((chunk) => chunk.length > 0).join('\n');
+    return { exitedZero: observed.exitCode === 0, output };
   };
 }
 
@@ -198,12 +196,13 @@ type SynthesisCheckout =
   | { readonly kind: 'refused'; readonly reason: string };
 
 /**
- * Observe the checkout root above `repoRoot` once with the connector Git path, and resolve the base.
+ * Observe the checkout root above `repoRoot` once with the process-wide Git path, and resolve the base.
  * The base name is the origin HEAD target with no `refs/remotes/origin/` prefix, or `main` when that ref does not read.
  * The name resolves by the closed base-name order, so a local branch comes first, as `main...HEAD` resolves today.
  * An unusable Git path, a refused observation and a refused base give a refusal, and no leg reads Git after it.
  */
-async function synthesisCheckout(gitPath: string, repoRoot: string): Promise<SynthesisCheckout> {
+async function synthesisCheckout(gitPath: string | undefined, repoRoot: string): Promise<SynthesisCheckout> {
+  if (gitPath === undefined) return { kind: 'refused', reason: 'No usable Git executable observes the checkout.' };
   const read = await observeCurrentCheckout(gitPath, repoRoot);
   if (read.kind === 'refused') return read;
   const { observer, checkout } = read;
@@ -348,14 +347,15 @@ interface PrepareSynthesisArgs {
 
 /**
  * Runs the readiness legs through the shared phase-gate runner.
- * A connector comes only from the dispatch context. With no connector, the handler refuses after the `featureId` check and reads no workflow state.
- * A pending hosted result maps to its existing code with no evidence.
+ * The test and typecheck legs run in the local executor with no verifier provisioning. A pending result maps to its existing code with no evidence.
+ *
+ * @param executor - The local check executor. The default is the real executor. A test passes its own executor.
  */
 export async function handlePrepareSynthesis(
   args: PrepareSynthesisArgs,
   stateDir: string,
   eventStore: EventStore,
-  connector?: VerificationHostConnector,
+  executor?: CheckExecutor,
 ): Promise<ToolResult> {
   if (!args.featureId) {
     return {
@@ -364,10 +364,8 @@ export async function handlePrepareSynthesis(
     };
   }
 
-  if (connector === undefined) return verifierNotProvisioned('prepare_synthesis');
-
   let attempt: string | undefined;
-  const host: PrepareSynthesisHost = { connector, phaseAttemptId: () => attempt };
+  const run: PrepareSynthesisRun = { eventStore, ...(executor === undefined ? {} : { executor }), phaseAttemptId: () => attempt };
   try {
     return await runPhaseGateWithEvidence({
       streamId: args.featureId,
@@ -383,7 +381,7 @@ export async function handlePrepareSynthesis(
         );
       },
       providerInput: args,
-      executeProvider: async () => executePrepareSynthesis(args, stateDir, eventStore, host),
+      executeProvider: async () => executePrepareSynthesis(args, stateDir, eventStore, run),
     });
   } catch (error) {
     return hostedPendingResult(error);
@@ -403,7 +401,7 @@ async function executePrepareSynthesis(
   args: PrepareSynthesisArgs,
   stateDir: string,
   eventStore: EventStore,
-  host: PrepareSynthesisHost,
+  run: PrepareSynthesisRun,
 ): Promise<ToolResult> {
   if (!args.featureId) {
     return {
@@ -480,7 +478,7 @@ async function executePrepareSynthesis(
     const repoRoot = args.repoRoot;
 
     const commands = legCommandsOf(repoRoot);
-    const runner = await hostedLegRunner(streamId, repoRoot, host, commands);
+    const runner = await localLegRunner(streamId, repoRoot, run, commands);
     if (typeof runner !== 'function') return runner;
     const tests = runTestSuite(repoRoot, runner, commands.test);
     await emitGateEvent(store, streamId, 'test-suite', 'CI', tests.passed, {
@@ -503,7 +501,7 @@ async function executePrepareSynthesis(
       });
     }
 
-    const synthesis = await synthesisCheckout(host.connector.gitPath, repoRoot);
+    const synthesis = await synthesisCheckout(processObservationalGitPath(), repoRoot);
     const stack = await verifyStack(synthesis);
 
     const docCfg = args.projectConfig?.synthesis?.documentLeg ?? DEFAULT_DOCUMENT_LEG;

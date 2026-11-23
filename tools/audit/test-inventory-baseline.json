@@ -7,8 +7,8 @@
     "testFiles": 1513,
     "parsedFiles": 1469,
     "shellFiles": 44,
-    "cases": 16851,
-    "dynamicTitles": 338,
+    "cases": 16853,
+    "dynamicTitles": 340,
     "unparseableFiles": 0
   },
   "unparseable": [],
@@ -5125,7 +5125,7 @@
         },
         {
           "suite": "dispatch keeps the code of a check that did not run",
-          "name": "DidNotRunCodes_LiveLiteralsMatchTheirProducers",
+          "name": "DidNotRunCodes_TwoLiveProducersAndTwoLiteralsReservedForHistory",
           "dynamic": false
         },
         {
@@ -8783,7 +8783,7 @@
         },
         {
           "suite": "fast paths of the compiled binary",
-          "name": "RunTests_NoVerifierProvisioning_Exits78WithoutRunningTheCommand",
+          "name": "RunTests_NoVerifierProvisioning_RunsLocallyAndKeepsExits77And75",
           "dynamic": false
         },
         {
@@ -10499,38 +10499,38 @@
       "runner": "vitest:root",
       "cases": [
         {
-          "suite": "retired lifecycle and team routes",
-          "name": "RetiredRoutes_NoConnector_RefuseWithNoGitProviderOrProcessStart",
+          "suite": "lifecycle and team routes in the local executor",
+          "name": "LocalRoutes_NoConnector_RunTheApprovedLegsWithNoPlainGitStart",
           "dynamic": false
         },
         {
-          "suite": "retired lifecycle and team routes",
-          "name": "RetiredRoutes_ConfigDisabledGateWithNoConnector_RefusesWithNoSkipRow",
+          "suite": "lifecycle and team routes in the local executor",
+          "name": "LocalRoutes_ConfigDisabledGate_RecordsTheSkipWithNoRun",
           "dynamic": false
         },
         {
-          "suite": "retired lifecycle and team routes",
-          "name": "RetiredRoutes_ThroughRealDispatch_KeepVerifierNotProvisioned",
+          "suite": "lifecycle and team routes in the local executor",
+          "name": "LocalRoutes_ThroughRealDispatch_RunInTheLocalExecutor",
           "dynamic": false
         },
         {
-          "suite": "retired lifecycle and team routes",
-          "name": "RetiredRoutes_UnusableConnector_StaysOnTheProvisionedRoute",
+          "suite": "lifecycle and team routes in the local executor",
+          "name": "LocalRoutes_UnusableConnector_IsIgnored",
           "dynamic": false
         },
         {
-          "suite": "converted reads on a provisioned route",
-          "name": "PreSynthesisBranchRead_ConnectorGitPath_NoPathGitAndDetachedFailsClosed",
+          "suite": "converted reads of the lifecycle and team routes",
+          "name": "PreSynthesisBranchRead_ProcessGitPath_NoPathGitAndDetachedFailsClosed",
           "dynamic": false
         },
         {
-          "suite": "converted reads on a provisioned route",
-          "name": "DebugReviewReads_ConnectorGitPath_RefusedBaseAndDetachedGiveDiffFailed",
+          "suite": "converted reads of the lifecycle and team routes",
+          "name": "DebugReviewReads_ProcessGitPath_RefusedBaseAndDetachedGiveDiffFailed",
           "dynamic": false
         },
         {
-          "suite": "converted reads on a provisioned route",
-          "name": "GateRunnerListings_ConnectorGitPath_DirtyAndUnreadableRefuseBeforeExchange",
+          "suite": "converted reads of the lifecycle and team routes",
+          "name": "StandaloneListings_ProcessGitPath_DirtyAndUnreadableRefuseBeforeAnyRun",
           "dynamic": false
         },
         {
@@ -11723,7 +11723,7 @@
         },
         {
           "suite": "",
-          "name": "DataOnly_UnusableProvisioning_RunTestsExits77AndUnboundAdequacyRunsLocallyWithNoTestCommand",
+          "name": "DataOnly_UnusableProvisioning_RunTestsIgnoresItAndUnboundAdequacyRunsLocallyWithNoTestCommand",
           "dynamic": false
         },
         {
@@ -11733,7 +11733,7 @@
         },
         {
           "suite": "",
-          "name": "DataOnly_ProvisionedVerifier_RunTestsExitsWithTheChildCode77Or75",
+          "name": "DataOnly_ProvisionedVerifier_RunTestsRunsLocallyWithTheChildCodeAndRefusesADirtyTree",
           "dynamic": false
         },
         {
@@ -11922,7 +11922,7 @@
       "cases": [
         {
           "suite": "",
-          "name": "LifecycleHost_ApprovedOperationsRunOnlyInVerifierWithExactSubjects",
+          "name": "LocalLifecycle_ApprovedOperationsRunInTheLocalExecutorWithNoVerifier",
           "dynamic": false
         },
         {
@@ -11932,7 +11932,7 @@
         },
         {
           "suite": "",
-          "name": "LifecycleHost_NoHostDirtyHeadAndRefusedProfileNeverRunLocally",
+          "name": "LocalLifecycle_ARetryOfTheSameOperation_ReplaysTheStoredRunWithoutARerun",
           "dynamic": false
         },
         {
@@ -11942,7 +11942,7 @@
         },
         {
           "suite": "",
-          "name": "LifecycleHost_WrongSubjectCrossKindAndHeadMismatchRefuseAtTheVerifier",
+          "name": "LocalLifecycle_DirtyTreeWrongDirectoryAndProgramInsideTheCheckout_RefuseWithNoRun",
           "dynamic": false
         },
         {
@@ -11952,12 +11952,32 @@
         },
         {
           "suite": "",
-          "name": "LifecycleHost_NoConnector_RetiredHandlersRefuseWithNoRunOrRecord",
+          "name": "LocalLifecycle_APreparedStream_ConfinesTheCheckToTheWorkflowRepository",
           "dynamic": false
         },
         {
           "suite": "",
           "name": "<dynamic-case-4>",
+          "dynamic": true
+        },
+        {
+          "suite": "",
+          "name": "LocalLifecycle_StopAfterTestFailureTimeCapAndMissingProgram_GiveNoFalseVerdict",
+          "dynamic": false
+        },
+        {
+          "suite": "",
+          "name": "<dynamic-case-5>",
+          "dynamic": true
+        },
+        {
+          "suite": "",
+          "name": "LocalLifecycle_LeakDetection_ClassifiesTheDirtyPathsWithTheClosedListings",
+          "dynamic": false
+        },
+        {
+          "suite": "",
+          "name": "<dynamic-case-6>",
           "dynamic": true
         }
       ]
@@ -37567,16 +37587,6 @@
       "cases": [
         {
           "suite": "handleRunTests",
-          "name": "RunTests_NoHost_Exits78AndTellsTheUserToProvision",
-          "dynamic": false
-        },
-        {
-          "suite": "handleRunTests",
-          "name": "RunTests_NoHostOnAnotherPlatform_Exits78NamingThePlatform",
-          "dynamic": false
-        },
-        {
-          "suite": "handleRunTests",
           "name": "RunTests_Unresolved_SkipsVisiblyAndExitsZero",
           "dynamic": false
         },
@@ -37592,17 +37602,17 @@
         },
         {
           "suite": "handleRunTests",
-          "name": "RunTests_Hosted_ReturnsSignedChildExitCodeWithoutLocalRun",
+          "name": "RunTests_LocalHost_ReturnsTheChildExitCodeAndOutput",
           "dynamic": false
         },
         {
           "suite": "handleRunTests",
-          "name": "RunTests_Hosted_RefusalExits77AndUnavailableExits75WithDistinctMessages",
+          "name": "RunTests_LocalHost_RefusalExits77AndNoVerdictExits75WithDistinctMessages",
           "dynamic": false
         },
         {
           "suite": "handleRunTests",
-          "name": "RunTests_Hosted_UnresolvedMalformedAndDryRunMakeNoRequest",
+          "name": "RunTests_LocalHost_UnresolvedMalformedAndDryRunRunNothing",
           "dynamic": false
         }
       ]
@@ -55006,7 +55016,7 @@
         },
         {
           "suite": "handleOrchestrate > composite actions",
-          "name": "HandleOrchestrate_ProvisionedLifecycleActions_PassContextConnectorOnly",
+          "name": "HandleOrchestrate_ProvisionedLifecycleActions_GetNoConnector",
           "dynamic": false
         },
         {
@@ -59686,17 +59696,17 @@
         },
         {
           "suite": "handlePostMerge",
-          "name": "handlePostMerge_PassesOnlyTheHostedTestRunner",
+          "name": "handlePostMerge_PassesOnlyTheLocalTestRunner",
           "dynamic": false
         },
         {
           "suite": "handlePostMerge",
-          "name": "handlePostMerge_HostedTestRunner_RunsInRepoRoot",
+          "name": "handlePostMerge_LocalTestRunner_RunsInRepoRoot",
           "dynamic": false
         },
         {
           "suite": "handlePostMerge",
-          "name": "handlePostMerge_NoConnector_RefusesWithVerifierNotProvisioned",
+          "name": "handlePostMerge_LocalRefusal_ReturnsTheRefusalWithNoGateEvent",
           "dynamic": false
         },
         {
@@ -59711,12 +59721,12 @@
         },
         {
           "suite": "handlePostMerge",
-          "name": "handlePostMerge_Provisioned_RunsTheSuiteOnlyInTheVerifier",
+          "name": "handlePostMerge_LocalExecutor_TheLegExitCodeReadsAsTheSuiteResult",
           "dynamic": false
         },
         {
           "suite": "handlePostMerge",
-          "name": "handlePostMerge_Provisioned_MissingSignedLeg_GivesNoVerdict",
+          "name": "handlePostMerge_MissingLeg_GivesNoVerdict",
           "dynamic": false
         }
       ]
@@ -59832,22 +59842,22 @@
         },
         {
           "suite": "handlePreSynthesisCheck",
-          "name": "Provisioned_TestsRunOnlyThroughHostedLifecycleLegs",
+          "name": "LocalRoute_TestsRunThroughOneStoppingLifecycleCheck",
           "dynamic": false
         },
         {
           "suite": "handlePreSynthesisCheck",
-          "name": "Provisioned_TestCommandOverride_RefusesBeforeAnyRequest",
+          "name": "TestCommandOverride_BecomesTheApprovedTestLeg",
           "dynamic": false
         },
         {
           "suite": "handlePreSynthesisCheck",
-          "name": "NoConnector_RefusesWithVerifierNotProvisioned",
+          "name": "LocalRefusal_ReturnsTheRefusalAndSkipTestsRunsNoCheck",
           "dynamic": false
         },
         {
           "suite": "handlePreSynthesisCheck",
-          "name": "PrStack_ConstrainedBranchRead_UsesConnectorGitPathAndFailsClosed",
+          "name": "PrStack_ConstrainedBranchRead_UsesTheProcessGitPathAndFailsClosed",
           "dynamic": false
         }
       ]
@@ -61406,27 +61416,27 @@
         },
         {
           "suite": "handleVerifyWorktreeBaseline",
-          "name": "VerifyWorktreeBaseline_LeakDetectionWithNoConnector_RefusesBeforeAnyGitRead",
-          "dynamic": false
-        },
-        {
-          "suite": "handleVerifyWorktreeBaseline",
-          "name": "VerifyWorktreeBaseline_LeakDetectionWithConnector_RefusesWithNoTreeInspection",
-          "dynamic": false
-        },
-        {
-          "suite": "handleVerifyWorktreeBaseline",
-          "name": "VerifyWorktreeBaseline_NotAGitWorktreeWithNoConnector_RefusesBeforeTheClimb",
-          "dynamic": false
-        },
-        {
-          "suite": "handleVerifyWorktreeBaseline",
           "name": "detectProjectType_PnpmProject_ReturnsPnpmTest",
           "dynamic": false
         },
         {
           "suite": "handleVerifyWorktreeBaseline",
-          "name": "Provisioned_LeakDetectionAndUnidentifiedCheckout_RefuseWithoutLocalRun",
+          "name": "VerifyWorktreeBaseline_LeakedEditByteIdenticalToCommittedAgentChange_IsDetected",
+          "dynamic": false
+        },
+        {
+          "suite": "handleVerifyWorktreeBaseline",
+          "name": "VerifyWorktreeBaseline_CleanWorktreeWithLeakRequest_ReportsNoLeakAndRunsTheBaseline",
+          "dynamic": false
+        },
+        {
+          "suite": "handleVerifyWorktreeBaseline",
+          "name": "VerifyWorktreeBaseline_UnreadableTreeOrBranch_CountsAsDirtyWithACause",
+          "dynamic": false
+        },
+        {
+          "suite": "handleVerifyWorktreeBaseline",
+          "name": "VerifyWorktreeBaseline_LocalRefusalAndPendingRun_KeepTheirCodes",
           "dynamic": false
         }
       ]
@@ -65804,7 +65814,7 @@
       "cases": [
         {
           "suite": "handleDebugReviewGate",
-          "name": "provisioned route runs the tests only in the verifier",
+          "name": "runs the tests in the local executor with no verifier provisioning",
           "dynamic": false
         },
         {
@@ -65859,7 +65869,7 @@
         },
         {
           "suite": "handleDebugReviewGate",
-          "name": "DebugReviewGate_NoConnectorAndNoRepoRoot_RefusesWithVerifierNotProvisioned",
+          "name": "DebugReviewGate_LocalRefusalAndNoGit_FailClosed",
           "dynamic": false
         },
         {
@@ -69065,7 +69075,7 @@
         },
         {
           "suite": "handlePostDelegationCheck",
-          "name": "provisionedRoute_checksEachWorktreeInTheVerifier",
+          "name": "localRoute_checksEachWorktreeInTheLocalExecutor",
           "dynamic": false
         },
         {
@@ -69105,7 +69115,7 @@
         },
         {
           "suite": "handlePostDelegationCheck",
-          "name": "noConnector_refusesWithVerifierNotProvisioned",
+          "name": "localRefusal_returnsTheRefusalWithNoGateEvent",
           "dynamic": false
         },
         {
@@ -70146,12 +70156,12 @@
         },
         {
           "suite": "handlePrepareSynthesis",
-          "name": "PrepareSynthesis_Provisioned_RunsBothLegsOnlyInTheVerifier",
+          "name": "PrepareSynthesis_LocalRoute_RunsBothLegsInOneLifecycleCheck",
           "dynamic": false
         },
         {
           "suite": "handlePrepareSynthesis",
-          "name": "PrepareSynthesis_Provisioned_CommandThatResolvesOnlyOnALaterRead_NeverRunsLocally",
+          "name": "PrepareSynthesis_CommandThatResolvesOnlyOnALaterRead_NeverRuns",
           "dynamic": false
         },
         {
@@ -70191,7 +70201,7 @@
         },
         {
           "suite": "handlePrepareSynthesis",
-          "name": "PrepareSynthesis_NoConnector_RefusesBeforeTheWorkflowState",
+          "name": "PrepareSynthesis_LocalRefusal_ReturnsTheRefusalBeforeAnyGateEvent",
           "dynamic": false
         },
         {

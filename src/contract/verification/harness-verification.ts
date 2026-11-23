@@ -424,43 +424,6 @@ export interface VerificationHostConnector {
   };
 }
 
-/** The governor outcome of one exchange. Refused, conflict, busy, incomplete and pending stay distinct. */
-export type HostedExchange =
-  | { readonly kind: 'evidence'; readonly signed: SignedVerification }
-  | { readonly kind: 'refused'; readonly reason: string }
-  | { readonly kind: 'conflict' }
-  | { readonly kind: 'busy' }
-  | { readonly kind: 'incomplete' }
-  | { readonly kind: 'pending'; readonly reason: string };
-
-/**
- * Recover the original disposition before a new submission, then authenticate each reply.
- * An absent claim after a submission or a transport failure is pending. A transport deadline never proves that a check did not run.
- */
-export async function exchangeHostedVerification(connector: VerificationHostConnector, request: VerificationRequest): Promise<HostedExchange> {
-  const digest = verificationDigest(request);
-  const authenticate = (exchange: VerifierExchange): VerificationReply | string => {
-    if ('kind' in exchange) return exchange.reason;
-    try { return authenticateVerificationReply(exchange, connector.publicKey, request.key, digest); }
-    catch { return 'The verifier reply is not authenticated for the original request'; }
-  };
-  let reply = authenticate(await connector.client.retrieve(request.key, digest));
-  if (typeof reply !== 'string' && reply.response.kind === 'absent') {
-    const { poll } = connector.client;
-    reply = authenticate(poll === undefined ? await connector.client.submit(request) : await poll(request));
-  }
-  if (typeof reply === 'string') return { kind: 'pending', reason: reply };
-  const response = reply.response;
-  switch (response.kind) {
-    case 'evidence': return { kind: 'evidence', signed: response.signed };
-    case 'refused': return { kind: 'refused', reason: response.reason };
-    case 'conflict': return { kind: 'conflict' };
-    case 'busy': return { kind: 'busy' };
-    case 'incomplete': return { kind: 'incomplete' };
-    case 'absent': return { kind: 'pending', reason: 'The verifier holds no claim for the original request' };
-  }
-}
-
 /** Sign the entire reply carrier before returning any authenticated disposition. */
 export function signVerificationReply(key: string, digest: string, response: VerificationResponse, signer: KeyObject): VerificationReply {
   const body = { version: 1, signerId: verifierSignerId(signer), key, digest, response };

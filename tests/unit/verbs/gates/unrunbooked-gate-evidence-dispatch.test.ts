@@ -10,8 +10,8 @@
 // The two mocks replace external work only. The post-merge check runs the repository tests, and the
 // VCS factory calls `gh`. Both sit inside the provider closure.
 //
-// The four lifecycle and team checks refuse with no connector, so their cases dispatch with a stub
-// connector whose Git path is the real executable. Each such case skips its verifier legs.
+// The lifecycle and team checks run in the local executor with no verifier provisioning. Each such
+// case skips its test legs, so no check command runs.
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { accessSync, constants, realpathSync } from 'node:fs';
@@ -55,7 +55,6 @@ import { dispatch, type DispatchContext } from '../../../../src/dispatch/core/di
 import { EventStore } from '../../../../src/events/store.js';
 import type { ToolResult } from '../../../../src/format.js';
 import { createInMemoryResolver } from '../../../../src/workflow/capabilities/resolver.js';
-import type { VerificationHostConnector } from '../../../../src/contract/verification/harness-verification.js';
 import { execFileAsync } from '../../../../tools/test-helpers/spawn.js';
 import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
 import {
@@ -84,25 +83,21 @@ function gitExecutable(): string {
   throw new Error('The fixture needs Git on PATH');
 }
 
-/** A provisioned context whose Git path is the real executable. Each provisioned case skips its verifier legs, so the client never runs. */
-const connector: VerificationHostConnector = {
-  publicKey: 'unused', gitPath: gitExecutable(), resourceId: 'unused', profileId: 'unused',
-  client: { submit: async () => ({ kind: 'unavailable', reason: 'unused' }), retrieve: async () => ({ kind: 'unavailable', reason: 'unused' }) },
-};
+/** The Git executable of the fixture checkouts. */
+const GIT = gitExecutable();
 
-function ctx(provisioned = false): DispatchContext {
+function ctx(): DispatchContext {
   return {
     stateDir,
     eventStore: store,
     enableTelemetry: false,
     callerIdentity: deriveMcpCallerIdentity({ sessionId: 'unrunbooked-gate-evidence' }),
     capabilityResolver: createInMemoryResolver(CAPABILITIES),
-    ...(provisioned ? { verificationHost: connector } : {}),
   };
 }
 
-async function call(args: Record<string, unknown>, provisioned = false): Promise<ToolResult> {
-  return dispatch('exarchos_orchestrate', args, ctx(provisioned));
+async function call(args: Record<string, unknown>): Promise<ToolResult> {
+  return dispatch('exarchos_orchestrate', args, ctx());
 }
 
 /** A one-commit Git checkout on `main` under the state directory. Its base and head are one commit, so its diff is empty. */
@@ -114,7 +109,7 @@ async function fixtureCheckout(): Promise<string> {
     GIT_COMMITTER_NAME: 'Fixture', GIT_COMMITTER_EMAIL: 'fixture@example.invalid',
   };
   for (const args of [['init', '-q', '-b', 'main', root], ['-C', root, 'commit', '-q', '--allow-empty', '-m', 'base']]) {
-    await execFileAsync(connector.gitPath, args, { env, timeout: 30_000 });
+    await execFileAsync(GIT, args, { env, timeout: 30_000 });
   }
   return realpathSync(root);
 }
@@ -133,10 +128,9 @@ async function evidenceCount(streamId: string): Promise<number> {
 async function expectsEvidence(
   streamId: string,
   args: Record<string, unknown>,
-  provisioned = false,
 ): Promise<ToolResult> {
   const before = await evidenceCount(streamId);
-  const result = await call(args, provisioned);
+  const result = await call(args);
   expect(result.error?.code, JSON.stringify(result.error)).not.toBe('ENSURE_CONTRACT_VIOLATED');
   expect(await evidenceCount(streamId)).toBe(before + 1);
   return result;
@@ -204,7 +198,7 @@ describe('gates that declare durable evidence pay it on dispatch', () => {
       repoRoot: await fixtureCheckout(),
       baseBranch: 'main',
       skipRun: true,
-    }, true);
+    });
   });
 
   /**
@@ -223,7 +217,7 @@ describe('gates that declare durable evidence pay it on dispatch', () => {
       featureId: stream,
       repoRoot: stateDir,
       skipTests: true,
-    }, true);
+    });
     expect(result.success).toBe(true);
     const signal = await store.query(stream, { type: 'gate.executed' });
     expect(signal.map((row) => (row.data as { gateName?: string }).gateName)).toContain(
@@ -248,7 +242,7 @@ describe('gates that declare durable evidence pay it on dispatch', () => {
       repoRoot: stateDir,
       skipTests: true,
       skipStack: true,
-    }, true);
+    });
     expect(result.success).toBe(true);
     const signal = await store.query(stream, { type: 'gate.executed' });
     expect(signal.map((row) => (row.data as { gateName?: string }).gateName)).toContain(
@@ -298,7 +292,7 @@ describe('gates that declare durable evidence pay it on dispatch', () => {
       prUrl: 'https://example.invalid/pull/1',
       mergeSha: 'abc1234',
       repoRoot: process.cwd(),
-    }, true);
+    });
     expect(result.success).toBe(true);
   });
 

@@ -224,8 +224,8 @@ function owedEnsures(
 }
 
 /**
- * The closed set of codes of a check that did not run.
- * The codes are a hosted refusal, a pending hosted result, the retired mutation gate and a machine with no verifier.
+ * The closed set of codes of a check that did not run: a pending result and the retired mutation gate.
+ * No producer emits the hosted refusal or the code of a machine with no verifier. Both stay reserved for history, so a stored receipt reads unchanged.
  * A failed result with one of these codes owes no ensure, because no work ran. The emission enforcement still runs before this check.
  * The literals stay here, so dispatch imports no gate module.
  */
