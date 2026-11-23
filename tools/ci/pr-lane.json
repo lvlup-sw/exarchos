@@ -94,7 +94,10 @@
     ],
     "coreTestGlobs": ["src/**/*.test.ts", "tests/core/**/*.test.ts", "tests/unit/**/*.test.ts", "tests/integration/**/*.test.ts", "tools/evals/**/*.test.ts", "tools/test-helpers/**/*.test.ts"],
     "repoReaderPattern": "\\bREPO_ROOT\\b|git ls-files|'ls-files'",
-    "processFloor": 23
+    "processFloor": 23,
+    "networkOnly": {
+      "tests/scripts/npm-publish-target.test.ts": "npm publish --dry-run asks registry.npmjs.org for the package, and the lane runs with no network. The push-to-main run of ci.yml runs it."
+    }
   },
   "postMerge": {
     "test-mcp: npm run test:coverage": "The coverage run stays on the push-to-main run of ci.yml.",

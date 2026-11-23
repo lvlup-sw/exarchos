@@ -6,7 +6,7 @@
  * The lane must never collect coverage, and `ci.yml` must keep the coverage run and the coverage ratchet after merge.
  */
 import { describe, it, expect } from 'vitest';
-import { spawnSync } from 'node:child_process';
+import { spawnAsync } from '../../tools/test-helpers/spawn.js';
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -155,6 +155,17 @@ describe('pull request lane parity with ci.yml', () => {
     expect(files.length).toBeGreaterThan(5);
     expect(files.filter((file) => !forced.has(file))).toEqual([]);
   });
+
+  it('names only existing unit test files, each with a reason, in the network-only list', () => {
+    const networkOnly = (loadManifest() as { tests: { networkOnly?: Record<string, string> } }).tests.networkOnly ?? {};
+    const entries = Object.entries(networkOnly);
+    expect(entries.length).toBeGreaterThan(0);
+    for (const [file, reason] of entries) {
+      expect(existsSync(join(REPO_ROOT, file)), file).toBe(true);
+      expect(file, file).toMatch(/^tests\/scripts\/.*\.test\.ts$/);
+      expect(reason.length, file).toBeGreaterThan(20);
+    }
+  });
 });
 
 describe('pull request lane never collects coverage', () => {
@@ -241,9 +252,10 @@ describe('pull request lane selection', () => {
     expect(parseArgs(['tests', '--base', 'x']).mode).toBe('auto');
   });
 
-  it('prints the same unit file list in a dry run as in a real run', () => {
-    const run = spawnSync(process.execPath, [join(REPO_ROOT, 'tools', 'ci', 'pr-lane.mjs'), 'tests', '--base', 'HEAD', '--dry-run'], {
-      cwd: REPO_ROOT, encoding: 'utf8', maxBuffer: 16 * 1024 * 1024,
+  it('prints the same unit file list in a dry run as in a real run', async () => {
+    const run = await spawnAsync(process.execPath, [join(REPO_ROOT, 'tools', 'ci', 'pr-lane.mjs'), 'tests', '--base', 'HEAD', '--dry-run'], {
+      cwd: REPO_ROOT,
+      timeout: 25_000,
     });
     expect(run.status, run.stderr).toBe(0);
     const unit = run.stdout.split('\n').find((line) => line.startsWith('- unit: ')) ?? '';
