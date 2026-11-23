@@ -20,7 +20,12 @@ import type {
   GetPrCommentsOptions,
   PrCommentsPage,
 } from './provider.js';
-import { windowPrComments, computeOverallCiStatus } from './provider.js';
+import {
+  windowPrComments,
+  computeOverallCiStatus,
+  requirePrNumber,
+  requirePrSelector,
+} from './provider.js';
 import { exec } from './shell.js';
 
 /**
@@ -198,7 +203,7 @@ export class GitHubProvider implements VcsProvider {
     const output = await exec('gh', [
       'pr',
       'checks',
-      prId,
+      requirePrSelector(prId),
       '--json',
       'name,state,link',
     ]);
@@ -225,13 +230,14 @@ export class GitHubProvider implements VcsProvider {
     const strategyFlag = `--${strategy}`;
 
     try {
-      await exec('gh', ['pr', 'merge', prId, strategyFlag]);
+      const selector = requirePrSelector(prId);
+      await exec('gh', ['pr', 'merge', selector, strategyFlag]);
 
       try {
         const viewOutput = await exec('gh', [
           'pr',
           'view',
-          prId,
+          selector,
           '--json',
           'mergeCommit',
         ]);
@@ -248,7 +254,7 @@ export class GitHubProvider implements VcsProvider {
   }
 
   async addComment(prId: string, body: string): Promise<void> {
-    await exec('gh', ['pr', 'comment', prId, '--body', body]);
+    await exec('gh', ['pr', 'comment', requirePrSelector(prId), '--body', body]);
   }
 
   /**
@@ -259,11 +265,13 @@ export class GitHubProvider implements VcsProvider {
    * find the reply again.
    */
   async addReply(prId: string, threadId: string, body: string): Promise<ReplyResult> {
+    const prNumber = requirePrNumber(prId);
+    const commentNumber = requirePrNumber(threadId, 'threadId');
     const output = await exec('gh', [
       'api',
       '--method',
       'POST',
-      `repos/{owner}/{repo}/pulls/${prId}/comments/${threadId}/replies`,
+      `repos/{owner}/{repo}/pulls/${prNumber}/comments/${commentNumber}/replies`,
       '-f',
       `body=${body}`,
     ]);
@@ -275,7 +283,7 @@ export class GitHubProvider implements VcsProvider {
     const output = await exec('gh', [
       'pr',
       'view',
-      prId,
+      requirePrSelector(prId),
       '--json',
       'reviews,reviewDecision',
     ]);
@@ -329,10 +337,11 @@ export class GitHubProvider implements VcsProvider {
    *   `getReviewStatus` reports a review without a body.
    */
   async getPrComments(prId: string): Promise<PrComment[]> {
+    const prNumber = requirePrNumber(prId);
     const [issueOut, inlineOut, reviewOut] = await Promise.all([
-      exec('gh', ['api', `repos/{owner}/{repo}/issues/${prId}/comments`, '--paginate']),
-      exec('gh', ['api', `repos/{owner}/{repo}/pulls/${prId}/comments`, '--paginate']),
-      exec('gh', ['api', `repos/{owner}/{repo}/pulls/${prId}/reviews`, '--paginate']),
+      exec('gh', ['api', `repos/{owner}/{repo}/issues/${prNumber}/comments`, '--paginate']),
+      exec('gh', ['api', `repos/{owner}/{repo}/pulls/${prNumber}/comments`, '--paginate']),
+      exec('gh', ['api', `repos/{owner}/{repo}/pulls/${prNumber}/reviews`, '--paginate']),
     ]);
 
     const issueEntries = JSON.parse(issueOut) as readonly GhIssueCommentEntry[];
@@ -376,7 +385,7 @@ export class GitHubProvider implements VcsProvider {
       });
     }
 
-    return this.enrichResolvedStatus(prId, comments);
+    return this.enrichResolvedStatus(prNumber, comments);
   }
 
   /**
@@ -401,13 +410,10 @@ export class GitHubProvider implements VcsProvider {
    * stop.
    */
   private async enrichResolvedStatus(
-    prId: string,
+    prNumber: number,
     comments: PrComment[],
   ): Promise<PrComment[]> {
     try {
-      const prNumber = Number.parseInt(prId, 10);
-      if (!Number.isFinite(prNumber)) return comments;
-
       const repoOut = await exec('gh', ['repo', 'view', '--json', 'nameWithOwner']);
       const { nameWithOwner } = JSON.parse(repoOut) as { nameWithOwner: string };
       const [owner, repo] = nameWithOwner.split('/');
@@ -437,7 +443,7 @@ export class GitHubProvider implements VcsProvider {
           '-f',
           `query=${query}`,
         ];
-        if (after) graphqlArgs.push('-F', `after=${after}`);
+        if (after) graphqlArgs.push('-f', `after=${after}`);
 
         const graphqlOut = await exec('gh', graphqlArgs);
 
@@ -482,7 +488,7 @@ export class GitHubProvider implements VcsProvider {
   }
 
   async getPrDiff(prId: string): Promise<string> {
-    return exec('gh', ['pr', 'diff', prId]);
+    return exec('gh', ['pr', 'diff', requirePrSelector(prId)]);
   }
 
   async createIssue(opts: CreateIssueOpts): Promise<IssueResult> {

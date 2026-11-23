@@ -306,3 +306,31 @@ export class UnsupportedOperationError extends Error {
     this.operation = operation;
   }
 }
+
+/** A positive decimal integer with no sign, no leading zero, and no other character. */
+const POSITIVE_DECIMAL_ID = /^[1-9][0-9]*$/;
+
+/**
+ * Returns `value` as a pull request or comment number, or throws before any CLI call.
+ * A provider builds an API path from this number only. A raw id with `/`, `..` or `?`
+ * can move the request to a different API route with the credentials of the developer.
+ */
+export function requirePrNumber(value: string, label = 'prId'): number {
+  const parsed = POSITIVE_DECIMAL_ID.test(value) ? Number(value) : Number.NaN;
+  if (!Number.isSafeInteger(parsed)) {
+    throw new Error(`${label} must be a positive integer, got ${JSON.stringify(value)}`);
+  }
+  return parsed;
+}
+
+/**
+ * Returns `value` as one positional selector for a `gh pr` or `glab mr` command, or throws.
+ * The selector can be a number, a URL or a branch. A value that starts with `-` is a flag
+ * to the CLI, so the function refuses it.
+ */
+export function requirePrSelector(value: string): string {
+  if (value.length === 0 || value.startsWith('-')) {
+    throw new Error(`prId must be a pull request number, URL or branch, got ${JSON.stringify(value)}`);
+  }
+  return value;
+}

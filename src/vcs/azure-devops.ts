@@ -22,7 +22,7 @@ import type {
   RepoInfo,
   ReplyResult,
 } from './provider.js';
-import { UnsupportedOperationError, computeOverallCiStatus } from './provider.js';
+import { UnsupportedOperationError, computeOverallCiStatus, requirePrNumber } from './provider.js';
 import { exec } from './shell.js';
 
 interface AzPrCreateResponse {
@@ -342,12 +342,13 @@ export class AzureDevOpsProvider implements VcsProvider {
   }
 
   async getPrComments(prId: string): Promise<PrComment[]> {
+    const prNumber = requirePrNumber(prId);
     const showOutput = await exec('az', [
       'repos',
       'pr',
       'show',
       '--id',
-      prId,
+      String(prNumber),
       '--output',
       'json',
     ]);
@@ -371,7 +372,7 @@ export class AzureDevOpsProvider implements VcsProvider {
       '--route-parameters',
       `project=${project}`,
       `repositoryId=${repositoryId}`,
-      `pullRequestId=${prId}`,
+      `pullRequestId=${prNumber}`,
       '--api-version',
       '7.1',
       '--output',

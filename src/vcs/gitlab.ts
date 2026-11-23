@@ -21,7 +21,12 @@ import type {
   RepoInfo,
   ReplyResult,
 } from './provider.js';
-import { UnsupportedOperationError, computeOverallCiStatus } from './provider.js';
+import {
+  UnsupportedOperationError,
+  computeOverallCiStatus,
+  requirePrNumber,
+  requirePrSelector,
+} from './provider.js';
 import { exec } from './shell.js';
 
 interface GlabPipelineJob {
@@ -142,7 +147,7 @@ export class GitLabProvider implements VcsProvider {
     const output = await exec('glab', [
       'mr',
       'view',
-      prId,
+      requirePrSelector(prId),
       '--json',
       'pipeline',
     ]);
@@ -170,7 +175,8 @@ export class GitLabProvider implements VcsProvider {
    * After the merge, it reads the merge commit SHA. If that read fails, the result is still `merged: true`, with no SHA.
    */
   async mergePr(prId: string, strategy: string): Promise<MergeResult> {
-    const args = ['mr', 'merge', prId];
+    const selector = requirePrSelector(prId);
+    const args = ['mr', 'merge', selector];
 
     if (strategy === 'squash') {
       args.push('--squash');
@@ -185,7 +191,7 @@ export class GitLabProvider implements VcsProvider {
         const viewOutput = await exec('glab', [
           'mr',
           'view',
-          prId,
+          selector,
           '--json',
           'sha',
         ]);
@@ -201,7 +207,7 @@ export class GitLabProvider implements VcsProvider {
   }
 
   async addComment(prId: string, body: string): Promise<void> {
-    await exec('glab', ['mr', 'comment', prId, '--message', body]);
+    await exec('glab', ['mr', 'comment', requirePrSelector(prId), '--message', body]);
   }
 
   /**
@@ -217,7 +223,7 @@ export class GitLabProvider implements VcsProvider {
     const output = await exec('glab', [
       'mr',
       'view',
-      prId,
+      requirePrSelector(prId),
       '--json',
       'reviewers,approvedBy',
     ]);
@@ -253,12 +259,13 @@ export class GitLabProvider implements VcsProvider {
    * A comment carries only contract keys. `resolved` is present only for a resolvable note with a boolean `resolved`, and is never coerced to false.
    */
   async getPrComments(prId: string): Promise<PrComment[]> {
+    const mrNumber = requirePrNumber(prId);
     const PER_PAGE = 100;
     const discussions: GlabDiscussion[] = [];
     for (let page = 1; page <= 50; page++) {
       const output = await exec('glab', [
         'api',
-        `projects/:fullpath/merge_requests/${prId}/discussions?per_page=${PER_PAGE}&page=${page}`,
+        `projects/:fullpath/merge_requests/${mrNumber}/discussions?per_page=${PER_PAGE}&page=${page}`,
       ]);
       const parsed = JSON.parse(output) as readonly GlabDiscussion[];
       if (!Array.isArray(parsed) || parsed.length === 0) break;
