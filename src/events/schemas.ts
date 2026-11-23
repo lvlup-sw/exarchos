@@ -1311,7 +1311,7 @@ export const RefinementSuggestedDataSchema = z.object({
 });
 
 export const ShepherdStartedData = z.object({
-  featureId: z.string(),
+  featureId: z.string().describe('Feature whose PR stack the shepherd loop tends'),
 });
 
 export const ShepherdIterationData = z.object({
@@ -1322,7 +1322,7 @@ export const ShepherdIterationData = z.object({
 });
 
 export const ShepherdApprovalRequestedData = z.object({
-  prUrl: z.string(),
+  prUrl: z.string().describe('URL of the PR that asks for approval'),
 });
 
 /**
@@ -1330,7 +1330,7 @@ export const ShepherdApprovalRequestedData = z.object({
  * `shepherd_status` and `ps` can show the reason and the counts.
  */
 export const ShepherdEscalatedData = z.object({
-  featureId: z.string(),
+  featureId: z.string().describe('Feature whose shepherd loop reached its bound'),
   prNumbers: z
     .array(z.number().int().positive())
     .describe('PRs in the stack at the time the bound was hit'),
@@ -1339,13 +1339,13 @@ export const ShepherdEscalatedData = z.object({
     .number()
     .int()
     .positive()
-    .describe('The resolved auto-fix bound that was reached (a positive integer, per escalation-policy)'),
+    .describe('The resolved auto-fix bound that the loop reached'),
   reason: z.string().describe('Human-readable escalation reason'),
 });
 
 export const ShepherdCompletedData = z.object({
-  prUrl: z.string(),
-  outcome: z.string(),
+  prUrl: z.string().describe('URL of the PR that the shepherd loop finished'),
+  outcome: z.string().describe('How the PR ended, for example merged'),
 });
 
 export const EvalRunStartedData = z.object({

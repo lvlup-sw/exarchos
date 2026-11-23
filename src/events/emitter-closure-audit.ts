@@ -415,20 +415,6 @@ export const ACTION_APPEND_OWNERSHIP: readonly ActionAppendOwnership[] = Object.
     wiring: 'the executor retry hook records each timeout retry',
   },
   {
-    action: 'assess_stack',
-    declaringTool: 'exarchos_orchestrate',
-    module: 'verbs/vcs/assess-stack.ts',
-    event: 'provider.parse-error',
-    wiring: 'the stack assessor records a review adapter that threw while parsing',
-  },
-  {
-    action: 'assess_stack',
-    declaringTool: 'exarchos_orchestrate',
-    module: 'verbs/vcs/assess-stack.ts',
-    event: 'provider.unknown-tier',
-    wiring: 'the stack assessor records a parsed item whose tier the adapter does not know',
-  },
-  {
     action: 'prune_stale_workflows',
     declaringTool: 'exarchos_orchestrate',
     module: 'verbs/team/prune-stale-workflows.ts',

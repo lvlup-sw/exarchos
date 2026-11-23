@@ -39,7 +39,6 @@ export interface VacuityRetiredEntry {
 export const VACUITY_ALLOWLIST = Object.freeze({
   'exarchos_orchestrate.agent_spec': { owner: 'orchestration', expires: '2027-02-28' },
   'exarchos_orchestrate.assess_refactor_scope': { owner: 'orchestration', expires: '2027-02-28' },
-  'exarchos_orchestrate.assess_stack': { owner: 'orchestration', expires: '2027-02-28' },
   'exarchos_orchestrate.check_context_economy': { owner: 'orchestration', expires: '2027-02-28' },
   'exarchos_orchestrate.check_contract_drift': { owner: 'orchestration', expires: '2027-02-28' },
   'exarchos_orchestrate.check_convergence': { owner: 'orchestration', expires: '2027-02-28' },
@@ -146,6 +145,11 @@ export const VACUITY_RETIRED: Readonly<Record<string, VacuityRetiredEntry>> = Ob
   },
   /** The provider writer is deleted. The retired-action table refuses a call of it before dispatch, so it declares no schema. */
   'exarchos_orchestrate.add_pr_comment': {
+    owner: 'orchestration',
+    retiredAt: '2026-11-23',
+  },
+  /** The provider read is deleted. The retired-action table refuses a call of it before dispatch, so it declares no schema. */
+  'exarchos_orchestrate.assess_stack': {
     owner: 'orchestration',
     retiredAt: '2026-11-23',
   },

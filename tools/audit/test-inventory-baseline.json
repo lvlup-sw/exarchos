@@ -4,10 +4,10 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1462,
-    "parsedFiles": 1418,
+    "testFiles": 1460,
+    "parsedFiles": 1416,
     "shellFiles": 44,
-    "cases": 16421,
+    "cases": 16363,
     "dynamicTitles": 321,
     "unparseableFiles": 0
   },
@@ -11121,17 +11121,6 @@
         {
           "suite": "pruneIntegration_respectsThresholdInProduction",
           "name": "handlePruneStaleWorkflows_respectsThresholdInProduction_readingRealStateFiles",
-          "dynamic": false
-        }
-      ]
-    },
-    "tests/integration/shepherd-classifier.integration.test.ts": {
-      "file": "tests/integration/shepherd-classifier.integration.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "shepherd → classifier integration (#1159)",
-          "name": "ShepherdIteration_MixedSeverityComments_RoutesPerClassifier",
           "dynamic": false
         }
       ]
@@ -46372,11 +46361,6 @@
         },
         {
           "suite": "Task 022 — registry schema batch (DR-1/DR-3/DR-8) > registrySchemas_EconomyParams_ValidateAndCoerce",
-          "name": "assess_stack declares comment paging and coerces prNumbers as an int array",
-          "dynamic": false
-        },
-        {
-          "suite": "Task 022 — registry schema batch (DR-1/DR-3/DR-8) > registrySchemas_EconomyParams_ValidateAndCoerce",
           "name": "prepare_delegation declares the DR-4 detail/outputFormat escape hatch",
           "dynamic": false
         },
@@ -54132,11 +54116,6 @@
         {
           "suite": "handleOrchestrate > composite actions",
           "name": "HandleOrchestrate_LifecycleActions_DropACallerCopyOfARetiredVerifierTerm",
-          "dynamic": false
-        },
-        {
-          "suite": "handleOrchestrate > composite actions",
-          "name": "HandleOrchestrate_AssessStack_DelegatesToHandler",
           "dynamic": false
         },
         {
@@ -69347,287 +69326,6 @@
         {
           "suite": "OrchestrateToolResponses_AllActions_ReturnEnvelope (T038, DR-7)",
           "name": "describe action returns Envelope",
-          "dynamic": false
-        }
-      ]
-    },
-    "tests/unit/verbs/vcs/assess-stack.test.ts": {
-      "file": "tests/unit/verbs/vcs/assess-stack.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "handleAssessStack > input validation",
-          "name": "AssessStack_MissingFeatureId_ReturnsInvalidInput",
-          "dynamic": false
-        },
-        {
-          "suite": "handleAssessStack > input validation",
-          "name": "AssessStack_MissingPrNumbers_ReturnsInvalidInput",
-          "dynamic": false
-        },
-        {
-          "suite": "handleAssessStack > non-GitHub provider gating",
-          "name": "AssessStack_NonGitHubProvider_ProceedsNotSkipped",
-          "dynamic": false
-        },
-        {
-          "suite": "handleAssessStack > VcsProvider usage",
-          "name": "AssessStack_UsesProviderCheckCi_ForCiStatus",
-          "dynamic": false
-        },
-        {
-          "suite": "handleAssessStack > VcsProvider usage",
-          "name": "AssessStack_UsesProviderGetReviewStatus_ForReviews",
-          "dynamic": false
-        },
-        {
-          "suite": "handleAssessStack > VcsProvider usage",
-          "name": "AssessStack_UsesProviderGetPrComments_ForComments",
-          "dynamic": false
-        },
-        {
-          "suite": "handleAssessStack > happy path",
-          "name": "AssessStack_ValidInput_ReturnsShepherdStatus",
-          "dynamic": false
-        },
-        {
-          "suite": "handleAssessStack > CI failure handling",
-          "name": "AssessStack_CiFailing_IncludesActionItem",
-          "dynamic": false
-        },
-        {
-          "suite": "handleAssessStack > comment handling",
-          "name": "AssessStack_UnresolvedComments_IncludesActionItems",
-          "dynamic": false
-        },
-        {
-          "suite": "handleAssessStack > comment body truncation",
-          "name": "AssessStack_LongCommentBody_TruncatedTo200Chars",
-          "dynamic": false
-        },
-        {
-          "suite": "handleAssessStack > comment body truncation",
-          "name": "AssessStack_ShortCommentBody_NotTruncated",
-          "dynamic": false
-        },
-        {
-          "suite": "handleAssessStack > recommendation logic",
-          "name": "AssessStack_AllPassing_RecommendsApproval",
-          "dynamic": false
-        },
-        {
-          "suite": "handleAssessStack > recommendation logic",
-          "name": "AssessStack_BlockingIssues_RecommendsFixAndResubmit",
-          "dynamic": false
-        },
-        {
-          "suite": "handleAssessStack > recommendation logic",
-          "name": "AssessStack_PendingCi_RecommendsWait",
-          "dynamic": false
-        },
-        {
-          "suite": "handleAssessStack > recommendation logic",
-          "name": "AssessStack_MaxIterations_RecommendsEscalate",
-          "dynamic": false
-        },
-        {
-          "suite": "handleAssessStack > recommendation logic",
-          "name": "IterationCounter_SingleEventSourcedAuthority",
-          "dynamic": false
-        },
-        {
-          "suite": "handleAssessStack > recommendation logic",
-          "name": "IterationBound_ConfigResolvable_LowersEscalationThreshold",
-          "dynamic": false
-        },
-        {
-          "suite": "handleAssessStack > shepherd lifecycle events",
-          "name": "HandleAssessStack_FirstInvocation_EmitsShepherdStarted",
-          "dynamic": false
-        },
-        {
-          "suite": "handleAssessStack > shepherd lifecycle events",
-          "name": "HandleAssessStack_SubsequentInvocation_DoesNotReEmitShepherdStarted",
-          "dynamic": false
-        },
-        {
-          "suite": "handleAssessStack > shepherd lifecycle events",
-          "name": "HandleAssessStack_AllChecksPassing_EmitsApprovalRequested",
-          "dynamic": false
-        },
-        {
-          "suite": "handleAssessStack > shepherd lifecycle events",
-          "name": "HandleAssessStack_ChecksFailing_DoesNotEmitApprovalRequested",
-          "dynamic": false
-        },
-        {
-          "suite": "handleAssessStack > shepherd lifecycle events",
-          "name": "HandleAssessStack_PrMerged_EmitsShepherdCompleted",
-          "dynamic": false
-        },
-        {
-          "suite": "handleAssessStack > shepherd lifecycle events",
-          "name": "HandleAssessStack_PriorCompleted_SkipsApprovalRequested",
-          "dynamic": false
-        },
-        {
-          "suite": "handleAssessStack > shepherd lifecycle events",
-          "name": "BoundHit_EmitsStructuredEscalation_NotHang",
-          "dynamic": false
-        },
-        {
-          "suite": "handleAssessStack > event emission",
-          "name": "AssessStack_EmitsCiStatusEvents",
-          "dynamic": false
-        },
-        {
-          "suite": "handleAssessStack > event emission",
-          "name": "AssessStack_EmitsCiCheckObservedEvents",
-          "dynamic": false
-        },
-        {
-          "suite": "handleAssessStack > provider.unknown-tier event emission",
-          "name": "AssessStack_CoderabbitUnknownTier_EmitsUnknownTierEvent",
-          "dynamic": false
-        },
-        {
-          "suite": "handleAssessStack > provider.unknown-tier event emission",
-          "name": "AssessStack_CoderabbitUnknownTier_EventCarriesRawTier",
-          "dynamic": false
-        },
-        {
-          "suite": "handleAssessStack > provider.unknown-tier event emission",
-          "name": "AssessStack_RecognizedTier_DoesNotEmitUnknownTierEvent",
-          "dynamic": false
-        },
-        {
-          "suite": "handleAssessStack > classifyActionItems severity threading",
-          "name": "ClassifyActionItems_HighSeverityComment_RetainsHighNormalizedSeverity",
-          "dynamic": false
-        },
-        {
-          "suite": "handleAssessStack > adapter dispatch via registry",
-          "name": "QueryPrComments_CoderabbitComment_PopulatesNormalizedSeverity",
-          "dynamic": false
-        },
-        {
-          "suite": "handleAssessStack > adapter dispatch via registry",
-          "name": "QueryPrComments_HumanComment_PopulatesNormalizedMedium",
-          "dynamic": false
-        },
-        {
-          "suite": "handleAssessStack > adapter dispatch via registry",
-          "name": "QueryPrComments_UnknownBot_RoutesToUnknownAdapter",
-          "dynamic": false
-        },
-        {
-          "suite": "handleAssessStack > comment body economy (DR-2)",
-          "name": "QueryPrComments_LongCommentBody_TruncatedNoFullBodyCopy",
-          "dynamic": false
-        },
-        {
-          "suite": "handleAssessStack > ActionItem with reviewer-context fields",
-          "name": "ActionItem_WithReviewerFields_TypeChecks",
-          "dynamic": false
-        },
-        {
-          "suite": "handleAssessStack > adapter parse-error batch safety",
-          "name": "AssessStack_AdapterThrows_EmitsProviderParseError",
-          "dynamic": false
-        },
-        {
-          "suite": "handleAssessStack > adapter parse-error batch safety",
-          "name": "AssessStack_AdapterThrowsOnOne_BatchContinuesForOthers",
-          "dynamic": false
-        },
-        {
-          "suite": "handleAssessStack > unified PR-feedback feed consumption",
-          "name": "AssessStack_InlineReviewComment_BecomesActionItem",
-          "dynamic": false
-        },
-        {
-          "suite": "handleAssessStack > unified PR-feedback feed consumption",
-          "name": "AssessStack_ThreadedReply_Surfaced",
-          "dynamic": false
-        },
-        {
-          "suite": "handleAssessStack > unified PR-feedback feed consumption",
-          "name": "AssessStack_ReviewSummaryBody_Surfaced",
-          "dynamic": false
-        },
-        {
-          "suite": "handleAssessStack > unified PR-feedback feed consumption",
-          "name": "AssessStack_ResolvedComment_NotSurfaced",
-          "dynamic": false
-        },
-        {
-          "suite": "handleAssessStack > unified PR-feedback feed consumption",
-          "name": "AssessStack_HarvestLoop_NoWorkflowTypeBranch",
-          "dynamic": false
-        },
-        {
-          "suite": "handleAssessStack > multi-provider comment surfacing",
-          "name": "AssessStack_SurfacesGitLabComments_AsCommentReply",
-          "dynamic": false
-        },
-        {
-          "suite": "handleAssessStack > multi-provider comment surfacing",
-          "name": "AssessStack_SurfacesAdoComments_AsCommentReply",
-          "dynamic": false
-        },
-        {
-          "suite": "handleAssessStack > multi-provider comment surfacing",
-          "name": "AssessStack_HarvestLoop_NoProviderBranch",
-          "dynamic": false
-        },
-        {
-          "suite": "handleAssessStack > DR-2 token economy",
-          "name": "assessStack_CommentHeavyStack_StaysUnderBudget",
-          "dynamic": false
-        },
-        {
-          "suite": "handleAssessStack > DR-2 token economy",
-          "name": "assessStack_UnresolvedComments_EachCommentSerializedOnce",
-          "dynamic": false
-        },
-        {
-          "suite": "handleAssessStack > DR-2 token economy",
-          "name": "assessStack_PagedComments_EveryActionableReferenceReachable",
-          "dynamic": false
-        },
-        {
-          "suite": "handleAssessStack > DR-2 token economy",
-          "name": "assessStack_AdapterConsumption_UnaffectedByFullBodyRemoval",
-          "dynamic": false
-        },
-        {
-          "suite": "handleAssessStack > resolveCommentWindow — pagination edge cases",
-          "name": "resolveCommentWindow_MissingInputs_DefaultsToFullFirstPage",
-          "dynamic": false
-        },
-        {
-          "suite": "handleAssessStack > resolveCommentWindow — pagination edge cases",
-          "name": "resolveCommentWindow_ValidInts_PassThrough",
-          "dynamic": false
-        },
-        {
-          "suite": "handleAssessStack > resolveCommentWindow — pagination edge cases",
-          "name": "resolveCommentWindow_FractionalLimit_FallsBackToDefaultNotEmpty",
-          "dynamic": false
-        },
-        {
-          "suite": "handleAssessStack > resolveCommentWindow — pagination edge cases",
-          "name": "resolveCommentWindow_ZeroOrNegativeLimit_FallsBackToDefault",
-          "dynamic": false
-        },
-        {
-          "suite": "handleAssessStack > resolveCommentWindow — pagination edge cases",
-          "name": "resolveCommentWindow_HugeLimit_ClampsToMax",
-          "dynamic": false
-        },
-        {
-          "suite": "handleAssessStack > resolveCommentWindow — pagination edge cases",
-          "name": "resolveCommentWindow_FractionalOrNegativeOffset_FloorsAtZero",
           "dynamic": false
         }
       ]

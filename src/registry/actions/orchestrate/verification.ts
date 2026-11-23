@@ -319,8 +319,8 @@ export const verificationActions: readonly BuiltinToolAction[] = [
       actionItems: z.array(z.record(z.string(), z.unknown())),
     }),
     /**
-     * The shepherd runs in `synthesize` and calls this action after `assess_stack`. With only
-     * `REVIEW_PHASES`, the phase guard refuses that call.
+     * The shepherd runs in `synthesize` and calls this action after it reads the review comments.
+     * With only `REVIEW_PHASES`, the phase guard refuses that call.
      */
     phases: SYNTHESIS_REVIEW_PHASES,
     roles: ROLE_LEAD,

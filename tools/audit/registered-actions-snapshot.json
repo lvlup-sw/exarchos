@@ -4,7 +4,7 @@
   "counts": {
     "tools": 5,
     "visibleTools": 4,
-    "actions": 116,
+    "actions": 115,
     "eventTypes": 186
   },
   "tools": [
@@ -25,7 +25,6 @@
         "acquire_worktree",
         "agent_spec",
         "assess_refactor_scope",
-        "assess_stack",
         "check_context_economy",
         "check_contract_drift",
         "check_convergence",
@@ -307,12 +306,12 @@
     },
     {
       "type": "ci.check_observed",
-      "lifecycle": "active",
+      "lifecycle": "retired",
       "tier": "capability"
     },
     {
       "type": "ci.status",
-      "lifecycle": "active",
+      "lifecycle": "retired",
       "tier": "capability"
     },
     {
@@ -687,13 +686,13 @@
     },
     {
       "type": "provider.parse-error",
-      "lifecycle": "active",
+      "lifecycle": "retired",
       "tier": "substrate",
       "rationale": "operation-record"
     },
     {
       "type": "provider.unknown-tier",
-      "lifecycle": "active",
+      "lifecycle": "retired",
       "tier": "substrate",
       "rationale": "operation-record"
     },
@@ -775,17 +774,17 @@
     {
       "type": "shepherd.approval_requested",
       "lifecycle": "active",
-      "tier": "capability"
+      "tier": "workflow-local"
     },
     {
       "type": "shepherd.completed",
       "lifecycle": "active",
-      "tier": "capability"
+      "tier": "workflow-local"
     },
     {
       "type": "shepherd.escalated",
       "lifecycle": "active",
-      "tier": "capability"
+      "tier": "workflow-local"
     },
     {
       "type": "shepherd.iteration",
@@ -795,7 +794,7 @@
     {
       "type": "shepherd.started",
       "lifecycle": "active",
-      "tier": "capability"
+      "tier": "workflow-local"
     },
     {
       "type": "spec.legacy_capabilities_array",

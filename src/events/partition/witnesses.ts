@@ -89,7 +89,7 @@ export const GOVERNANCE_WITNESSES: Readonly<Record<string, AuthorityWitness>> = 
   },
   'shepherd.iteration': {
     arm: 'raw-reader',
-    evidence: ['src/verbs/review/escalation-policy.ts', 'src/verbs/vcs/assess-stack.ts'],
+    evidence: ['src/verbs/review/escalation-policy.ts'],
     because:
       'The escalation policy counts these events raw and calls itself the single event-sourced ' +
       'iteration-count authority; the bound it enforces is therefore a function of the event ' +

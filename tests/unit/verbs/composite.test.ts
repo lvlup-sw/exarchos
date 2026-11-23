@@ -26,10 +26,6 @@ vi.mock('../../../src/verbs/team/prepare-synthesis.js', () => ({
   handlePrepareSynthesis: vi.fn(),
 }));
 
-vi.mock('../../../src/verbs/vcs/assess-stack.js', () => ({
-  handleAssessStack: vi.fn(),
-}));
-
 vi.mock('../../../src/verbs/gates/design-completeness.js', () => ({
   handleDesignCompleteness: vi.fn(),
 }));
@@ -94,7 +90,6 @@ import { handleTaskClaim, handleTaskComplete, handleTaskFail } from '../../../sr
 import { handleReviewTriage } from '../../../src/review/tools.js';
 import { handlePrepareDelegation } from '../../../src/verbs/team/prepare-delegation.js';
 import { handlePrepareSynthesis } from '../../../src/verbs/team/prepare-synthesis.js';
-import { handleAssessStack } from '../../../src/verbs/vcs/assess-stack.js';
 import { handleDesignCompleteness } from '../../../src/verbs/gates/design-completeness.js';
 import { handlePlanCoverage } from '../../../src/verbs/gates/plan-coverage.js';
 import { handlePostMerge } from '../../../src/verbs/gates/post-merge.js';
@@ -387,25 +382,6 @@ describe('handleOrchestrate', () => {
       expect(vi.mocked(handlePrepareSynthesis).mock.calls).toEqual([[{ featureId: 'feat-1' }, STATE_DIR, CTX.eventStore]]);
     });
 
-    it('HandleOrchestrate_AssessStack_DelegatesToHandler', async () => {
-      const expected = successResult({ status: 'healthy', actionItems: [], recommendation: 'proceed' });
-      vi.mocked(handleAssessStack).mockResolvedValue(expected);
-      const args = {
-        action: 'assess_stack',
-        featureId: 'feat-789',
-        prNumbers: [101, 102],
-      };
-
-      const result = await handleOrchestrate(args, CTX);
-
-      expectEnvelopedSuccess(result, expected);
-      expect(handleAssessStack).toHaveBeenCalledWith(
-        { featureId: 'feat-789', prNumbers: [101, 102] },
-        STATE_DIR,
-        CTX.eventStore,
-      );
-    });
-
     it('HandleOrchestrate_CheckDesignCompleteness_DelegatesToHandler', async () => {
       const expected = successResult({ passed: true, advisory: true, findings: [] });
       vi.mocked(handleDesignCompleteness).mockResolvedValue(expected);
@@ -623,7 +599,7 @@ describe('handleOrchestrate', () => {
       const orchestrate = TOOL_REGISTRY.find((t) => t.name === 'exarchos_orchestrate');
       expect(orchestrate).toBeDefined();
       const actionNames = orchestrate?.actions.map((a) => a.name) ?? [];
-      for (const retired of ['check_ci', 'list_prs', 'get_pr_comments', 'create_pr', 'merge_pr', 'add_pr_comment', 'create_issue']) {
+      for (const retired of ['check_ci', 'list_prs', 'get_pr_comments', 'assess_stack', 'create_pr', 'merge_pr', 'add_pr_comment', 'create_issue']) {
         expect(actionNames).not.toContain(retired);
       }
     });

@@ -311,7 +311,6 @@ describe('identifier stability across decomposition', () => {
         'prepare_delegation',
         'prepare_synthesis',
         'stack_place',
-        'assess_stack',
         'check_static_analysis',
         'check_integration_suite',
         'check_security_scan',

@@ -149,7 +149,6 @@ describe('EVENT_EMISSION_REGISTRY', () => {
       'state.patched',
       'tool.invoked',
       'review.routed',
-      'ci.status',
       'quality.regression',
     ];
     for (const eventType of autoSpotChecks) {

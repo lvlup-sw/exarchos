@@ -840,6 +840,16 @@ decisions:
       The only interactive-authentication action is gone. The vocabulary keeps the obligation, and discover_bridge and agent_spec now stand for the host-owned cases in the tests.
     status: "Committed on codex/1928-s4-remote-integrations. The contract authority lock waits for Reed to re-approve it."
 
+  - date: "2026-11-23"
+    source: "#1928 revision 26, slice S4 step T-33, the conception of 2026-11-23 (Exarchos reads no PR)."
+    decision: >-
+      assess_stack leaves the registry, and its handler and its two suites are deleted. The closed retired-action table refuses it with PROVIDER_READ_RETIRED before any claim, configuration read, event append or process start.
+      ci.status, ci.check_observed, provider.parse-error and provider.unknown-tier are retired as emissions and keep their schemas, readers and tiers. The shepherd-iteration runbook reads PR state with gh and auto-emits nothing.
+    known: >-
+      The shepherd skill appends shepherd.started, shepherd.approval_requested, shepherd.escalated and shepherd.completed, so they move from the capability tier to workflow-local. Without the move, each is an active capability weld that no edge names, which the boot check refuses.
+      The four are now model-sourced telemetry, and the shepherd-status verdict declares the paths they set. No runtime reader uses the partition, so the view, the projections and old rows read the same. The review registry carries a RESERVED header until the provider layer goes.
+    status: "Committed on codex/1928-s4-remote-integrations. The contract authority lock waits for Reed to re-approve it."
+
 build_order:
   original: "kernel -> capsule contract -> prepare/settle -> one runtime adapter -> divergence loop -> #1249 laws -> second adapter"
   legs:
@@ -903,7 +913,7 @@ drift:
     resolution: "decided 2026-09-30: per-workflow target; per-wave recorded as interim (#1927)"
   - id: "vcs-effects"
     design: "runtime mutates Git/PR; WLM/lifecycle/serializer demoted explicitly"
-    built: "serialize_merge per worktree on the normal path; setup_worktree. #1928 S4 T-29 retires create_pr, merge_pr, add_pr_comment, create_issue and the synthesis-closeout compilation. T-31 retires the check_ci, list_prs and get_pr_comments reads. T-32 retires check_pr_comments, check_coderabbit and validate_pr_stack and the pr-stack gate"
+    built: "serialize_merge per worktree on the normal path; setup_worktree. #1928 S4 T-29 retires create_pr, merge_pr, add_pr_comment, create_issue and the synthesis-closeout compilation. T-31 retires the check_ci, list_prs and get_pr_comments reads. T-32 retires check_pr_comments, check_coderabbit and validate_pr_stack and the pr-stack gate. T-33 retires assess_stack and its ci and provider emissions"
     resolution: "decided 2026-09-30: demote all three; settle observes (#1928). T-01 recorded the expanded retirement matrix and original S7 custody on 2026-11-14; no writer route has been removed yet. On 2026-11-23 the separately provisioned verifier host was removed, and the governor runs the approved checks in its local executor."
   - id: "second-adapter"
     design: "second runtime"

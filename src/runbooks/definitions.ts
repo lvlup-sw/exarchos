@@ -190,10 +190,10 @@ export const SYNTHESIS_FLOW: RunbookDefinition = {
 export const SHEPHERD_ITERATION: RunbookDefinition = {
   id: 'shepherd-iteration',
   phase: 'synthesize',
-  description: 'Assess PR stack health, fix issues, re-push.',
+  description: 'Read PR stack health with gh, fix issues, re-push.',
   steps: [
-    { tool: 'exarchos_orchestrate', action: 'assess_stack', onFail: 'stop',
-      note: 'Returns actionItems[] and recommendation' },
+    { tool: 'native:bash', action: 'gh_pr_read', onFail: 'stop',
+      note: 'Read PR, CI and review state with gh, then list the action items' },
     { tool: 'exarchos_event', action: 'append', onFail: 'continue',
       params: { type: 'shepherd.iteration' },
       note: 'Record iteration for convergence tracking' },
@@ -208,8 +208,8 @@ export const SHEPHERD_ITERATION: RunbookDefinition = {
     { tool: 'native:bash', action: 'push', onFail: 'stop',
       note: 'git push to trigger CI re-run' },
   ],
-  templateVars: ['featureId', 'streamId', 'stream', 'event', 'prNumbers'],
-  autoEmits: ['ci.check_observed', 'shepherd.approval_requested', 'shepherd.completed', 'shepherd.started'],
+  templateVars: ['featureId', 'streamId', 'stream', 'event'],
+  autoEmits: [],
 };
 
 export const TASK_FIX: RunbookDefinition = {

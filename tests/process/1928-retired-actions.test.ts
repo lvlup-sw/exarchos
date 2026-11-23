@@ -41,7 +41,7 @@ const PROVIDER_WRITERS: readonly { readonly action: string; readonly cli: readon
   { action: 'create_issue', cli: ['--title', 't', '--body', 'b'], mcp: { title: 't', body: 'b' } },
 ];
 
-/** The refusal of a retired provider read. One closed code and one message name the harness for all six reads. */
+/** The refusal of a retired provider read. One closed code and one message name the harness for all seven reads. */
 const PROVIDER_READ_REFUSAL = {
   success: false,
   error: {
@@ -58,6 +58,7 @@ const PROVIDER_READS: readonly { readonly action: string; readonly cli: readonly
   { action: 'check_pr_comments', cli: ['--pr', '42', '--repo', 'acme/app'], mcp: { pr: 42, repo: 'acme/app' } },
   { action: 'check_coderabbit', cli: ['--owner', 'acme', '--repo', 'app', '--pr-numbers', '1,2'], mcp: { owner: 'acme', repo: 'app', prNumbers: [1, 2] } },
   { action: 'validate_pr_stack', cli: ['--feature-id', 'retired-stack', '--base-branch', 'main'], mcp: { featureId: 'retired-stack', baseBranch: 'main' } },
+  { action: 'assess_stack', cli: ['--feature-id', 'retired-stack', '--pr-numbers', '1,2'], mcp: { featureId: 'retired-stack', prNumbers: [1, 2] } },
 ];
 
 /** Resolve one executable from the PATH of the test process, before any shim directory goes first. */

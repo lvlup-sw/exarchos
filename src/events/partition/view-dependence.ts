@@ -103,12 +103,23 @@ export const VIEW_TELEMETRY_DEPENDENCE: Readonly<
   },
   'shepherd-status': {
     kind: 'verdict',
-    paths: ['prs'],
+    paths: [
+      'approvalRequestedAt',
+      'completedAt',
+      'escalation',
+      'outcome',
+      'overallStatus',
+      'prs',
+      'startedAt',
+    ],
     because:
       '`computeOverallStatus` reads `state.prs` through `hasBlockedPr`, `hasFailingCi` and ' +
       '`isAllHealthy`, and the per-PR counters it tests are fed by `review.finding`, ' +
       '`review.escalated`, `comment.posted` and `comment.resolved`. Dropping them reports a ' +
-      'stack healthy that is not.',
+      'stack healthy that is not. The shepherd skill appends `shepherd.started`, ' +
+      '`shepherd.approval_requested`, `shepherd.escalated` and `shepherd.completed` since ' +
+      '`assess_stack` retired, so they are model-sourced too. `shepherd.escalated` sets the ' +
+      'escalation and the escalated `overallStatus`, and the other three set the timestamps and outcome.',
   },
 });
 

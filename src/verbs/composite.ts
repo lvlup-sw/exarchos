@@ -24,7 +24,6 @@ import {
 import { handleReviewTriage } from '../review/tools.js';
 import { handlePrepareDelegation } from './team/prepare-delegation.js';
 import { handlePrepareSynthesis } from './team/prepare-synthesis.js';
-import { handleAssessStack } from './vcs/assess-stack.js';
 import { handleDesignCompleteness } from './gates/design-completeness.js';
 import { handlePlanCoverage } from './gates/plan-coverage.js';
 import { handleCheckExplorationDepth } from './gates/check-exploration-depth.js';
@@ -434,7 +433,6 @@ export const ACTION_HANDLERS: Readonly<Record<string, ActionHandler>> = {
   review_triage: adaptWithEventStore(handleReviewTriage),
   prepare_delegation: adaptWithCtx(handlePrepareDelegation),
   prepare_synthesis: privateTermsRemoved(adaptWithEventStoreAndConfig(handlePrepareSynthesis)),
-  assess_stack: adaptWithEventStoreAndConfig(handleAssessStack),
   check_design_completeness: adaptWithEventStore(handleDesignCompleteness),
   check_plan_coverage: adaptWithEventStore(handlePlanCoverage),
   /**

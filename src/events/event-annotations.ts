@@ -255,12 +255,14 @@ export const EVENT_ANNOTATIONS: Readonly<Record<string, EventRegistration>> = Ob
   },
   'preflight.executed': { lifecycle: 'active', tier: 'substrate', rationale: 'operation-record' },
   'preflight.blocked': { lifecycle: 'active', tier: 'substrate', rationale: 'operation-record' },
+  /** Retired with `assess_stack`. The schema and the readers stay so that old logs replay the same, but no code writes this event. */
   'provider.unknown-tier': {
-    lifecycle: 'active',
+    lifecycle: 'retired',
     tier: 'substrate',
     rationale: 'operation-record',
   },
-  'provider.parse-error': { lifecycle: 'active', tier: 'substrate', rationale: 'operation-record' },
+  /** Retired with `assess_stack`. The schema and the readers stay so that old logs replay the same, but no code writes this event. */
+  'provider.parse-error': { lifecycle: 'retired', tier: 'substrate', rationale: 'operation-record' },
   'dispatch.classified': { lifecycle: 'active', tier: 'substrate', rationale: 'operation-record' },
   /** The audit line of the prune evaluation. Dashboards read it from the stream. */
   'prune.diagnostics': { lifecycle: 'active', tier: 'substrate', rationale: 'operation-record' },
@@ -523,45 +525,22 @@ export const EVENT_ANNOTATIONS: Readonly<Record<string, EventRegistration>> = Ob
     provider: 'exarchos_orchestrate',
     consumedBy: ['workflow-state@v1'],
   },
+  /** Retired with `assess_stack`. The schema and the readers stay so that old logs replay the same, but no code writes this event. */
   'ci.status': {
-    lifecycle: 'active',
+    lifecycle: 'retired',
     tier: 'capability',
     provider: 'exarchos_orchestrate',
     consumedBy: ['shepherd-status'],
   },
   /**
-   * The assessment pass that appends `ci.status` appends this event too, one row for each check.
-   * `code-quality` folds it because the pass rate of the checks is the shepherd outcome.
+   * Retired with `assess_stack`, which appended one row for each check beside `ci.status`.
+   * `code-quality` still folds old rows, because the pass rate of the checks is the shepherd outcome.
    */
   'ci.check_observed': {
-    lifecycle: 'active',
+    lifecycle: 'retired',
     tier: 'capability',
     provider: 'exarchos_orchestrate',
     consumedBy: ['code-quality'],
-  },
-  'shepherd.started': {
-    lifecycle: 'active',
-    tier: 'capability',
-    provider: 'exarchos_orchestrate',
-    consumedBy: ['shepherd-status'],
-  },
-  'shepherd.approval_requested': {
-    lifecycle: 'active',
-    tier: 'capability',
-    provider: 'exarchos_orchestrate',
-    consumedBy: ['shepherd-status'],
-  },
-  'shepherd.escalated': {
-    lifecycle: 'active',
-    tier: 'capability',
-    provider: 'exarchos_orchestrate',
-    consumedBy: ['shepherd-status'],
-  },
-  'shepherd.completed': {
-    lifecycle: 'active',
-    tier: 'capability',
-    provider: 'exarchos_orchestrate',
-    consumedBy: ['shepherd-status'],
   },
   'merge.preflight': {
     lifecycle: 'active',
@@ -891,6 +870,18 @@ export const EVENT_ANNOTATIONS: Readonly<Record<string, EventRegistration>> = Ob
   'team.task.planned': { lifecycle: 'active', tier: 'workflow-local', workflow: 'feature' },
   'team.teammate.dispatched': { lifecycle: 'active', tier: 'workflow-local', workflow: 'feature' },
   'shepherd.iteration': { lifecycle: 'active', tier: 'workflow-local', workflow: 'feature' },
+  /**
+   * The shepherd skill appends these four events with `exarchos_event`, because `assess_stack` is retired.
+   * The `shepherd-status` view still folds them, and its telemetry dependence declares the paths that they set.
+   */
+  'shepherd.started': { lifecycle: 'active', tier: 'workflow-local', workflow: 'feature' },
+  'shepherd.approval_requested': {
+    lifecycle: 'active',
+    tier: 'workflow-local',
+    workflow: 'feature',
+  },
+  'shepherd.escalated': { lifecycle: 'active', tier: 'workflow-local', workflow: 'feature' },
+  'shepherd.completed': { lifecycle: 'active', tier: 'workflow-local', workflow: 'feature' },
   'session.tagged': { lifecycle: 'active', tier: 'workflow-local', workflow: 'feature' },
   'worktree.created': { lifecycle: 'active', tier: 'workflow-local', workflow: 'feature' },
   'worktree.baseline': { lifecycle: 'active', tier: 'workflow-local', workflow: 'feature' },

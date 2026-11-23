@@ -119,7 +119,9 @@ describe('Runbook definitions', () => {
 
   it('ShepherdIteration_HasSixSteps', () => {
     expect(SHEPHERD_ITERATION.steps).toHaveLength(6);
-    expect(SHEPHERD_ITERATION.steps[0].action).toBe('assess_stack');
+    expect(SHEPHERD_ITERATION.steps[0].tool).toBe('native:bash');
+    expect(SHEPHERD_ITERATION.steps.map((step) => step.action)).not.toContain('assess_stack');
+    expect(SHEPHERD_ITERATION.autoEmits).toEqual([]);
     expect(SHEPHERD_ITERATION.phase).toBe('synthesize');
   });
 

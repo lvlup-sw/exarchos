@@ -12,7 +12,6 @@ export const CLI_ACTION_IDS: readonly string[] = [
   'exarchos_orchestrate.acquire_worktree',
   'exarchos_orchestrate.agent_spec',
   'exarchos_orchestrate.assess_refactor_scope',
-  'exarchos_orchestrate.assess_stack',
   'exarchos_orchestrate.check_context_economy',
   'exarchos_orchestrate.check_contract_drift',
   'exarchos_orchestrate.check_convergence',

@@ -151,21 +151,6 @@ export const PHASE_EVENT_CONTRACTS: Readonly<Record<string, PhaseEventContract>>
         emittedBy: 'the synthesis gates',
         fields: ['gateName', 'layer', 'passed'],
       },
-      {
-        type: 'shepherd.started',
-        when: 'On first assess-stack invocation',
-        emittedBy: 'exarchos_orchestrate assess_stack',
-      },
-      {
-        type: 'shepherd.approval_requested',
-        when: 'When all checks pass and approval is needed',
-        emittedBy: 'exarchos_orchestrate assess_stack',
-      },
-      {
-        type: 'shepherd.completed',
-        when: 'When PR is merged or shepherd resolves',
-        emittedBy: 'exarchos_orchestrate assess_stack',
-      },
     ],
   },
   'overhaul-update-docs': {

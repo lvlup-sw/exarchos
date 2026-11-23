@@ -675,7 +675,7 @@ describe('TOOL_REGISTRY', () => {
     it('should have 71 actions for task management, review triage, gate checks, validation handlers, runbooks, agent spec, oneshot/pruning, onboard (DR-2 task 011), doctor, VCS, classify_review_items (#1159), merge_orchestrate (DR-MO-1), check_integration_suite (#1329), check_invariant_conformance (DR-3), invariants_scaffold/invariants_add (invariants-catalog-wizard P2), check_contract_drift + check_mock_boundary (verification-ladder slice 1), and composite actions', () => {
       const composite = findComposite('exarchos_orchestrate');
       expect(composite).toBeDefined();
-      expect(composite!.actions).toHaveLength(74);
+      expect(composite!.actions).toHaveLength(73);
 
       const actionNames = composite!.actions.map((a) => a.name);
       expect(actionNames).toEqual(
@@ -686,7 +686,6 @@ describe('TOOL_REGISTRY', () => {
           'review_triage',
           'prepare_delegation',
           'prepare_synthesis',
-          'assess_stack',
           'check_design_completeness',
           'check_plan_coverage',
           'check_contract_drift',
@@ -1735,7 +1734,7 @@ describe('AutoEmits Drift Tests', () => {
     }
 
     expect(populatedCount, 'declared autoEmits population dropped below the floor').toBeGreaterThan(
-      55,
+      54,
     );
     expect(violations, `AutoEmits drift:\n${violations.join('\n')}`).toEqual([]);
   });
@@ -2682,7 +2681,6 @@ const EXPECTED_EFFECTIVE_BUDGETS: Readonly<Record<string, number>> = {
   'exarchos_orchestrate.review_triage': 2000,
   'exarchos_orchestrate.prepare_delegation': 2000,
   'exarchos_orchestrate.prepare_synthesis': 2000,
-  'exarchos_orchestrate.assess_stack': 2000,
   'exarchos_orchestrate.check_static_analysis': 2000,
   'exarchos_orchestrate.check_integration_suite': 2000,
   'exarchos_orchestrate.check_security_scan': 2000,
@@ -3230,40 +3228,6 @@ describe('Task 022 — registry schema batch (DR-1/DR-3/DR-8)', () => {
   }
 
   describe('registrySchemas_EconomyParams_ValidateAndCoerce', () => {
-    /**
-     * `prNumbers` must coerce from a JSON array string, from an array of numeric strings and from a bare CSV string.
-     * `coerceFlags` gives the CSV form for an array flag, and a direct MCP caller can also send it.
-     */
-    it('assess_stack declares comment paging and coerces prNumbers as an int array', () => {
-      const schema = findAction('exarchos_orchestrate', 'assess_stack').schema;
-      const fromJsonString = schema.safeParse({
-        featureId: 'feat-x',
-        prNumbers: '[1660,1671]',
-        limit: '10',
-        offset: '2',
-      });
-      expect(fromJsonString.success).toBe(true);
-      if (fromJsonString.success) {
-        const data = fromJsonString.data as Record<string, unknown>;
-        expect(data.prNumbers).toEqual([1660, 1671]);
-        expect(data.limit).toBe(10);
-        expect(data.offset).toBe(2);
-      }
-      const fromStringElements = schema.safeParse({
-        featureId: 'feat-x',
-        prNumbers: ['1', '2', '3'],
-      });
-      expect(fromStringElements.success).toBe(true);
-      if (fromStringElements.success) {
-        expect((fromStringElements.data as Record<string, unknown>).prNumbers).toEqual([1, 2, 3]);
-      }
-      const fromCsv = schema.safeParse({ featureId: 'feat-x', prNumbers: '1660,1671,1659' });
-      expect(fromCsv.success).toBe(true);
-      if (fromCsv.success) {
-        expect((fromCsv.data as Record<string, unknown>).prNumbers).toEqual([1660, 1671, 1659]);
-      }
-    });
-
     /**
      * The handler reads `detail` and `outputFormat`, so the schema must declare both.
      * Zod strips an undeclared field on the MCP path, and the CLI builds no flag for it.
@@ -3825,9 +3789,10 @@ describe('the closed retired-action table', () => {
       'exarchos_orchestrate.check_pr_comments',
       'exarchos_orchestrate.check_coderabbit',
       'exarchos_orchestrate.validate_pr_stack',
+      'exarchos_orchestrate.assess_stack',
     ]);
     expect(new Set(RETIRED_ACTIONS.filter((entry) => entry.action !== 'mutation-adequacy' && entry.action !== 'check_test_adequacy').map((entry) => entry.code))).toEqual(new Set(['PROVIDER_WRITE_RETIRED', 'PROVIDER_READ_RETIRED']));
-    expect(RETIRED_ACTIONS.filter((entry) => entry.code === 'PROVIDER_READ_RETIRED').map((entry) => entry.action)).toEqual(['check_ci', 'list_prs', 'get_pr_comments', 'check_pr_comments', 'check_coderabbit', 'validate_pr_stack']);
+    expect(RETIRED_ACTIONS.filter((entry) => entry.code === 'PROVIDER_READ_RETIRED').map((entry) => entry.action)).toEqual(['check_ci', 'list_prs', 'get_pr_comments', 'check_pr_comments', 'check_coderabbit', 'validate_pr_stack', 'assess_stack']);
     for (const entry of RETIRED_ACTIONS) {
       const tool = TOOL_REGISTRY.find((candidate) => candidate.name === entry.tool);
       expect(tool, entry.tool).toBeDefined();

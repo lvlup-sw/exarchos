@@ -76,7 +76,7 @@ describe('narrowAffordance (DR-1 widened verb type)', () => {
    * declare `limit` and `offset`, and with no window argument the reason names both.
    */
   it('narrowAffordance_RealActionNames_ValidateAndCarryNarrowSteering', () => {
-    for (const verb of ['pipeline', 'worktrees', 'event query', 'describe', 'assess_stack']) {
+    for (const verb of ['pipeline', 'worktrees', 'event query', 'describe', 'stack_status']) {
       const action = narrowAffordance(verb, 10, 55, 'exarchos pipeline --limit 20');
       const parsed = NextAction.safeParse(action);
       expect(parsed.success).toBe(true);

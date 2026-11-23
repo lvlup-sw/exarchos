@@ -98,7 +98,7 @@ export function classifyFinding(finding: {
 
 /**
  * The iteration count of a loop: the number of `shepherd.iteration` events in a stream.
- * The `assess_stack` loop and the shepherd-status view count by this rule, so they agree.
+ * The shepherd-status view counts by the same rule, so the view and this count agree.
  */
 export function countShepherdIterations(
   events: ReadonlyArray<{ readonly type: string }>,

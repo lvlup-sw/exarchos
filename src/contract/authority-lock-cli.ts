@@ -151,13 +151,19 @@ const LOCK_NOTE =
   're-approval at the pull request: exarchos_orchestrate.check_pr_comments, check_coderabbit ' +
   'and validate_pr_stack are the removed ActionIds. The closed retired-action table refuses a ' +
   'call of each before dispatch, with the code PROVIDER_READ_RETIRED. All other authority ' +
-  'pins remain unchanged.';
+  'pins remain unchanged.' +
+  ' RE-APPROVED for #1928 S4 T-33 under the slice plan that Reed approved, for Reed ' +
+  're-approval at the pull request: exarchos_orchestrate.assess_stack is the removed ActionId. ' +
+  'The closed retired-action table refuses a call of it before dispatch, with the code ' +
+  'PROVIDER_READ_RETIRED. All other authority pins remain unchanged.';
 
 /**
  * The approver that the freeze records for the current snapshot. Change it at each new approval, so
  * the lockfile records who approved and not the tool.
  */
 export const CURRENT_APPROVER =
+  'Delegated Claude worker (#1928 S4 T-33 stack assessment retirement under the slice plan ' +
+  'that Reed approved, 2026-11-23; for Reed re-approval at the pull request). Previously: ' +
   'Delegated Claude worker (#1928 S4 T-32 provider review and stack read retirement under the ' +
   'slice plan that Reed approved, 2026-11-23; for Reed re-approval at the pull request). ' +
   'Previously: ' +

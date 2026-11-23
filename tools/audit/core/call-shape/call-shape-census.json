@@ -2541,7 +2541,7 @@
   ],
   "pins": {
     "contractAuthority": {
-      "actionIdRegistryDigest": "sha256:833ee62409242ba6f8e6d673fdcb5d282c388eec4ef5e843ab158cdaffe3d1a5",
+      "actionIdRegistryDigest": "sha256:a0f8c04aae03eb90e02d16d35d6c01532e54f83982fde8a726a73a4a3aa8e520",
       "file": "src/contract/contract-authority.lock.json"
     },
     "inputs": [
@@ -2563,12 +2563,12 @@
       },
       {
         "file": "src/runbooks/definitions.ts",
-        "sha256": "f097b3ecaec7665be07a7a9739d2bf04e4d948d6181fd662f0df660069664119"
+        "sha256": "e12e15bc0902c2445f58b7420bc2cc2fea7063f7b6886eb5e6e7be7458fa4414"
       }
     ],
     "registry": {
-      "actionIdsSha256": "833ee62409242ba6f8e6d673fdcb5d282c388eec4ef5e843ab158cdaffe3d1a5",
-      "actions": 116,
+      "actionIdsSha256": "a0f8c04aae03eb90e02d16d35d6c01532e54f83982fde8a726a73a4a3aa8e520",
+      "actions": 115,
       "file": "tools/audit/registered-actions-snapshot.json",
       "tools": 5,
       "visibleTools": 4
@@ -2757,16 +2757,16 @@
     {
       "counts": {
         "decision": 0,
-        "exarchos": 4,
-        "native": 2
+        "exarchos": 3,
+        "native": 3
       },
       "id": "shepherd-iteration",
       "phase": "synthesize",
       "steps": [
         {
-          "call": "exarchos_orchestrate.assess_stack",
-          "status": "registered",
-          "surface": "exarchos"
+          "call": "native:bash.gh_pr_read",
+          "status": "harness",
+          "surface": "native"
         },
         {
           "call": "exarchos_event.append",
