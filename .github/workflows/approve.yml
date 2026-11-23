@@ -12,6 +12,6 @@ permissions: {}
 
 jobs:
   approve:
-    uses: lvlup-sw/.github/.github/workflows/approve-command.yml@3ee9798448fd1cbdd296391ba975a0a27b34f2e8 # main after lvlup-sw/.github#109
+    uses: lvlup-sw/.github/.github/workflows/approve-command.yml@v1.13
     permissions:
       pull-requests: write
