@@ -4,11 +4,11 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1498,
-    "parsedFiles": 1454,
+    "testFiles": 1496,
+    "parsedFiles": 1452,
     "shellFiles": 44,
-    "cases": 16700,
-    "dynamicTitles": 333,
+    "cases": 16679,
+    "dynamicTitles": 327,
     "unparseableFiles": 0
   },
   "unparseable": [],
@@ -11798,77 +11798,6 @@
         }
       ]
     },
-    "tests/process/1928-launch-ownership.test.ts": {
-      "file": "tests/process/1928-launch-ownership.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "",
-          "name": "LaunchOwnership_GovernorImportWalk_ReachesNoLauncherWriter",
-          "dynamic": false
-        },
-        {
-          "suite": "",
-          "name": "LaunchOwnership_GovernorStub_RefusesEachHarnessVerbWithNoEffect",
-          "dynamic": false
-        },
-        {
-          "suite": "",
-          "name": "<dynamic-case-1>",
-          "dynamic": true
-        },
-        {
-          "suite": "",
-          "name": "LaunchOwnership_McpToolList_OffersNoLaunch",
-          "dynamic": false
-        },
-        {
-          "suite": "",
-          "name": "<dynamic-case-2>",
-          "dynamic": true
-        },
-        {
-          "suite": "",
-          "name": "LaunchOwnership_HarnessDryRun_PrintsThePlanAndStartsNoGit",
-          "dynamic": false
-        },
-        {
-          "suite": "",
-          "name": "<dynamic-case-3>",
-          "dynamic": true
-        },
-        {
-          "suite": "",
-          "name": "LaunchOwnership_HarnessLegacyJsonlState_RefusesAndCreatesNoDatabase",
-          "dynamic": false
-        },
-        {
-          "suite": "",
-          "name": "<dynamic-case-4>",
-          "dynamic": true
-        },
-        {
-          "suite": "",
-          "name": "LaunchOwnership_HarnessRealLaunch_CreatesLaunchesAndReleasesInTheSharedStore",
-          "dynamic": false
-        },
-        {
-          "suite": "",
-          "name": "<dynamic-case-5>",
-          "dynamic": true
-        },
-        {
-          "suite": "",
-          "name": "LaunchOwnership_Recovery_FinishesAPendingIntentAndNeverRecreatesAfterItsTerminal",
-          "dynamic": false
-        },
-        {
-          "suite": "",
-          "name": "<dynamic-case-6>",
-          "dynamic": true
-        }
-      ]
-    },
     "tests/process/1928-lifecycle-host.test.ts": {
       "file": "tests/process/1928-lifecycle-host.test.ts",
       "runner": "vitest:root",
@@ -17149,52 +17078,6 @@
         {
           "suite": "exarchos install-skills CLI (DR-5 rename stub)",
           "name": "CliInstallSkills_LegacyAgentFlag_StillStubs_NoInstall",
-          "dynamic": false
-        }
-      ]
-    },
-    "tests/unit/adapters/cli/cli-launcher.test.ts": {
-      "file": "tests/unit/adapters/cli/cli-launcher.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "exarchos-harness launcher entry wiring (DR-1 / DR-6, R-1)",
-          "name": "LauncherCli_NonDryRun_ActuallySpawns",
-          "dynamic": false
-        },
-        {
-          "suite": "exarchos-harness launcher entry wiring (DR-1 / DR-6, R-1)",
-          "name": "LauncherCli_DryRun_SpawnsNothing",
-          "dynamic": false
-        },
-        {
-          "suite": "exarchos-harness launcher entry wiring (DR-1 / DR-6, R-1)",
-          "name": "LauncherCli_NonDryRun_RunsStartupRecovery",
-          "dynamic": false
-        },
-        {
-          "suite": "exarchos-harness launcher entry wiring (DR-1 / DR-6, R-1)",
-          "name": "LauncherCli_LaunchRejection_MapsToUncaughtException",
-          "dynamic": false
-        },
-        {
-          "suite": "exarchos-harness launcher entry wiring (DR-1 / DR-6, R-1)",
-          "name": "LauncherCli_UnknownHarness_NeverRegistered",
-          "dynamic": false
-        },
-        {
-          "suite": "exarchos-harness launcher entry wiring (DR-1 / DR-6, R-1)",
-          "name": "LauncherCli_EmptyFeature_RefusesBeforeTheContext",
-          "dynamic": false
-        },
-        {
-          "suite": "exarchos-harness launcher entry wiring (DR-1 / DR-6, R-1)",
-          "name": "LauncherCli_NonDryRunWithoutJson_WritesOneToolResultLine",
-          "dynamic": false
-        },
-        {
-          "suite": "exarchos-harness launcher entry wiring (DR-1 / DR-6, R-1)",
-          "name": "LauncherCli_GovernorHarnessVerb_RefusesWithTheHarnessEntryName",
           "dynamic": false
         }
       ]
@@ -23703,12 +23586,12 @@
         },
         {
           "suite": "DR-26 — INV-11 keeps spatial write confinement EXCLUDED",
-          "name": "GoverningCatalog_Inv11_ClaimsLifecycleAndPlacement_NotFilesystemConfinement",
+          "name": "GoverningCatalog_Inv11_GivesLifecycleAndPlacementToTheHarness_NotFilesystemConfinement",
           "dynamic": false
         },
         {
           "suite": "DR-26 — INV-11 keeps spatial write confinement EXCLUDED",
-          "name": "GoverningCatalog_Inv11_AuditPromptForbidsInferringConfinementFromTheLauncher",
+          "name": "GoverningCatalog_Inv11_AuditPromptForbidsInferringConfinementFromAWorktreeLocation",
           "dynamic": false
         },
         {
@@ -49856,7 +49739,7 @@
         },
         {
           "suite": "launcher on-ramps + runtimes lifecycle semantics (DR-1, DR-3)",
-          "name": "Runtimes_IsolationSemantics_LauncherManagedLifecycle",
+          "name": "Runtimes_IsolationSemantics_HarnessManagedLifecycle",
           "dynamic": false
         },
         {

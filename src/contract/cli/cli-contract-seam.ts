@@ -23,7 +23,6 @@ import { readdir, readFile } from 'node:fs/promises';
 import { relative } from 'node:path';
 
 import { getFullRegistry, type CompositeTool } from '../../registry.js';
-import { TIER1_HARNESSES } from '../../runtime/launcher/harness-registry.js';
 import { generateCliArtifacts } from './cli-surface.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -126,8 +125,7 @@ export const AUTHORIZED_DISPATCH_PROJECTIONS: readonly string[] = Object.freeze(
 
 /**
  * Host-local CLI commands that do not route through the contract handler and have no MCP
- * equivalent. They include the introspection verbs, the MCP server entry, and the CLI-only harness
- * launchers. A stdio MCP surface cannot own the lifecycle of a child process.
+ * equivalent. They are the introspection verbs, the MCP server entry and the two rename stubs.
  */
 export const HOST_LOCAL_COMMANDS: readonly string[] = Object.freeze([
   'version',
@@ -137,7 +135,6 @@ export const HOST_LOCAL_COMMANDS: readonly string[] = Object.freeze([
   'mcp',
   'init',
   'install-skills',
-  ...TIER1_HARNESSES,
 ]);
 
 /**

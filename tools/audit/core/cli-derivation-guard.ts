@@ -1,9 +1,8 @@
 // The source-level CLI derivation guard.
 //
 // The CLI composition root holds no literal `.command('<name>')` call. Each
-// command comes from a derivation helper (`registerActionCommand`, the
-// composite-tool loop, or the harness loop) that takes its name from a registry
-// declaration. `GOVERNED_SOURCES` and the allowlist file hold the policy as data.
+// command comes from a derivation helper (`registerActionCommand` or the
+// composite-tool loop) that takes its name from a registry declaration. `GOVERNED_SOURCES` and the allowlist file hold the policy as data.
 //
 // The guard parses the source, because a built Commander tree records no
 // provenance: `program.command('doctor')` and `program.command(cliName)` give
@@ -565,9 +564,8 @@ export function findDerivationViolations(
           'Delete the hand-written command and let the registry declaration — which carries ' +
           "`posture: 'shared-mutating'` — be the single remaining definition."
         : `\`.command(${site.expression})\` bakes the command name into the composition ` +
-          'root. Register it through a derivation helper (registerActionCommand, the ' +
-          'composite-tool loop, or the harness loop) so the name comes from a registry ' +
-          'declaration.',
+          'root. Register it through a derivation helper (registerActionCommand or the ' +
+          'composite-tool loop) so the name comes from a registry declaration.',
     });
   }
 

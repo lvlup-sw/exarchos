@@ -3,8 +3,8 @@
  *
  * Each on-ramp is a pure-data `HarnessDescriptor`. `harness-registry.type-test.ts` holds the
  * type-level pin for that, and the runtime checks here repeat it on the values.
- * Each `content/harness/runtimes/<id>.yaml` describes `isolation:worktree` as launcher-managed
- * lifecycle and makes no space-enforcement claim, because the launcher does not enforce space.
+ * Each `content/harness/runtimes/<id>.yaml` describes `isolation:worktree` as harness-managed
+ * lifecycle, names no launcher and makes no space-enforcement claim.
  */
 
 import { describe, it, expect } from 'vitest';
@@ -78,8 +78,11 @@ describe('launcher on-ramps + runtimes lifecycle semantics (DR-1, DR-3)', () => 
     }
   });
 
-  /** Each runtime map declares `isolation:worktree` as `native` or `advisory`, and its text holds the phrase "launcher-managed lifecycle". */
-  it('Runtimes_IsolationSemantics_LauncherManagedLifecycle', () => {
+  /**
+   * Each runtime map declares `isolation:worktree` as `native` or `advisory`.
+   * Its text holds the phrase "harness-managed lifecycle" and does not hold the word "launcher".
+   */
+  it('Runtimes_IsolationSemantics_HarnessManagedLifecycle', () => {
     expect(RUNTIME_IDS).toEqual(['claude', 'codex', 'cursor', 'copilot', 'opencode']);
 
     for (const runtimeId of RUNTIME_IDS) {
@@ -94,9 +97,10 @@ describe('launcher on-ramps + runtimes lifecycle semantics (DR-1, DR-3)', () => 
       expect(['native', 'advisory']).toContain(isolation);
 
       expect(
-        /launcher-managed lifecycle/i.test(raw),
-        `${runtimeId}.yaml isolation:worktree must be framed as launcher-managed lifecycle`,
+        /harness-managed lifecycle/i.test(raw),
+        `${runtimeId}.yaml isolation:worktree must be framed as harness-managed lifecycle`,
       ).toBe(true);
+      expect(/launcher/i.test(raw), `${runtimeId}.yaml must name no launcher`).toBe(false);
     }
   });
 

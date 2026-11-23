@@ -1,11 +1,14 @@
 /**
+ * RESERVED(issue: #1928, owner: exarchos, expires: 2026-12-31)
+ * The removal of the harness entry left no production importer. The launcher retirement deletes this module.
+ *
  * Production wiring for the launcher. It composes the built modules into live deps.
  *
- * The harness entry verb and the lifecycle core accept their event store and
+ * The launcher verb and the lifecycle core accept their event store and
  * their spawn, teardown and signal seams as deps, and never construct them.
  * Without this wiring, a real launch has no `lifecycleDeps` and returns `NOT_WIRED`.
  * This module holds no behavior of its own and no per-harness branch.
- * {@link LauncherWiringOverrides} lets the harness entry tests inject OS-effect fakes
+ * {@link LauncherWiringOverrides} lets tests inject OS-effect fakes
  * into the same composition that the verb runs.
  */
 

@@ -200,14 +200,16 @@ invariants:
         Is each agent's authority bounded by the chokepoint that owns the
         resource, rather than by convention? STATE authority is enforced in the
         dispatch/MCP handler — a read-only agent must be unable to invoke a
-        mutating action. PROCESS LIFECYCLE and top-level worktree placement are
-        enforced by the spawn-bounded launcher. SPATIAL write confinement is NOT
-        launcher-owned: it is a per-harness capability that must be reported as
-        prevention | detection | advisory | unavailable, and must never be
-        inferred from the launcher's cwd or worktree ownership. Flag a posture
-        asserted in prose but not enforced at a capability boundary, and flag
-        any claim that a task-isolated agent CANNOT write outside its worktree
-        where the harness's declared spatial posture is advisory or unavailable.
+        mutating action. PROCESS LIFECYCLE and worktree placement belong to the
+        harness: Exarchos starts no harness process and claims no lifecycle
+        authority. SPATIAL write confinement is a per-harness capability that
+        must be reported as prevention | detection | advisory | unavailable,
+        and must never be inferred from a cwd or a worktree location. Flag a
+        posture asserted in prose but not enforced at a capability boundary,
+        flag any claim that Exarchos owns a harness process or its worktree
+        placement, and flag any claim that a task-isolated agent CANNOT write
+        outside its worktree where the harness's declared spatial posture is
+        advisory or unavailable.
     axis: substrate
     cost-of-load: always-load
     applies-to:
@@ -215,7 +217,6 @@ invariants:
       - capability-resolver
       - handshake
       - sub-agent-dispatch
-      - launcher
     summary: >
       Every agent declares one of three postures in agent spec YAML: read-only |
       task-isolated | shared-mutating. The MCP initialize handshake declares the
@@ -223,16 +224,17 @@ invariants:
       mismatches resolve to the handshake (handshake-authoritative). What a
       posture makes unrepresentable-by-construction is bounded by the chokepoint
       that owns the resource: STATE authority in the dispatch/MCP handler (a
-      read-only agent cannot invoke a mutating action), PROCESS LIFECYCLE and
-      top-level worktree placement in the spawn-bounded launcher. SPATIAL write
-      confinement is deliberately EXCLUDED from the by-construction claim: no
-      component in the single-machine frame owns the kernel write path, and
-      harness-created nested worktrees sit outside the launcher's reach, so
-      filesystem confinement is a DECLARED per-harness capability carrying a
-      posture of prevention | detection | advisory | unavailable — never
-      inferred from launcher cwd/worktree ownership. Lifecycle ownership and
-      spatial isolation are separate audit dimensions; absorbing spatial
-      confinement into this invariant requires the space-moat fork (an upstream
+      read-only agent cannot invoke a mutating action). PROCESS LIFECYCLE and
+      worktree placement belong to the harness, so Exarchos makes no
+      by-construction claim about them. SPATIAL write confinement is
+      deliberately EXCLUDED from the by-construction claim: no component in
+      the single-machine frame owns the kernel write path, and harness-created
+      worktrees sit outside the reach of Exarchos, so filesystem confinement
+      is a DECLARED per-harness capability carrying a posture of prevention |
+      detection | advisory | unavailable — never inferred from a cwd or a
+      worktree location. Lifecycle ownership and spatial isolation are
+      separate audit dimensions; absorbing spatial confinement into this
+      invariant requires the space-moat fork (an upstream
       Bash-covering hook standard or a kernel sandbox), and asserting it before
       that lands is an overclaim, not an invariant.
     citations:
@@ -247,7 +249,6 @@ invariants:
     references:
       - src/workflow/capabilities/resolver.ts
       - src/runtime/agents/generate-agents.ts
-      - src/runtime/launcher/create-worktree.ts
       - lvlup-sw/docs:exarchos/docs/architecture/runtime.md#§7
 
   - id: INV-12

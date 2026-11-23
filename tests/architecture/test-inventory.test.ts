@@ -167,6 +167,8 @@ const RETIRED_TEST_FILES: ReadonlyArray<{ path: string; subject: string }> = [
   { path: 'tests/acceptance/kill-probe-profile.test.ts', subject: 'src/verbs/gates/test-adequacy-handler.ts' },
   { path: 'tests/integration/1928-hosted-adequacy.test.ts', subject: 'src/verbs/gates/test-adequacy-handler.ts' },
   { path: 'tests/core/types/run-outcome.type-test.ts', subject: 'src/verbs/gates/test-adequacy.ts' },
+  { path: 'tests/unit/adapters/cli/cli-launcher.test.ts', subject: 'src/runtime/launcher/harness-entry.ts' },
+  { path: 'tests/process/1928-launch-ownership.test.ts', subject: 'src/runtime/launcher/harness-entry.ts' },
 ];
 
 describe('test inventory', () => {

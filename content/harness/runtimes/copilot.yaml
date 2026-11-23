@@ -53,7 +53,7 @@ capabilities:
 # supportedCapabilities — mirrors `copilotAdapter.supportLevels` (Task 4f); a
 # capability-support signal for the prose renderer, not a space or write
 # guarantee. Native: covered by a first-class Copilot CLI primitive. Advisory:
-# no first-class primitive; launcher-managed and degrades gracefully.
+# no first-class primitive; harness-managed and degrades gracefully.
 # Unsupported capabilities (subagent:start-signal,
 # subagent:completion-signal, team:agent-teams) are absent by contract.
 supportedCapabilities:
@@ -63,11 +63,10 @@ supportedCapabilities:
   subagent:spawn: native
   mcp:exarchos: native
   mcp:exarchos:readonly: native
-  # isolation:worktree — launcher-managed lifecycle: `exarchos
-  # <harness>` owns this harness process and its top-level worktree lifecycle
-  # (create → place → observe → teardown). A lifecycle relationship, not a
-  # filesystem write guarantee — the launcher composes with whatever isolation
-  # the harness provides itself and makes no space or write claim.
+  # isolation:worktree — harness-managed lifecycle: the harness owns its own
+  # process and its worktree placement. Exarchos starts no harness process,
+  # composes with whatever isolation the harness provides, and makes no space
+  # or write claim.
   isolation:worktree: advisory
   session:resume: advisory
 skillsInstallPath: "~/.copilot/skills"

@@ -52,11 +52,10 @@ supportedCapabilities:
   subagent:start-signal: native
   mcp:exarchos: native
   mcp:exarchos:readonly: native
-  # isolation:worktree — launcher-managed lifecycle: `exarchos
-  # <harness>` owns this harness process and its top-level worktree lifecycle
-  # (create → place → observe → teardown). A lifecycle relationship, not a
-  # filesystem write guarantee — the launcher composes with whatever isolation
-  # the harness provides itself and makes no space or write claim.
+  # isolation:worktree — harness-managed lifecycle: the harness owns its own
+  # process and its worktree placement. Exarchos starts no harness process,
+  # composes with whatever isolation the harness provides, and makes no space
+  # or write claim.
   isolation:worktree: native
   team:agent-teams: native
   session:resume: native

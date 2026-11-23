@@ -169,7 +169,7 @@ describe('authority census — the CLI-surface row, live', () => {
     ];
     expect(scan.literals.map((s) => s.name).sort()).toEqual(expectedLiterals);
     expect(scan.literals).toHaveLength(expectedLiterals.length);
-    expect(scan.derived).toHaveLength(3);
+    expect(scan.derived).toHaveLength(2);
     expect(scan.indeterminate).toHaveLength(0);
     expect(scan.sites).toHaveLength(scan.literals.length + scan.derived.length);
 
@@ -185,7 +185,7 @@ describe('authority census — the CLI-surface row, live', () => {
       "the 10 hand-written `.command('…')` literals in `adapters/cli/cli.ts`",
     ]);
     expect(representation(cli, 'the registry-derived command tree').binding.kind).toBe('bound');
-    expect(derivedSites(representation(cli, 'the registry-derived command tree'))).toHaveLength(3);
+    expect(derivedSites(representation(cli, 'the registry-derived command tree'))).toHaveLength(2);
 
     const committed = committedRow('cli-surface');
     expect(cli.representations.map((r) => r.id).sort()).toEqual(

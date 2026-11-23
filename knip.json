@@ -12,7 +12,6 @@
     ".": {
       "entry": [
         "src/index.ts",
-        "src/runtime/launcher/harness-entry.ts",
         "src/testgen/entry-cli.ts",
         "src/testgen/entry-mcp.ts",
         "src/install/build-skills.ts",

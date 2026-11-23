@@ -309,12 +309,12 @@ describe('CLI command classification census', () => {
   });
 
   /**
-   * Host-local commands, such as `version`, `mcp` and the harness launchers, do not go through the contract handler.
+   * Host-local commands, such as `version`, `mcp` and the `init` rename stub, do not go through the contract handler.
    * The census must not report them.
    */
   it('HostLocalCommands_AreClassifiedNotFlagged', async () => {
     const classification = deriveCliClassification();
-    for (const hostLocal of ['version', 'mcp', 'claude-code']) {
+    for (const hostLocal of ['version', 'mcp', 'init']) {
       expect(classification.hostLocal).toContain(hostLocal);
     }
     const liveCommands = await collectLiveCliCommands();

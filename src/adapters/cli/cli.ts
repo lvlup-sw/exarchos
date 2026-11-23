@@ -25,7 +25,6 @@ import {
   buildInvalidInput,
   VALIDATION_ERROR_CODE,
 } from './schema-to-flags.js';
-import { TIER1_HARNESSES } from '../../runtime/launcher/harness-registry.js';
 import type { FollowSubcommand } from '../../cli/follow-formatter.js';
 import { prettyPrint, printError, toCliResult } from './cli-format.js';
 import { resolvePackageVersion } from './version.js';
@@ -163,7 +162,6 @@ export interface BuildCliOptions {
  * `onboard` adds `surface: 'cli'`, because the CLI runs the full install step.
  *
  * `init` and `install-skills` are rename stubs. They accept any arguments, print the new name `onboard`, and exit 2.
- * Each Tier-1 harness gets a stub that names the `exarchos-harness` entry and exits 2. The governor CLI does not launch a harness.
  *
  * The `cli.topLevel` hoist runs last, so its collision check sees every top-level name and alias. A collision throws.
  */
@@ -460,22 +458,6 @@ export function buildCli(ctx: DispatchContext, options?: BuildCliOptions): Comma
       );
       process.exitCode = CLI_EXIT_CODES.HANDLER_ERROR;
     });
-
-  for (const harness of TIER1_HARNESSES) {
-    program
-      .command(harness)
-      .description(`[moved] use 'exarchos-harness ${harness}' — the governor CLI does not launch a harness`)
-      .helpOption(false)
-      .allowUnknownOption(true)
-      .allowExcessArguments(true)
-      .argument('[ignored...]', 'legacy launcher arguments (ignored by the stub)')
-      .action(() => {
-        process.stderr.write(
-          `exarchos ${harness}: moved → use 'exarchos-harness ${harness}'. The governor CLI does not launch a harness.\n`,
-        );
-        process.exitCode = CLI_EXIT_CODES.HANDLER_ERROR;
-      });
-  }
 
   for (const tool of cliRegistry) {
     for (const action of tool.actions) {
