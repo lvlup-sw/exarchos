@@ -228,7 +228,7 @@ describe('install-skills characterization (DR-9, task 003)', () => {
               exarchos: {
                 type: 'stdio',
                 command: 'exarchos',
-                args: ['mcp'],
+                args: ['mcp', '--operator'],
                 env: {
                   WORKFLOW_STATE_DIR: path.join(
                     '<HOME>',
@@ -280,7 +280,7 @@ describe('install-skills characterization (DR-9, task 003)', () => {
       expect(mcp.exarchos).toEqual({
         type: 'stdio',
         command: 'exarchos',
-        args: ['mcp'],
+        args: ['mcp', '--operator'],
         env: {
           WORKFLOW_STATE_DIR: path.join(home, '.claude', 'workflow-state'),
         },

@@ -194,7 +194,7 @@ describe('Agent Spec Definitions', () => {
     expect(REVIEWER.systemPrompt).toContain('{{reviewScope}}');
     expect(REVIEWER.systemPrompt).toContain('{{designRequirements}}');
     expect(REVIEWER.systemPrompt).not.toContain('Forbidden MCP Actions');
-    expect(REVIEWER.mcpServers).toEqual(['exarchos']);
+    expect(REVIEWER.mcpServers).toEqual(['exarchos-readonly']);
   });
 
   /**

@@ -36,6 +36,7 @@ import {
 } from './install-skills-messages.js';
 import { atomicWriteFile } from '../utils/atomic-write.js';
 import { spawnCommand, type SpawnCommandDeps } from '../utils/process.js';
+import { OPERATOR_MCP_ARGS } from '../workflow/capabilities/mcp-server-binding.js';
 
 /**
  * Result of the injected spawn function: the exit code, and stderr to show
@@ -1288,7 +1289,7 @@ const defaultPrompt = async (
 /**
  * Merge the `mcpServers.exarchos` entry into `~/.claude.json`. Other MCP servers stay.
  * When the existing entry is the same, the function does not write, so the mtime stays.
- * The entry follows `.claude-plugin/plugin.json`: `command: 'exarchos'`, `args: ['mcp']`,
+ * The entry follows `.claude-plugin/plugin.json`: `command: 'exarchos'`, `args: ['mcp', '--operator']`,
  * and a `WORKFLOW_STATE_DIR` under the home directory. A missing file starts empty.
  */
 export function registerExarchosInClaudeJson(home: string): void {
@@ -1315,7 +1316,7 @@ export function registerExarchosInClaudeJson(home: string): void {
   const exarchosEntry = {
     type: 'stdio',
     command: 'exarchos',
-    args: ['mcp'],
+    args: [...OPERATOR_MCP_ARGS],
     env: {
       WORKFLOW_STATE_DIR: workflowStateDir,
     },

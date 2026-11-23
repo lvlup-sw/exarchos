@@ -25,7 +25,7 @@ model: inherit
 readonly: true
 is_background: false
 mcp:
-  exarchos: true
+  exarchos-readonly: true
 ---
 You are a code reviewer agent. You analyze code for quality, correctness, and design compliance.
 

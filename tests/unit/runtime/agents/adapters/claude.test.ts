@@ -206,16 +206,25 @@ describe('ClaudeAdapter_GenerateMarkdown_HandlesYamlSpecialChars', () => {
 });
 
 /**
- * A Claude agent file grants an MCP server as a whole (`mcpServers: ["exarchos"]`), and it has no per-action allowlist.
- * Thus a spec whose only MCP tier is `mcp:exarchos:readonly` must still get the `exarchos` server grant.
- * `enforceReadonlyGate` in `src/dispatch/core/dispatch.ts` limits that tier to the read-only actions at dispatch time.
+ * A string `mcpServers` entry shares the connection of the orchestrator, and that connection holds the operator grant.
+ * Thus a spec whose only MCP tier is `mcp:exarchos:readonly` gets an inline `exarchos-readonly` server instead.
+ * That server starts without `--operator`, and `enforceReadonlyGate` limits its sessions to the read-only actions.
  */
 describe('ClaudeAdapter_LowerSpec_McpReadonlyTier', () => {
-  it('ClaudeAdapter_LowerSpec_ReadonlyMaps_To_ExarchosMcpServerGrant', () => {
+  it('ClaudeAdapter_LowerSpec_ReadonlyMaps_To_InlineReadonlyServer', () => {
     forceCapabilities(['fs:read', 'mcp:exarchos:readonly']);
     const md = generateClaudeAgentMarkdown(IMPLEMENTER);
     const fm = parseYaml(extractFrontmatter(md)) as Record<string, unknown>;
-    expect(fm.mcpServers).toEqual(['exarchos']);
+    expect(fm.mcpServers).toEqual([
+      {
+        'exarchos-readonly': {
+          type: 'stdio',
+          command: 'exarchos',
+          args: ['mcp'],
+          env: { WORKFLOW_STATE_DIR: '~/.claude/workflow-state' },
+        },
+      },
+    ]);
   });
 
   it('ClaudeAdapter_LowerSpec_FullMcpCap_StillEmitsExarchosServerGrant', () => {

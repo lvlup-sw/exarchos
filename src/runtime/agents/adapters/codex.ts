@@ -12,6 +12,11 @@ import type { AgentSpec } from '../types.js';
 import type { RuntimeAdapter, ValidationResult } from './types.js';
 import { buildSupportMap } from './support-levels.js';
 import { resolveCapabilities } from '../../../workflow/capabilities/posture-mapping.js';
+import {
+  ORCHESTRATOR_MCP_SERVER_NAME,
+  READONLY_MCP_SERVER_NAME,
+  exarchosMcpServerFor,
+} from '../../../workflow/capabilities/mcp-server-binding.js';
 
 /**
  * Codex support levels. `isolation:worktree` and `session:resume` are advisory.
@@ -87,8 +92,9 @@ function renderDeveloperInstructions(spec: AgentSpec): string {
 /**
  * Lower `spec` into the Codex TOML file. The capability-derived `sandbox_mode` keeps
  * Codex off a session default that gives more access than the spec allows.
- * Without `spec.mcpServers`, `mcp:exarchos` and `mcp:exarchos:readonly` give the same
- * `mcp_servers` entry, because Codex has no per-action grant. The server enforces the read-only tier.
+ * The Exarchos entry of `mcp_servers` comes from the capabilities, not from `spec.mcpServers`.
+ * The readonly tier names the read-only server, so a read-only agent never shares the operator connection.
+ * Other names in `spec.mcpServers` follow it unchanged.
  */
 function lowerSpec(spec: AgentSpec): { path: string; contents: string } {
   const path = `.codex/agents/${spec.id}.toml`;
@@ -103,13 +109,13 @@ function lowerSpec(spec: AgentSpec): { path: string; contents: string } {
   lines.push(`sandbox_mode = ${tomlBasicString(deriveCodexSandboxMode(spec))}`);
 
   const resolved = resolveCapabilities(spec.posture, spec.id);
-  if (spec.mcpServers && spec.mcpServers.length > 0) {
-    lines.push(`mcp_servers = ${tomlStringArray([...spec.mcpServers])}`);
-  } else if (
-    resolved.has('mcp:exarchos') ||
-    resolved.has('mcp:exarchos:readonly')
-  ) {
-    lines.push(`mcp_servers = ${tomlStringArray(['exarchos'])}`);
+  const exarchosServer = exarchosMcpServerFor(resolved);
+  const otherServers = (spec.mcpServers ?? []).filter(
+    (name) => name !== ORCHESTRATOR_MCP_SERVER_NAME && name !== READONLY_MCP_SERVER_NAME,
+  );
+  const servers = exarchosServer === undefined ? otherServers : [exarchosServer, ...otherServers];
+  if (servers.length > 0) {
+    lines.push(`mcp_servers = ${tomlStringArray(servers)}`);
   }
 
   return { path, contents: `${lines.join('\n')}\n` };

@@ -106,16 +106,17 @@ describe('CopilotAdapter', () => {
   });
 
   /**
-   * The readonly tier must lower to the same `mcp__exarchos` tool entry as `mcp:exarchos`.
-   * The dispatch layer limits the tier per action.
+   * The readonly tier must lower to the `mcp__exarchos-readonly` tool entry and not to `mcp__exarchos`.
+   * The `exarchos` server holds the operator grant. The dispatch layer limits the read-only server per action.
    */
-  it('CopilotAdapter_LowerSpec_Readonly_GrantsExarchosTool', () => {
+  it('CopilotAdapter_LowerSpec_Readonly_GrantsReadonlyServerOnly', () => {
     forceCapabilities(['fs:read', 'mcp:exarchos:readonly']);
     const { contents } = adapter.lowerSpec(IMPLEMENTER_FIXTURE);
     const { data } = parseFrontmatter(contents);
 
     expect(Array.isArray(data.tools)).toBe(true);
-    expect(data.tools).toContain('mcp__exarchos');
+    expect(data.tools).toContain('mcp__exarchos-readonly');
+    expect(data.tools).not.toContain('mcp__exarchos');
   });
 
   it('CopilotAdapter_ValidateSupport_RejectsClaudeOnlyHooks', () => {

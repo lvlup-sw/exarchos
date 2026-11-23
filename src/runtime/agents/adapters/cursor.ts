@@ -16,6 +16,7 @@ import type { Capability } from '../capabilities.js';
 import type { RuntimeAdapter, ValidationResult } from './types.js';
 import { buildSupportMap } from './support-levels.js';
 import { resolveCapabilities } from '../../../workflow/capabilities/posture-mapping.js';
+import { exarchosMcpServerFor } from '../../../workflow/capabilities/mcp-server-binding.js';
 
 /**
  * Cursor supports the file, shell, subagent-spawn, and MCP capabilities natively. `isolation:worktree` is
@@ -62,8 +63,8 @@ function stripAdvisoryWorktreeGuard(systemPrompt: string): string {
 }
 
 /**
- * Lowers a spec to a Cursor agent file. Both `mcp:exarchos` and `mcp:exarchos:readonly` enable the
- * `exarchos` server, and the action allowlist gate in `dispatch/core/dispatch.ts` enforces the readonly tier.
+ * Lowers a spec to a Cursor agent file. The full tier enables the `exarchos` server. The readonly tier
+ * enables only the `exarchos-readonly` server, whose sessions hold no write grant.
  * Because `isolation:worktree` is advisory, the prompt loses its worktree hygiene block.
  */
 function lowerSpec(spec: AgentSpec): { path: string; contents: string } {
@@ -78,11 +79,9 @@ function lowerSpec(spec: AgentSpec): { path: string; contents: string } {
     is_background: false,
   };
 
-  if (
-    resolved.has('mcp:exarchos') ||
-    resolved.has('mcp:exarchos:readonly')
-  ) {
-    frontmatter.mcp = { exarchos: true };
+  const mcpServer = exarchosMcpServerFor(resolved);
+  if (mcpServer !== undefined) {
+    frontmatter.mcp = { [mcpServer]: true };
   }
 
   const renderedPrompt =

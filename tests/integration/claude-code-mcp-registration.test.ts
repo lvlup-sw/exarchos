@@ -133,7 +133,7 @@ describe('Claude Code MCP registration parity', () => {
     });
     const generated = await exarchosEntry(home);
     expect(field(generated, 'command')).toBe('exarchos');
-    expect(field(generated, 'args')).toEqual(['mcp']);
+    expect(field(generated, 'args')).toEqual(['mcp', '--operator']);
 
     const recheck = await agentMcpRegistered(probes, new AbortController().signal);
     expect(recheck.status).toBe('Pass');

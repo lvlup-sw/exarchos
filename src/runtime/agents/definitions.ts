@@ -9,6 +9,7 @@ import type { AgentSpec } from './types.js';
 import type { RiskTier } from '../../workflow/verification-policy.js';
 import { INCOMPLETE_CLAIM_STATUSES, type IncompleteClaimStatus } from '../../verbs/settle/adjudicate.js';
 import { MAX_CLAIM_REASON_LENGTH } from '../../verbs/settle/claim-codec.js';
+import { READONLY_MCP_SERVER_NAME } from '../../workflow/capabilities/mcp-server-binding.js';
 
 /**
  * The post-test command. The agent files ship static, so this command must not
@@ -540,16 +541,16 @@ When done, output a JSON completion report. This report is a review verdict and 
   /**
    * The reviewer is read-only. Its posture grants no `shell:exec` and no
    * `fs:write`, and this list also denies the shell and write tools. The
-   * readonly MCP tier allows read-only actions, and the readonly gate in
-   * `dispatch/core/dispatch.ts` rejects mutating actions. The orchestrator runs
-   * tests and typechecks.
+   * reviewer names only the read-only MCP server, so it never shares the
+   * operator connection. The readonly gate in `dispatch/core/dispatch.ts`
+   * rejects mutating actions. The orchestrator runs tests and typechecks.
    */
   disallowedTools: ['Write', 'Edit', 'Agent', 'Bash'],
   model: 'inherit',
   skills: [],
   validationRules: [],
   resumable: false,
-  mcpServers: ['exarchos'],
+  mcpServers: [READONLY_MCP_SERVER_NAME],
 };
 
 export const SCAFFOLDER: AgentSpec = {

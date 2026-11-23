@@ -82,7 +82,7 @@ The installers check the signed release manifest before they install anything. T
 ```bash
 exarchos --version
 exarchos doctor
-exarchos mcp   # starts MCP server over stdio
+exarchos mcp   # starts a read-only MCP server over stdio; add --operator for the orchestrator
 ```
 
 ### Onboard

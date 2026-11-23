@@ -59,7 +59,7 @@
       "expected": [
         {
           "name": "exarchos",
-          "because": "The one server the plugin bundles: `exarchos mcp` over stdio."
+          "because": "The one server the plugin bundles: `exarchos mcp --operator` over stdio, the orchestrator surface. A read-only agent connects its own inline `exarchos mcp` server from its agent file."
         }
       ],
       "exact": true,
