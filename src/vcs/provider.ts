@@ -263,6 +263,23 @@ export interface ReplyResult {
   readonly id: number;
 }
 
+/**
+ * The form of a pull request number or a review comment id. Each provider CLI reads a leading dash as a flag.
+ * A URL, a repository reference, or a path can select another repository or another API route.
+ */
+const NUMERIC_ID = /^[1-9]\d*$/;
+
+/**
+ * Returns `value` when it is a positive decimal integer, and throws for all other values.
+ * A provider calls it before it puts a caller id into a CLI argument or an API path.
+ */
+export function requireNumericId(value: string, label: string): string {
+  if (typeof value !== 'string' || !NUMERIC_ID.test(value)) {
+    throw new Error(`${label} must be a positive integer, got ${JSON.stringify(value)}`);
+  }
+  return value;
+}
+
 export interface VcsProvider {
   readonly name: 'github' | 'gitlab' | 'azure-devops';
   createPr(opts: CreatePrOpts): Promise<PrResult>;

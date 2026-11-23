@@ -22,7 +22,7 @@ import type {
   RepoInfo,
   ReplyResult,
 } from './provider.js';
-import { UnsupportedOperationError, computeOverallCiStatus } from './provider.js';
+import { UnsupportedOperationError, computeOverallCiStatus, requireNumericId } from './provider.js';
 import { exec } from './shell.js';
 
 interface AzPrCreateResponse {
@@ -193,12 +193,13 @@ export class AzureDevOpsProvider implements VcsProvider {
   }
 
   async checkCi(prId: string): Promise<CiStatus> {
+    const pr = requireNumericId(prId, 'prId');
     const prOutput = await exec('az', [
       'repos',
       'pr',
       'show',
       '--id',
-      prId,
+      pr,
       '--output',
       'json',
     ]);
@@ -234,6 +235,7 @@ export class AzureDevOpsProvider implements VcsProvider {
   }
 
   async mergePr(prId: string, strategy: string): Promise<MergeResult> {
+    const pr = requireNumericId(prId, 'prId');
     const isSquash = strategy === 'squash';
 
     let azStrategy: string;
@@ -257,7 +259,7 @@ export class AzureDevOpsProvider implements VcsProvider {
         'pr',
         'update',
         '--id',
-        prId,
+        pr,
         '--auto-complete',
         'true',
         '--squash',
@@ -282,13 +284,14 @@ export class AzureDevOpsProvider implements VcsProvider {
   }
 
   async addComment(prId: string, body: string): Promise<void> {
+    const pr = requireNumericId(prId, 'prId');
     await exec('az', [
       'repos',
       'pr',
       'comment',
       'create',
       '--id',
-      prId,
+      pr,
       '--text',
       body,
       '--output',
@@ -305,13 +308,14 @@ export class AzureDevOpsProvider implements VcsProvider {
   }
 
   async getReviewStatus(prId: string): Promise<ReviewStatus> {
+    const pr = requireNumericId(prId, 'prId');
     const output = await exec('az', [
       'repos',
       'pr',
       'reviewer',
       'list',
       '--id',
-      prId,
+      pr,
       '--output',
       'json',
     ]);
@@ -342,12 +346,13 @@ export class AzureDevOpsProvider implements VcsProvider {
   }
 
   async getPrComments(prId: string): Promise<PrComment[]> {
+    const pr = requireNumericId(prId, 'prId');
     const showOutput = await exec('az', [
       'repos',
       'pr',
       'show',
       '--id',
-      prId,
+      pr,
       '--output',
       'json',
     ]);
@@ -371,7 +376,7 @@ export class AzureDevOpsProvider implements VcsProvider {
       '--route-parameters',
       `project=${project}`,
       `repositoryId=${repositoryId}`,
-      `pullRequestId=${prId}`,
+      `pullRequestId=${pr}`,
       '--api-version',
       '7.1',
       '--output',

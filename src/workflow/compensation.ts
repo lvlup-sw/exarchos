@@ -498,7 +498,7 @@ function createClosePrAction(): CompensationAction {
         const state = (
           await runCommandCaptureStdout(
             'gh',
-            ['pr', 'view', prUrl, '--json', 'state', '--jq', '.state'],
+            ['pr', 'view', '--json', 'state', '--jq', '.state', '--', prUrl],
             options,
           )
         ).trim().toUpperCase();
@@ -512,14 +512,14 @@ function createClosePrAction(): CompensationAction {
         try {
           await runCommand(
             'gh',
-            ['pr', 'close', prUrl, '--comment', 'Cancelled via compensation'],
+            ['pr', 'close', '--comment', 'Cancelled via compensation', '--', prUrl],
             options,
           );
         } catch (error) {
           const after = (
             await runCommandCaptureStdout(
               'gh',
-              ['pr', 'view', prUrl, '--json', 'state', '--jq', '.state'],
+              ['pr', 'view', '--json', 'state', '--jq', '.state', '--', prUrl],
               options,
             )
           ).trim().toUpperCase();

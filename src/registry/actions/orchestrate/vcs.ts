@@ -6,6 +6,12 @@ import { COMPENSABLE_REMOTE, READ_ONLY_REMOTE } from '../../annotations.js';
 import { ALL_PHASES, ROLE_ANY, featureIdSchema } from '../../phases.js';
 import type { BuiltinToolAction } from '../../types.js';
 
+/**
+ * A pull request number or a review comment id. The provider CLIs read a leading dash as a flag.
+ * A URL, a repository reference, or a path can select another repository or another API route.
+ */
+const numericIdSchema = z.string().regex(/^[1-9]\d*$/, 'must be a positive integer');
+
 const VCS_READ_REQUIRES = none('read-only VCS queries have no admission obligation');
 const VCS_READ_ENSURES = none('read-only VCS queries write no durable postcondition');
 const VCS_PROVIDER_NEEDS = none('VCS provider calls are not in the closed capability vocabulary');
@@ -76,7 +82,7 @@ export const vcsActions: readonly BuiltinToolAction[] = [
       name: 'merge_pr',
       description: 'Merge a pull/merge request via the VCS provider abstraction. Auto-emits pr.merged event on success.',
       schema: z.object({
-        prId: z.string().min(1),
+        prId: numericIdSchema,
         strategy: z.enum(['squash', 'rebase', 'merge']),
       }),
       phases: ALL_PHASES,
@@ -116,7 +122,7 @@ export const vcsActions: readonly BuiltinToolAction[] = [
       name: 'check_ci',
       description: 'Check CI status for a pull/merge request via the VCS provider abstraction. Read-only, no events emitted.',
       schema: z.object({
-        prId: z.string().min(1),
+        prId: numericIdSchema,
       }),
       phases: ALL_PHASES,
       roles: ROLE_ANY,
@@ -170,7 +176,7 @@ export const vcsActions: readonly BuiltinToolAction[] = [
       name: 'get_pr_comments',
       description: 'Get comments on a pull/merge request via the VCS provider abstraction. Read-only, no events emitted.',
       schema: z.object({
-        prId: z.string().min(1),
+        prId: numericIdSchema,
         /** The window and projection inputs. The schema declares them, so the CLI derives their flags. */
         limit: coercedPositiveInt().optional(),
         offset: coercedNonnegativeInt().optional(),
@@ -200,9 +206,9 @@ export const vcsActions: readonly BuiltinToolAction[] = [
       name: 'add_pr_comment',
       description: 'Add a comment to a pull/merge request via the VCS provider abstraction. Pass threadId to reply into an existing review-comment thread (provider-agnostic addReply) instead of posting a PR-level comment. Auto-emits pr.comment.requested before the provider call and pr.comment.executed after it.',
       schema: z.object({
-        prId: z.string().min(1),
+        prId: numericIdSchema,
         body: z.string().min(1),
-        threadId: z.string().min(1).optional(),
+        threadId: numericIdSchema.optional(),
       }),
       phases: ALL_PHASES,
       roles: ROLE_ANY,
