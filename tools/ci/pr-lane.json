@@ -46,7 +46,16 @@
       { "id": "render-guard", "run": "npm run -s render:guard" },
       { "id": "desc-budget-guard", "run": "npm run -s desc:budget-guard" },
       { "id": "cli-vocab-guard", "run": "npm run -s cli:vocab-guard" },
-      { "id": "lint-comments", "run": "node tools/audit/gates/lint-comments.mjs --base {base}", "exclusive": true },
+      {
+        "id": "lint-comments",
+        "run": "node tools/audit/gates/lint-comments.mjs --base {base}",
+        "exclusive": true,
+        "diffScope": {
+          "why": "Every comment rule reads one file, the policy and the baseline. No rule is type-aware, so a change to one file cannot change the verdict on another. The full globs are the inputs that can.",
+          "maxFiles": 300,
+          "fullGlobs": ["eslint.config.js", "tools/eslint-rules/**", "tools/audit/lib/**", "tools/audit/gates/lint-comments.mjs", "tools/audit/comment-quality/**", ".exarchos/comment-policy.json", "package.json", "package-lock.json"]
+        }
+      },
       { "id": "cycle-gate", "run": "npx --no-install tsx tools/audit/cycle-gate.ts", "exclusive": true },
       { "id": "conformance", "run": "npx --no-install vitest run --project conformance --reporter=dot --maxWorkers={workers}", "exclusive": true },
       { "id": "architecture", "run": "npx --no-install vitest run --project unit tests/architecture --reporter=dot --maxWorkers={workers}", "exclusive": true }
@@ -188,7 +197,7 @@
     "grep-gates: vitest run tests/scripts/guard-inventory.test.ts": "tests:unit",
     "grep-gates: vitest run tests/scripts/tsconfig-strictness/count-casts.test.ts": "tests:unit",
     "grep-gates: tsx tools/audit/core/output-schema-ratchet-guard.ts": "static:output-schema-ratchet",
-    "grep-gates: vitest run tests/core/scripts/output-schema-ratchet-guard.test.ts src/output-schema-vacuity-allowlist.test.ts": "tests:core-forced",
+    "grep-gates: vitest run tests/core/scripts/output-schema-ratchet-guard.test.ts tests/unit/output-schema-vacuity-allowlist.test.ts": "tests:core-forced",
     "grep-gates: npm run test:conformance": "static:conformance",
     "grep-gates: tsx tools/audit/core/cli-derivation-ratchet-guard.ts": "static:cli-derivation-ratchet",
     "grep-gates: tsx tools/audit/core/cli-derivation-guard.ts": "static:cli-derivation-guard",

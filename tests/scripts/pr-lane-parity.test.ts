@@ -153,8 +153,9 @@ describe('pull request lane parity with ci.yml', () => {
     const forced = new Set(forcedCoreFiles(MANIFEST));
     const files = ciSteps(CI_TEXT)
       .filter((step) => MANIFEST.ciCoverage[step.key] === 'tests:core-forced')
-      .flatMap((step) => step.command.split(' ').filter((token) => token.endsWith('.test.ts') && existsSync(join(REPO_ROOT, token))));
+      .flatMap((step) => step.command.split(' ').filter((token) => token.endsWith('.test.ts')));
     expect(files.length).toBeGreaterThan(5);
+    expect(files.filter((file) => !existsSync(join(REPO_ROOT, file)))).toEqual([]);
     expect(files.filter((file) => !forced.has(file))).toEqual([]);
   });
 
@@ -237,14 +238,29 @@ describe('pull request lane selection', () => {
     expect(content.some((entry) => entry.startsWith('process'))).toBe(false);
     const source = plan(['src/index.ts']).map((s) => s.id);
     expect(source).toEqual(expect.arrayContaining(['process', 'outcome', 'core']));
+    expect(plan(['src/index.ts']).find((step) => step.id === 'process')?.run).toContain('--maxWorkers=4');
   });
 
   it('passes the base to the comment lint and sizes vitest workers from the agent limits', () => {
     const plan = staticPlan(MANIFEST, { base: 'abc123', mode: 'selected', changed: [], limits: SMALL });
     expect(plan.exclusive.find((step) => step.id === 'lint-comments')?.run).toContain('--base abc123');
-    expect(plan.exclusive.find((step) => step.id === 'architecture')?.run).toContain('--maxWorkers=1');
+    expect(plan.exclusive.find((step) => step.id === 'architecture')?.run).toContain('--maxWorkers=2');
     expect(workerCount(MEDIUM, 3)).toBe(4);
     expect(workerCount(SMALL, 3)).toBe(1);
+  });
+
+  it('limits the comment lint to the changed files unless the diff changes a comment rule input', () => {
+    const lint = (mode: 'selected' | 'full', changed: string[], present: string[] = changed) =>
+      staticPlan(MANIFEST, { base: 'b', mode, changed, present, limits: SMALL }).exclusive.find((step) => step.id === 'lint-comments')?.run ?? '';
+    expect(lint('selected', ['src/a.ts', "src/it's.ts"])).toBe(`node tools/audit/gates/lint-comments.mjs --base b --files 'src/a.ts' --files 'src/it'\\''s.ts'`);
+    expect(lint('selected', ['src/a.ts', 'tools/eslint-rules/comment-prose.js'])).not.toContain('--files');
+    expect(lint('selected', ['src/a.ts', '.exarchos/comment-policy.json'])).not.toContain('--files');
+    expect(lint('selected', ['src/a.ts', 'tools/audit/comment-quality/baseline.tsv'])).not.toContain('--files');
+    expect(lint('full', ['src/a.ts'])).not.toContain('--files');
+    expect(lint('selected', ['src/gone.ts'], [])).not.toContain('--files');
+    const many = Array.from({ length: 301 }, (_, index) => `src/f${index}.ts`);
+    expect(lint('selected', many)).not.toContain('--files');
+    expect(staticPlan(MANIFEST, { base: 'b', mode: 'selected', changed: ['src/a.ts'], present: ['src/a.ts'], limits: SMALL }).exclusive.find((step) => step.id === 'architecture')?.run).not.toContain('--files');
   });
 
   it('refuses a missing base, an unknown suite and an unknown mode', () => {

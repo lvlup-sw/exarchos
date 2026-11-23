@@ -27,8 +27,11 @@ export const MANIFEST_PATH = path.join(REPO_ROOT, 'tools', 'ci', 'pr-lane.json')
 /** The default summary file. The Buildkite worker publishes files that a job writes to `/out`. */
 const DEFAULT_SUMMARY_PATH = '/out/exarchos-summary.json';
 
-/** The memory in GiB that each vitest worker of a project uses, plus the memory kept for the main process. */
-const WORKER_MEMORY_GIB = Object.freeze({ static: 1.5, unit: 2, core: 3, reserve: 1.5 });
+/**
+ * The memory in GiB that each vitest worker of a project uses, plus the memory kept for the main process.
+ * In a 4 GiB container, the `static` architecture run peaks at 1.2 GiB with two workers, so the `static` value allows two workers there.
+ */
+const WORKER_MEMORY_GIB = Object.freeze({ static: 0.75, unit: 2, core: 3, reserve: 1.5 });
 
 /** One GiB in bytes. */
 const GIB = 1024 ** 3;
@@ -266,10 +269,26 @@ export function relativeImports(file, text) {
 }
 
 /**
+ * Returns the `--files` arguments that limit a diff-scoped gate to the changed files, or an empty string for a full run.
+ * The gate runs in full in `full` mode and when the diff only deletes files. It also runs in full for a diff larger than
+ * `maxFiles`, or when a changed path matches `fullGlobs`. The full globs name the inputs that change the verdict on an unchanged file.
+ *
+ * @param {{ fullGlobs: string[], maxFiles: number } | undefined} scope
+ * @param {{ mode: 'selected' | 'full', changed: string[], present?: string[] }} context
+ * @returns {string}
+ */
+export function diffScopeArgs(scope, context) {
+  const present = context.present ?? [];
+  if (scope === undefined || context.mode === 'full' || present.length === 0 || present.length > scope.maxFiles) return '';
+  if (context.changed.some((file) => matchesAny(scope.fullGlobs, file))) return '';
+  return present.map((file) => ` --files '${file.replace(/'/g, `'\\''`)}'`).join('');
+}
+
+/**
  * Builds the step list of the `static` suite.
  *
  * @param {any} manifest
- * @param {{ base: string, mode: 'selected' | 'full', changed: string[], limits: { cpus: number, memoryBytes: number } }} context
+ * @param {{ base: string, mode: 'selected' | 'full', changed: string[], present?: string[], limits: { cpus: number, memoryBytes: number } }} context
  * The gates only read the tree, so they run in parallel. The self-tests plant fixtures in the live tree, so they run one at a time after the gates.
  *
  * @returns {{ build: Array<{ id: string, run: string }>, parallel: Array<{ id: string, run: string }>, selfTests: Array<{ id: string, run: string }>, exclusive: Array<{ id: string, run: string }> }}
@@ -277,7 +296,7 @@ export function relativeImports(file, text) {
 export function staticPlan(manifest, context) {
   const workers = String(workerCount(context.limits, WORKER_MEMORY_GIB.static));
   const fill = (run) => run.replaceAll('{base}', context.base).replaceAll('{workers}', workers);
-  const gates = manifest.static.gates.map((gate) => ({ ...gate, run: fill(gate.run) }));
+  const gates = manifest.static.gates.map(({ diffScope, ...gate }) => ({ ...gate, run: fill(gate.run) + diffScopeArgs(diffScope, context) }));
   return {
     build: manifest.static.build.map((step) => ({ ...step, run: fill(step.run) })),
     parallel: gates.filter((gate) => gate.exclusive !== true),
@@ -323,6 +342,7 @@ function hostTarget() {
 
 /**
  * Builds the step list of the `tests` suite. Each step runs in order, and the suite stops at the first failure.
+ * The process tier runs one worker for each CPU, as the `ci.yml` run does. The outcome tier runs one file at a time by its own config.
  *
  * @param {any} manifest
  * @param {{ base: string, mode: 'selected' | 'full', changed: string[], present: string[], limits: { cpus: number, memoryBytes: number }, binDir: string, scratch: string, forced: string[], unitFiles?: string[] }} context
@@ -355,7 +375,7 @@ export function testsPlan(manifest, context) {
     const report = path.join(context.scratch, 'process-report.json');
     steps.push({
       id: 'process',
-      run: `${vitest(`run --project process --passWithNoTests --reporter=json --outputFile='${report}'`, 1)} && node -e "const r=require('${report}');const n=(r.numPassedTests||0)+(r.numFailedTests||0);console.log('process tests executed: '+n);if(n<${tests.processFloor}){console.error('the process tier executed '+n+' tests, below the floor of ${tests.processFloor}');process.exit(1)}"`,
+      run: `${vitest(`run --project process --passWithNoTests --reporter=json --outputFile='${report}'`, unitWorkers)} && node -e "const r=require('${report}');const n=(r.numPassedTests||0)+(r.numFailedTests||0);console.log('process tests executed: '+n);if(n<${tests.processFloor}){console.error('the process tier executed '+n+' tests, below the floor of ${tests.processFloor}');process.exit(1)}"`,
     });
     steps.push({ id: 'outcome', run: vitest('run --project outcome', 1) });
   }
@@ -480,7 +500,7 @@ export async function main(argv) {
     const unitFiles = options.suite === 'tests' ? unitFilesOutsideArchitecture(env, manifest) : [];
     const plan =
       options.suite === 'static'
-        ? Object.values(staticPlan(manifest, { base: options.base, mode, changed: all, limits })).flat()
+        ? Object.values(staticPlan(manifest, { base: options.base, mode, changed: all, present, limits })).flat()
         : testsPlan(manifest, { base: options.base, mode, changed: all, present, limits, binDir, scratch, forced, unitFiles });
     process.stdout.write(`changed present files: ${present.length}, forced core files: ${forced.length}, unit files: ${unitFiles.length}\n`);
     for (const step of plan) process.stdout.write(`- ${step.id}: ${step.run.length > 240 ? `${step.run.slice(0, 240)}… (${step.run.length} chars)` : step.run}\n`);
@@ -490,7 +510,7 @@ export async function main(argv) {
   const summary = { suite: options.suite, mode, base: options.base, changedFiles: all.length, limits, steps: results };
   try {
     if (options.suite === 'static') {
-      const plan = staticPlan(manifest, { base: options.base, mode, changed: all, limits });
+      const plan = staticPlan(manifest, { base: options.base, mode, changed: all, present, limits });
       for (const step of plan.build) {
         const result = await runStep(step, { env, stream: true });
         results.push(result);
