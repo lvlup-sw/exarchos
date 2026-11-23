@@ -164,11 +164,18 @@ function validatedEmission(emit: () => unknown): GenerationResult {
   }
 }
 
+/** A refused inspection request. */
+interface InspectionFailure { ok: false; error: { code: 'INVALID_INPUT'; message: string } }
+
+function inspectionFailure(message: string): InspectionFailure {
+  return { ok: false, error: { code: 'INVALID_INPUT', message } };
+}
+
 export function dispatchInspection(input: unknown) {
-  if (!inputWithinBudget(input)) return { ok: false as const, error: { code: 'INVALID_INPUT' as const, message: 'Inspection exceeds the metadata budget.' } };
+  if (!inputWithinBudget(input)) return inspectionFailure('Inspection exceeds the metadata budget.');
   const parsed = inspectInput.safeParse(input);
   if (!parsed.success || new Set(parsed.data.files.map(({ path }) => path)).size !== parsed.data.files.length) {
-    return { ok: false as const, error: { code: 'INVALID_INPUT' as const, message: 'Supply valid, unique repository metadata paths.' } };
+    return inspectionFailure('Supply valid, unique repository metadata paths.');
   }
   return inspectProject(parsed.data);
 }
