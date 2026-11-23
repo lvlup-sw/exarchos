@@ -5,7 +5,6 @@ import * as os from 'node:os';
 import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
 import type { ToolResult } from '../../../../src/format.js';
 import type { PruneHandlerDeps } from '../../../../src/verbs/team/prune-stale-workflows.js';
-import type { VerificationHostConnector } from '../../../../src/contract/verification/harness-verification.js';
 
 vi.mock('../../../../src/workflow/state-store.js', async (importOriginal) => {
   const original = await importOriginal<typeof import('../../../../src/workflow/state-store.js')>();
@@ -229,20 +228,14 @@ describe('initializeContext', () => {
     await rmrfAsync(projectRoot);
   });
 
-  /** Startup passes the connector that it read, with no change, and reads no home directory itself. */
-  it('InitializeContext_SuppliedConnector_ReturnsItAsVerificationHost', async () => {
+  /** The context carries no field of the retired verifier host, with or without a project root. */
+  it('InitializeContext_AnyProjectRoot_CarriesNoVerifierConnector', async () => {
     const { initializeContext } = await import('../../../../src/dispatch/core/context.js');
-    const unavailable: { kind: 'unavailable'; reason: string } = { kind: 'unavailable', reason: 'fixture' };
-    const connector: VerificationHostConnector = {
-      publicKey: '', gitPath: '', resourceId: '', profileId: '',
-      client: { submit: async () => unavailable, retrieve: async () => unavailable },
-    };
     const projectRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'ctx-host-'));
 
     try {
-      expect((await initializeContext(tmpDir, { verificationHost: connector })).verificationHost).toBe(connector);
-      expect((await initializeContext(tmpDir, { projectRoot, verificationHost: connector })).verificationHost).toBe(connector);
-      expect((await initializeContext(tmpDir, { projectRoot })).verificationHost).toBeUndefined();
+      expect(Object.keys(await initializeContext(tmpDir))).not.toContain('verificationHost');
+      expect(Object.keys(await initializeContext(tmpDir, { projectRoot }))).not.toContain('verificationHost');
     } finally {
       await rmrfAsync(projectRoot);
     }

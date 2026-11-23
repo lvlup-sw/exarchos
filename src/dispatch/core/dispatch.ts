@@ -16,7 +16,6 @@
  */
 
 import type { z } from 'zod';
-import type { VerificationHostConnector } from '../../contract/verification/harness-verification.js';
 import type { TaskVerificationCoordinateSchema } from '../../contract/capsule/exarchos-capsule.js';
 import type { ToolResult } from '../../format.js';
 import { logger } from '../../logger.js';
@@ -158,8 +157,6 @@ export interface DispatchContext {
    * The composition root sets no profile, and a caller over MCP or the CLI cannot set the field.
    */
   readonly verificationProfile?: PinnedVerificationProfile;
-  /** The operator supplies a private closed connector, never a public action argument. */
-  readonly verificationHost?: VerificationHostConnector;
   /** Only the bound executor supplies the winning coordinate and its stable segment identity. */
   readonly verificationInput?: {
     readonly coordinate: z.infer<typeof TaskVerificationCoordinateSchema>;

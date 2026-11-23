@@ -23,7 +23,7 @@ export interface PruneSafeguards {
 }
 
 /**
- * The Git observation of one prune call: the selected connector Git path, the one reader source, and the one located checkout of the working directory.
+ * The Git observation of one prune call: the selected Git path, the one reader source, and the one located checkout of the working directory.
  * The checkout read runs once, at its first use.
  */
 export interface PruneObservation {
@@ -33,7 +33,7 @@ export interface PruneObservation {
 }
 
 /**
- * Create the Git observation of one prune call. A non-empty `gitPath` is the connector Git path, else the reads use the process-wide Git path.
+ * Create the Git observation of one prune call. A non-empty `gitPath` names the Git executable, else the reads use the process-wide Git path.
  * Nothing is memoized past the call, so a long-lived server sees a Git upgrade.
  */
 export function pruneObservation(gitPath?: string): PruneObservation {

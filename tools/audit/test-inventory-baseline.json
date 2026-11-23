@@ -4,11 +4,11 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1510,
-    "parsedFiles": 1466,
+    "testFiles": 1506,
+    "parsedFiles": 1462,
     "shellFiles": 44,
-    "cases": 16774,
-    "dynamicTitles": 344,
+    "cases": 16747,
+    "dynamicTitles": 337,
     "unparseableFiles": 0
   },
   "unparseable": [],
@@ -5135,7 +5135,7 @@
         },
         {
           "suite": "dispatch keeps the code of a check that did not run",
-          "name": "Dispatch_UnboundAdequacyOnProvisionedMachine_RunsLocallyAndIgnoresTheConnector",
+          "name": "Dispatch_UnboundAdequacy_RunsLocallyAndFailsClosedOnAnUnreadableDiff",
           "dynamic": false
         }
       ]
@@ -8783,7 +8783,7 @@
         },
         {
           "suite": "fast paths of the compiled binary",
-          "name": "RunTests_NoVerifierProvisioning_RunsLocallyAndKeepsExits77And75",
+          "name": "RunTests_ResolvedCommand_RunsLocallyAndKeepsExits77And75",
           "dynamic": false
         },
         {
@@ -10500,7 +10500,7 @@
       "cases": [
         {
           "suite": "lifecycle and team routes in the local executor",
-          "name": "LocalRoutes_NoConnector_RunTheApprovedLegsWithNoPlainGitStart",
+          "name": "LocalRoutes_ApprovedLegs_RunWithNoPlainGitStart",
           "dynamic": false
         },
         {
@@ -10515,7 +10515,7 @@
         },
         {
           "suite": "lifecycle and team routes in the local executor",
-          "name": "LocalRoutes_UnusableConnector_IsIgnored",
+          "name": "LocalRoutes_ARetiredVerifierTerm_IsIgnored",
           "dynamic": false
         },
         {
@@ -10570,22 +10570,22 @@
         },
         {
           "suite": "converted observational callers: the recording Git path",
-          "name": "ConvertedCallers_ConnectorGitPath_EveryReadIsAConstrainedRecordedRead",
+          "name": "ConvertedCallers_ARetiredVerifierTerm_SelectsNoGitPath",
           "dynamic": false
         },
         {
           "suite": "converted observational callers: the recording Git path",
-          "name": "ConvertedCallers_NoConnector_ReadThroughTheProcessWidePath",
+          "name": "ConvertedCallers_EveryRead_UsesTheProcessWidePath",
           "dynamic": false
         },
         {
           "suite": "converted observational callers: the recording Git path",
-          "name": "ConvertedCallers_NoConnector_FailedMockBoundaryReadGivesDiffError",
+          "name": "ConvertedCallers_FailedMockBoundaryRead_GivesDiffError",
           "dynamic": false
         },
         {
           "suite": "converted observational callers: the recording Git path",
-          "name": "ConvertedCallers_UnusableConnector_DiffGatesUseTheProcessPathAndMockBoundaryRefuses",
+          "name": "ConvertedCallers_UnusableProcessGitPath_EveryDiffReadFailsClosed",
           "dynamic": false
         },
         {
@@ -10615,12 +10615,12 @@
         },
         {
           "suite": "constrained observational reads: Git path selection",
-          "name": "ConnectorGitPath_PreferredOverPath_NoShimGitStarts",
+          "name": "PrimedGitPath_ReviewSchemaSyncAndPolishScope_NoShimGitStarts",
           "dynamic": false
         },
         {
           "suite": "constrained observational reads: Git path selection",
-          "name": "PrimedConnectorGitPath_DetectionWithoutGitPath_OnlyConnectorShimRuns",
+          "name": "PrimedGitPath_DetectionWithoutGitPath_OnlyThePrimedWrapperRuns",
           "dynamic": false
         },
         {
@@ -10717,32 +10717,6 @@
         {
           "suite": "exact staged PR observation",
           "name": "SharedPurePolicy_PreservesLegacyDefaultAndCaseSemantics",
-          "dynamic": false
-        }
-      ]
-    },
-    "tests/integration/1928-verifier-protocol.test.ts": {
-      "file": "tests/integration/1928-verifier-protocol.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "private verifier protocol",
-          "name": "Framing_ExactBoundAndMalformedBytesRefuseBeforeDecode",
-          "dynamic": false
-        },
-        {
-          "suite": "private verifier protocol",
-          "name": "Claims_StableOperationAliasesAndUnknownLeasesSurviveRestart",
-          "dynamic": false
-        },
-        {
-          "suite": "private verifier protocol",
-          "name": "AuthorizationFailure_RereadsAConcurrentOriginalClaim",
-          "dynamic": false
-        },
-        {
-          "suite": "private verifier protocol",
-          "name": "SignedStatuses_ExactSubjectAndSignerCannotBeSubstituted",
           "dynamic": false
         }
       ]
@@ -11723,7 +11697,7 @@
         },
         {
           "suite": "",
-          "name": "DataOnly_UnusableProvisioning_RunTestsIgnoresItAndUnboundAdequacyRunsLocallyWithNoTestCommand",
+          "name": "DataOnly_MalformedOldProvisioningFile_RunTestsIgnoresItAndUnboundAdequacyRunsLocallyWithNoTestCommand",
           "dynamic": false
         },
         {
@@ -11733,7 +11707,7 @@
         },
         {
           "suite": "",
-          "name": "DataOnly_ProvisionedVerifier_RunTestsRunsLocallyWithTheChildCodeAlsoInADirtyTree",
+          "name": "DataOnly_WellFormedOldProvisioningFile_RunTestsRunsLocallyWithTheChildCodeAlsoInADirtyTree",
           "dynamic": false
         },
         {
@@ -11753,38 +11727,12 @@
         },
         {
           "suite": "",
-          "name": "DataOnly_Startup_StartsNoGitWithProvisioningAbsentUnusableOrUsable",
+          "name": "DataOnly_Startup_StartsNoGitWithAnOldProvisioningFileAbsentMalformedOrWellFormed",
           "dynamic": false
         },
         {
           "suite": "",
           "name": "<dynamic-case-6>",
-          "dynamic": true
-        }
-      ]
-    },
-    "tests/process/1928-host-recovery.test.ts": {
-      "file": "tests/process/1928-host-recovery.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "",
-          "name": "HostedAdequacy_RecognizesAssertionButNotInfrastructureAndReplaysOriginal",
-          "dynamic": false
-        },
-        {
-          "suite": "",
-          "name": "<dynamic-case-1>",
-          "dynamic": true
-        },
-        {
-          "suite": "",
-          "name": "HostedAdequacy_InterruptedRestorationKeepsOriginalClaimAndResourceLease",
-          "dynamic": false
-        },
-        {
-          "suite": "",
-          "name": "<dynamic-case-2>",
           "dynamic": true
         }
       ]
@@ -11795,7 +11743,7 @@
       "cases": [
         {
           "suite": "",
-          "name": "LocalGates_BoundChecksRunInTheLocalExecutorWithOrWithoutAVerifier",
+          "name": "LocalGates_BoundChecksRunInTheLocalExecutorAndARepeatReplays",
           "dynamic": false
         },
         {
@@ -11922,7 +11870,7 @@
       "cases": [
         {
           "suite": "",
-          "name": "LocalLifecycle_ApprovedOperationsRunInTheLocalExecutorWithNoVerifier",
+          "name": "LocalLifecycle_ApprovedOperationsRunInTheLocalExecutor",
           "dynamic": false
         },
         {
@@ -12008,7 +11956,7 @@
       "cases": [
         {
           "suite": "",
-          "name": "ObservationalReads_Startup_StartsNoGitWithProvisioningAbsentOrPresent",
+          "name": "ObservationalReads_Startup_StartsNoGitWithOrWithoutAnOldProvisioningFile",
           "dynamic": false
         },
         {
@@ -12018,7 +11966,7 @@
         },
         {
           "suite": "",
-          "name": "ObservationalReads_Unprovisioned_ResolvesOnceFromPathAndRunsTheConstrainedFlags",
+          "name": "ObservationalReads_AnyProcess_ResolvesOnceFromPathAndRunsTheConstrainedFlags",
           "dynamic": false
         },
         {
@@ -12038,7 +11986,7 @@
         },
         {
           "suite": "",
-          "name": "ObservationalReads_UsableProvisioning_PrefersTheConnectorGitPath",
+          "name": "ObservationalReads_OldProvisioningFile_ReadsResolveFromPathOnly",
           "dynamic": false
         },
         {
@@ -12048,32 +11996,12 @@
         },
         {
           "suite": "",
-          "name": "ObservationalReads_UsableProvisioning_PrimesTheDetectionOfAnUnownedCaller",
-          "dynamic": false
-        },
-        {
-          "suite": "",
-          "name": "<dynamic-case-5>",
-          "dynamic": true
-        },
-        {
-          "suite": "",
           "name": "ObservationalReads_ConvertedCallers_PathShimRunsOnlyConstrainedReads",
           "dynamic": false
         },
         {
           "suite": "",
-          "name": "<dynamic-case-6>",
-          "dynamic": true
-        },
-        {
-          "suite": "",
-          "name": "ObservationalReads_ConvertedCallers_ProvisionedRecordingGitPathRunsOnlyConstrainedReads",
-          "dynamic": false
-        },
-        {
-          "suite": "",
-          "name": "<dynamic-case-7>",
+          "name": "<dynamic-case-5>",
           "dynamic": true
         }
       ]
@@ -12111,47 +12039,6 @@
         {
           "suite": "",
           "name": "<dynamic-case-2>",
-          "dynamic": true
-        }
-      ]
-    },
-    "tests/process/1928-verifier-binary.test.ts": {
-      "file": "tests/process/1928-verifier-binary.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "",
-          "name": "IndependentVerifier_RealConfinementOriginalReplayAndProtectedProvisioning",
-          "dynamic": false
-        },
-        {
-          "suite": "",
-          "name": "<dynamic-case-1>",
-          "dynamic": true
-        },
-        {
-          "suite": "",
-          "name": "IndependentVerifier_CrashRetainsUnknownClaimAndStopsOwnedChildren",
-          "dynamic": false
-        },
-        {
-          "suite": "",
-          "name": "<dynamic-case-2>",
-          "dynamic": true
-        },
-        {
-          "suite": "",
-          "name": "VerifierBundle_ReachesOnlyReportParsersOfConfig",
-          "dynamic": false
-        },
-        {
-          "suite": "",
-          "name": "HostedRuntime_RefusesUnsafeSourcesAndRunnerProfilesBeforeAnyClaim",
-          "dynamic": false
-        },
-        {
-          "suite": "",
-          "name": "<dynamic-case-3>",
           "dynamic": true
         }
       ]
@@ -25489,7 +25376,7 @@
         },
         {
           "suite": "initializeContext",
-          "name": "InitializeContext_SuppliedConnector_ReturnsItAsVerificationHost",
+          "name": "InitializeContext_AnyProjectRoot_CarriesNoVerifierConnector",
           "dynamic": false
         },
         {
@@ -26632,52 +26519,6 @@
         {
           "suite": "ReconcileTypes_PlanStepSurface_TaggedCliOnly",
           "name": "ReconcileResult parses the four step buckets + advisories and rejects malformed",
-          "dynamic": false
-        }
-      ]
-    },
-    "tests/unit/dispatch/core/verifier-client.test.ts": {
-      "file": "tests/unit/dispatch/core/verifier-client.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "loadVerifierProvisioning",
-          "name": "LoadVerifierProvisioning_EnoentOnly_IsAbsent",
-          "dynamic": false
-        },
-        {
-          "suite": "loadVerifierProvisioning",
-          "name": "LoadVerifierProvisioning_Enotdir_IsUnusableNotAbsent",
-          "dynamic": false
-        },
-        {
-          "suite": "loadVerifierProvisioning",
-          "name": "LoadVerifierProvisioning_DanglingFileLink_IsUnusable",
-          "dynamic": false
-        },
-        {
-          "suite": "loadVerifierProvisioning",
-          "name": "LoadVerifierProvisioning_SymlinkedAncestor_IsUnusable",
-          "dynamic": false
-        },
-        {
-          "suite": "loadVerifierProvisioning",
-          "name": "LoadVerifierProvisioning_StrictSchema_RefusesAnUnknownField",
-          "dynamic": false
-        },
-        {
-          "suite": "loadVerifierProvisioning",
-          "name": "LoadVerifierProvisioning_Usable_KeepsTheExactIdentityBytes",
-          "dynamic": false
-        },
-        {
-          "suite": "loadVerifierProvisioning",
-          "name": "LoadVerifierProvisioning_IntegrationIdentity_IsExposedToSettle",
-          "dynamic": false
-        },
-        {
-          "suite": "loadVerifierProvisioning",
-          "name": "LoadVerifierProvisioning_MalformedIntegrationIdentity_IsUnusable",
           "dynamic": false
         }
       ]
@@ -55077,7 +54918,7 @@
         },
         {
           "suite": "handleOrchestrate > composite actions",
-          "name": "HandleOrchestrate_ProvisionedLifecycleActions_GetNoConnector",
+          "name": "HandleOrchestrate_LifecycleActions_DropACallerCopyOfARetiredVerifierTerm",
           "dynamic": false
         },
         {
@@ -57723,7 +57564,7 @@
         },
         {
           "suite": "check_contract_drift registration + dispatch + steer",
-          "name": "HandleOrchestrate_AProvisionedVerifier_IsIgnoredAndTheLegsRun",
+          "name": "HandleOrchestrate_ARetiredVerifierTerm_IsIgnoredAndTheLegsRun",
           "dynamic": false
         },
         {

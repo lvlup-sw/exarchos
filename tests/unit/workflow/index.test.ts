@@ -133,7 +133,7 @@ function advertisedPropertyNames(schema: unknown): string[] {
   return typeof properties === 'object' && properties !== null ? Object.keys(properties) : [];
 }
 
-/** The scratch home of this file. `createServer` reads the verifier provisioning under the home once per file, so no test reads the real home. */
+/** The scratch home of this file. No test of this file reads or writes the real home. */
 let scratchHome = '';
 
 beforeAll(() => {
@@ -152,7 +152,7 @@ afterAll(() => {
 });
 
 describe('MCP Server Entry Point', () => {
-  /** `createServer` reads the verifier provisioning under `os.homedir()`, so the home of this file is its scratch home and never the real one. */
+  /** `createServer` reads no file under `os.homedir()`. The home of this file is still its scratch home and never the real one. */
   it('CreateServer_HomeDirectory_IsTheScratchHomeOfThisFile', () => {
     expect(homedir()).toBe(scratchHome);
     expect(scratchHome).not.toBe(ORIGINAL_HOME.HOME);

@@ -735,12 +735,6 @@ export async function persistWorkflowRiskTier(
   });
 }
 
-/** The connector Git path of the call. An empty path counts as no path, so the guards use the process-wide Git path. */
-function observationalGitPathOf(ctx: DispatchContext | undefined): string | undefined {
-  const gitPath = ctx?.verificationHost?.gitPath;
-  return gitPath === undefined || gitPath === '' ? undefined : gitPath;
-}
-
 /**
  * The warning of a call with no `repoRoot`. The git guards, the stash probe and a relative `planPath` then read the server directory.
  * That directory can be another checkout than the checkout of the caller.
@@ -928,7 +922,7 @@ export async function handlePrepareDelegation(
     const warnings: string[] = repoRoot === undefined ? [serverDirectoryWarning(process.cwd())] : [];
     const withWarnings = (): { warnings?: string[] } => (warnings.length > 0 ? { warnings } : {});
 
-    const observation = await observeDispatchCheckout(repoRoot, observationalGitPathOf(ctx));
+    const observation = await observeDispatchCheckout(repoRoot, undefined);
 
     const preflightStart = Date.now();
     const guardOutcomes: {

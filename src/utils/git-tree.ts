@@ -526,8 +526,8 @@ function searchPathForGit(): string | undefined {
 }
 
 /**
- * Set the process-wide Git path of the observational reads. A non-empty `gitPath` is the Git path of a usable provisioning.
- * Without it, one PATH search sets the path. The prime starts no process.
+ * Set the process-wide Git path of the observational reads. Startup passes no `gitPath`, so one PATH search sets the path.
+ * A non-empty `gitPath` sets that path instead. Only a test passes one. The prime starts no process.
  */
 export function primeObservationalGitPath(gitPath?: string): void {
   observationalGitPath = { path: gitPath !== undefined && gitPath !== '' ? gitPath : searchPathForGit() };

@@ -151,6 +151,10 @@ const RETIRED_TEST_FILES: ReadonlyArray<{ path: string; subject: string }> = [
   { path: 'tests/unit/verbs/gates/mutation-adequacy.report.test.ts', subject: 'src/verbs/gates/mutation-adequacy.ts' },
   { path: 'tests/unit/verbs/gates/mutation-adequacy.characterization.test.ts', subject: 'src/verbs/gates/mutation-adequacy.ts' },
   { path: 'tests/unit/config/mutation-diff-scope.test.ts', subject: 'src/config/mutation-diff-scope.ts' },
+  { path: 'tests/integration/1928-verifier-protocol.test.ts', subject: 'src/runtime/verification-host/claims.ts' },
+  { path: 'tests/process/1928-verifier-binary.test.ts', subject: 'src/runtime/verification-host/main.ts' },
+  { path: 'tests/process/1928-host-recovery.test.ts', subject: 'src/runtime/verification-host/adequacy.ts' },
+  { path: 'tests/unit/dispatch/core/verifier-client.test.ts', subject: 'src/dispatch/core/verifier-client.ts' },
 ];
 
 describe('test inventory', () => {

@@ -16,7 +16,6 @@ import {
 } from '../../../../src/verbs/gates/contract-drift-handler.js';
 import type { GitExec } from '../../../../src/verbs/pure/execute-merge.js';
 import type { CommandRunFn } from '../../../../src/verbs/gates/contract-drift.js';
-import type { VerificationHostConnector } from '../../../../src/contract/verification/harness-verification.js';
 import { fakeExecutor } from '../../../helpers/verification/check-executor.js';
 
 vi.mock('../../../../src/verbs/gates/durable-gate-producer.js', async (importOriginal) => {
@@ -126,20 +125,17 @@ describe('check_contract_drift registration + dispatch + steer', () => {
     );
   });
 
-  /** The composite ignores a provisioned connector and a caller copy of the private terms. The legs run, and the client is never called. */
-  it('HandleOrchestrate_AProvisionedVerifier_IsIgnoredAndTheLegsRun', async () => {
+  /** The composite ignores a caller copy of a retired verifier term, and the legs run. */
+  it('HandleOrchestrate_ARetiredVerifierTerm_IsIgnoredAndTheLegsRun', async () => {
     const arm = await makeArm('contract-hosted-');
     arms.push(arm);
     const calls: string[] = [];
     const runCommand: CommandRunFn = async ({ argv }) => { calls.push(argv.join(' ')); return { exitCode: 0, stdout: 'no breaking changes' }; };
-    const unused = async (): Promise<never> => { throw new Error('The verifier client must not be called'); };
-    const connector: VerificationHostConnector = { publicKey: '', gitPath: '/usr/bin/git', resourceId: 'r', profileId: 'p',
-      client: { submit: unused, retrieve: unused } };
     const args = { action: 'check_contract_drift', featureId: 'feat-hosted', taskId: 'T-1', baseBranch: 'main', repoRoot: contractRepo(),
       gitExec: gitMergeBase, runCommand };
 
-    const provisioned = await handleOrchestrate({ ...args, hostCheck: { connector } }, { ...arm.ctx, verificationHost: connector });
-    expect(provisioned).toMatchObject({ success: true, data: { passed: true } });
+    const result = await handleOrchestrate({ ...args, hostCheck: { gitPath: '/nonexistent/git' } }, arm.ctx);
+    expect(result).toMatchObject({ success: true, data: { passed: true } });
     expect(calls.length).toBeGreaterThan(0);
   });
 

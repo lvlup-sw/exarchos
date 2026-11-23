@@ -394,11 +394,10 @@ async function observedBranchActivityTimestamp(
 
 /**
  * Production dep bundle — real `handleList`/`handleCancel` + default safeguards.
- * One Git observation serves the call. It uses a non-empty connector Git path, else the process-wide Git path.
+ * One Git observation serves the call with the process-wide Git path.
  */
 function productionDeps(_ctx?: DispatchContext): PruneHandlerDeps {
-  const connectorGitPath = _ctx?.verificationHost?.gitPath;
-  const observation = pruneObservation(connectorGitPath === '' ? undefined : connectorGitPath);
+  const observation = pruneObservation();
   return {
     handleList: (stateDir) => handleList({}, stateDir),
     handleCancel: (args, stateDir) =>

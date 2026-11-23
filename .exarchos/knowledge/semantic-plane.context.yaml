@@ -739,6 +739,23 @@ decisions:
     status: >-
       T-01 changes records and tests only. Fresh retired requests must later return a precise retirement outcome before any new claim or mutation. Authenticated terminal reads must preserve original receipt and membership without a checkout, compiler, provider or effect. Interrupted or insufficiently authenticated legacy evidence must remain incomplete/refused, never authorize a retired effect. Existing current-mode writer tests must be explicitly migrated in the staged retirement tasks: T-12 provider and closed synthesis routes, T-13 local merge (including serialize_merge), setup and prune routes, with launch and recovery separation in T-14 under the later task partition. T-01 retains its original revision 2 authority. Frozen history must not be recaptured. Keep the original S7 compiler 8 and stored bytes, and reserve the planned 8-vcs policy separately from S8 9 and S9 10.
 
+  - date: "2026-11-23"
+    source: "#1928 revision 26, slice S2 step T-25, the conception of 2026-11-23 (Exarchos is one CLI binary with no separately provisioned verifier)."
+    decision: >-
+      The separately provisioned verifier host is removed. Settle and every check gate run the approved checks in the local check executor of the governor.
+      The nine host modules, the verifier client, the host claim database and the verifier build component are deleted.
+      Startup reads no provisioning file under the home directory, and it primes the observational Git path from PATH only.
+      The dispatch context carries no connector, so no caller and no provisioning selects a Git path or routes a check.
+      harness-verification.ts keeps the request, subject, check plan, facts and evidence schemas with their canonical digests and key derivations. The connector, the signing, the frames and the exchange are deleted.
+      The effect ledger, the effect port seam, the adapter ownership seam and the layer seam name no deleted owner.
+      The binary builder builds the governor and the harness components only.
+    known: >-
+      VERIFIER_NOT_PROVISIONED and HOSTED_VERIFICATION_REFUSED stay in DID_NOT_RUN_CODES as reserved literals, so stored receipts read unchanged.
+      A settlement bundle of the retired verifier holds the digest of its signed suite evidence, and it reads unchanged.
+      The adapters still remove a caller copy of the retired private terms verificationHost, hostAdequacy and hostCheck.
+      Four test files whose only subject is deleted host code are retired rows of the test inventory oracle.
+    status: "Committed on codex/1928-s2-mutation-and-host. Reed publishes the docs, including the revision of DR-3 in the specification of 2026-11-14."
+
 build_order:
   original: "kernel -> capsule contract -> prepare/settle -> one runtime adapter -> divergence loop -> #1249 laws -> second adapter"
   legs:
@@ -803,7 +820,7 @@ drift:
   - id: "vcs-effects"
     design: "runtime mutates Git/PR; WLM/lifecycle/serializer demoted explicitly"
     built: "serialize_merge per worktree on the normal path; setup_worktree; create_pr in synthesis-closeout"
-    resolution: "decided 2026-09-30: demote all three; settle observes (#1928). T-01 recorded the expanded retirement matrix and original S7 custody on 2026-11-14; no writer route has been removed yet."
+    resolution: "decided 2026-09-30: demote all three; settle observes (#1928). T-01 recorded the expanded retirement matrix and original S7 custody on 2026-11-14; no writer route has been removed yet. On 2026-11-23 the separately provisioned verifier host was removed, and the governor runs the approved checks in its local executor."
   - id: "second-adapter"
     design: "second runtime"
     built: "-"

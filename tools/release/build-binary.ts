@@ -4,7 +4,7 @@
  * `bun build --compile`. The binary is the only distribution artifact.
  *
  * The entry is `src/index.ts`, which dispatches the MCP server, the hook commands and the CLI.
- * `--component verifier` builds the Linux verifier, and `--component harness` builds the harness launcher for every target.
+ * `--component harness` builds the harness launcher for every target.
  * Usage: `bun run tools/release/build-binary.ts [--all | --target <os-arch>] [--outdir <dir>]`.
  * With no flag it builds the host target. CI passes `--target`, and a test passes `--outdir`.
  * The build runs only when this file is the entry point, so an import does not start a build.
@@ -20,7 +20,7 @@ import { $ } from 'bun';
 import { mkdirSync, readFileSync } from 'node:fs';
 import { resolve, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { TARGETS, VERIFIER_TARGETS, type Target } from './build-binary-targets.js';
+import { TARGETS, type Target } from './build-binary-targets.js';
 import { generateEmbeddedRuntimesModule } from './codegen-runtimes.js';
 import {
   buildIdentityBanner,
@@ -34,18 +34,17 @@ import {
 export const DEFAULT_OUTDIR = 'dist/bin';
 
 /** The binary components that this script builds. */
-type BuildComponent = 'governor' | 'verifier' | 'harness';
+type BuildComponent = 'governor' | 'harness';
 
 /** The entry, the output name prefix and the identity global of each component. */
 const COMPONENTS: Readonly<Record<BuildComponent, { readonly entry: string; readonly prefix: string; readonly identityGlobal: string | null }>> = {
   governor: { entry: 'src/index.ts', prefix: 'exarchos-', identityGlobal: null },
-  verifier: { entry: 'src/runtime/verification-host/main.ts', prefix: 'exarchos-verifier-', identityGlobal: '__verifierBuildIdentity__' },
   harness: { entry: 'src/runtime/launcher/harness-entry.ts', prefix: 'exarchos-harness-', identityGlobal: '__harnessBuildIdentity__' },
 };
 
 /** Narrows a `--component` value to a known component. */
 function isBuildComponent(value: string): value is BuildComponent {
-  return value === 'governor' || value === 'verifier' || value === 'harness';
+  return value === 'governor' || value === 'harness';
 }
 
 /**
@@ -158,14 +157,13 @@ function buildReleaseTag(version: string): string {
 
 /**
  * Builds one target. The governor and the harness entry graphs reach the embedded runtimes module.
- * So the build generates that module first for them, and the binary cannot ship a stale copy.
+ * So the build generates that module first, and the binary cannot ship a stale copy.
  * `--target` selects the Bun runtime to embed. `--define` inlines the version and the
  * release tag, and `--banner` stamps the build identity into the artifact.
- * The verifier and the harness keep the identity in their own global.
+ * The harness keeps the identity in its own global.
  */
 async function buildOne(target: Target, outdir: string = DEFAULT_OUTDIR, component: BuildComponent = 'governor'): Promise<void> {
-  if (component !== 'verifier') codegenEmbeddedRuntimes();
-  if (component === 'verifier' && target.os !== 'linux') throw new Error('Verifier requires a Linux target');
+  codegenEmbeddedRuntimes();
 
   const spec = COMPONENTS[component];
   const ext = target.os === 'windows' ? '.exe' : '';
@@ -216,13 +214,12 @@ function findTargetByName(name: string): Target {
 if ((import.meta as ImportMeta & { readonly main?: boolean }).main === true) {
   const selectedComponent = parseFlagValue(process.argv, '--component') ?? 'governor';
   if (!isBuildComponent(selectedComponent)) throw new Error('Unsupported build component');
-  const targets = selectedComponent === 'verifier' ? VERIFIER_TARGETS : TARGETS;
   const wantAll = process.argv.includes('--all');
   const wantTarget = parseTargetFlag(process.argv);
   const outdir = parseFlagValue(process.argv, '--outdir') ?? DEFAULT_OUTDIR;
 
   if (wantAll) {
-    for (const t of targets) {
+    for (const t of TARGETS) {
       await buildOne(t, outdir, selectedComponent);
     }
   } else if (wantTarget) {

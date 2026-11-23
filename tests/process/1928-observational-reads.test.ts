@@ -1,13 +1,11 @@
-// @oracle-sources: the packaged exarchos binary on PATH, PATH and connector Git shim logs, marker files and real disposable repositories
+// @oracle-sources: the packaged exarchos binary on PATH, PATH and planted Git shim logs, marker files and real disposable repositories
 /**
  * Prove through the packaged binary how the observational reads select and run Git.
- * Startup starts no Git process, with the verifier provisioning present and absent.
- * An unprovisioned process resolves Git once from PATH and never runs a Git from an empty or relative PATH entry.
- * A usable provisioning makes the connector Git path win, and each read runs with the constrained flags.
- * The startup prime gives that path to a provider detection that gets no Git path from its caller.
+ * Startup starts no Git process. A process resolves Git once from PATH and never runs a Git from an empty or relative PATH entry.
+ * Each read runs with the constrained flags.
+ * An old provisioning file of the retired host under the scratch HOME names a planted Git, and no read runs it.
  *
- * The three diff gates, the mock-boundary diff and the gate producer read only through the constrained reader.
- * This holds under the PATH shim and with a provisioned Git path.
+ * The three diff gates, the mock-boundary diff and the gate producer read only through the constrained reader under the PATH shim.
  * Each Git shim gets the minimal environment of the reader and prints a real version line for the probe.
  */
 import { execFile } from 'node:child_process';
@@ -56,8 +54,9 @@ function envelope(stdout: string): Record<string, unknown> {
 }
 
 /**
- * A scratch HOME and state directory, two PATH shims, a connector shim and a repository with one task commit on `task`.
- * `cli` runs the packaged binary with `path` as PATH, and `provision` writes a usable provisioning whose Git path is the connector shim.
+ * A scratch HOME and state directory, two PATH shims, a planted shim and a repository with one task commit on `task`.
+ * `cli` runs the packaged binary with `path` as PATH.
+ * `provision` writes an old provisioning file of the retired host whose Git path is the planted shim.
  * `fixtureGit` runs the real Git in the repository with no shim.
  */
 async function fixture() {
@@ -70,11 +69,11 @@ async function fixture() {
   for (const directory of [home, stateDir, first, second, control]) await mkdir(directory, { mode: 0o700 });
   const git = await onPath('git');
   const binary = await onPath('exarchos');
-  const logs = { first: join(root, 'first.log'), second: join(root, 'second.log'), connector: join(root, 'connector.log') };
+  const logs = { first: join(root, 'first.log'), second: join(root, 'second.log'), planted: join(root, 'planted.log') };
   await gitShim(join(first, 'git'), 'first', logs.first, git);
   await gitShim(join(second, 'git'), 'second', logs.second, git);
-  const connectorGit = join(control, 'connector-git');
-  await gitShim(connectorGit, 'connector', logs.connector, git);
+  const plantedGit = join(control, 'planted-git');
+  await gitShim(plantedGit, 'planted', logs.planted, git);
   const repo = join(root, 'repo');
   await mkdir(repo);
   const fixtureEnv = { ...process.env, GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null', GIT_AUTHOR_NAME: 'F', GIT_AUTHOR_EMAIL: 'f@example.invalid', GIT_COMMITTER_NAME: 'F', GIT_COMMITTER_EMAIL: 'f@example.invalid' };
@@ -100,13 +99,13 @@ async function fixture() {
     await mkdir(directory, { recursive: true, mode: 0o700 });
     await chmod(join(home, '.exarchos'), 0o700);
     await writeFile(join(directory, 'client.json'), JSON.stringify({
-      version: 1, socketPath: join(control, 's'), tokenPath, publicKey, gitPath: connectorGit, resourceId: 'unused', profileId: 'unused',
+      version: 1, socketPath: join(control, 's'), tokenPath, publicKey, gitPath: plantedGit, resourceId: 'unused', profileId: 'unused',
     }), { mode: 0o600 });
   };
   return { root, home, stateDir, binary, repo, first, second, logs, rest, cli, provision, fixtureGit, async close() { await rmrfAsync(root); } };
 }
 
-it.runIf(process.platform === 'linux')('ObservationalReads_Startup_StartsNoGitWithProvisioningAbsentOrPresent', async () => {
+it.runIf(process.platform === 'linux')('ObservationalReads_Startup_StartsNoGitWithOrWithoutAnOldProvisioningFile', async () => {
   const f = await fixture();
   try {
     const elsewhere = join(f.root, 'elsewhere');
@@ -127,11 +126,11 @@ it.runIf(process.platform === 'linux')('ObservationalReads_Startup_StartsNoGitWi
 
     expect(await lines(f.logs.first)).toEqual([]);
     expect(await lines(f.logs.second)).toEqual([]);
-    expect(await lines(f.logs.connector)).toEqual([]);
+    expect(await lines(f.logs.planted)).toEqual([]);
   } finally { await f.close(); }
 }, 240000);
 
-it.runIf(process.platform === 'linux')('ObservationalReads_Unprovisioned_ResolvesOnceFromPathAndRunsTheConstrainedFlags', async () => {
+it.runIf(process.platform === 'linux')('ObservationalReads_AnyProcess_ResolvesOnceFromPathAndRunsTheConstrainedFlags', async () => {
   const f = await fixture();
   try {
     const path = [f.first, f.second, f.rest].join(delimiter);
@@ -182,7 +181,8 @@ it.runIf(process.platform === 'linux')('ObservationalReads_EmptyAndRelativePathE
   } finally { await f.close(); }
 }, 240000);
 
-it.runIf(process.platform === 'linux')('ObservationalReads_UsableProvisioning_PrefersTheConnectorGitPath', async () => {
+/** Startup primes the Git path from PATH only. An old provisioning file that names a planted Git does not select it for any read. */
+it.runIf(process.platform === 'linux')('ObservationalReads_OldProvisioningFile_ReadsResolveFromPathOnly', async () => {
   const f = await fixture();
   try {
     await f.provision();
@@ -193,35 +193,11 @@ it.runIf(process.platform === 'linux')('ObservationalReads_UsableProvisioning_Pr
 
     expect(envelope(review.stdout), review.stdout).toMatchObject({ success: true });
     expect(envelope(scope.stdout), scope.stdout).toMatchObject({ success: true });
-    const connector = await lines(f.logs.connector);
-    expect(connector.filter(line => line.includes('--version'))).toHaveLength(2);
-    expect(connector.some(line => / worktree list --porcelain -z$/.exec(line) !== null)).toBe(true);
-    expect(connector.some(line => / diff --name-only --no-ext-diff --no-textconv /.exec(line) !== null)).toBe(true);
-    expect(connector.some(line => / diff --stat --no-ext-diff --no-textconv /.exec(line) !== null)).toBe(true);
-    expect(await lines(f.logs.first)).toEqual([]);
-    expect(await lines(f.logs.second)).toEqual([]);
-  } finally { await f.close(); }
-}, 240000);
-
-/**
- * check_pr_comments creates its provider with no detector input, so only the startup prime gives its detection the connector Git path.
- * A failing `gh` stub goes first on PATH, so the provider CLI starts no PATH Git. The test does not judge the action result.
- */
-it.runIf(process.platform === 'linux')('ObservationalReads_UsableProvisioning_PrimesTheDetectionOfAnUnownedCaller', async () => {
-  const f = await fixture();
-  try {
-    await f.provision();
-    await f.fixtureGit('remote', 'add', 'origin', 'https://github.com/example/fixture.git');
-    const tools = join(f.root, 'tools');
-    await mkdir(tools, { mode: 0o700 });
-    await writeFile(join(tools, 'gh'), '#!/bin/sh\nexit 1\n', { mode: 0o700 });
-    const path = [tools, f.first, f.second, f.rest].join(delimiter);
-
-    const comments = await f.cli(['orchestrate', 'check_pr_comments', '--pr', '1', '--json'], f.repo, path);
-
-    const connector = await lines(f.logs.connector);
-    expect(connector.some(line => / remote get-url origin$/.exec(line) !== null), comments.stdout + comments.stderr).toBe(true);
-    expect(await lines(f.logs.first)).toEqual([]);
+    const first = await lines(f.logs.first);
+    expect(first.filter(line => line.includes('--version'))).toHaveLength(2);
+    expect(first.some(line => / diff --name-only --no-ext-diff --no-textconv /.exec(line) !== null)).toBe(true);
+    expect(first.some(line => / diff --stat --no-ext-diff --no-textconv /.exec(line) !== null)).toBe(true);
+    expect(await lines(f.logs.planted)).toEqual([]);
     expect(await lines(f.logs.second)).toEqual([]);
   } finally { await f.close(); }
 }, 240000);
@@ -274,23 +250,6 @@ it.runIf(process.platform === 'linux')('ObservationalReads_ConvertedCallers_Path
     expect(await constrainedDiffReads(f.logs.first, 'first', repo)).toHaveLength(CONVERTED_CALLERS.length);
     expect((await lines(f.logs.first)).some(line => / worktree list --porcelain -z$/.exec(line) !== null)).toBe(true);
     expect(await lines(f.logs.second)).toEqual([]);
-    expect(await lines(f.logs.connector)).toEqual([]);
-  } finally { await f.close(); }
-}, 240000);
-
-it.runIf(process.platform === 'linux')('ObservationalReads_ConvertedCallers_ProvisionedRecordingGitPathRunsOnlyConstrainedReads', async () => {
-  const f = await fixture();
-  try {
-    await f.provision();
-    const path = [f.first, f.second, f.rest].join(delimiter);
-
-    const results = await runConvertedCallers(f, path);
-
-    for (const result of results) expect(result).toMatchObject({ success: true });
-    const repo = await realpath(f.repo);
-    expect(await constrainedDiffReads(f.logs.connector, 'connector', repo)).toHaveLength(CONVERTED_CALLERS.length);
-    expect((await lines(f.logs.connector)).some(line => / worktree list --porcelain -z$/.exec(line) !== null)).toBe(true);
-    expect(await lines(f.logs.first)).toEqual([]);
-    expect(await lines(f.logs.second)).toEqual([]);
+    expect(await lines(f.logs.planted)).toEqual([]);
   } finally { await f.close(); }
 }, 240000);

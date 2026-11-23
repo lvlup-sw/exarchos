@@ -16,7 +16,6 @@ import {
 } from '../../src/dispatch/core/dispatch.js';
 import { deriveMcpCallerIdentity } from '../../src/dispatch/caller-identity.js';
 import { EventStore as DurableEventStore } from '../../src/events/store.js';
-import type { VerificationHostConnector } from '../../src/contract/verification/harness-verification.js';
 import { HostedAdequacyPending, hostedPendingResult } from '../../src/verbs/gates/gate-runner.js';
 import { createInMemoryResolver } from '../../src/workflow/capabilities/resolver.js';
 import { getDispatchContext } from '../../src/dispatch/dispatch-context.js';
@@ -895,20 +894,6 @@ describe('dispatch gates success on applicable ensures', () => {
   });
 });
 
-/** A usable stub connector. It counts each exchange and never reaches a verifier. */
-function countingConnector(): { connector: VerificationHostConnector; exchanges: () => number } {
-  let exchanges = 0;
-  const unavailable: { kind: 'unavailable'; reason: string } = { kind: 'unavailable', reason: 'stub verifier' };
-  const connector: VerificationHostConnector = {
-    publicKey: 'stub-key', gitPath: '/usr/bin/git', resourceId: 'tree', profileId: 'node',
-    client: {
-      submit: async () => { exchanges += 1; return unavailable; },
-      retrieve: async () => { exchanges += 1; return unavailable; },
-    },
-  };
-  return { connector, exchanges: () => exchanges };
-}
-
 /**
  * A failed result with a code of a check that did not run keeps that code. Dispatch evaluates no owed ensure for it,
  * and the emission enforcement still runs before that point.
@@ -962,10 +947,10 @@ describe('dispatch keeps the code of a check that did not run', () => {
   });
 
   /**
-   * On a provisioned machine, an unbound `check_test_adequacy` call ignores the connector and runs in the local executor, through real dispatch.
-   * The repo root holds no repository, so the diff read fails closed before any test command. No exchange starts.
+   * An unbound `check_test_adequacy` call runs in the local executor, through real dispatch.
+   * The repo root holds no repository, so the diff read fails closed before any test command.
    */
-  it('Dispatch_UnboundAdequacyOnProvisionedMachine_RunsLocallyAndIgnoresTheConnector', async () => {
+  it('Dispatch_UnboundAdequacy_RunsLocallyAndFailsClosedOnAnUnreadableDiff', async () => {
     const stateDir = await mkdtemp(path.join(os.tmpdir(), 'unbound-adequacy-'));
     const repoRoot = await mkdtemp(path.join(os.tmpdir(), 'unbound-adequacy-repo-'));
     const stream = 'feat-unbound-adequacy';
@@ -973,17 +958,15 @@ describe('dispatch keeps the code of a check that did not run', () => {
     await store.initialize();
     try {
       await store.append(stream, { type: 'workflow.started', data: { featureId: stream, workflowType: 'feature' } });
-      const { connector, exchanges } = countingConnector();
       const result = await dispatch('exarchos_orchestrate', {
         action: 'check_test_adequacy', featureId: stream, taskId: 'task-1', repoRoot, baseBranch: 'main',
         riskTier: 'high', boundaryTouching: true,
       }, {
-        stateDir, eventStore: store, enableTelemetry: false, verificationHost: connector,
+        stateDir, eventStore: store, enableTelemetry: false,
         callerIdentity: deriveMcpCallerIdentity({ sessionId: 'unbound-adequacy' }),
         capabilityResolver: createInMemoryResolver(['fs:read', 'fs:write', 'mcp:exarchos', 'shell:exec', 'admission:issue-gate-evidence']),
       });
       expect(result, JSON.stringify(result)).toMatchObject({ success: true, data: { passed: false, discriminant: 'diff-failed' } });
-      expect(exchanges()).toBe(0);
     } finally {
       store.close();
       await rmrfAsync(stateDir);

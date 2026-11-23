@@ -1,10 +1,10 @@
 // @oracle-sources: the packaged exarchos binary on PATH, a PATH Git shim log, marker files and real disposable repositories
 /**
  * Prove through the packaged binary that governed startup and callbacks are data-only.
- * Each binary run gets a scratch HOME, so the verifier provisioning of the real machine cannot change a verdict.
+ * Each binary run gets a scratch HOME, so no file in the real home directory can change a verdict.
  * A PATH Git shim records each call. Marker files show that no configuration or hook ran, and that no test command ran outside a checkout.
- * Startup starts no Git with the provisioning absent, unusable or usable, and packaged workflow init starts none.
- * The standalone test verb reads no provisioning and runs the test command only in the local approved-check executor.
+ * Startup starts no Git with or without an old provisioning file of the retired host, and packaged workflow init starts none.
+ * The standalone test verb ignores that file and runs the test command only in the local approved-check executor.
  */
 import { generateKeyPairSync } from 'node:crypto';
 import { constants } from 'node:fs';
@@ -72,7 +72,7 @@ async function dataOnlyFixture() {
   return { root, home, stateDir, binary, env, cli, json, mcp, gitCalls, marker, async close() { await rmrfAsync(root); } };
 }
 
-/** Write a provisioning file under the scratch HOME. The `.exarchos` directory gets the given mode. */
+/** Write an old provisioning file of the retired host under the scratch HOME. The `.exarchos` directory gets the given mode. */
 async function provision(home: string, client: unknown, exarchosMode: number): Promise<string> {
   const directory = join(home, '.exarchos', 'verifier');
   await mkdir(directory, { recursive: true, mode: 0o700 });
@@ -158,10 +158,10 @@ it.runIf(process.platform === 'linux')('DataOnly_OldTerminalWorkflow_ReadsWithNo
 }, 240000);
 
 /**
- * The standalone test verb reads no provisioning. An unreadable or unusable provisioning does not change its outcome.
+ * The standalone test verb ignores the files at the old provisioning location. An unreadable or malformed file does not change its outcome.
  * A directory that no checkout holds refuses with exit 77 in the local executor, and the test command does not run.
  */
-it.runIf(process.platform === 'linux')('DataOnly_UnusableProvisioning_RunTestsIgnoresItAndUnboundAdequacyRunsLocallyWithNoTestCommand', async () => {
+it.runIf(process.platform === 'linux')('DataOnly_MalformedOldProvisioningFile_RunTestsIgnoresItAndUnboundAdequacyRunsLocallyWithNoTestCommand', async () => {
   const f = await dataOnlyFixture();
   try {
     const checkout = join(f.root, 'checkout');
@@ -195,10 +195,10 @@ it.runIf(process.platform === 'linux')('DataOnly_UnusableProvisioning_RunTestsIg
 }, 240000);
 
 /**
- * A usable verifier provisioning does not route the standalone test verb. The command runs in the local executor at the checkout root.
+ * A well-formed old provisioning file does not route the standalone test verb. The command runs in the local executor at the checkout root.
  * The verb exits with the child code, also in a dirty tree, because it stores no record. These runs use the plain PATH, so Git is real.
  */
-it.runIf(process.platform === 'linux')('DataOnly_ProvisionedVerifier_RunTestsRunsLocallyWithTheChildCodeAlsoInADirtyTree', async () => {
+it.runIf(process.platform === 'linux')('DataOnly_WellFormedOldProvisioningFile_RunTestsRunsLocallyWithTheChildCodeAlsoInADirtyTree', async () => {
   const f = await dataOnlyFixture();
   const marker = join(f.root, 'markers', 'local-test');
   const repo = await scopedRepository({ integrationBranch: 'integration', files: {
@@ -254,10 +254,10 @@ it.runIf(process.platform === 'linux')('DataOnly_FormerExecutableConfigurationTy
 }, 240000);
 
 /**
- * Startup starts no Git with the provisioning absent, unusable or usable. The checkout config sets no `vcs.provider`, so the default provider applies.
- * The usable provisioning names a recording wrapper as its client Git path, and neither that wrapper nor the PATH shim records a start.
+ * Startup starts no Git with the old provisioning file absent, malformed or well formed. The checkout config sets no `vcs.provider`.
+ * The well-formed file names a recording wrapper as its client Git path, and neither that wrapper nor the PATH shim records a start.
  */
-it.runIf(process.platform === 'linux')('DataOnly_Startup_StartsNoGitWithProvisioningAbsentUnusableOrUsable', async () => {
+it.runIf(process.platform === 'linux')('DataOnly_Startup_StartsNoGitWithAnOldProvisioningFileAbsentMalformedOrWellFormed', async () => {
   const f = await dataOnlyFixture();
   const repo = await scopedRepository({ integrationBranch: 'integration', files: { 'README.md': 'fixture\n' } });
   try {

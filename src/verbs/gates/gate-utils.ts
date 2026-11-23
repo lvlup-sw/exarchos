@@ -66,9 +66,10 @@ export type CurrentCheckoutRead =
   | { readonly kind: 'refused'; readonly reason: string };
 
 /**
- * Observe the checkout that holds `repoRoot` with `gitPath`: the connector Git path or the process-wide Git path. The call climbs from `repoRoot` to the checkout root first, with no process.
+ * Observe the checkout that holds `repoRoot` with `gitPath`, which is usually the process-wide Git path.
+ * The call climbs from `repoRoot` to the checkout root first, with no process.
  * It builds one observer, so one call probes the Git executable once. An unusable Git path, a path outside a checkout and a refused observation refuse.
- * The result is observation only. It never selects a verifier identity, resource or request subject.
+ * The result is observation only. It never selects a resource or a request subject.
  */
 export async function observeCurrentCheckout(gitPath: string, repoRoot: string): Promise<CurrentCheckoutRead> {
   const root = walkToRepoRoot(repoRoot);
@@ -95,7 +96,7 @@ export type ConstrainedDiffRead =
 
 /**
  * Read a full diff through the constrained reader. A failed read refuses and never gives an empty diff.
- * The `gitPath` of the dispatch context selects the Git executable. Only an undefined `gitPath` selects the process-wide Git path, and an empty path refuses.
+ * A `gitPath` selects the Git executable. Only an undefined `gitPath` selects the process-wide Git path, and an empty path refuses.
  * No Git on the process-wide path refuses, and the read never starts a bare `git` name.
  *
  * A base range takes the merge base of the resolved caller base and the observed head, then diffs from it to the head.
