@@ -15,11 +15,14 @@ export function assertion(runner: Runner, actual: string, expected: string, mess
     : `${runner === 'node-test' ? 'assert.' : ''}strictEqual(${actual}, ${expected}, ${description});`;
 }
 
-export function typescriptValidation(runner: Runner, path: string) {
+/** The native command that runs one emitted TypeScript test file. */
+type TypeScriptValidation = { executable: 'npm'; args: string[] } | { executable: 'bun'; args: string[] };
+
+export function typescriptValidation(runner: Runner, path: string): TypeScriptValidation | undefined {
   switch (runner) {
-    case 'vitest': return { executable: 'npm' as const, args: ['exec', '--no', '--', 'vitest', 'run', path] };
+    case 'vitest': return { executable: 'npm', args: ['exec', '--no', '--', 'vitest', 'run', path] };
     case 'node-test': return undefined;
-    case 'bun-test': return { executable: 'bun' as const, args: ['test', path] };
+    case 'bun-test': return { executable: 'bun', args: ['test', path] };
   }
 }
 
