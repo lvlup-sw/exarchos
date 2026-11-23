@@ -33,6 +33,7 @@ interface Fixture {
   readonly repoRoot: string;
   readonly homeDir: string;
   readonly base: string;
+  readonly eventStore: EventStore;
   readonly ctx: DispatchContext;
 }
 
@@ -52,7 +53,7 @@ async function createFixture(prefix: string): Promise<Fixture> {
   const eventStore = new EventStore(stateDir);
   await eventStore.initialize();
   const ctx: DispatchContext = { stateDir, eventStore, enableTelemetry: false, cwd: repoRoot };
-  return { repoRoot, homeDir, base, ctx };
+  return { repoRoot, homeDir, base, eventStore, ctx };
 }
 
 /** Real filesystem writers, with cwd and home confined to the fixture. */
@@ -208,7 +209,8 @@ describe('editor MCP launch written by generate', () => {
       expect(data.plan?.steps.some((step) => step.kind === 'generate' && step.key === 'onramp-block-drift')).toBe(true);
       await assertPinnedProjectLaunches(fx.repoRoot);
     } finally {
-      await rmrfAsync(fx.base).catch(() => undefined);
+      fx.eventStore.close();
+      await rmrfAsync(fx.base);
     }
   });
 
@@ -238,7 +240,8 @@ describe('editor MCP launch written by generate', () => {
       expect(data.postFix?.plan?.steps.some((step) => step.kind === 'generate' && step.key === 'onramp-block-drift')).toBe(true);
       await assertPinnedProjectLaunches(fx.repoRoot);
     } finally {
-      await rmrfAsync(fx.base).catch(() => undefined);
+      fx.eventStore.close();
+      await rmrfAsync(fx.base);
     }
   });
 });
