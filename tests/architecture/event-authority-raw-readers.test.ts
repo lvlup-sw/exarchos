@@ -76,6 +76,7 @@ function describeUnread(census: EventReaderCensus): string {
 }
 
 describe('RawReaderCensus — no fold-external reader depends on a telemetry event', () => {
+  /** This test waits for the compiler-backed scan of `src/`. On a 2 vCPU agent, that scan takes longer than the 5 s unit budget. */
   it('RawReaderCensus_ScannedPopulation_IsNonEmptyAndCorroboratedByGit', async () => {
     const census = await censusPromise;
     expect(census.scannedModuleCount).toBeGreaterThan(0);
@@ -93,7 +94,7 @@ describe('RawReaderCensus — no fold-external reader depends on a telemetry eve
     const walked = new Set(census.scannedModules);
     const missed = tracked.filter((file) => !walked.has(file));
     expect(missed).toEqual([]);
-  });
+  }, 60_000);
 
   /** The size assertions are the denominator. A scan that resolves no reader reports no violation. */
   it('RawReaderCensus_EveryFoldExternalReader_NamesNoTelemetryClassifiedEventType', async () => {

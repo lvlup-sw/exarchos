@@ -13,9 +13,9 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { readFileSync, existsSync, readdirSync, mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { readFileSync, existsSync, readdirSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { makeTempDir, rmrf } from '../../tools/test-helpers/temp-dir.js';
 import {
   REPO_ROOT,
   MANIFEST_PATH,
@@ -695,13 +695,13 @@ describe('Derivations the inventory rests on', () => {
   it('LanePaths_ManifestReader_ParsesLanesAndTheLiveTreeHasNone', () => {
     expect(lanePathsFromManifest(), 'the live tree has no lane manifest').toEqual({});
     expect(lanePathsFromManifest(join(REPO_ROOT, 'tests'))).toEqual({});
-    const root = mkdtempSync(join(tmpdir(), 'lane-manifest-'));
+    const root = makeTempDir('lane-manifest-');
     try {
       mkdirSync(join(root, '.github'));
       writeFileSync(join(root, '.github', 'ci-lanes.toml'), '[lanes.root]\npaths = ["src/**", "tests/**"]\n');
       expect(lanePathsFromManifest(root)).toEqual({ root: ['src/**', 'tests/**'] });
     } finally {
-      rmSync(root, { recursive: true, force: true });
+      rmrf(root);
     }
   });
 
