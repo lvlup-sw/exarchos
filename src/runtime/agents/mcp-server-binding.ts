@@ -7,10 +7,10 @@
  */
 
 /** The orchestrator entry. Skills address its tools by this name. */
-export const ORCHESTRATOR_MCP_SERVER_NAME = 'exarchos' as const;
+export const ORCHESTRATOR_MCP_SERVER_NAME = 'exarchos';
 
 /** The read-only entry. Only agents with the `mcp:exarchos:readonly` tier name it. */
-export const READONLY_MCP_SERVER_NAME = 'exarchos-readonly' as const;
+export const READONLY_MCP_SERVER_NAME = 'exarchos-readonly';
 
 /** The launch arguments of the orchestrator entry. */
 export const OPERATOR_MCP_ARGS: readonly string[] = Object.freeze(['mcp', '--operator']);

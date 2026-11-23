@@ -162,7 +162,8 @@ function buildExarchosEntry(home: string): McpServerEntry {
  */
 function isReadOnlyLegacyEntry(entry: unknown): boolean {
   if (typeof entry !== 'object' || entry === null) return false;
-  const { command, args } = entry as { command?: unknown; args?: unknown };
+  if (!('command' in entry) || !('args' in entry)) return false;
+  const { command, args } = entry;
   return command === 'exarchos'
     && Array.isArray(args)
     && args.length === READONLY_MCP_ARGS.length
