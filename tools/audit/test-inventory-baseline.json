@@ -7,7 +7,7 @@
     "testFiles": 1494,
     "parsedFiles": 1449,
     "shellFiles": 45,
-    "cases": 16543,
+    "cases": 16546,
     "dynamicTitles": 288,
     "unparseableFiles": 0
   },
@@ -92998,6 +92998,21 @@
         {
           "suite": "",
           "name": "rejects metadata traversal paths and duplicate entries",
+          "dynamic": false
+        },
+        {
+          "suite": "",
+          "name": "reports an oversized lockfile as unresolved instead of failing the inspection",
+          "dynamic": false
+        },
+        {
+          "suite": "",
+          "name": "reads only the selected project and its parent folders",
+          "dynamic": false
+        },
+        {
+          "suite": "",
+          "name": "asks for a directory when the inferred project folder is not a portable scaffold path",
           "dynamic": false
         }
       ]

@@ -7,13 +7,14 @@ import { frameworkVersions, qualifiedVersions, identifier, tunit } from './targe
 import { typedInput } from './typed.js';
 import { statefulInput } from './stateful.js';
 
-const directory = z.string().max(180).regex(/^(?:[A-Za-z0-9_][A-Za-z0-9_.-]*)(?:\/[A-Za-z0-9_][A-Za-z0-9_.-]*)*(?![\s\S])/)
+/** A portable repository-relative folder for proposed scaffold files. */
+export const scaffoldDirectory = z.string().max(180).regex(/^(?:[A-Za-z0-9_][A-Za-z0-9_.-]*)(?:\/[A-Za-z0-9_][A-Za-z0-9_.-]*)*(?![\s\S])/)
   .refine((path) => path.split('/').every((part) => !part.endsWith('.')), 'Use portable path segments.');
 const common = {
   name: identifier.max(70),
   method: z.enum(['property', 'metamorphic', 'differential', 'stateful']).default('property'),
   propertyRef: z.string().min(1).max(250).default('TODO/accepted-property'),
-  directory: directory.optional(),
+  directory: scaffoldDirectory.optional(),
   domain: domainSchema.optional(),
   operations: statefulInput.options[0].shape.operations.optional(),
 };

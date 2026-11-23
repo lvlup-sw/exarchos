@@ -1,4 +1,5 @@
-import { collectMetadata } from '../inspection/collect.js';
+import { collectMetadata, MetadataBudgetError } from '../inspection/collect.js';
+import { scaffoldDirectory } from '../contract/scaffold.js';
 import { readFile } from 'node:fs/promises';
 import { Command, CommanderError } from 'commander';
 import { describeOperations, dispatch, dispatchInspection, failure } from '../contract/operations.js';
@@ -50,8 +51,11 @@ export async function runCli(args: string[], stdout: Write, stderr: Write, invok
     .option('--project <path>', 'Repository-relative manifest or test project.')
     .option('--json', 'Print project metadata as JSON.')
     .action(async ({ root, project }: { root: string; project?: string }) => {
-      try { renderInspection({ files: await collectMetadata(root), project }); }
-      catch { render(failure('INVALID_INPUT', 'Could not collect bounded metadata from the repository root.'), true); }
+      try { renderInspection({ files: await collectMetadata(root, project), project }); }
+      catch (error) {
+        const message = error instanceof MetadataBudgetError ? error.message : 'Could not collect bounded metadata from the repository root.';
+        render(failure('INVALID_INPUT', message), true);
+      }
     });
 
   program.command('init')
@@ -74,7 +78,7 @@ export async function runCli(args: string[], stdout: Write, stderr: Write, invok
       if (options.inspectProject) {
         let selected;
         try {
-          const result = dispatchInspection({ files: await collectMetadata('.'), project: options.inspectProject });
+          const result = dispatchInspection({ files: await collectMetadata('.', options.inspectProject), project: options.inspectProject });
           if (result.ok && result.projects.length === 1) selected = result.projects[0];
         } catch {
           render(failure('INVALID_INPUT', 'Could not inspect the selected repository project.'), Boolean(options.json));
@@ -89,7 +93,14 @@ export async function runCli(args: string[], stdout: Write, stderr: Write, invok
         options.framework = selected.runner;
         options.frameworkVersion = selected.version;
         if (selected.runner === 'tunit') options.project ??= selected.path;
-        else if (selected.cwd !== '.') options.directory ??= `${selected.cwd}/tests/generated`;
+        else if (selected.cwd !== '.' && options.directory === undefined) {
+          const inferred = `${selected.cwd}/tests/generated`;
+          if (!scaffoldDirectory.safeParse(inferred).success) {
+            render(failure('INVALID_INPUT', `The project folder "${selected.cwd}" is not a portable scaffold path. Supply --directory.`), Boolean(options.json));
+            return;
+          }
+          options.directory = inferred;
+        }
       }
       if (!options.framework) {
         render(failure('INVALID_INPUT', 'Supply --framework or --inspect-project.'), Boolean(options.json));
