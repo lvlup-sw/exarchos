@@ -746,12 +746,15 @@ decisions:
       The nine host modules, the verifier client, the host claim database and the verifier build component are deleted.
       Startup reads no provisioning file under the home directory, and it primes the observational Git path from PATH only.
       The dispatch context carries no connector, so no caller and no provisioning selects a Git path or routes a check.
-      harness-verification.ts keeps the request, subject, check plan, facts and evidence schemas with their canonical digests and key derivations. The connector, the signing, the frames and the exchange are deleted.
+      harness-verification.ts keeps the request, subject and check plan schemas with their canonical digests and key derivations. The connector, the signing, the frames, the exchange and the facts and evidence schemas are deleted, because only the host held a signed evidence body.
       The effect ledger, the effect port seam, the adapter ownership seam and the layer seam name no deleted owner.
       The binary builder builds the governor and the harness components only.
     known: >-
       VERIFIER_NOT_PROVISIONED and HOSTED_VERIFICATION_REFUSED stay in DID_NOT_RUN_CODES as reserved literals, so stored receipts read unchanged.
-      A settlement bundle of the retired verifier holds the digest of its signed suite evidence, and it reads unchanged.
+      A settlement bundle of the retired verifier holds the digest of its signed suite evidence, and it reads unchanged. The governor store never held the evidence body.
+      tests/integration/1928-host-era-records.test.ts holds frozen host-era bytes: the canonical verifier request and its binding, the signed evidence that the settlement bundle digests, and a task segment whose contract-drift leaf keeps the verbatim HOSTED_VERIFICATION_REFUSED result. Each decodes and encodes to its frozen bytes.
+      tests/acceptance/1928-settle-integration.test.ts rewrites a local settlement into the host-era records at the same tip. Settle replay returns the stored receipt, and task standing and rehydrate read as before, with no claim, row, put or suite run.
+      VERIFIER_NOT_PROVISIONED has no stored form, because the host era returned it before any gate runner, record or event.
       The adapters still remove a caller copy of the retired private terms verificationHost, hostAdequacy and hostCheck.
       Four test files whose only subject is deleted host code are retired rows of the test inventory oracle.
     status: "Committed on codex/1928-s2-mutation-and-host. Reed publishes the docs, including the revision of DR-3 in the specification of 2026-11-14."

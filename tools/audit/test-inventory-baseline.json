@@ -4,10 +4,10 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1507,
-    "parsedFiles": 1463,
+    "testFiles": 1508,
+    "parsedFiles": 1464,
     "shellFiles": 44,
-    "cases": 16750,
+    "cases": 16756,
     "dynamicTitles": 337,
     "unparseableFiles": 0
   },
@@ -4602,6 +4602,11 @@
         {
           "suite": "compiler 8-vcs settlement",
           "name": "SettleIntegration_OldCompilerEightReceipt_ReplaysUnchanged",
+          "dynamic": false
+        },
+        {
+          "suite": "compiler 8-vcs settlement",
+          "name": "SettleIntegration_HostEraReceipt_ReplaysUnchanged",
           "dynamic": false
         },
         {
@@ -10433,6 +10438,37 @@
         {
           "suite": "historical terminal admission without live compilation",
           "name": "OriginalFailedTerminal_PreservesFailureCarrierWithoutCompiler",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/integration/1928-host-era-records.test.ts": {
+      "file": "tests/integration/1928-host-era-records.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "host-era records in a governor store",
+          "name": "HostEraRecords_FrozenTexts_KeepTheirDigests",
+          "dynamic": false
+        },
+        {
+          "suite": "host-era records in a governor store",
+          "name": "HostEraSettlementBundle_DecodesAndEncodesToItsFrozenBytes",
+          "dynamic": false
+        },
+        {
+          "suite": "host-era records in a governor store",
+          "name": "HostEraRefusedSegment_DecodesAndEncodesToItsFrozenBytes",
+          "dynamic": false
+        },
+        {
+          "suite": "host-era records in a governor store",
+          "name": "HostEraIntegrationRequest_KeepsItsKeyDigestAndBinding",
+          "dynamic": false
+        },
+        {
+          "suite": "host-era records in a governor store",
+          "name": "HostEraIntegrationBinding_InAStore_ReadsUnchangedAndIsNoLocalAttempt",
           "dynamic": false
         }
       ]
