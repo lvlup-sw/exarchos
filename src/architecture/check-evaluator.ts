@@ -175,7 +175,10 @@ function isLeaf(node: CheckNode): node is CheckLeaf {
 }
 
 /**
- * Evaluates a node within a scope. An `any-of` node that fails returns the findings of every child.
+ * Evaluates a node within a scope. The first passing child of an `any-of` node decides the node, and
+ * the later children do not run. Thus the match budget of a later child cannot fail a node that
+ * passed. An `any-of` node that fails returns the findings of every child.
+ *
  * A `scope` node with a `phase` passes when the current phase is known and different. If the
  * current phase is not known, the subtree applies. A leaf `fileGlob` wins over the scope glob.
  */
@@ -194,11 +197,13 @@ function evaluateTreeScoped(
     );
   }
   if ('any-of' in node) {
-    const childResults = node['any-of'].map((child) =>
-      evaluateTreeScoped(child, ctx, scope, currentPhase),
-    );
-    const anyPass = childResults.some((findings) => findings.length === 0);
-    return anyPass ? [] : childResults.flat();
+    const failures: PluginFinding[] = [];
+    for (const child of node['any-of']) {
+      const findings = evaluateTreeScoped(child, ctx, scope, currentPhase);
+      if (findings.length === 0) return [];
+      failures.push(...findings);
+    }
+    return failures;
   }
   if ('not' in node) {
     return nodePasses(node.not, ctx, scope, currentPhase)

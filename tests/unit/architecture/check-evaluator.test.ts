@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import fc from 'fast-check';
 import { evaluateLeaf, evaluateTree } from '../../../src/architecture/check-evaluator.js';
+import { MatchBudgetExceededError } from '../../../src/architecture/check-pattern.js';
 import type { CheckLeaf, CheckNode } from '../../../src/architecture/invariant-schema.js';
 
 const grep = (pattern: string, extra: Partial<CheckLeaf> = {}): CheckLeaf => ({
@@ -50,6 +51,17 @@ describe('evaluateTree', () => {
   it('EvaluateTree_AnyOf_PassesWhenAnyChildPasses', () => {
     expect(passes({ 'any-of': [ALWAYS_FAIL, ALWAYS_PASS] }, DIFF)).toBe(true);
     expect(passes({ 'any-of': [ALWAYS_FAIL, ALWAYS_FAIL] }, DIFF)).toBe(false);
+  });
+
+  /**
+   * The first passing child decides an `any-of` node. The later structural child needs more match
+   * units than the limit of one search, so it throws when it runs alone. Under `any-of` it must not run.
+   */
+  it('EvaluateTree_AnyOf_StopsAtFirstPassingChild', () => {
+    const diff = `+${'y'.repeat(99_999)}`;
+    const overBudget: CheckLeaf = { kind: 'structural', pattern: 'x'.repeat(900) };
+    expect(() => evaluateTree(overBudget, diff)).toThrow(MatchBudgetExceededError);
+    expect(evaluateTree({ 'any-of': [grep('zzz-never-present'), overBudget] }, diff)).toEqual([]);
   });
 
   /** A child that passes gives a finding. A child that fails gives none. */
