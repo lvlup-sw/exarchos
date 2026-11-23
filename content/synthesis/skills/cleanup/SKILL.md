@@ -13,9 +13,10 @@ metadata:
 
 ## VCS Provider
 
-The Exarchos read actions (`list_prs`, `get_pr_comments`, `check_ci`, `assess_stack`) detect the VCS provider (GitHub, GitLab, Azure DevOps) and route to it.
-Exarchos does no VCS write. The coordinator creates, comments on and merges each PR through its harness, outside governance.
-If the harness cannot do a write, stop and report. Do not fall back to an Exarchos action.
+Exarchos reads no PR, CI or review state, and it does no VCS write.
+Read the merge state of each PR with your own tools: `gh` or the GitHub MCP server for GitHub, `glab` for GitLab, `az repos` for Azure DevOps.
+The coordinator creates, comments on and merges each PR through its harness, outside governance.
+If your tools cannot do a read or the harness cannot do a write, stop and report. Do not fall back to an Exarchos action.
 
 ## Overview
 
@@ -57,14 +58,10 @@ The pipeline view is **repo-scoped by default** — only the caller's repo. A wo
 
 ### 2. Verify Merge Status
 
-For each PR associated with the workflow, verify it is merged.
-
-**Primary method** — VCS MCP action:
-```typescript
-exarchos_orchestrate({ action: "list_prs", state: "merged" })
+For each PR associated with the workflow, verify it is merged. Read each PR with your own tools:
+```bash
+gh pr view <number> --json number,url,state,mergedAt,headRefName
 ```
-
-For individual PR details, use `exarchos_orchestrate({ action: "get_pr_comments", prId: "<number>" })` or the VCS provider's native API.
 
 Collect from merged PRs:
 - `prUrl`: The PR URL (or array of URLs for stacked PRs)
@@ -180,7 +177,7 @@ exarchos:exarchos_workflow({
 | Don't | Do Instead |
 |-------|------------|
 | Use cleanup as escape hatch during implementation | Only use after PRs are merged |
-| Skip merge verification | Always verify via GitHub API |
+| Skip merge verification | Always read the merge state with your own tools |
 | Manually navigate HSM guards post-merge | Use cleanup |
 | Leave worktrees after cleanup | Include worktree removal in process |
 

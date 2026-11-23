@@ -1,10 +1,12 @@
-# CI Check Event Emission
+# CI Check Events (history)
 
-`ci.check_observed` events track CI check results for quality analysis in CodeQualityView.
+`ci.check_observed` and `ci.status` rows hold CI results from the earlier assessment action. Exarchos reads no CI state for the shepherd, so the shepherd skill appends none of these rows.
 
-These were `gate.executed` events until the two uses of that name were split. A CI check and a gate this repository runs are different populations, and sharing one type put every GitHub check into the same `gates[...]` namespace as our own gates — so a CI job named after one of ours merged two pass rates into one number.
+These rows were `gate.executed` events until the two uses of that name were split. A CI check and a gate this repository runs are different populations, and sharing one type put every GitHub check into the same `gates[...]` namespace as our own gates — so a CI job named after one of ours merged two pass rates into one number.
 
 ## Event Format
+
+The rows that exist have this form:
 
 ```javascript
 {
@@ -18,27 +20,10 @@ These were `gate.executed` events until the two uses of that name were split. A 
 }
 ```
 
-## Emission Source
+## What the Shepherd Records
 
-The `assess_stack` composite action (`exarchos_orchestrate`) automatically emits `ci.check_observed` events for each CI check it observes, one per check per PR, beside the `ci.status` roll-up it emits per PR. The shepherd skill does **not** need to emit these manually — they are handled internally by `assess_stack`.
-
-If `assess_stack` is unavailable (fallback mode), emit manually via:
-```javascript
-mcp__plugin_exarchos_exarchos__exarchos_event({
-  action: "append",
-  stream: "<featureId>",
-  event: {
-    type: "ci.check_observed",
-    data: {
-      pr: <pr-number>,
-      check: "<check-name>",
-      passed: <true|false>,
-      skill: "shepherd"
-    }
-  }
-})
-```
+Read the CI state with your own tools (`gh pr checks <number>`). Record the progress of the loop with `shepherd.iteration`, and each fix with `remediation.attempted` and `remediation.succeeded`. `shepherd-event-schemas.md` gives each schema.
 
 ## Downstream Consumer
 
-CodeQualityView folds these into the per-skill metrics only. Driving checks green is the shepherd's outcome, so its `gatePassRate` is computed from them, and that metric drives the quality signal surfaced in Step 0 of the shepherd loop. No `gates[...]` entry is written: a CI check is not a gate this repository runs.
+CodeQualityView still folds the historical `ci.check_observed` rows into the per-skill metrics only, and ShepherdStatusView still folds the historical `ci.status` rows. No `gates[...]` entry is written: a CI check is not a gate this repository runs.

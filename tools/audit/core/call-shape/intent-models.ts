@@ -454,7 +454,6 @@ const SYNTHESIS: IntentModel = {
       per: 'perPr',
       why: 'each PR body is validated before its PR is created',
     },
-    { kind: 'site', ref: at('synthesize', `${O}.list_prs`, 'action: "list_prs"') },
     {
       kind: 'site',
       ref: at('synthesize', `${W}.update`, '"mergeOrder": ['),

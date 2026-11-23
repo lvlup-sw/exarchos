@@ -21,7 +21,7 @@ If tests fail during synthesis (they passed in review):
 ### Merge Queue Rejection
 
 If the merge queue rejects a PR:
-1. Check CI status via `exarchos_orchestrate({ action: "check_ci", prId: "<number>" })`
+1. Check CI status with your own tools: `gh pr checks <number>`
 2. Fix failing checks
 3. Push fixes and re-enqueue
 
@@ -34,7 +34,7 @@ If the user receives PR review comments:
    Skill({ skill: "exarchos:shepherd", args: "[PR_URL]" })
    ```
 
-2. Shepherd reads PR comments, assesses CI, and applies fixes directly
+2. Shepherd reads PR comments and CI with its own tools, and applies fixes directly
 3. After fixes, return to merge confirmation
 
 ## Final Report Template
@@ -43,7 +43,7 @@ If the user receives PR review comments:
 ## Synthesis Complete
 
 ### Pull Requests
-[PR URLs from list_prs action]
+[PR URLs recorded in synthesis.prUrl]
 
 ### Stack Branches
 - task/001-types
@@ -82,7 +82,7 @@ If workflow state doesn't match git reality:
 ## PR Creation Failed
 If the harness PR creation fails:
 1. Check the error output for specific guidance
-2. Run `exarchos_orchestrate({ action: "list_prs", state: "open" })` to verify the branch state
+2. Read the open PRs of the branch with your own tools (`gh pr list --head <branch> --state open --json url,state`) to verify the branch state
 3. If rebase conflict: run `git rebase origin/<base>` to resolve
 4. If authentication issue: check VCS provider token permissions
 5. Before a new create, run the Idempotency procedure of the synthesize skill again. A create with a lost reply can leave an open PR.
@@ -99,8 +99,8 @@ If `git rebase` encounters conflicts:
 
 When Exarchos MCP tools are available:
 
-1. **After stack submission:** Call `mcp__plugin_exarchos_exarchos__exarchos_event` with `action: "append"` with event type `stack.enqueued` including PR numbers from `exarchos_orchestrate({ action: "list_prs", state: "open" })`
-2. **Monitor merge status:** Use `exarchos_orchestrate({ action: "list_prs", state: "all" })` to check stack/PR status
+1. **After stack submission:** Call `mcp__plugin_exarchos_exarchos__exarchos_event` with `action: "append"` with event type `stack.enqueued` including the PR numbers that the harness returned
+2. **Monitor merge status:** Read the stack and PR status with your own tools (`gh pr list --state all --head <branch> --json url,state`)
 3. **On successful merge:** Call `mcp__plugin_exarchos_exarchos__exarchos_event` with `action: "append"` with event type `phase.transitioned` to mark workflow complete
 
 ## Performance Notes

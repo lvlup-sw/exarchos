@@ -60,27 +60,19 @@ After rebasing a mid-stack branch, all downstream branches in the stack must als
 
 ## 5. Stack Visualization
 
-View the current PR chain and its state:
+View the current PR chain and its state with your own tools. Exarchos reads no PR:
 
-```typescript
-// List all open PRs with base/head branch relationships
-exarchos_orchestrate({ action: "list_prs", state: "open" })
+```bash
+# List all open PRs with base/head branch relationships
+gh pr list --state open --json number,headRefName,baseRefName,title,state
 
-// Example output shows PR numbers, base/head branches, titles, and state:
-// 101: main <- feat/step-1 [OPEN]
-// 102: feat/step-1 <- feat/step-2 [OPEN]
-// 103: feat/step-2 <- feat/step-3 [OPEN]
+# Example output shows PR numbers, base/head branches, titles, and state:
+# 101: main <- feat/step-1 [OPEN]
+# 102: feat/step-1 <- feat/step-2 [OPEN]
+# 103: feat/step-2 <- feat/step-3 [OPEN]
 ```
 
-To validate stack integrity, use the `validate_pr_stack` action via orchestrate:
-
-```typescript
-exarchos_orchestrate({
-  action: "validate_pr_stack",
-  featureId: "<feature-id>",
-  baseBranch: "main"
-})
-```
+To validate stack integrity, check in the same read that each PR targets the branch of the PR below it, and that the bottom PR targets `main`.
 
 ## 6. Merge Queue
 
@@ -98,11 +90,11 @@ After PR 101 merges and its branch is deleted, GitHub retargets PR 102 to `main`
 |---|---|
 | `gt create <branch> -m "feat: ..."` | `git checkout -b <branch> && git commit -m "feat: ..." && git push -u origin <branch>` |
 | `gt submit --no-interactive --publish --stack` | The coordinator creates each PR through its harness, outside governance, bottom-up |
-| `gt log` | `exarchos_orchestrate({ action: "list_prs", state: "open" })` |
+| `gt log` | `gh pr list --state open --json number,headRefName,baseRefName` |
 | `gt modify -m "..."` | `git commit --amend -m "..." && git push --force-with-lease` |
 | `gt sync` | `git fetch --prune && git rebase origin/main` |
 | `gt restack` | `git rebase origin/<base-branch>` per branch in stack |
-| `mcp__graphite__run_gt_cmd` | `exarchos_orchestrate` VCS read actions, and harness writes for PRs |
+| `mcp__graphite__run_gt_cmd` | Your own tools for PR reads, and harness writes for PRs |
 
 ## 8. Error Handling
 

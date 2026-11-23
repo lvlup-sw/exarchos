@@ -2,6 +2,8 @@
 
 Detailed steps for gathering PR status during each shepherd iteration.
 
+Exarchos reads no PR, CI or review state. Each read below uses your own tools: the GitHub MCP server or `gh` for GitHub, `glab` for GitLab, `az repos` for Azure DevOps. Read every page of each list. A read that fails or stops early is not "no items": stop the iteration and report.
+
 ## 1. Identify PRs
 
 Read PR URLs from workflow state:
@@ -11,14 +13,14 @@ mcp__plugin_exarchos_exarchos__exarchos_workflow({ action: "get", featureId: "<i
 
 Extract PR numbers from URLs (e.g., `https://github.com/owner/repo/pull/123` → `123`).
 
-If no PRs in state, check VCS:
-```typescript
-exarchos_orchestrate({ action: "list_prs", state: "open" })
+If no PRs in state, list the PRs of the stack branches with your own tools:
+```bash
+gh pr list --head <branch> --state all --json number,url,state,headRefName,baseRefName
 ```
 
 ## 2. CI Check Status
 
-For each PR, use GitHub MCP:
+For each PR, use GitHub MCP (or `gh pr checks <number>`):
 ```
 mcp__plugin_github_github__pull_request_read({
   method: "get_status",
@@ -43,7 +45,7 @@ Classification:
 
 ## 3. Formal Review Status
 
-Check for formal reviews (APPROVED, CHANGES_REQUESTED, etc.) via GitHub MCP:
+Check for formal reviews (APPROVED, CHANGES_REQUESTED, etc.) via GitHub MCP (or `gh api --paginate repos/<owner>/<repo>/pulls/<number>/reviews`):
 ```
 mcp__plugin_github_github__pull_request_read({
   method: "get_reviews",
@@ -70,7 +72,7 @@ Review classification:
 
 **This is the most commonly missed dimension.** Sentry, CodeRabbit, and other bots leave inline review comments that are independent of formal review status. A PR can show "no reviews" while having 10 unaddressed inline comments.
 
-**Read ALL inline review comments for each PR via GitHub MCP:**
+**Read ALL inline review comments for each PR via GitHub MCP (or `gh api --paginate repos/<owner>/<repo>/pulls/<number>/comments`):**
 ```
 mcp__plugin_github_github__pull_request_read({
   method: "get_review_comments",
@@ -104,9 +106,9 @@ coderabbit: 5 total, 5 replied
 
 ## 5. Stack Health
 
-Check the branch stack state:
-```typescript
-exarchos_orchestrate({ action: "list_prs", state: "open" })
+Check the branch stack state with your own tools:
+```bash
+gh pr list --state open --json number,url,state,headRefName,baseRefName
 ```
 
 Verify:

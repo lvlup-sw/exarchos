@@ -13,9 +13,10 @@ metadata:
 
 ## VCS Provider
 
-The Exarchos read actions (`list_prs`, `check_ci`, `get_pr_comments`, `assess_stack`) detect the VCS provider (GitHub, GitLab, Azure DevOps) and route to it.
-Exarchos does no VCS write. The coordinator creates each PR, enables auto-merge, merges and posts each comment through its harness, outside governance.
-If the harness cannot do a write, stop and report. Do not fall back to an Exarchos action.
+Exarchos reads no PR, CI or review state, and it does no VCS write.
+Read PR, CI and review state with your own tools: `gh` or the GitHub MCP server for GitHub, `glab` for GitLab, `az repos` for Azure DevOps.
+The coordinator creates each PR, enables auto-merge, merges and posts each comment through its harness, outside governance.
+If your tools cannot do a read or the harness cannot do a write, stop and report. Do not fall back to an Exarchos action.
 
 > **Not to be confused with the integration merge.** This skill merges user-facing PRs on `main` through the harness of the coordinator, a remote operation. During delegation the coordinator lands each accepted head on the integration branch through its harness (`@skills/delegate/SKILL.md`). A stream parked in `merge-pending` follows `@skills/merge-orchestrator/SKILL.md`. Synthesize lands no integration commit.
 
@@ -126,7 +127,7 @@ exarchos:exarchos_orchestrate({
 First run the [Idempotency](#idempotency) procedure for every head of the stack. It classifies each head as a reused open match, a recorded merged match, or a create candidate. If it stops, create no PR. Then do these steps for each head of the stack, bottom-up, in this order:
 
 1. **Create** -- For a create candidate, the coordinator creates the PR through its harness, outside governance. It uses base `<parent-branch>`, head `<branch>`, the title `<type>: <what>` and the validated body file. For a reused open match, create no PR.
-2. **Record the PR URL** -- Record the URL that the harness returns as soon as it returns it, before auto-merge is enabled. Record the provider web URL exactly as the harness returns it, and do not normalize it. For a reused open match, record the URL of the single exact open match of the read filtered by head and base: `exarchos_orchestrate({ action: "list_prs", head: "<branch>", base: "<parent-branch>", state: "all" })`. Never record an unrecorded merged match. Never record an unfiltered list of open PRs, because it can hold unrelated PRs.
+2. **Record the PR URL** -- Record the URL that the harness returns as soon as it returns it, before auto-merge is enabled. Record the provider web URL exactly as the harness returns it, and do not normalize it. For a reused open match, record the URL of the single exact open match of your own read filtered by head and base: `gh pr list --head <branch> --base <parent-branch> --state all --limit 100 --json url,state,headRefName,baseRefName`. Never record an unrecorded merged match. Never record an unfiltered list of open PRs, because it can hold unrelated PRs.
 3. **Update state** -- `update` replaces each array whole. Thus each write holds the full list of URLs recorded so far in both `artifacts.pr` and `synthesis.prUrl`, not only the new URL:
 
 ```typescript
@@ -166,7 +167,7 @@ exarchos:exarchos_event({ action: "append", stream: "<featureId>", event: {
 }})
 ```
 
-During shepherd iterations (CI monitoring loop), emit after each assessment (REQUIRED — the escalation policy counts these events to bound the loop):
+During shepherd iterations (CI monitoring loop), emit after each assessment of your own PR, CI and review reads (REQUIRED — the escalation policy counts these events to bound the loop):
 
 ```typescript
 exarchos:exarchos_event({ action: "append", stream: "<featureId>", event: {
@@ -205,11 +206,11 @@ Then sync: `git fetch --prune` and reclaim worktrees.
 
 ## Idempotency
 
-Exarchos has no PR-creation action, so no action decides that a PR already exists. The coordinator runs this procedure for every head of the stack before the harness creates any PR. It compares URLs as exact strings, in the `url` form that `list_prs` returns.
+Exarchos has no PR-creation action and reads no PR, so no action decides that a PR already exists. The coordinator runs this procedure with its own tools for every head of the stack before the harness creates any PR. The reads below use `gh`. For GitLab use `glab mr list`, and for Azure DevOps use `az repos pr list`, with the same filters. It compares URLs as exact strings, in the `url` form that the provider returns.
 
 1. Read the PR URLs that `synthesis.prUrl` and `artifacts.pr` record.
-2. For each head, call `list_prs` with `head`, `base` and `state: "all"`. Keep each result whose `headRefName` equals the head and whose `baseRefName` equals the base.
-3. For each head, also call `list_prs` with `head` and `state: "all"`. The provider retargets a stacked PR to the base of its merged parent. Thus a recorded URL that this read shows into the base of a lower head of the stack is the match for this head.
+2. For each head, run `gh pr list --head <head> --base <base> --state all --limit 100 --json url,state,headRefName,baseRefName`. Keep each result whose `headRefName` equals the head and whose `baseRefName` equals the base.
+3. For each head, also run `gh pr list --head <head> --state all --limit 100 --json url,state,headRefName,baseRefName`. The provider retargets a stacked PR to the base of its merged parent. Thus a recorded URL that this read shows into the base of a lower head of the stack is the match for this head.
 4. Compare `state` without case. `OPEN` is open and `MERGED` is merged. Any other value, `CLOSED` included, is a stop. An unknown state is never "no match".
 5. Classify each head:
    - One open match is reused, recorded or not, and the harness creates no PR for it. An open PR carries the current tip of its head branch.
@@ -219,7 +220,7 @@ Exarchos has no PR-creation action, so no action decides that a PR already exist
    - a match that is closed and not merged
    - more than one match for a head
    - a recorded URL that no read for any head of the stack shows
-   - a failed read. A read with `page.hasMore: true` is a failed read, because `list_prs` returns at most 20 PRs, newest first.
+   - a failed read. A read that returns as many PRs as its `--limit` is a failed read, because more PRs can exist.
    - an unrecorded merged match into the same base
    - an unrecorded open or merged PR for the head into another base
    - a recorded PR for the head into another base that is not the base of a lower head of the stack
@@ -227,7 +228,7 @@ Exarchos has no PR-creation action, so no action decides that a PR already exist
 7. When each head of the stack has a recorded merged match, take the merged-PR escape hatch below. An unrecorded merged match never takes the escape hatch.
 8. Otherwise the harness creates a PR for each create candidate only, bottom-up (Step 3).
 
-A merged match counts only when it is recorded. A merged PR carries only the tip of its head branch at merge time, and `list_prs` returns no head commit. The integration branch name can be used again (`synthesis.integrationBranch`, else the current branch, else the featureId). Thus an unrecorded merged match can be an old PR of another workflow. The workflow state record is the only proof that a merged PR belongs to this workflow.
+A merged match counts only when it is recorded. A merged PR carries only the tip of its head branch at merge time, so it does not prove that it holds the head commit of this workflow. The integration branch name can be used again (`synthesis.integrationBranch`, else the current branch, else the featureId). Thus an unrecorded merged match can be an old PR of another workflow. The workflow state record is the only proof that a merged PR belongs to this workflow.
 
 The user resolves the reason for each stop. A reused or long-lived branch can hold old closed or merged PRs, so the procedure stops on that branch until the user resolves it. A lower head can auto-merge before an upper head is created, for example after a failed create or after a lost reply before the record. The procedure then stops on the create candidate beside the merged head. Step 3 records each URL before it enables auto-merge, so only a human merge can make an unrecorded PR merged. If a reply is lost and a human then merges that PR, the procedure stops and opens no duplicate. The coordinator never records an unrecorded merged URL itself, not even to clear a stop. The user records that URL in the workflow state only after the user confirms that the PR holds the head commit of this workflow. Then run synthesize again.
 
@@ -241,7 +242,7 @@ You can make direct edits to stack branches at any time — edit files, then sta
 git push --force-with-lease=<ref>:<expected-sha>
 ```
 
-A bare lease anchors to the (possibly stale) local remote-tracking ref and can clobber a concurrent push. `<expected-sha>` is the remote SHA the loop last observed via `assess_stack`, or read fresh with `git ls-remote --heads origin <ref>`.
+A bare lease anchors to the (possibly stale) local remote-tracking ref and can clobber a concurrent push. `<expected-sha>` is the remote SHA that the loop last read with `git ls-remote --heads origin <ref>`. Read it fresh before each push.
 
 ## Completion Output
 

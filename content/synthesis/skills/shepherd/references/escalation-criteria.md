@@ -11,7 +11,20 @@ When to stop the shepherd loop and escalate to the user.
 | Review loop | Same reviewer requests changes 2+ times after fixes | Escalate — may need design discussion |
 | Conflicting feedback | Two reviewers give contradictory guidance | Escalate — human decision needed |
 | Access failure | GitHub MCP or `gh` CLI returns auth errors | Report — credentials may need refresh |
-| `assess_stack` returns `escalate` | Composite action determined escalation needed | Report action items to user |
+| Read failure | A PR, CI or review read fails or stops early | Report — a partial read is never "no items" |
+
+On each automatic trigger, append `shepherd.escalated` before the report:
+```typescript
+exarchos:exarchos_event({
+  action: "append",
+  stream: "<featureId>",
+  event: {
+    type: "shepherd.escalated",
+    data: { featureId: "<featureId>", prNumbers: [123, 124], iterationCount: 5, maxIterations: 5, reason: "<trigger>" }
+  },
+  idempotencyKey: "<featureId>:shepherd.escalated:<iterationCount>"
+})
+```
 
 ## Escalation Report Format
 

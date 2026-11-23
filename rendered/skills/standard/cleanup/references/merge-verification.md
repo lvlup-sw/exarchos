@@ -2,31 +2,35 @@
 
 ## Why Verify?
 
-The cleanup action trusts the `mergeVerified` flag — it does not query GitHub itself. The orchestrator (skill) is responsible for verification. This separation keeps the MCP server free of GitHub API dependencies.
+The cleanup action trusts the `mergeVerified` flag — it does not query GitHub itself. The orchestrator (skill) is responsible for verification, with its own tools. Exarchos reads no PR, so it has no GitHub API dependency.
 
 ## Verification Methods
 
-### VCS MCP Action (Primary)
+### Your Own Tools (Primary)
 
-```typescript
-// List PRs to check merge state
-exarchos_orchestrate({ action: "list_prs", state: "merged" })
-// Check: each PR's state is "MERGED" and mergedAt is not null
+```bash
+# Read the merge state of each PR
+gh pr view <number> --json number,url,state,mergedAt,headRefName
+# Check: each PR's state is "MERGED" and mergedAt is not null
 ```
+
+The GitHub MCP server, `glab mr view` and `az repos pr show` give the same facts.
 
 ### For Stacked PRs
 
 When verifying a stacked PR set, check ALL PRs in the stack:
 
-```typescript
-// List PRs for the branch stack
-exarchos_orchestrate({ action: "list_prs", head: "feature/*", state: "all" })
+```bash
+# List the PRs of each branch in the stack
+gh pr list --head <branch> --state all --json number,url,state,mergedAt,headRefName
 ```
 
 Collect from each merged PR:
 - `number` — for logging
 - `headRefName` — for `mergedBranches` array
 - PR URL — for `prUrl` (use array if multiple)
+
+A read that fails is never "merged": abort cleanup and report.
 
 ## Edge Cases
 

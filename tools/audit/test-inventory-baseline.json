@@ -7,7 +7,7 @@
     "testFiles": 1469,
     "parsedFiles": 1425,
     "shellFiles": 44,
-    "cases": 16486,
+    "cases": 16489,
     "dynamicTitles": 327,
     "unparseableFiles": 0
   },
@@ -36926,77 +36926,92 @@
       "runner": "vitest:root",
       "cases": [
         {
-          "suite": "skill-migration — T34: gh to MCP action migration",
+          "suite": "skill-migration — harness-owned VCS writes and agent-owned VCS reads",
           "name": "NoActionableGhPrCreate_InSkillSources",
           "dynamic": false
         },
         {
-          "suite": "skill-migration — T34: gh to MCP action migration",
+          "suite": "skill-migration — harness-owned VCS writes and agent-owned VCS reads",
           "name": "NoActionableGhPrMerge_InSkillSources",
           "dynamic": false
         },
         {
-          "suite": "skill-migration — T34: gh to MCP action migration",
+          "suite": "skill-migration — harness-owned VCS writes and agent-owned VCS reads",
           "name": "NoActionableGhIssueCreate_InSkillSources",
           "dynamic": false
         },
         {
-          "suite": "skill-migration — T34: gh to MCP action migration",
-          "name": "NoActionableGhPrChecks_InSkillSources",
+          "suite": "skill-migration — harness-owned VCS writes and agent-owned VCS reads",
+          "name": "NoCheckCiRead_InSkillSources",
           "dynamic": false
         },
         {
-          "suite": "skill-migration — T34: gh to MCP action migration",
-          "name": "NoActionableGhPrViewJsonReviews_InSkillSources",
+          "suite": "skill-migration — harness-owned VCS writes and agent-owned VCS reads",
+          "name": "NoGetPrCommentsRead_InSkillSources",
           "dynamic": false
         },
         {
-          "suite": "skill-migration — T34: gh to MCP action migration",
+          "suite": "skill-migration — harness-owned VCS writes and agent-owned VCS reads",
           "name": "NoActionableGhPrComment_InSkillSources",
           "dynamic": false
         },
         {
-          "suite": "skill-migration — T34: gh to MCP action migration",
-          "name": "NoActionableGhPrList_InSkillSources_ExceptAllowedContexts",
+          "suite": "skill-migration — harness-owned VCS writes and agent-owned VCS reads",
+          "name": "NoListPrsRead_InSkillSources",
           "dynamic": false
         },
         {
-          "suite": "skill-migration — T34: gh to MCP action migration",
-          "name": "NoActionableGhPrView_InSkillSources_ExceptAllowedOperations",
+          "suite": "skill-migration — harness-owned VCS writes and agent-owned VCS reads",
+          "name": "NoAssessStackRead_InSkillSources",
           "dynamic": false
         },
         {
-          "suite": "skill-migration — T34: gh to MCP action migration",
-          "name": "NoActionableGhIssueView_InSkillSources",
+          "suite": "skill-migration — harness-owned VCS writes and agent-owned VCS reads",
+          "name": "NoProviderReadingPrGate_InSkillSources",
           "dynamic": false
         },
         {
-          "suite": "skill-migration — T34: gh to MCP action migration",
+          "suite": "skill-migration — harness-owned VCS writes and agent-owned VCS reads",
+          "name": "ValidatePrBody_ExamplesCheckBodyTextOnly",
+          "dynamic": false
+        },
+        {
+          "suite": "skill-migration — harness-owned VCS writes and agent-owned VCS reads",
           "name": "VcsPreamble_PresentInAffectedSkills",
           "dynamic": false
         },
         {
-          "suite": "skill-migration — T34: gh to MCP action migration",
+          "suite": "skill-migration — harness-owned VCS writes and agent-owned VCS reads",
+          "name": "VcsPreamble_PrReadingSkills_ReadWithTheAgentTools",
+          "dynamic": false
+        },
+        {
+          "suite": "skill-migration — harness-owned VCS writes and agent-owned VCS reads",
           "name": "McpActionReferences_Synthesize_LeavesPrCreationAndMergeToTheHarness",
           "dynamic": false
         },
         {
-          "suite": "skill-migration — T34: gh to MCP action migration",
-          "name": "McpActionReferences_ListPrs_PresentInMigratedSkills",
+          "suite": "skill-migration — harness-owned VCS writes and agent-owned VCS reads",
+          "name": "AgentReads_Synthesize_IdempotencyReadsPrsWithTheAgentTools",
           "dynamic": false
         },
         {
-          "suite": "skill-migration — T34: gh to MCP action migration",
+          "suite": "skill-migration — harness-owned VCS writes and agent-owned VCS reads",
           "name": "McpActionReferences_Dogfood_LeavesIssueFilingToTheHarness",
           "dynamic": false
         },
         {
-          "suite": "skill-migration — T34: gh to MCP action migration",
-          "name": "McpActionReferences_CheckCi_PresentInTroubleshooting",
+          "suite": "skill-migration — harness-owned VCS writes and agent-owned VCS reads",
+          "name": "AgentReads_Troubleshooting_ReadsCiWithTheAgentTools",
           "dynamic": false
         },
         {
-          "suite": "skill-migration — T34: gh to MCP action migration",
+          "suite": "skill-migration — harness-owned VCS writes and agent-owned VCS reads",
+          "name": "AgentReads_Shepherd_AppendsEachShepherdEvent",
+          "dynamic": false
+        },
+        {
+          "suite": "skill-migration — harness-owned VCS writes and agent-owned VCS reads",
           "name": "RetiredActions_NamedByNoSkillSource",
           "dynamic": false
         }
