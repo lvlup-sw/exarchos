@@ -38,7 +38,7 @@ export function emitTUnit(input: TUnitInput): Success {
   const methods = cases.map((values, i) => {
     const caseName = `Case_${i + 1}`;
     const method = caseName === target.className ? `${caseName}_` : caseName;
-    return { name: method, body: `        await ${check}(new long[] { ${values.map(literal).join(', ')} }).ConfigureAwait(false);` };
+    return { name: method, body: `        await ${check}(new long[] { ${values.map(literal).join(', ')} });` };
   });
   const lines = csharpFile(target.namespace, target.className, methods, `
 

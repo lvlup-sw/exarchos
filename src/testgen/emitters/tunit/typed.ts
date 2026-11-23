@@ -12,22 +12,22 @@ export function emitTypedTUnit(input: Input, method: TypedMethod): string {
   const binding = `global::${qualify(input.target.binding)}`;
   const runtime = input.target.className === 'TestgenRuntime' ? 'TestgenRuntime_' : 'TestgenRuntime';
   const methods = {
-    property: `        var observed = await ${binding}.Observe(source).ConfigureAwait(false);
-        return await ${binding}.Predicate(source, observed).ConfigureAwait(false);`,
-    metamorphic: `        var follow = await ${binding}.Transform(source.Clone()).ConfigureAwait(false);
+    property: `        var observed = await ${binding}.Observe(source);
+        return await ${binding}.Predicate(source, observed);`,
+    metamorphic: `        var follow = await ${binding}.Transform(source.Clone());
         if (!InDomain(follow) || !${binding}.IsValid(follow)) throw new InvalidCaseException("TestGen invalid case: follow-up is outside the declared domain.");
         if (Canonical(source) == Canonical(follow)) throw new InvalidCaseException("TestGen invalid case: transformation produced an identical input.");
-        var before = await ${binding}.Observe(source).ConfigureAwait(false);
-        var after = await ${binding}.Observe(follow).ConfigureAwait(false);
-        return await ${binding}.Relation(source, follow, before, after).ConfigureAwait(false);`,
-    differential: `        var actual = await ${binding}.Observe(source.Clone()).ConfigureAwait(false);
-        var expected = await ${binding}.Reference(source.Clone()).ConfigureAwait(false);
-        return await ${binding}.Equivalent(source, actual, expected).ConfigureAwait(false);`,
+        var before = await ${binding}.Observe(source);
+        var after = await ${binding}.Observe(follow);
+        return await ${binding}.Relation(source, follow, before, after);`,
+    differential: `        var actual = await ${binding}.Observe(source.Clone());
+        var expected = await ${binding}.Reference(source.Clone());
+        return await ${binding}.Equivalent(source, actual, expected);`,
   };
   const cases = input.cases.map((value, index) => {
     const name = `Case_${index + 1}` === input.target.className ? `Case_${index + 1}_` : `Case_${index + 1}`;
     return { name, body: `        using var document = JsonDocument.Parse(${csharpLiteral(canonicalJson(value))});
-        await ${runtime}.RunCase(document.RootElement, "Case_${index + 1}").ConfigureAwait(false);` };
+        await ${runtime}.RunCase(document.RootElement, "Case_${index + 1}");` };
   });
   return csharpFile(input.target.namespace, input.target.className, cases, `
 
@@ -56,7 +56,7 @@ ${methods[method]}
     internal static async Task RunCase(JsonElement source, string caseId)
     {
         bool passed;
-        try { passed = await Check(source).ConfigureAwait(false); }
+        try { passed = await Check(source); }
         catch (InvalidCaseException error)
         {
             Console.Error.WriteLine("TESTGEN_REJECTED " + JsonSerializer.Serialize(new { caseId, reason = error.Message, cases = new[] { source } }));
@@ -82,7 +82,7 @@ ${methods[method]}
                 if (!InDomain(candidate)) { rejected++; continue; }
                 try
                 {
-                    if (!await Check(candidate).ConfigureAwait(false))
+                    if (!await Check(candidate))
                     {
                         current = candidate.Clone();
                         changed = true;

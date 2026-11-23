@@ -33,3 +33,9 @@ it('constructs the required file and public test declaration metadata', () => {
   expect(source).toContain('/// <summary>Checks the reviewed obligation over supplied fixtures.</summary>\npublic sealed class @Suite');
   expect(source).toContain('/// <returns>The native assertion task.</returns>\n    [Test]\n    public async Task Case_1()');
 });
+
+it('emits plain awaits, so the consumer build decides ConfigureAwait', () => {
+  for (const path of Object.keys(entries)) {
+    expect(readFileSync(new URL(path, directory), 'utf8'), path).not.toContain('ConfigureAwait');
+  }
+});
