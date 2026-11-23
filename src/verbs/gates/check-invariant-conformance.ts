@@ -31,6 +31,7 @@ import {
   type ResolveEffectiveCatalogResult,
 } from '../../architecture/resolve-effective-catalog.js';
 import { evaluateTree } from '../../architecture/check-evaluator.js';
+import { MatchBudget, MatchBudgetExceededError } from '../../architecture/check-pattern.js';
 import {
   projectAuditPrompt,
   EmptyAuditProjectionError,
@@ -263,6 +264,7 @@ async function reviewConfigOf(args: CheckInvariantConformanceArgs, eventStore: E
  *
  * Without `loadInvariantsFn`, it loads the config through {@link reviewConfigOf}.
  * A config that does not load, a registered catalog that does not resolve and a throw of the user-catalog seam each add a `HIGH` finding.
+ * All check trees of one run share one match budget. A tree that the budget stops counts as violated, at the severity of its invariant.
  * Another resolver warning, a check tree that throws and an empty catalog slice each add a `LOW` finding. No finding stops the gate.
  *
  * An empty slice gives `auditProjection: 'no-subject'`, so it cannot read as a clean audit. Each check-mode finding takes the severity that its invariant resolves for the context.
@@ -325,13 +327,25 @@ async function executeCheckInvariantConformance(
     }
   }
 
+  const matchBudget = new MatchBudget();
   for (const entry of applicable) {
     if (entry.enforcement?.mode !== 'check') continue;
 
     let treeFindings: PluginFinding[];
     try {
-      treeFindings = evaluateTree(entry.enforcement.check, diff, phase);
+      treeFindings = evaluateTree(entry.enforcement.check, diff, phase, matchBudget);
     } catch (err) {
+      if (err instanceof MatchBudgetExceededError) {
+        findings.push({
+          source: `invariant:${entry.id}`,
+          severity: toFindingSeverity(resolveSeverity(entry, workflowType, phase)),
+          dimension: entry.id,
+          message:
+            `Invariant '${entry.id}' check did not finish inside the match budget, so it counts ` +
+            `as violated. Reason: ${err.message}`,
+        });
+        continue;
+      }
       const reason = err instanceof Error ? err.message : String(err);
       findings.push({
         source: `invariant:${entry.id}`,
