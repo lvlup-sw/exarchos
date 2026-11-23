@@ -151,3 +151,4 @@ shorter fold over old streams, which reads as data loss and is not.
   measured from the two real stores, replayed through the surviving authority.
 - `servers/exarchos-mcp/src/architecture/event-grammar-census.ts` — the two-way ratchet that
   measures the two forms against each other and fails if they drift apart again.
+
