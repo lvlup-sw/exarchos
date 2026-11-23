@@ -38,7 +38,7 @@ interface LaneManifest {
     selfTests: Array<{ id: string; run: string; paths: string[] }>;
     selfTestSharedTriggers: string[];
   };
-  tests: { forcedCore: string[] };
+  tests: { forcedCore: string[]; gates?: Array<{ id: string; run: string }> };
   postMerge: Record<string, string>;
   ciCoverage: Record<string, string>;
 }
@@ -91,6 +91,7 @@ function parityProblems(text: string, manifest: LaneManifest): string[] {
   const keys = new Set(steps.map((step) => step.key));
   const gateIds = new Set([...manifest.static.build, ...manifest.static.gates].map((step) => step.id));
   const selfTests = new Map(manifest.static.selfTests.map((selfTest) => [selfTest.id, selfTest]));
+  const testGateIds = new Set((manifest.tests.gates ?? []).map((gate) => gate.id));
   for (const step of steps) {
     const target = manifest.ciCoverage[step.key];
     const reason = manifest.postMerge[step.key];
@@ -110,7 +111,7 @@ function parityProblems(text: string, manifest: LaneManifest): string[] {
       (kind === 'install' && id === '') ||
       (kind === 'static' && gateIds.has(id)) ||
       (kind === 'selftest' && selfTests.has(id)) ||
-      (kind === 'tests' && TEST_TARGETS.has(id));
+      (kind === 'tests' && (TEST_TARGETS.has(id) || testGateIds.has(id)));
     if (!known) problems.push(`unknown lane target ${target} for ${key}`);
   }
   return problems;
@@ -262,4 +263,12 @@ describe('pull request lane selection', () => {
     expect(unit).toMatch(/--project unit '/);
     expect(unit).not.toContain('tests/architecture/');
   }, 30_000);
+
+  it('runs the knip sweep on the 16 GiB tests agent and not on the 4 GiB static agent', () => {
+    const plan = staticPlan(MANIFEST, { base: 'b', mode: 'full', changed: [], limits: SMALL });
+    const staticIds = [...plan.build, ...plan.parallel, ...plan.selfTests, ...plan.exclusive].map((step) => step.id);
+    expect(staticIds).not.toContain('validate-no-legacy');
+    const testIds = testsPlan(MANIFEST, { base: 'b', mode: 'selected', changed: [], present: [], limits: MEDIUM, binDir: '/b', scratch: '/s', forced: [] }).map((step) => step.id);
+    expect(testIds).toContain('validate-no-legacy');
+  });
 });
