@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { domainSchema, jsonValueSchema } from '../domains/schema.js';
-import { frameworkVersions } from './targets.js';
-import { typedInput } from './typed.js';
+import { qualifiedVersions } from './targets.js';
+import { typedInput, typescriptTarget } from './typed.js';
 
 const operationName = z.string().min(1).max(80).regex(/^[A-Za-z_][A-Za-z0-9_.-]*(?![\s\S])/);
 export const stepSchema = z.strictObject({ operation: operationName, args: jsonValueSchema });
@@ -23,13 +23,15 @@ const common = {
 };
 export const statefulInput = z.discriminatedUnion('framework', [
   z.strictObject({
-    ...common, framework: z.literal('tunit'), frameworkVersion: z.literal(frameworkVersions.tunit),
+    ...common, framework: z.literal('tunit'), frameworkVersion: z.enum(qualifiedVersions.tunit),
     target: typedInput.options[0].shape.target,
   }),
   z.strictObject({
-    ...common, framework: z.literal('vitest'), frameworkVersion: z.literal(frameworkVersions.vitest),
-    target: typedInput.options[1].shape.target,
+    ...common, framework: z.literal('vitest'), frameworkVersion: z.enum(qualifiedVersions.vitest),
+    target: typescriptTarget,
   }),
+  z.strictObject({ ...common, framework: z.literal('node-test'), frameworkVersion: z.enum(qualifiedVersions['node-test']), target: typescriptTarget }),
+  z.strictObject({ ...common, framework: z.literal('bun-test'), frameworkVersion: z.enum(qualifiedVersions['bun-test']), target: typescriptTarget }),
 ]);
 export type StatefulInput = z.infer<typeof statefulInput>;
 export const scenarioSchema = z.strictObject({
@@ -41,12 +43,12 @@ export type Scenario = z.infer<typeof scenarioSchema>;
 export const statefulSuccess = z.strictObject({
   ok: z.literal(true),
   contractVersion: z.literal(2),
-  generatorVersion: z.enum(['tunit/stateful-1', 'vitest/stateful-1']),
+  generatorVersion: z.enum(['tunit/stateful-1', 'vitest/stateful-1', 'node-test/stateful-1', 'bun-test/stateful-1']),
   patch: z.string().min(1),
   fixture: z.strictObject({ version: z.literal(2), operations: operationsSchema, scenarios: z.array(scenarioSchema).min(1).max(64) }),
   propertyRefs: z.array(z.string()).min(1),
   assumptions: z.array(z.string()),
   unresolvedObligations: z.array(z.string()),
-  validation: z.strictObject({ executable: z.enum(['dotnet', 'npm']), args: z.array(z.string()).min(1) }),
+  validation: z.strictObject({ executable: z.enum(['dotnet', 'npm', 'node', 'bun']), args: z.array(z.string()).min(1) }).optional(),
 });
 export type StatefulSuccess = z.infer<typeof statefulSuccess>;

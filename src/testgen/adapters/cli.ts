@@ -1,7 +1,9 @@
+import { collectMetadata, MetadataBudgetError } from '../inspection/collect.js';
+import { scaffoldDirectory } from '../contract/scaffold.js';
 import { readFile } from 'node:fs/promises';
 import { Command, CommanderError } from 'commander';
-import { describeOperations, dispatch, failure } from '../contract/operations.js';
-import { frameworkVersions } from '../contract/targets.js';
+import { describeOperations, dispatch, dispatchInspection, failure } from '../contract/operations.js';
+import { qualifiedVersions } from '../contract/targets.js';
 import type { GenerationResult } from '../contract/schemas.js';
 import { commandMetadata } from './cli-metadata.js';
 
@@ -37,10 +39,30 @@ export async function runCli(args: string[], stdout: Write, stderr: Write, invok
         : `${metadata.capabilities.frameworks.map(({ framework, version }) => `${framework} ${version}`).join(', ')}\n${declared.map((op) => `${op.name}: ${op.description}`).join('\n')}\n`);
     });
 
+  function renderInspection(input: unknown) {
+    const result = dispatchInspection(input);
+    if (!result.ok) render(result, true);
+    else stdout(`${JSON.stringify(result)}\n`);
+  }
+
+  program.command('inspect')
+    .description('Inspect tracked repository test metadata.')
+    .option('--root <path>', 'Git repository root.', '.')
+    .option('--project <path>', 'Repository-relative manifest or test project.')
+    .option('--json', 'Print project metadata as JSON.')
+    .action(async ({ root, project }: { root: string; project?: string }) => {
+      try { renderInspection({ files: await collectMetadata(root, project), project }); }
+      catch (error) {
+        const message = error instanceof MetadataBudgetError ? error.message : 'Could not collect bounded metadata from the repository root.';
+        render(failure('INVALID_INPUT', message), true);
+      }
+    });
+
   program.command('init')
     .description('Propose a request and throwing binding stubs for a native suite.')
     .argument('<name>')
-    .requiredOption('--framework <framework>', 'Use tunit or vitest.')
+    .option('--framework <framework>', 'Use a framework advertised by describe.')
+    .option('--inspect-project <path>', 'Select a test project from tracked repository metadata.')
     .option('--framework-version <version>', 'Use an advertised framework version.')
     .option('--method <method>', 'Use property, metamorphic, differential, or stateful.', 'property')
     .option('--project <path>', 'C# test project path.')
@@ -50,12 +72,43 @@ export async function runCli(args: string[], stdout: Write, stderr: Write, invok
     .option('--domain <file>', 'Read the proposed argument domain from JSON.')
     .option('--json', 'Print the structured scaffold result as JSON.')
     .action(async (name: string, options: {
-      framework: string; frameworkVersion?: string; method: string; project?: string;
+      framework?: string; inspectProject?: string; frameworkVersion?: string; method: string; project?: string;
       namespace?: string; directory?: string; propertyRef?: string; domain?: string; json?: boolean;
     }) => {
+      if (options.inspectProject) {
+        let selected;
+        try {
+          const result = dispatchInspection({ files: await collectMetadata('.', options.inspectProject), project: options.inspectProject });
+          if (result.ok && result.projects.length === 1) selected = result.projects[0];
+        } catch {
+          render(failure('INVALID_INPUT', 'Could not inspect the selected repository project.'), Boolean(options.json));
+          return;
+        }
+        if (selected?.status !== 'supported' || !selected.runner || !selected.version
+          || (options.framework && options.framework !== selected.runner)
+          || (options.frameworkVersion && options.frameworkVersion !== selected.version)) {
+          render(failure('INVALID_INPUT', 'Select an unambiguous supported project or specify the framework explicitly.'), Boolean(options.json));
+          return;
+        }
+        options.framework = selected.runner;
+        options.frameworkVersion = selected.version;
+        if (selected.runner === 'tunit') options.project ??= selected.path;
+        else if (selected.cwd !== '.' && options.directory === undefined) {
+          const inferred = `${selected.cwd}/tests/generated`;
+          if (!scaffoldDirectory.safeParse(inferred).success) {
+            render(failure('INVALID_INPUT', `The project folder "${selected.cwd}" is not a portable scaffold path. Supply --directory.`), Boolean(options.json));
+            return;
+          }
+          options.directory = inferred;
+        }
+      }
+      if (!options.framework) {
+        render(failure('INVALID_INPUT', 'Supply --framework or --inspect-project.'), Boolean(options.json));
+        return;
+      }
       const input: Record<string, unknown> = {
         name, framework: options.framework, method: options.method,
-        frameworkVersion: options.frameworkVersion ?? Object.entries(frameworkVersions).find(([key]) => key === options.framework)?.[1] ?? 'unknown',
+        frameworkVersion: options.frameworkVersion ?? Object.entries(qualifiedVersions).find(([key]) => key === options.framework)?.[1][0] ?? 'unknown',
       };
       for (const key of ['project', 'namespace', 'directory', 'propertyRef'] as const) {
         if (options[key] !== undefined) input[key] = options[key];
@@ -102,7 +155,8 @@ export async function runCli(args: string[], stdout: Write, stderr: Write, invok
           render(failure('INVALID_INPUT', 'Could not read a JSON request from --input.'), Boolean(options.json));
           return;
         }
-        render(invoke(operation.name, input), Boolean(options.json));
+        if (operation.name === 'inspect_project') renderInspection(input);
+        else render(invoke(operation.name, input), Boolean(options.json));
       });
   }
   try {

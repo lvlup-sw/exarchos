@@ -16,9 +16,10 @@ const domain = { kind: 'record', fields: {
 } };
 
 export function checkNativeV2(scratch, testgen, npm, options, checkedOutput) {
-  npm(['install', '--ignore-scripts', '--no-audit', '--no-fund', '--prefer-offline', '--save-dev', 'vitest@3.2.7', 'typescript@5.9.3', '@types/node@20']);
-  for (const framework of ['tunit', 'vitest']) {
-    const folder = framework === 'tunit' ? 'native-cs' : 'native-ts';
+  const profiles = testgen(['describe']).capabilities.frameworks;
+  for (const { framework, version } of profiles) {
+    if (framework !== 'tunit') npm(['install', '--ignore-scripts', '--no-audit', '--no-fund', '--prefer-offline', '--save-dev', ...(framework === 'vitest' ? [`vitest@${version}`] : []), 'typescript@5.9.3', '@types/node@24', ...(framework === 'bun-test' ? ['@types/bun'] : [])]);
+    const folder = `native-${framework}-${version}`;
     const cwd = join(scratch, folder);
     mkdirSync(cwd);
     const extension = framework === 'tunit' ? 'cs' : 'ts';
@@ -27,12 +28,12 @@ export function checkNativeV2(scratch, testgen, npm, options, checkedOutput) {
     }
     if (framework === 'tunit') writeFileSync(join(cwd, 'Smoke.csproj'), `<Project Sdk="Microsoft.NET.Sdk">
 <PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net10.0</TargetFramework><Nullable>enable</Nullable><GenerateDocumentationFile>true</GenerateDocumentationFile><TreatWarningsAsErrors>true</TreatWarningsAsErrors><NuGetAudit>false</NuGetAudit></PropertyGroup>
-<ItemGroup><PackageReference Include="TUnit" Version="1.2.11" /></ItemGroup>
+<ItemGroup><PackageReference Include="TUnit" Version="${version}" /></ItemGroup>
 </Project>`);
     const requests = methods.map((method) => {
       const binding = method === 'stateful' ? 'StatefulBinding' : 'TypedBinding';
       return {
-        contractVersion: 2, framework, frameworkVersion: framework === 'tunit' ? '1.2.11' : '3.2.7',
+        contractVersion: 2, framework, frameworkVersion: version,
         propertyRef: `installed/${method}/\u2028`, assumptions: [], reduction: { maxAttempts: 64 },
         target: framework === 'tunit'
           ? { project: `${folder}/Smoke.csproj`, path: `${folder}/${method}.cs`, namespace: 'Smoke', className: `Generated${method}`, binding: `Smoke.${binding}` }
@@ -61,26 +62,40 @@ export function checkNativeV2(scratch, testgen, npm, options, checkedOutput) {
       writeFileSync(path, JSON.stringify(requests[index]));
       apply(testgen([`generate_${method}_tests`, '--input', path]), requests[index].target.path);
     }
+    const bun = framework === 'bun-test'
+      ? ['exec', '--yes', '--registry=https://registry.npmjs.org/', `--package=bun@${version}`, '--', 'bun']
+      : [];
+    if (framework === 'bun-test') assert.equal(npm([...bun, '--version']).trim(), version);
+    if (framework === 'node-test') assert.equal(process.versions.node, version);
     function native(fault = false) {
       const env = { ...process.env, TESTGEN_FAULT: fault ? '1' : '0' };
-      const result = framework === 'tunit'
-        ? spawnSync('dotnet', ['run', '--project', `${folder}/Smoke.csproj`, '-c', 'Release'], { ...options(), env })
-        : spawnSync(process.execPath, [join(scratch, 'node_modules/vitest/vitest.mjs'), 'run', folder], { ...options(), env });
+      const execution = { ...options(), env };
+      const result = {
+        tunit: () => spawnSync('dotnet', ['run', '--project', `${folder}/Smoke.csproj`, '-c', 'Release'], execution),
+        vitest: () => spawnSync(process.execPath, [join(scratch, 'node_modules/vitest/vitest.mjs'), 'run', folder], execution),
+        'node-test': () => spawnSync(process.execPath, ['--test', '--test-isolation=none', '--test-reporter=tap', ...requests.map(({ target }) => `compiled/${target.path.replace(/\.ts$/, '.js')}`)], execution),
+        'bun-test': () => spawnSync(process.execPath, [process.env.npm_execpath, ...bun, 'test', folder], execution),
+      }[framework]();
       if (result.error) throw result.error;
       const output = result.stdout + result.stderr;
       if (fault) assert.notEqual(result.status, 0, output);
       else assert.equal(result.status, 0, output);
       assert.doesNotMatch(output, /error CS\d+/);
       const expectedCount = [...discovered.values()].reduce((sum, count) => sum + count, 0);
-      const total = framework === 'tunit' ? output.match(/total:\s*(\d+)\b/i)
-        : output.match(/Tests\s+[^\n]*\((\d+)\)/);
+      const total = {
+        tunit: /total:\s*(\d+)\b/i,
+        vitest: /Tests\s+[^\n]*\((\d+)\)/,
+        'node-test': /^# tests (\d+)$/m,
+        'bun-test': /Ran (\d+) tests? across/,
+      }[framework].exec(output);
       assert.ok(total, `Native discovery summary is missing: ${output}`);
       assert.equal(Number(total[1]), expectedCount, output);
       return output;
     }
     function typecheck() {
-      if (framework !== 'vitest') return;
-      checkedOutput(spawnSync(process.execPath, [join(scratch, 'node_modules/typescript/bin/tsc'), '--noEmit', '--strict', '--skipLibCheck', '--target', 'ES2022', '--module', 'NodeNext', '--moduleResolution', 'NodeNext', ...requests.map(({ target }) => target.path)], options()), 'typecheck generated TypeScript');
+      if (framework === 'tunit') return;
+      const emission = framework === 'node-test' ? ['--outDir', 'compiled', '--rootDir', '.'] : ['--noEmit'];
+      checkedOutput(spawnSync(process.execPath, [join(scratch, 'node_modules/typescript/bin/tsc'), ...emission, '--strict', '--skipLibCheck', '--target', 'ES2022', '--module', 'NodeNext', '--moduleResolution', 'NodeNext', ...requests.map(({ target }) => target.path)], options()), 'typecheck generated TypeScript');
     }
     typecheck();
     native();
@@ -107,6 +122,6 @@ export function checkNativeV2(scratch, testgen, npm, options, checkedOutput) {
       assert.equal(replay.reduction.attempts, 0);
     }
     native();
-    process.stdout.write(`Installed ${framework}: all four methods pass, detect controls, and replay concrete failures.\n`);
+    process.stdout.write(`Installed ${framework} ${version}: all four methods pass, detect controls, and replay concrete failures.\n`);
   }
 }

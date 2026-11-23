@@ -24,7 +24,12 @@ it('derives capability methods and domains from the operation and domain contrac
   const { capabilities, operations } = describeOperations();
   expect(capabilities.domains).toEqual(['boolean', 'integer', 'number', 'string', 'enum', 'nullable', 'array', 'record']);
   expect(capabilities.methods.map(({ operation }) => operation)).toEqual(operations.filter(({ name }) => name.startsWith('generate_')).map(({ name }) => name));
-  expect(capabilities.frameworks).toEqual([{ framework: 'tunit', version: '1.2.11' }, { framework: 'vitest', version: '3.2.7' }]);
+  expect(capabilities.frameworks).toEqual([
+    ...['1.2.11', '1.69.16', '1.83.8'].map((version) => ({ framework: 'tunit', version })),
+    ...['3.2.7', '4.1.12', '5.1.0'].map((version) => ({ framework: 'vitest', version })),
+    { framework: 'node-test', version: '24.12.0' },
+    { framework: 'bun-test', version: '1.4.4' },
+  ]);
 });
 
 it('replays concrete stateless and stateful records and rejects mismatched evidence', async () => {

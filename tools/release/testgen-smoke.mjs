@@ -10,6 +10,11 @@ import { checkNativeV2 } from './testgen-native-smoke.mjs';
 const root = fileURLToPath(new URL('../../', import.meta.url));
 const scratch = mkdtempSync(join(tmpdir(), 'testgen install '));
 const npmCli = process.env.npm_execpath;
+const release = process.env.TESTGEN_SMOKE_VERSION;
+if (release !== undefined && !/^\d+\.\d+\.\d+$/.test(release)) {
+  throw new Error('TESTGEN_SMOKE_VERSION must name an exact published release.');
+}
+const origin = ['--registry=https://registry.npmjs.org/', '--@lvlup-sw:registry=https://registry.npmjs.org/'];
 
 function options(cwd = scratch) {
   return { cwd, encoding: 'utf8', timeout: 180_000 };
@@ -32,7 +37,15 @@ function testgen(args, expectedStatus) {
 }
 
 try {
-  const [pack] = JSON.parse(npm(['pack', '--ignore-scripts', '--json', '--pack-destination', scratch], root));
+  const packageName = `@lvlup-sw/exarchos@${release}`;
+  const [pack] = JSON.parse(npm(['pack', '--ignore-scripts', '--json', '--pack-destination', scratch,
+    ...(release ? [...origin, packageName] : [])], release ? scratch : root));
+  if (release) {
+    const published = JSON.parse(npm(['view', packageName, 'version', 'dist.integrity', 'gitHead', '--json', ...origin]));
+    assert.equal(published.version, release);
+    assert.equal(published['dist.integrity'], pack.integrity);
+    process.stdout.write(`${JSON.stringify(published)}\n`);
+  }
   assert.equal(typeof pack.integrity, 'string');
   process.stdout.write(`${JSON.stringify({ packageIntegrity: pack.integrity, packageShasum: pack.shasum, node: process.version, platform: process.platform, arch: process.arch })}\n`);
   writeFileSync(join(scratch, 'package.json'), JSON.stringify({
@@ -93,7 +106,7 @@ internal static class Binding
     const schemas = (metadata.inputSchema.anyOf ?? [metadata.inputSchema]).flatMap((schema) => schema.oneOf ?? [schema]);
     const supported = schemas.find(({ properties }) => properties.framework.const === request.framework);
     assert.ok(supported, `Describe must advertise ${request.framework} for ${operation}.`);
-    assert.equal(supported.properties.frameworkVersion.const, request.frameworkVersion);
+    assert.ok(supported.properties.frameworkVersion.enum.includes(request.frameworkVersion));
     const input = { ...request, ...bindings, target: { ...request.target, className, path: `${className}.cs` } };
     writeFileSync(requestPath, JSON.stringify(input));
     const result = testgen([operation, '--input', requestPath]);

@@ -1,9 +1,10 @@
+import { registration, assertion, recordEncoder } from '../shared/typescript-runner.js';
 import { posix } from 'node:path';
 import type { Scenario, StatefulInput } from '../../contract/stateful.js';
 import { typescriptDomainCheck } from '../shared/domain-check.js';
 import { typescriptReduction } from './reduction.js';
 
-type Input = Extract<StatefulInput, { framework: 'vitest' }>;
+type Input = Exclude<StatefulInput, { framework: 'tunit' }>;
 
 export function emitStatefulVitest(input: Input, scenarios: Scenario[]): string {
   const relative = posix.relative(posix.dirname(input.target.path), input.target.bindingModule).replace(/\.ts$/, '.js');
@@ -12,8 +13,10 @@ export function emitStatefulVitest(input: Input, scenarios: Scenario[]): string 
   const cases = scenarios.map((scenario, index) => `it('Case_${index + 1}', async () => {
   await runScenario(JSON.parse(${JSON.stringify(JSON.stringify(scenario))}), 'Case_${index + 1}');
 });`).join('\n\n');
-  return `import { expect, it } from 'vitest';
+  return `${registration(input.framework)}
 import { createModel, createSystem, disposeSystem, isEnabled, transition, execute, observe, equivalent } from ${JSON.stringify(specifier)};
+
+${recordEncoder}
 
 type Step = { operation: string; args: unknown };
 type Scenario = { mode: 'exact' | 'enabled'; steps: Step[]; requiredSteps: number };
@@ -83,7 +86,7 @@ function* smallerHistories(history: Step[]): Generator<Step[]> {
 
 async function runScenario(scenario: Scenario, caseId: string): Promise<void> {
   const original = await checkHistory(scenario);
-  console.error('TESTGEN_HISTORY ' + JSON.stringify({ version: 2, propertyRef: ${JSON.stringify(input.propertyRef)}, caseId, ...original }));
+  console.error('TESTGEN_HISTORY ' + encodeRecord({ version: 2, propertyRef: ${JSON.stringify(input.propertyRef)}, caseId, ...original }));
   if (original.status === 'pass') return;
   if (original.status === 'rejected') throw new Error('TestGen invalid history: ' + original.signature);
   let current = original.history;
@@ -113,12 +116,12 @@ async function runScenario(scenario: Scenario, caseId: string): Promise<void> {
       } catch (error) { aborted = String(error); break; }
     }
   }
-  console.error('TESTGEN_REPLAY ' + JSON.stringify({
+  console.error('TESTGEN_REPLAY ' + encodeRecord({
     version: 2, propertyRef: ${JSON.stringify(input.propertyRef)}, method: 'stateful', caseId,
     operations, histories: [current], original: original.history, signature: original.signature,
     reduction: { attempts, rejected, duplicates, exhausted: attempts >= maximum, aborted },
   }));
-  expect(original.status, 'TestGen model disagrees with the system; replay history recorded.').toBe('pass');
+  ${assertion(input.framework, 'original.status', "'pass'", 'TestGen model disagrees with the system; replay history recorded.')}
 }
 
 ${cases}

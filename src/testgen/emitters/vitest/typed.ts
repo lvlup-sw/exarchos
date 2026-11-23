@@ -1,10 +1,11 @@
+import { registration, assertion, recordEncoder } from '../shared/typescript-runner.js';
 import { posix } from 'node:path';
 import { typescriptReduction } from './reduction.js';
 import type { TypedInput, TypedMethod } from '../../contract/typed.js';
 import { canonicalJson } from '../../domains/schema.js';
 import { typescriptDomainCheck } from '../shared/domain-check.js';
 
-type Input = Extract<TypedInput, { framework: 'vitest' }>;
+type Input = Exclude<TypedInput, { framework: 'tunit' }>;
 
 export function emitTypedVitest(input: Input, method: TypedMethod): string {
   const relative = posix.relative(posix.dirname(input.target.path), input.target.bindingModule).replace(/\.ts$/, '.js');
@@ -46,8 +47,10 @@ function canonical(value: unknown): string {
   return JSON.stringify(value);
 }
 `;
-  return `import { expect, it } from 'vitest';
+  return `${registration(input.framework)}
 import { ${selected.bindings} } from ${JSON.stringify(specifier)};
+
+${recordEncoder}
 
 type Input = Parameters<typeof observe>[0];
 class InvalidCase extends Error {}
@@ -68,7 +71,7 @@ async function runCase(source: Input, caseId: string): Promise<void> {
   try {
     passed = await check(source);
   } catch (error) {
-    if (error instanceof InvalidCase) console.error('TESTGEN_REJECTED ' + JSON.stringify({ caseId, reason: error.message, cases: [source] }));
+    if (error instanceof InvalidCase) console.error('TESTGEN_REJECTED ' + encodeRecord({ caseId, reason: error.message, cases: [source] }));
     throw error;
   }
   if (passed === true) return;
@@ -104,13 +107,13 @@ async function runCase(source: Input, caseId: string): Promise<void> {
       }
     }
   }
-  console.error('TESTGEN_REPLAY ' + JSON.stringify({
+  console.error('TESTGEN_REPLAY ' + encodeRecord({
     version: 2, propertyRef: ${JSON.stringify(input.propertyRef)}, method: ${JSON.stringify(method)},
     caseId, domain, cases: [current], original: source,
     signature: ${JSON.stringify(method + '/oracle-false')},
     reduction: { attempts, rejected, duplicates, exhausted: attempts >= maximum, aborted },
   }));
-  expect(passed, 'TestGen ${method} oracle returned false; replay fixture recorded.').toBe(true);
+  ${assertion(input.framework, 'passed', 'true', `TestGen ${method} oracle returned false; replay fixture recorded.`)}
 }
 
 ${cases.join('\n\n')}

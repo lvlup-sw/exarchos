@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { scaffoldSuccess } from './scaffold.js';
 import { statefulSuccess } from './stateful.js';
 import { typedSuccess } from './typed.js';
-import { binding, tunit, tsPath, frameworkVersions } from './targets.js';
+import { binding, tunit, tsPath, qualifiedVersions } from './targets.js';
 export { frameworkSelection, frameworkVersions } from './targets.js';
 
 const ticks = z.string().max(20).regex(/^(?:0|-?[1-9][0-9]{0,18})(?![\s\S])/).refine(
@@ -25,7 +25,7 @@ const tunitProperty = z.strictObject({ ...common, ...tunit, predicate: binding }
 const vitestInput = z.strictObject({
   ...common,
   framework: z.literal('vitest'),
-  frameworkVersion: z.literal(frameworkVersions.vitest),
+  frameworkVersion: z.enum(qualifiedVersions.vitest),
   target: z.strictObject({
     path: tsPath.refine((path) => path.endsWith('.test.ts'), 'Use a .test.ts file.'),
     bindingModule: tsPath.refine((path) => !path.endsWith('.d.ts'), 'Use a runtime binding module.'),

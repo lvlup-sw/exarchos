@@ -1,5 +1,5 @@
 import { createV2Server, parseV2ToolDefinition } from '../../contract/sdk/seam.js';
-import { describeOperations, dispatch } from '../contract/operations.js';
+import { describeOperations, dispatch, dispatchInspection } from '../contract/operations.js';
 import type { Emitter } from '../contract/operations.js';
 
 export function createTestgenServer(emit?: Emitter) {
@@ -12,7 +12,9 @@ export function createTestgenServer(emit?: Emitter) {
 
   server.setRequestHandler('tools/list', () => ({ tools }));
   server.setRequestHandler('tools/call', ({ params }) => {
-    const result = dispatch(params.name, params.arguments ?? {}, emit);
+    const result = params.name === 'inspect_project'
+      ? dispatchInspection(params.arguments ?? {})
+      : dispatch(params.name, params.arguments ?? {}, emit);
     return {
       content: [{ type: 'text', text: JSON.stringify(result) }],
       structuredContent: result,

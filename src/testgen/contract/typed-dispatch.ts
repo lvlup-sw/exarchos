@@ -1,3 +1,4 @@
+import { typescriptValidation } from '../emitters/shared/typescript-runner.js';
 import type { TypedInput, TypedMethod, TypedSuccess } from './typed.js';
 import { canonicalJson, domainProblem, inDomain, maximumEncodedSize, isScalarText } from '../domains/schema.js';
 import { generateCases } from '../domains/generate.js';
@@ -23,13 +24,13 @@ export function emitTyped(input: TypedInput, method: TypedMethod): TypedSuccess 
     : { cases: input.cases, attempts: 0, duplicates: 0, exhausted: false };
   if (JSON.stringify(generated.cases).length > 2_000_000) throw new Error('Generated fixtures exceed two megabytes.');
   const expanded = { ...input, cases: generated.cases };
-  const source = expanded.framework === 'vitest' ? emitTypedVitest(expanded, method) : emitTypedTUnit(expanded, method);
+  const source = expanded.framework === 'tunit' ? emitTypedTUnit(expanded, method) : emitTypedVitest(expanded, method);
   const lines = source.trimEnd().split('\n');
   const path = input.target.path;
   return {
     ok: true,
     contractVersion: 2,
-    generatorVersion: input.framework === 'vitest' ? 'vitest/2' : 'tunit/2',
+    generatorVersion: `${input.framework}/2`,
     patch: [
       `diff --git a/${path} b/${path}`, 'new file mode 100644', '--- /dev/null', `+++ b/${path}`,
       `@@ -0,0 +1,${lines.length} @@`, ...lines.map((line) => `+${line}`), '',
@@ -45,13 +46,14 @@ export function emitTyped(input: TypedInput, method: TypedMethod): TypedSuccess 
     propertyRefs: [input.propertyRef],
     assumptions: input.assumptions,
     unresolvedObligations: [
+      ...(input.framework === 'node-test' ? ['Compile with the repository test configuration and run node --test --test-isolation=none with the compiled test path.'] : []),
       'Review the binding oracle and preconditions, compile the patch, and verify native discovery and assertion sensitivity.',
       'The declared domain is structural. Application preconditions are checked during native execution.',
       ...(generated.exhausted ? ['The generation attempt budget ended before the requested number of distinct cases was reached.'] : []),
     ],
-    validation: input.framework === 'vitest'
-      ? { executable: 'npm', args: ['exec', '--no', '--', 'vitest', 'run', path] }
-      : { executable: 'dotnet', args: ['run', '--project', input.target.project, '-c', 'Release'] },
+    validation: input.framework === 'tunit'
+      ? { executable: 'dotnet', args: ['run', '--project', input.target.project, '-c', 'Release'] }
+      : typescriptValidation(input.framework, path),
   };
 }
 
