@@ -179,6 +179,7 @@ function formatReport(
 
 /**
  * Run the baseline test command in the local executor, read-only in the worktree. A retry of the same operation replays the stored run.
+ * The action names no workflow, so the request names no stream. It is a standalone check of any registered branch checkout with a clean tree.
  * A refusal and a pending result keep distinct codes. A run with no verdict is pending and never reads as a failed baseline.
  */
 async function localBaselineRun(

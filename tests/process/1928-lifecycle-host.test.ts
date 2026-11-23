@@ -14,6 +14,8 @@ import { EventStore } from '../../src/events/store.js';
 import type { ToolResult } from '../../src/format.js';
 import { handleRunTests } from '../../src/lifecycle/run-tests.js';
 import { observeRepository } from '../../src/utils/git-tree.js';
+import { deriveRepoKey } from '../../src/utils/paths.js';
+import { handlePostMerge } from '../../src/verbs/gates/post-merge.js';
 import { ACTION_HANDLERS } from '../../src/verbs/composite.js';
 import { HostedAdequacyPending } from '../../src/verbs/gates/gate-runner.js';
 import { runApprovedCheck, type CheckExecutor } from '../../src/verbs/verification/check-executor.js';
@@ -22,6 +24,7 @@ import { createInMemoryResolver } from '../../src/workflow/capabilities/resolver
 import { allocatePhaseAttemptId } from '../../src/workflow/phase-attempt-id.js';
 import { fixture as preparedFixture, prepared, task, textOf } from '../helpers/capsule/prepared-authority.js';
 import { scopedRepository } from '../helpers/scoped-repository.js';
+import { fakeExecutor } from '../helpers/verification/check-executor.js';
 import { execFileAsync } from '../../tools/test-helpers/spawn.js';
 import { seedActivePhaseAttempt, seedGateEvidence } from '../../tools/test-helpers/trusted-context.js';
 import { makeTempDir, rmrfAsync } from '../../tools/test-helpers/temp-dir.js';
@@ -53,6 +56,14 @@ async function runsOf(marker: string): Promise<number> {
 /** The tracked and untracked changes of one checkout. */
 async function status(checkout: string): Promise<string> {
   return execFileAsync('git', ['-C', checkout, 'status', '--porcelain']);
+}
+
+/** The evidence id of the first evidence reference of a gate result, or undefined. */
+function evidenceIdOf(result: ToolResult): string | undefined {
+  const data = result.data;
+  if (data === null || typeof data !== 'object' || !('evidenceReferences' in data) || !Array.isArray(data.evidenceReferences)) return undefined;
+  const first: unknown = data.evidenceReferences[0];
+  return first !== null && typeof first === 'object' && 'evidenceId' in first && typeof first.evidenceId === 'string' ? first.evidenceId : undefined;
 }
 
 /** The test leg and the typecheck leg of the fixture configuration. */
@@ -134,7 +145,7 @@ it.runIf(process.platform === 'linux')('LocalLifecycle_ApprovedOperationsRunInTh
     expect(JSON.stringify(baseline)).toContain('tests ok');
     expect(await runsOf(f.marker('main-test'))).toBe(2);
 
-    const synthesis = await seedActivePhaseAttempt(f.events, 'lifecycle-synthesis', { phase: 'synthesize' });
+    const synthesis = await seedActivePhaseAttempt(f.events, 'lifecycle-synthesis', { phase: 'synthesize', repoRoot: deriveRepoKey(f.repo.checkout) });
     for (const gate of ['task-completion', 'tests', 'typecheck', 'document', 'stack']) {
       await seedGateEvidence(f.events, { streamId: 'lifecycle-synthesis', requirementId: gate, phaseAttemptId: synthesis });
     }
@@ -144,7 +155,7 @@ it.runIf(process.platform === 'linux')('LocalLifecycle_ApprovedOperationsRunInTh
     expect(await runsOf(f.marker('main-test'))).toBe(3);
     expect(await runsOf(f.marker('main-typecheck'))).toBe(1);
 
-    await seedActivePhaseAttempt(f.events, 'lifecycle-merge', { phase: 'synthesize' });
+    await seedActivePhaseAttempt(f.events, 'lifecycle-merge', { phase: 'synthesize', repoRoot: deriveRepoKey(f.repo.checkout) });
     const postMerge = await f.call({ action: 'check_post_merge', featureId: 'lifecycle-merge', prUrl: 'https://example.invalid/pull/1',
       mergeSha: 'abc1234', repoRoot: f.repo.checkout });
     expect(postMerge, JSON.stringify(postMerge)).toMatchObject({ success: true, data: { passed: true } });
@@ -180,7 +191,7 @@ it.runIf(process.platform === 'linux')('LocalLifecycle_ARetryOfTheSameOperation_
     expect(retried).toEqual(first);
     expect(await runsOf(f.marker('a-test'))).toBe(1);
 
-    await seedActivePhaseAttempt(f.events, 'lifecycle-retry', { phase: 'synthesize' });
+    await seedActivePhaseAttempt(f.events, 'lifecycle-retry', { phase: 'synthesize', repoRoot: deriveRepoKey(f.repo.checkout) });
     const merge = correlation();
     const args = { featureId: 'lifecycle-retry', prUrl: 'https://example.invalid/pull/2', mergeSha: 'abc1234', repoRoot: f.repo.checkout };
     const once = await f.handle('check_post_merge', args, merge);
@@ -261,6 +272,62 @@ it.runIf(process.platform === 'linux')('LocalLifecycle_APreparedStream_ConfinesT
     await f.close();
     await rmrfAsync(other.root);
   }
+}, 400000);
+
+it.runIf(process.platform === 'linux')('LocalLifecycle_AnUnpreparedStream_ConfinesTheCheckToTheWorkflowWorktrees', async () => {
+  const f = await lifecycleFixture();
+  const other = await scopedRepository({ integrationBranch: 'integration', files: {
+    '.exarchos.yml': 'test: node test.cjs\n',
+    'test.cjs': markerScript(f.marker('other-test'), ''),
+  } });
+  try {
+    await seedActivePhaseAttempt(f.events, 'lifecycle-unprepared', { phase: 'synthesize', repoRoot: deriveRepoKey(f.repo.checkout) });
+    const args = (repoRoot: string) => ({ featureId: 'lifecycle-unprepared', prUrl: 'https://example.invalid/pull/4', mergeSha: 'abc1234', repoRoot });
+    const foreign = await f.handle('check_post_merge', args(other.checkout));
+    expect(foreign).toMatchObject({ success: false, error: { code: 'LOCAL_CHECK_REFUSED',
+      message: expect.stringContaining('not a registered worktree of the workflow') } });
+    await seedActivePhaseAttempt(f.events, 'lifecycle-no-repository', { phase: 'synthesize' });
+    const unnamed = await f.handle('check_post_merge', { ...args(f.taskA), featureId: 'lifecycle-no-repository' });
+    expect(unnamed).toMatchObject({ success: false, error: { code: 'LOCAL_CHECK_REFUSED',
+      message: expect.stringContaining('not a registered worktree of the workflow') } });
+    expect([await runsOf(f.marker('other-test')), await runsOf(f.marker('a-test'))]).toEqual([0, 0]);
+
+    const worktree = await f.handle('check_post_merge', args(f.taskA));
+    expect(worktree, JSON.stringify(worktree)).toMatchObject({ success: true, data: { passed: true } });
+    expect(await runsOf(f.marker('a-test'))).toBe(1);
+  } finally {
+    await f.close();
+    await rmrfAsync(other.root);
+  }
+}, 400000);
+
+it.runIf(process.platform === 'linux')('LocalLifecycle_StoredEvidenceWithNoLocalObservation_ReplaysTheOriginalVerdictWithNoRun', async () => {
+  const f = await lifecycleFixture();
+  try {
+    await seedActivePhaseAttempt(f.events, 'lifecycle-history', { phase: 'synthesize', repoRoot: deriveRepoKey(f.repo.checkout) });
+    const args = { featureId: 'lifecycle-history', prUrl: 'https://example.invalid/pull/5', mergeSha: 'abc1234', repoRoot: f.repo.checkout };
+    const operation = correlation();
+    const earlier = fakeExecutor(() => ({ exitCode: 1, stdout: '', stderr: 'red before the local executor\n' }));
+    const original = await runWithDispatchContext(operation, () => handlePostMerge(args, join(f.root, 'state'), f.events, earlier.executor));
+    expect(original, JSON.stringify(original)).toMatchObject({ success: true, data: { passed: false } });
+    expect(earlier.legs).toHaveLength(1);
+    const recorded = await f.events.query('lifecycle-history', { type: 'admission.evidence-recorded' });
+    expect(recorded).toHaveLength(1);
+
+    const retried = await f.handle('check_post_merge', args, operation);
+    expect(retried, JSON.stringify(retried)).toMatchObject({ success: true, data: { passed: false, verdict: 'fail' } });
+    expect(evidenceIdOf(original)).toMatch(/^evidence:/);
+    expect(evidenceIdOf(retried)).toBe(evidenceIdOf(original));
+    const outside = join(f.root, 'outside');
+    await mkdir(outside);
+    await writeFile(join(outside, '.exarchos.yml'), 'test: node test.cjs\n');
+    const elsewhere = await f.handle('check_post_merge', { ...args, repoRoot: outside }, operation);
+    expect(elsewhere, JSON.stringify(elsewhere)).toMatchObject({ success: true, data: { passed: false, verdict: 'fail' } });
+    expect(evidenceIdOf(elsewhere)).toBe(evidenceIdOf(original));
+    expect(await runsOf(f.marker('main-test'))).toBe(0);
+    expect(await f.events.query('lifecycle-history', { type: 'admission.evidence-recorded' })).toHaveLength(1);
+    expect(await status(f.repo.checkout)).toBe('');
+  } finally { await f.close(); }
 }, 400000);
 
 it.runIf(process.platform === 'linux')('LocalLifecycle_StopAfterTestFailureTimeCapAndMissingProgram_GiveNoFalseVerdict', async () => {

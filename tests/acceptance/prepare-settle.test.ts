@@ -33,6 +33,7 @@ import {
   WorkflowPreparedData,
 } from '../../src/events/schemas.js';
 import { EventStore } from '../../src/events/store.js';
+import { deriveRepoKey } from '../../src/utils/paths.js';
 import { PREPARE_ECONOMY_BUDGET_TOKENS } from '../../src/verbs/prepare/economy.js';
 import { pinDefinition } from '../../src/verbs/prepare/pin-definition.js';
 import { commitPreparedCapsule, decodePreparedBundle } from '../../src/verbs/prepare/prepared-record.js';
@@ -133,7 +134,7 @@ const TASKS: readonly PlannedTask[] = [
 ];
 
 /**
- * Seeds a feature workflow in `delegate` with its ready tasks and their integration branch.
+ * Seeds a feature workflow in `delegate` with its ready tasks and their integration branch. The start names the fixture repository.
  * The plan is the three tasks, unless a case names another plan. The events that the projection
  * folds and the document that the transition guards read hold the same facts.
  *
@@ -149,7 +150,7 @@ async function seedDelegatingFeature(
     phase: 'delegate',
     tasks: tasks.map(({ id, title, status }) => ({ id, title, status })),
   });
-  await eventStore.append(STREAM, { type: 'workflow.started', data: { featureId: STREAM, workflowType: 'feature' } });
+  await eventStore.append(STREAM, { type: 'workflow.started', data: { featureId: STREAM, workflowType: 'feature', repoRoot: deriveRepoKey(repository.checkout) } });
   await eventStore.append(STREAM, { type: 'workflow.transition', data: { from: 'plan-review', to: 'delegate' } });
   await eventStore.append(STREAM, {
     type: 'state.patched',

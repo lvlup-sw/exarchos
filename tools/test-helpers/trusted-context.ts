@@ -57,11 +57,13 @@ export function runAsTrustedCaller<T>(
  * immutable subject, and the phase-attempt identity of the subject comes from persisted lifecycle
  * data. A gate outside a phase attempt fails closed with `ACTIVE_PHASE_ATTEMPT_REQUIRED`. So a
  * test against a bare event store starts the workflow first. Returns the allocated `phaseAttemptId`.
+ *
+ * `repoRoot` names the repository of the workflow, as the workflow start does. A local check of a stream with no prepared scope runs only in a worktree of it.
  */
 export async function seedActivePhaseAttempt(
   eventStore: SeedableEventStore,
   featureId: string,
-  options: { readonly workflowType?: string; readonly phase?: string } = {},
+  options: { readonly workflowType?: string; readonly phase?: string; readonly repoRoot?: string } = {},
 ): Promise<string> {
   const phaseAttemptId = `phase-attempt:${featureId.replace(/[^A-Za-z0-9_.:-]/g, '-')}`;
   await eventStore.append(featureId, {
@@ -71,6 +73,7 @@ export async function seedActivePhaseAttempt(
       workflowType: options.workflowType ?? 'feature',
       phase: options.phase ?? 'delegate',
       phaseAttemptId,
+      ...(options.repoRoot === undefined ? {} : { repoRoot: options.repoRoot }),
     },
   });
   return phaseAttemptId;

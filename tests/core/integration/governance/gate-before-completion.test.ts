@@ -14,6 +14,7 @@
  * One `settle` case brings the state document level in the `workflow_state` row of the shipped store.
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { randomUUID } from 'node:crypto';
 import * as path from 'node:path';
 import {
   createPublicRootHarness,
@@ -48,10 +49,13 @@ function nodeManifest(scripts: Record<string, string>): string {
  * Makes a real Node project that the production static-analysis gate can run, and returns its checkout.
  * The local check executor runs a direct call only in the root of a branch checkout with a clean tree.
  * So the project is a committed Git repository.
+ * The workflow has no prepared scope, so a direct call runs only in a worktree of the workflow. The worktree registry names the checkout for the workflow.
  */
 async function makeNodeFixture(scripts: Record<string, string>): Promise<string> {
   const repository = await scopedRepository({ integrationBranch: 'gov-t2-fixture', files: { 'package.json': nodeManifest(scripts) } });
   scratchDirs.push(repository.root);
+  await harness.appendEvent('worktrees', { type: 'worktree.adopted', data: { worktreeId: repository.checkout, path: repository.checkout,
+    featureId: FEATURE_ID, operationId: randomUUID(), ownerPid: null, ownerStartedAt: null } });
   return repository.checkout;
 }
 

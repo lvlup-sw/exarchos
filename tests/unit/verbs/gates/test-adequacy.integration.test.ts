@@ -28,7 +28,7 @@ import { EventStore } from '../../../../src/events/store.js';
 import type { DispatchContext } from '../../../../src/dispatch/core/dispatch.js';
 import { handleOrchestrate } from '../../../../src/verbs/composite.js';
 import { probeArgv, resolveVerificationProfile } from '../../../../src/config/verification-profile.js';
-import { PLUGIN_MODE_ENV_KEYS, STORE_LOCATION_ENV_KEYS } from '../../../../src/utils/paths.js';
+import { deriveRepoKey, PLUGIN_MODE_ENV_KEYS, STORE_LOCATION_ENV_KEYS } from '../../../../src/utils/paths.js';
 import { adequacyPlan, probeRunOutcome } from '../../../../src/verbs/gates/test-adequacy-handler.js';
 import { PROBE_SCRATCH_PREFIX, runApprovedCheck } from '../../../../src/verbs/verification/check-executor.js';
 import {
@@ -638,7 +638,7 @@ const runnerStores: Array<() => void> = [];
 
 /**
  * A probe runner over the local executor. It runs the probe leg of `probe` in the checkout `repoRoot`, then reads the leg with the probe rules.
- * The store exists before the first run, so a case can change the temporary directory of the leg only.
+ * The store exists before the first run, so a case can change the temporary directory of the leg only. The workflow start names the checkout as its repository.
  */
 async function probeRunner(probe: ProbeTerm, repoRoot: string, legTimeoutMs?: number): Promise<(testFiles?: readonly string[]) => Promise<RunOutcome>> {
   const stateDir = mkdtempSync(path.join(os.tmpdir(), 'probe-runner-state-'));
@@ -649,6 +649,7 @@ async function probeRunner(probe: ProbeTerm, repoRoot: string, legTimeoutMs?: nu
     rmrf(stateDir);
   });
   const checkout = realpathSync(repoRoot);
+  await seedActivePhaseAttempt(eventStore, 'feat-probe-runner', { repoRoot: deriveRepoKey(checkout) });
   return async (testFiles = TEST_FILES) => {
     await commitAll(checkout);
     const outcome = await runAsTrustedCaller(stateDir, () => runApprovedCheck({
@@ -975,7 +976,7 @@ const seededWorkflows = new Set<string>();
 /**
  * Calls the composite handler directly, not through `dispatch()`. It recreates the trusted dispatch
  * scope, because without it the gate runner refuses with `TRUSTED_CALLER_REQUIRED`. It also seeds a
- * started workflow with an active phase attempt, which the gate evidence binds to.
+ * started workflow with an active phase attempt, which the gate evidence binds to. The start names the repository of the call.
  */
 async function orchestrate(
   args: Record<string, unknown>,
@@ -986,7 +987,8 @@ async function orchestrate(
     const key = `${ctx.stateDir}\0${featureId}`;
     if (!seededWorkflows.has(key)) {
       seededWorkflows.add(key);
-      await seedActivePhaseAttempt(ctx.eventStore, featureId);
+      const repoRoot = args['repoRoot'];
+      await seedActivePhaseAttempt(ctx.eventStore, featureId, typeof repoRoot === 'string' ? { repoRoot: deriveRepoKey(repoRoot) } : {});
     }
   }
   return runAsTrustedCaller(ctx.stateDir, () => handleOrchestrate(args, ctx));

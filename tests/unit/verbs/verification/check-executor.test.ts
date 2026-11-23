@@ -14,6 +14,7 @@ import { EventStore } from '../../../../src/events/store.js';
 import {
   commandResultOf, legArgv, runApprovedCheck, type ApprovedCheckRequest, type CheckSession, type LegObservation,
 } from '../../../../src/verbs/verification/check-executor.js';
+import { deriveRepoKey } from '../../../../src/utils/paths.js';
 import { makeTempDir, rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
 import { runAsTrustedCaller } from '../../../../tools/test-helpers/trusted-context.js';
 import { execFileAsync } from '../../../../tools/test-helpers/spawn.js';
@@ -36,6 +37,7 @@ beforeEach(async () => {
   worktree = await repo.worktreeFor('root', { 'inside.sh': '#!/bin/sh\nexit 0\n' });
   events = new EventStore(join(root, 'state'));
   await events.initialize();
+  await startWorkflow('feat-executor', repo.checkout);
 });
 
 afterEach(async () => {
@@ -43,6 +45,11 @@ afterEach(async () => {
   await rmrfAsync(root);
   await rmrfAsync(repo.root);
 });
+
+/** Start a workflow whose start names the repository of `checkout`, as the workflow start does from the server directory. */
+async function startWorkflow(streamId: string, checkout: string): Promise<void> {
+  await events.append(streamId, { type: 'workflow.started', data: { featureId: streamId, workflowType: 'feature', repoRoot: deriveRepoKey(checkout) } });
+}
 
 /** A plan of node legs. Each leg runs one script. */
 function nodePlan(...scripts: readonly string[]): CheckPlan {
@@ -136,6 +143,36 @@ describe('the approved-check policy', () => {
     const dirty = await runAsTrustedCaller(root, () => runApprovedCheck(requestOf(plan), everyLeg(plan)));
     expect(dirty).toMatchObject({ kind: 'refused', reason: expect.stringContaining('uncommitted changes') });
     expect(await markerLines('wrong')).toBe(0);
+  }, CASE_TIMEOUT_MS);
+
+  /**
+   * A stream with no prepared scope confines the check to the workflow. A worktree of another repository refuses before any process.
+   * A stream with no start refuses. A registered worktree of the workflow runs, also when the workflow start names another repository.
+   */
+  it('CheckExecutor_AnUnpreparedStream_ConfinesTheCheckToTheWorkflowWorktrees', async () => {
+    const plan = nodePlan(markerScript('confined'));
+    const other = await scopedRepository({ integrationBranch: 'integration', files: { 'value.txt': 'other\n' } });
+    try {
+      const foreign = await runAsTrustedCaller(root, () => runApprovedCheck(requestOf(plan, { checkout: other.checkout }), everyLeg(plan)));
+      expect(foreign).toMatchObject({ kind: 'refused', reason: expect.stringContaining('not a registered worktree of the workflow') });
+      const unknown = await runAsTrustedCaller(root, () => runApprovedCheck(requestOf(plan, { streamId: 'feat-unknown' }), everyLeg(plan)));
+      expect(unknown).toMatchObject({ kind: 'refused', reason: expect.stringContaining('not a registered worktree of the workflow') });
+      await startWorkflow('feat-elsewhere', other.checkout);
+      const elsewhere = await runAsTrustedCaller(root, () => runApprovedCheck(requestOf(plan, { streamId: 'feat-elsewhere' }), everyLeg(plan)));
+      expect(elsewhere).toMatchObject({ kind: 'refused', reason: expect.stringContaining('not a registered worktree of the workflow') });
+      expect(await markerLines('confined')).toBe(0);
+
+      await events.append('worktrees', { type: 'worktree.adopted', data: { worktreeId: worktree, path: worktree, featureId: 'feat-elsewhere',
+        operationId: '00000000-0000-4000-8000-000000000001', ownerPid: null, ownerStartedAt: null } });
+      const registered = await runAsTrustedCaller(root, () => runApprovedCheck(requestOf(plan, { streamId: 'feat-elsewhere' }), everyLeg(plan)));
+      expect(registered).toMatchObject({ kind: 'ran', replayed: false });
+      const { streamId: _stream, ...standaloneRequest } = requestOf(plan, { checkout: other.checkout });
+      const standalone = await runAsTrustedCaller(root, () => runApprovedCheck(standaloneRequest, everyLeg(plan)));
+      expect(standalone).toMatchObject({ kind: 'ran', replayed: false });
+      expect(await markerLines('confined')).toBe(2);
+    } finally {
+      await rmrfAsync(other.root);
+    }
   }, CASE_TIMEOUT_MS);
 });
 

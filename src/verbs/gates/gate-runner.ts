@@ -51,6 +51,7 @@ import {
   DISABLED_BY_CONFIG,
   normalizeGateVerdict,
   readGateCompletenessDescriptor,
+  readGateRowMarks,
   readGateSkipDescriptor,
   type GateCompletenessDescriptor,
   type GateEvidenceReference,
@@ -107,12 +108,33 @@ export type GateProviderExecutor = (
 /** A lost or unfinished hosted reply leaves the original bound segment retryable. */
 export class HostedAdequacyPending extends Error {}
 
+/**
+ * The signal of a local check inside a stored-evidence replay that has no stored local observation.
+ * Evidence from before the local executor, or from a moved head, has none. The runner then replays the stored evidence record.
+ */
+export class StoredEvidenceWithoutObservation extends Error {}
+
+/** The state of one provider run whose operation already has stored evidence. A check with no stored observation sets the mark. */
+interface StoredEvidenceRun {
+  observationMissing: boolean;
+}
+
 /** The scope of a provider run whose operation already has stored evidence. */
-const storedEvidenceScope = new AsyncLocalStorage<true>();
+const storedEvidenceScope = new AsyncLocalStorage<StoredEvidenceRun>();
 
 /** True inside a provider run whose operation already has stored evidence. A local check then replays its stored observation and starts no process. */
 export function storedEvidenceReplay(): boolean {
-  return storedEvidenceScope.getStore() === true;
+  return storedEvidenceScope.getStore() !== undefined;
+}
+
+/**
+ * Mark the stored-evidence run as one with no stored local observation, and return the signal to throw.
+ * The mark stays when a provider catches the signal, so the runner still replays the stored evidence record.
+ */
+export function storedEvidenceWithoutObservation(message: string): StoredEvidenceWithoutObservation {
+  const run = storedEvidenceScope.getStore();
+  if (run !== undefined) run.observationMissing = true;
+  return new StoredEvidenceWithoutObservation(message);
 }
 
 export interface GateRunnerDependencies {
@@ -356,6 +378,35 @@ function persistenceFailure(error: unknown): ToolResult {
 }
 
 /**
+ * The carrier of a stored evidence record whose provider run had no stored local observation. No process starts for it.
+ * It states the stored verdict and the stored report artifact. The skip and completeness marks come from the same-operation `gate.executed` row, when one exists.
+ */
+async function storedEvidenceCarrier(
+  eventStore: Pick<EventStore, 'query'>, streamId: string, operationId: string, record: AdmissionEvidenceRecorded,
+): Promise<ToolResult> {
+  const { evidence } = record;
+  const verdict = evidence.kind === 'gate' ? evidence.verdict : 'indeterminate';
+  const rows = await eventStore.query(streamId, { type: 'gate.executed' });
+  const details = rows.flatMap((row) => {
+    const signal = GateExecutedData.safeParse(row.data);
+    return signal.success && row.operationId === operationId && signal.data.details?.evidenceId === evidence.evidenceId ? [signal.data.details] : [];
+  })[0];
+  const marks = readGateRowMarks(details);
+  const report = evidence.artifactRefs?.[0];
+  return {
+    success: true,
+    data: {
+      passed: verdict === 'pass',
+      verdict,
+      ...(marks.completeness ?? {}),
+      ...(marks.skip ?? {}),
+      replayedEvidenceId: evidence.evidenceId,
+      ...(report === undefined ? {} : { reportArtifact: report }),
+    },
+  };
+}
+
+/**
  * The audit/shadow gate chokepoint. It runs one registry provider, converts its carrier to a proof verdict, and persists a
  * subject-bound evidence record. It returns the carrier with evidence references, and it does not evaluate admission.
  *
@@ -367,6 +418,7 @@ function persistenceFailure(error: unknown): ToolResult {
  * A `disabled` severity directive in the dispatch context replaces the provider run with a skip carrier, which the runner records.
  * The signal then lands when `emitGateExecuted` is on or the directive declares it. A policy skip in the provider loses to it.
  * The runner looks up same-operation evidence before the provider. With stored evidence, the provider runs in the replay scope.
+ * A check in that scope with no stored local observation starts no process, and the runner returns the carrier of the stored record.
  */
 export async function runGate(
   request: GateRunRequest,
@@ -415,14 +467,15 @@ export async function runGate(
   const provider = resolution.data.provider;
   const disabled = context.gateSeverity?.severity === 'disabled' ? context.gateSeverity : undefined;
   const appendSignal = emitGateExecuted || disabled?.signal === true;
-  let stored: boolean;
+  let stored: AdmissionEvidenceRecorded | undefined;
   try {
-    stored = (await dependencies.eventStore.query(request.streamId, { type: 'admission.evidence-recorded' })).some((event) => {
+    stored = (await dependencies.eventStore.query(request.streamId, { type: 'admission.evidence-recorded' })).flatMap((event) => {
       const candidate = AdmissionEvidenceRecordedData.safeParse(event.data);
       return candidate.success && event.operationId === operationId
         && candidate.data.evidence.requirementId === requirementId && candidate.data.evidence.phaseAttemptId === phaseAttemptId
-        && candidate.data.evidence.producer.providerRef === provider.providerRef && sameSubject(candidate.data.evidence.subject, request.subject);
-    });
+        && candidate.data.evidence.producer.providerRef === provider.providerRef && sameSubject(candidate.data.evidence.subject, request.subject)
+        ? [candidate.data] : [];
+    })[0];
   } catch (error) {
     return persistenceFailure(error);
   }
@@ -430,11 +483,12 @@ export async function runGate(
   if (disabled !== undefined) {
     providerResult = disabledByConfigCarrier(disabled.action);
   } else {
+    const replay: StoredEvidenceRun = { observationMissing: false };
     try {
       const execute = () => dependencies.executeProvider(provider, request.providerInput);
-      providerResult = await (stored ? storedEvidenceScope.run(true, execute) : execute());
+      providerResult = await (stored === undefined ? execute() : storedEvidenceScope.run(replay, execute));
     } catch (error) {
-      if (error instanceof HostedAdequacyPending) throw error;
+      if (error instanceof HostedAdequacyPending && !replay.observationMissing) throw error;
       providerResult = {
         success: false,
         error: {
@@ -443,6 +497,13 @@ export async function runGate(
           gate: provider.actionName,
         },
       };
+    }
+    if (stored !== undefined && replay.observationMissing) {
+      try {
+        providerResult = await storedEvidenceCarrier(dependencies.eventStore, request.streamId, operationId, stored);
+      } catch (error) {
+        return persistenceFailure(error);
+      }
     }
   }
 

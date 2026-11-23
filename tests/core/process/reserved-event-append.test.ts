@@ -210,7 +210,8 @@ describe('packaged task completion chain', () => {
   const gateName = 'static-analysis';
 
   /**
-   * The three steps share one workflow, one task and one stream. The generic append refuses a
+   * The three steps share one workflow, one task and one stream. The workflow state names the project as the worktree of the task.
+   * The generic append refuses a
    * forged static-analysis row and writes no `gate.executed` row. The gate handler then runs static
    * analysis for the task and writes one runner row. Last, `task_complete` records one
    * `task.completed` row for the task. A binary without the reservation accepts the forged row, so
@@ -226,6 +227,12 @@ describe('packaged task completion chain', () => {
         workflowType: 'feature',
       });
       expect(init.success, JSON.stringify(init.error)).toBe(true);
+      const worktree = await call(fx, 'exarchos_workflow', {
+        action: 'update',
+        featureId,
+        updates: { worktrees: { 'chain-worktree': { branch: 'main', taskId, status: 'active', path: project } } },
+      });
+      expect(worktree.success, JSON.stringify(worktree.error)).toBe(true);
 
       const forged = await call(fx, 'exarchos_event', {
         action: 'append',

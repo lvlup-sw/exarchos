@@ -22,10 +22,15 @@ import type { EventStore } from '../../events/store.js';
 import { isPidAlive, isWindowsBatchFile, spawnCommand, windowsBatchLaunch } from '../../utils/process.js';
 import { processObservationalGitPath } from '../../utils/git-tree.js';
 import { loadPreparedCustody, selectPreparedAuthority } from '../../workflow/capsule/prepared-custody.js';
+import { WorkflowStartedData, type WorkflowEvent } from '../../events/schemas.js';
+import { foldWorkflowState } from '../../projections/guard-input/fold.js';
+import { createWorktreesReducer } from '../worktree/projections/worktrees.js';
 import { ContentDigestV1Schema } from '../../workflow/admission/types.js';
 import type { CommandResult } from '../pure/static-analysis.js';
 import type { ToolResult } from '../../format.js';
-import { closedListingCleanTree, HostedAdequacyPending, hostedPendingResult, storedEvidenceReplay } from '../gates/gate-runner.js';
+import {
+  closedListingCleanTree, HostedAdequacyPending, hostedPendingResult, storedEvidenceReplay, storedEvidenceWithoutObservation,
+} from '../gates/gate-runner.js';
 import { observeCurrentCheckout, type CurrentCheckoutRead, type ProfiledGateArgs } from '../gates/gate-utils.js';
 import { buildDisposableCopy, withDisposableCopy, type DisposableCopySource, type SourceRevert } from './disposable-copy.js';
 
@@ -71,6 +76,12 @@ export function removeProbeScratch(scratchDir: string): void {
     return;
   }
 }
+
+/**
+ * The singleton stream of the worktree registry, as the worktree manager names it.
+ * The executor does not import the manager, because the manager loads the storage backend.
+ */
+const WORKTREE_REGISTRY_STREAM = 'worktrees';
 
 /** The time cap of one leg when the check names none. */
 export const DEFAULT_LEG_TIMEOUT_MS = 600_000;
@@ -155,7 +166,9 @@ export interface IntegrationCheckSubject {
 
 /**
  * One request of one check. The plan holds every approved leg, and the coordinate binds a task segment.
- * A check with no stream runs in any registered branch checkout. A check of a stream with a prepared scope runs only in a worktree of that repository.
+ * A check with no stream is a standalone check, and it runs in any registered branch checkout.
+ * A check of a stream with a prepared scope runs only in a worktree of that repository.
+ * A check of a stream with no prepared scope runs only in a worktree of the workflow repository or a registered worktree of the workflow.
  */
 export interface ApprovedCheckRequest {
   readonly eventStore: EventStore;
@@ -395,12 +408,11 @@ type CheckoutRead =
 
 /**
  * The prepared scope of the stream, or a refusal when it cannot be read.
- * It is undefined when the check names no stream or the stream has none.
+ * It is undefined when the stream has no prepared authority.
  */
-async function preparedScope(eventStore: EventStore | undefined, streamId: string | undefined):
+async function preparedScope(eventStore: EventStore, streamId: string, events: readonly WorkflowEvent[]):
   Promise<{ readonly repository: string; readonly checkout: string } | undefined | { readonly refused: string }> {
-  if (eventStore === undefined || streamId === undefined) return undefined;
-  const selection = selectPreparedAuthority(await eventStore.query(streamId), streamId);
+  const selection = selectPreparedAuthority(events, streamId);
   if (selection === undefined) return undefined;
   try {
     return (await loadPreparedCustody(selection, eventStore.bundleStore)).capsule.settlementContract.scope;
@@ -414,12 +426,52 @@ async function samePath(left: string, right: string): Promise<boolean> {
   return await realpath(left).catch(() => left) === await realpath(right).catch(() => right);
 }
 
+/** The repository key of a common Git directory: the parent of a directory named .git, or the directory itself. Workflow start records this key. */
+function repositoryKey(repository: string): string {
+  return basename(repository) === '.git' ? dirname(repository) : repository;
+}
+
+/** The absolute worktree paths that the folded workflow state names: each `path` of the state worktrees, and each worktree of a task. */
+function stateWorktreePaths(events: readonly WorkflowEvent[]): readonly string[] {
+  const state = foldWorkflowState(events);
+  const paths: string[] = [];
+  for (const entry of Object.values(state.worktrees)) {
+    if (entry !== null && typeof entry === 'object' && 'path' in entry && typeof entry.path === 'string') paths.push(entry.path);
+  }
+  for (const task of state.tasks) {
+    for (const value of [task.worktree, task.worktreePath]) if (typeof value === 'string') paths.push(value);
+  }
+  return paths.filter(path => isAbsolute(path));
+}
+
+/**
+ * True when the checkout belongs to a workflow with no prepared scope.
+ * The checkout must be in the repository that the workflow start names, a worktree of the workflow state, or a registered worktree of the workflow.
+ */
+async function workflowHoldsCheckout(eventStore: EventStore, streamId: string, events: readonly WorkflowEvent[], checkout: string,
+  repository: string): Promise<boolean> {
+  for (const event of events) {
+    const started = event.type === 'workflow.started' ? WorkflowStartedData.safeParse(event.data) : undefined;
+    const repoRoot = started?.success === true ? started.data.repoRoot : undefined;
+    if (repoRoot !== undefined && await samePath(repoRoot, repositoryKey(repository))) return true;
+  }
+  for (const path of stateWorktreePaths(events)) if (await samePath(path, checkout)) return true;
+  const reducer = createWorktreesReducer();
+  const registry = (await eventStore.query(WORKTREE_REGISTRY_STREAM)).reduce((state, event) => reducer.apply(state, event), reducer.initial);
+  for (const entry of Object.values(registry.worktrees)) {
+    if (entry.featureId === streamId && (await samePath(entry.path, checkout) || entry.worktreeId === checkout)) return true;
+  }
+  return false;
+}
+
 /** The terms of the working directory of one check. A standalone check names no store and no stream. */
 type WorkingDirectoryTerms = Pick<ApprovedCheckRequest, 'checkout' | 'head' | 'coordinate' | 'integration' | 'streamId'> & { readonly eventStore?: EventStore };
 
 /**
  * Observe the working directory. It must be the canonical root of a registered branch checkout.
- * A segment checkout must hold the coordinate repository and head. A direct call must name the repository of the prepared scope, when one exists.
+ * A segment checkout must hold the coordinate repository and head. A check with no stream is a standalone check.
+ *
+ * A direct call of a stream with a prepared scope must name the repository of that scope. With no prepared scope, it must name a worktree of the workflow.
  * An integration suite must run in the checkout of the prepared scope, on the integration ref at the observed tip.
  */
 async function observeWorkingDirectory(request: WorkingDirectoryTerms): Promise<CheckoutRead> {
@@ -442,10 +494,16 @@ async function observeWorkingDirectory(request: WorkingDirectoryTerms): Promise<
       return { kind: 'refused', reason: 'The working directory is not the checkout of the bound coordinate.' };
     }
   } else {
-    const scoped = await preparedScope(request.eventStore, request.streamId);
+    const { eventStore, streamId } = request;
+    const events = eventStore === undefined || streamId === undefined ? undefined : await eventStore.query(streamId);
+    const scoped = eventStore === undefined || streamId === undefined || events === undefined ? undefined : await preparedScope(eventStore, streamId, events);
     if (scoped !== undefined && 'refused' in scoped) return { kind: 'refused', reason: scoped.refused };
     if (scoped !== undefined && !await samePath(scoped.repository, value.repository)) {
       return { kind: 'refused', reason: 'The working directory is not a worktree of the repository that the workflow prepared.' };
+    }
+    if (scoped === undefined && eventStore !== undefined && streamId !== undefined && events !== undefined
+      && !await workflowHoldsCheckout(eventStore, streamId, events, checkout, value.repository)) {
+      return { kind: 'refused', reason: 'The working directory is not a registered worktree of the workflow or a worktree of its repository.' };
     }
     const integration = request.integration;
     if (integration !== undefined && (scoped === undefined || !await samePath(scoped.checkout, checkout))) {
@@ -599,12 +657,14 @@ const CHANGED_TREE_REASON = 'The check changed the working directory, so its res
  * An integration request binds its attempt in place of the dispatch operation, so a later settle call of the same attempt replays it.
  *
  * A stored terminal observation replays. Otherwise an attempt is claimed before any process starts, and its observation is stored after the body.
- * Inside a provider run whose operation already has stored evidence, a check with no stored observation stays pending and starts no process.
+ * Inside a provider run whose operation already has stored evidence, a check with no stored observation starts no process.
+ * A refused working directory there also has no observation. Each throws the no-observation signal, and the gate runner replays the stored evidence record.
  */
 export const runApprovedCheck: CheckExecutor = async <T>(request: ApprovedCheckRequest, body: (session: CheckSession) => Promise<T>) => {
   const operationId = getDispatchContext()?.operationId;
   if (operationId === undefined) return { kind: 'refused', reason: 'A local check runs only inside a dispatched operation.' };
   const read = await observeWorkingDirectory(request);
+  if (read.kind === 'refused' && storedEvidenceReplay()) throw storedEvidenceWithoutObservation(`This operation has stored evidence, and no check observation of it can be read: ${read.reason}`);
   if (read.kind === 'refused') return read;
   if (request.coordinate === undefined && !await cleanAt(read)) {
     return { kind: 'refused', reason: 'The working directory has uncommitted changes. Commit them first, then run the check again.' };
@@ -635,7 +695,7 @@ export const runApprovedCheck: CheckExecutor = async <T>(request: ApprovedCheckR
       return observation.tree === 'changed' ? { kind: 'refused', reason: CHANGED_TREE_REASON }
         : { kind: 'ran', value, replayed: true, attempt, observation: binding.digest.value };
     }
-    if (storedEvidenceReplay()) throw new HostedAdequacyPending('This operation has stored evidence but no terminal check observation, so no new run starts.');
+    if (storedEvidenceReplay()) throw storedEvidenceWithoutObservation('This operation has stored evidence but no terminal check observation, so no new run starts.');
     if (attempt > 0) {
       const previous = backend.lookupSegmentInput(keys.claim(attempt));
       const claim = previous === undefined ? undefined : AttemptClaim.safeParse(JSON.parse(previous));

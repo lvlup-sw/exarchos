@@ -40,6 +40,7 @@ describe('#1208 — task.completed{worktreePath} auto-detours to merge-pending',
    * Caller evidence cannot replace that row, and the generic append refuses it. Thus the saga runs
    * `check_static_analysis` for the task on a Node project whose npm scripts exit with 0.
    * The local check executor runs a direct call only on a branch checkout with a clean tree, so the saga commits the project first.
+   * The workflow has no prepared scope, so the assignment names the project as the worktree of the task.
    * A thrown transport error in the saga fails the test and names the step.
    */
   it('next_actions surfaces merge_orchestrate after worktree-bearing task.completed', async () => {
@@ -88,7 +89,7 @@ describe('#1208 — task.completed{worktreePath} auto-detours to merge-pending',
               stream: 'p2-detour',
               event: {
                 type: 'task.assigned',
-                data: { taskId: '001', branch: 'feature/p2-detour-001' },
+                data: { taskId: '001', title: 'detour-test', branch: 'feature/p2-detour-001', worktree: env.gitDir },
               },
             },
           },

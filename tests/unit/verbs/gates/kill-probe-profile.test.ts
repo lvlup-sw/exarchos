@@ -24,6 +24,7 @@ import type { RiskTier } from '../../../../src/workflow/verification-policy.js';
 import { execFileAsync } from '../../../../tools/test-helpers/spawn.js';
 import { exitedWith, imageExecutor } from '../../../helpers/verification/check-executor.js';
 import { rmrf } from '../../../../tools/test-helpers/temp-dir.js';
+import { deriveRepoKey } from '../../../../src/utils/paths.js';
 import { runAsTrustedCaller, seedActivePhaseAttempt } from '../../../../tools/test-helpers/trusted-context.js';
 import {
   pinnedTestProfile,
@@ -125,7 +126,7 @@ async function runGate(repoRoot: string, extra: Partial<TestAdequacyArgs> = {}, 
     rmrf(stateDir);
   });
   await eventStore.initialize();
-  await seedActivePhaseAttempt(eventStore, FEATURE);
+  await seedActivePhaseAttempt(eventStore, FEATURE, { repoRoot: deriveRepoKey(repoRoot) });
   const result = await runAsTrustedCaller(stateDir, () =>
     handleTestAdequacy(
       { featureId: FEATURE, taskId: 'T-1', branch: TASK_BRANCH, baseBranch: 'main', repoRoot, ...extra },

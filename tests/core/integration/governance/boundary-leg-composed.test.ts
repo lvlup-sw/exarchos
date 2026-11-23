@@ -8,6 +8,7 @@
  * Each case reads the reply and the durable `gate.executed` row of its task.
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { randomUUID } from 'node:crypto';
 import * as fs from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import * as path from 'node:path';
@@ -95,6 +96,7 @@ function modules(base: string, violation: boolean): FixtureFiles {
  * The local check executor runs a direct call only in the root of a branch checkout with a clean tree.
  * So the fixture is a committed Git repository.
  * Its `.gitignore` keeps the `node_modules` link of a local install out of the tree.
+ * The workflow has no prepared scope, so a direct call runs only in a worktree of the workflow. The worktree registry names the checkout for the workflow.
  */
 async function fixture(opts: FixtureOptions): Promise<string> {
   const files: Record<string, string> = {
@@ -114,6 +116,8 @@ async function fixture(opts: FixtureOptions): Promise<string> {
   const repository = await scopedRepository({ integrationBranch: 'gov-boundary-fixture', files });
   scratchDirs.push(repository.root);
   const dir = repository.checkout;
+  await harness.appendEvent('worktrees', { type: 'worktree.adopted', data: { worktreeId: dir, path: dir, featureId: FEATURE_ID,
+    operationId: randomUUID(), ownerPid: null, ownerStartedAt: null } });
   if (opts.localInstall) {
     await fs.symlink(CHECKOUT_NODE_MODULES, path.join(dir, 'node_modules'), process.platform === 'win32' ? 'junction' : 'dir');
   }

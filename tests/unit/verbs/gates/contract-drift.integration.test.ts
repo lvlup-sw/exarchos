@@ -17,6 +17,7 @@ import * as path from 'node:path';
 import { EventStore } from '../../../../src/events/store.js';
 import type { DispatchContext } from '../../../../src/dispatch/core/dispatch.js';
 import { handleOrchestrate } from '../../../../src/verbs/composite.js';
+import { deriveRepoKey } from '../../../../src/utils/paths.js';
 import { runAsTrustedCaller, seedActivePhaseAttempt, withTrustedCaller } from '../../../../tools/test-helpers/trusted-context.js';
 import { execFileAsync } from '../../../../tools/test-helpers/spawn.js';
 import { rmrf } from '../../../../tools/test-helpers/temp-dir.js';
@@ -247,7 +248,7 @@ const seededWorkflows = new Set<string>();
  * Calls the composite handler directly, without `dispatch()`, and recreates two
  * things that a real run provides. Without the trusted dispatch scope, the gate
  * returns `TRUSTED_CALLER_REQUIRED`. Without an active phase attempt for the
- * evidence, it returns `ACTIVE_PHASE_ATTEMPT_REQUIRED`.
+ * evidence, it returns `ACTIVE_PHASE_ATTEMPT_REQUIRED`. The seeded start names the repository of the call.
  */
 async function orchestrate(
   args: Record<string, unknown>,
@@ -258,7 +259,8 @@ async function orchestrate(
     const key = `${ctx.stateDir}\0${featureId}`;
     if (!seededWorkflows.has(key)) {
       seededWorkflows.add(key);
-      await seedActivePhaseAttempt(ctx.eventStore, featureId);
+      const repoRoot = args['repoRoot'];
+      await seedActivePhaseAttempt(ctx.eventStore, featureId, typeof repoRoot === 'string' ? { repoRoot: deriveRepoKey(repoRoot) } : {});
     }
   }
   return runAsTrustedCaller(ctx.stateDir, () => handleOrchestrate(args, ctx));

@@ -769,7 +769,7 @@ describe('DR-1 acceptance: check_static_analysis → task_complete', () => {
     return realpathSync(repoRoot);
   }
 
-  async function startedWorkflow(featureId: string): Promise<HandlerContext> {
+  async function startedWorkflow(featureId: string, repoRoot: string): Promise<HandlerContext> {
     const stateDir = mkdtempSync(join(tmpdir(), 'dr1-accept-state-'));
     cleanups.push(() => rmrf(stateDir));
     const eventStore = new EventStore(stateDir);
@@ -779,6 +779,7 @@ describe('DR-1 acceptance: check_static_analysis → task_complete', () => {
       stateDir,
       eventStore,
       enableTelemetry: false,
+      cwd: repoRoot,
     } as HandlerContext);
     const init = await dispatch(
       'exarchos_workflow',
@@ -793,7 +794,7 @@ describe('DR-1 acceptance: check_static_analysis → task_complete', () => {
     const featureId = 'dr1-green';
     const taskId = 'DR1-GREEN-1';
     const repoRoot = await nodeRepo('dr1-green-repo-', 0);
-    const ctx = await startedWorkflow(featureId);
+    const ctx = await startedWorkflow(featureId, repoRoot);
 
     const gate = await dispatch(
       'exarchos_orchestrate',
@@ -821,7 +822,7 @@ describe('DR-1 acceptance: check_static_analysis → task_complete', () => {
     const featureId = 'dr1-red';
     const taskId = 'DR1-RED-1';
     const repoRoot = await nodeRepo('dr1-red-repo-', 1);
-    const ctx = await startedWorkflow(featureId);
+    const ctx = await startedWorkflow(featureId, repoRoot);
 
     const gate = await dispatch(
       'exarchos_orchestrate',

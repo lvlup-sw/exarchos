@@ -7,8 +7,8 @@
     "testFiles": 1515,
     "parsedFiles": 1471,
     "shellFiles": 44,
-    "cases": 16860,
-    "dynamicTitles": 340,
+    "cases": 16865,
+    "dynamicTitles": 342,
     "unparseableFiles": 0
   },
   "unparseable": [],
@@ -11962,7 +11962,7 @@
         },
         {
           "suite": "",
-          "name": "LocalLifecycle_StopAfterTestFailureTimeCapAndMissingProgram_GiveNoFalseVerdict",
+          "name": "LocalLifecycle_AnUnpreparedStream_ConfinesTheCheckToTheWorkflowWorktrees",
           "dynamic": false
         },
         {
@@ -11972,12 +11972,32 @@
         },
         {
           "suite": "",
-          "name": "LocalLifecycle_LeakDetection_ClassifiesTheDirtyPathsWithTheClosedListings",
+          "name": "LocalLifecycle_StoredEvidenceWithNoLocalObservation_ReplaysTheOriginalVerdictWithNoRun",
           "dynamic": false
         },
         {
           "suite": "",
           "name": "<dynamic-case-6>",
+          "dynamic": true
+        },
+        {
+          "suite": "",
+          "name": "LocalLifecycle_StopAfterTestFailureTimeCapAndMissingProgram_GiveNoFalseVerdict",
+          "dynamic": false
+        },
+        {
+          "suite": "",
+          "name": "<dynamic-case-7>",
+          "dynamic": true
+        },
+        {
+          "suite": "",
+          "name": "LocalLifecycle_LeakDetection_ClassifiesTheDirtyPathsWithTheClosedListings",
+          "dynamic": false
+        },
+        {
+          "suite": "",
+          "name": "<dynamic-case-8>",
           "dynamic": true
         }
       ]
@@ -72307,6 +72327,11 @@
           "dynamic": false
         },
         {
+          "suite": "the approved-check policy",
+          "name": "CheckExecutor_AnUnpreparedStream_ConfinesTheCheckToTheWorkflowWorktrees",
+          "dynamic": false
+        },
+        {
           "suite": "the time and output caps",
           "name": "CheckExecutor_ATimeout_StopsTheWholeProcessGroup",
           "dynamic": false
@@ -90420,7 +90445,7 @@
         },
         {
           "suite": "the kill probe measures a task from the branch it forked from",
-          "name": "KillProbe_ThroughSettle_RunsUnderTheBaseTheCapsuleFroze_AndRejectsTheBatch",
+          "name": "KillProbe_ThroughSettle_RunsUnderTheBaseTheCapsuleFroze_AndLeavesTheTaskUnresolved",
           "dynamic": false
         },
         {

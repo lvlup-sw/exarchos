@@ -29,6 +29,7 @@ import { nodeTestProfile } from '../helpers/verification-profile.js';
 import { scopedRepository } from '../helpers/scoped-repository.js';
 import { makeTempDir, rmrfAsync } from '../../tools/test-helpers/temp-dir.js';
 import { execFileAsync } from '../../tools/test-helpers/spawn.js';
+import { deriveRepoKey } from '../../src/utils/paths.js';
 import { runAsTrustedCaller, seedActivePhaseAttempt } from '../../tools/test-helpers/trusted-context.js';
 
 const closes: (() => Promise<void>)[] = [];
@@ -48,7 +49,7 @@ async function setup(dirtyProbe = false) {
   const events = new EventStore(stateDir); await events.initialize();
   closes.push(async () => { events.close(); await rmrfAsync(stateDir); });
   const identity = profiledValidCapsule().identity;
-  await seedActivePhaseAttempt(events, identity.workflowId);
+  await seedActivePhaseAttempt(events, identity.workflowId, { repoRoot: deriveRepoKey(tree) });
   const repository = await observeRepository(tree); if (repository.kind !== 'repository') throw new Error('Missing Git repository');
   const profile = nodeTestProfile();
   profile.tests.probe = { ...profile.tests.probe, command: { state: 'resolved', argv: [process.execPath, 'probe.cjs'], source: 'config' }, globs: ['**/*.test.json'], files: 'after-separator' };

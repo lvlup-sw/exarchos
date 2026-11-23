@@ -25,6 +25,7 @@ import { z } from 'zod';
 import { deriveMcpCallerIdentity } from '../../src/dispatch/caller-identity.js';
 import { dispatch } from '../../src/dispatch/core/dispatch.js';
 import { EventStore } from '../../src/events/store.js';
+import { deriveRepoKey } from '../../src/utils/paths.js';
 import { evidenceArtifactStore, resolveEvidenceArtifact } from '../../src/workflow/admission/evidence-artifact.js';
 import { createInMemoryResolver } from '../../src/workflow/capabilities/resolver.js';
 import { initStateFile } from '../../src/workflow/state-store.js';
@@ -118,7 +119,7 @@ beforeEach(async () => {
     phase: 'delegate',
     tasks: TASKS.map(({ id, title, status }) => ({ id, title, status })),
   });
-  await eventStore.append(STREAM, { type: 'workflow.started', data: { featureId: STREAM, workflowType: 'feature' } });
+  await eventStore.append(STREAM, { type: 'workflow.started', data: { featureId: STREAM, workflowType: 'feature', repoRoot: deriveRepoKey(repo) } });
   await eventStore.append(STREAM, { type: 'workflow.transition', data: { from: 'plan-review', to: 'delegate' } });
   await eventStore.append(STREAM, {
     type: 'state.patched',

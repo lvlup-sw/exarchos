@@ -185,13 +185,13 @@ function connector(gitPath: string, checks?: VerificationHostConnector['checks']
   };
 }
 
-/** A fresh event store with an active phase attempt of `stream`. */
-async function storeWith(stream: string, phase: string): Promise<{ readonly stateDir: string; readonly store: EventStore }> {
+/** A fresh event store with an active phase attempt of `stream`. A `checkout` names the repository of the workflow at its start. */
+async function storeWith(stream: string, phase: string, checkout?: string): Promise<{ readonly stateDir: string; readonly store: EventStore }> {
   const stateDir = await tempRoot('observational-state-');
   const store = new EventStore(stateDir);
   await store.initialize();
   cleanups.push(async () => { store.close(); });
-  await seedActivePhaseAttempt(store, stream, { phase });
+  await seedActivePhaseAttempt(store, stream, { phase, ...(checkout === undefined ? {} : { repoRoot: deriveRepoKey(checkout) }) });
   return { stateDir, store };
 }
 
@@ -231,7 +231,7 @@ describe('lifecycle and team routes in the local executor', () => {
     const root = await tempRoot('observational-local-');
     const { program, marker } = await markerProgram(root);
     const { main } = await repository(root, { '.exarchos.yml': `test: '${program} test'\ntypecheck: '${program} typecheck'\n` });
-    const { stateDir, store } = await storeWith(FEATURE, 'synthesize');
+    const { stateDir, store } = await storeWith(FEATURE, 'synthesize', main);
     primeObservationalGitPath(GIT);
     const shimCalls = await pathShim(root);
 
@@ -297,7 +297,7 @@ describe('lifecycle and team routes in the local executor', () => {
     const root = await tempRoot('observational-unusable-');
     const { program, marker } = await markerProgram(root);
     const { main } = await repository(root, { '.exarchos.yml': `test: '${program} test'\n` });
-    const { stateDir, store } = await storeWith(FEATURE, 'synthesize');
+    const { stateDir, store } = await storeWith(FEATURE, 'synthesize', main);
     const unusable = connector('');
 
     const result = await orchestrate(stateDir, store, { action: 'pre_synthesis_check', featureId: FEATURE, repoRoot: main, skipStack: true }, { verificationHost: unusable });
