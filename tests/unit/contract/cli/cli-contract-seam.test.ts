@@ -326,6 +326,38 @@ describe('CLI command classification census', () => {
     }
   });
 
+  /**
+   * The harness launcher verbs are gone from the CLI. A verb added back together with a host-local
+   * rule passes the classification census, so this test refuses each name directly.
+   */
+  it('HarnessLauncherVerbs_AreAbsentFromLiveTreeAndHostLocalRules', async () => {
+    const harnessVerbs = ['claude-code', 'codex', 'cursor', 'copilot', 'opencode'];
+    const liveCommands = await collectLiveCliCommands();
+    const liveNames = new Set(liveCommands.flatMap((c) => [c.name, ...c.aliases]));
+    expect(liveNames.size).toBeGreaterThan(0);
+    const hostLocal = deriveCliClassification().hostLocal;
+    expect(hostLocal.length).toBeGreaterThan(0);
+    for (const verb of harnessVerbs) {
+      expect(liveNames.has(verb)).toBe(false);
+      expect(hostLocal).not.toContain(verb);
+    }
+  });
+
+  /** The real Commander program refuses a harness launcher verb as an unknown command. */
+  it('HarnessLauncherVerb_FailsAsUnknownCommand', async () => {
+    const { buildCli, applyExitOverrideRecursively } = await import('../../../../src/adapters/cli/cli.js');
+    const program = buildCli({
+      stateDir: '/tmp/exarchos-cli-census',
+      eventStore: {} as never,
+      enableTelemetry: false,
+    } as never);
+    applyExitOverrideRecursively(program);
+    program.configureOutput({ writeErr: () => undefined, writeOut: () => undefined });
+    await expect(program.parseAsync(['node', 'exarchos', 'claude-code'])).rejects.toMatchObject({
+      code: 'commander.unknownCommand',
+    });
+  });
+
   /** A planted live command with no classification, such as an undeclared host-local verb, fails the census. */
   it('PlantedRogueCommand_FailsClassificationCensus', () => {
     const classification: CliClassification = {

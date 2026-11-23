@@ -7,7 +7,7 @@
     "testFiles": 1482,
     "parsedFiles": 1438,
     "shellFiles": 44,
-    "cases": 16578,
+    "cases": 16580,
     "dynamicTitles": 331,
     "unparseableFiles": 0
   },
@@ -22778,6 +22778,16 @@
         {
           "suite": "CLI command classification census",
           "name": "HostLocalCommands_AreClassifiedNotFlagged",
+          "dynamic": false
+        },
+        {
+          "suite": "CLI command classification census",
+          "name": "HarnessLauncherVerbs_AreAbsentFromLiveTreeAndHostLocalRules",
+          "dynamic": false
+        },
+        {
+          "suite": "CLI command classification census",
+          "name": "HarnessLauncherVerb_FailsAsUnknownCommand",
           "dynamic": false
         },
         {
