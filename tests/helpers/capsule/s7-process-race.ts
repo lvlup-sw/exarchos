@@ -82,6 +82,9 @@ export interface S7Fixture extends RaceRepository {
   readonly args: string[];
 }
 
+/** The longest wait for a barrier record while the settle process still runs. The driver holds a read for the same time. */
+const READY_WITHIN_MS = 45_000;
+
 /** Read only observed invocations. Absence means no provider has started. */
 export async function journalOf(f: S7Fixture) {
   try { return (await readFile(f.journal, 'utf8')).trim().split('\n').filter(Boolean).map(line => record(JSON.parse(line))); }
@@ -101,10 +104,12 @@ async function gitOnPath() {
  * Holds the first constrained read of the barrier tree after a real pair or prior segment has committed.
  * The packaged binary finds the wrapper with its one PATH search. The constrained reader passes a closed environment with no PATH and no fixture value.
  * So the wrapper names the absolute Node executable and carries its barrier settings in its own text.
+ * The facts exist only after real probes, and in standing mode after a full prior segment with its integration run.
+ * Under suite load this takes more than ten seconds, so the budget matches the hold time of the driver.
  */
 export async function barrierFor(f: S7Fixture, taskId: string, mode: 'adequacy' | 'standing') {
   const realGit = await gitOnPath();
-  const barrier = await makeBarrier(f.controls, `${mode}-barrier`);
+  const barrier = await makeBarrier(f.controls, `${mode}-barrier`, READY_WITHIN_MS);
   const bin = path.join(f.controls, 'bin'); await mkdir(bin);
   const wrapper = path.join(bin, 'git');
   const tree = f.trees.get(taskId); if (tree === undefined) throw new Error('Missing barrier tree');

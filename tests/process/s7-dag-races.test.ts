@@ -23,7 +23,7 @@ describe('packaged S7 DAG races', () => {
       const barrier = await barrierFor(f, 'T-01', 'adequacy');
       const process = startSettle(f, barrier.env);
       let ready: Record<string, unknown>;
-      try { ready = await barrier.wait(); } finally { await process.stop(); }
+      try { ready = await barrier.wait(process.done); } finally { await process.stop(); }
       const tree = string(f.trees.get('T-01'));
       const gitDir = await f.git(['-C', tree, 'rev-parse', '--absolute-git-dir']);
       expect(ready.argv).toEqual(['--no-replace-objects', '--no-optional-locks', '--no-pager',
@@ -82,7 +82,7 @@ describe('packaged S7 DAG races', () => {
     for (const damage of ['missing-claim', 'evidence-only', 'wrong-head']) await withS7Repository(async f => {
       const barrier = await barrierFor(f, 'T-01', 'adequacy'); const process = startSettle(f, barrier.env);
       let ready: Record<string, unknown>;
-      try { ready = await barrier.wait(); } finally { await process.stop(); }
+      try { ready = await barrier.wait(process.done); } finally { await process.stop(); }
       const signal = recordArray(ready.rows)[1]; if (!signal) throw new Error('No original signal');
       const before = await journalOf(f);
       const db = new Database(f.database);
@@ -111,7 +111,7 @@ describe('packaged S7 DAG races', () => {
     for (const remove of [false, true]) await withS7Repository(async f => {
       const barrier = await barrierFor(f, 'T-02', 'standing'); const process = startSettle(f, barrier.env);
       try {
-        const ready = await barrier.wait();
+        const ready = await barrier.wait(process.done);
         const terminal = record(ready.terminal); const operation = record(ready.operation);
         expect(terminal.data).toMatchObject({ operationId: operation.idempotencyKey, outcome: 'committed' });
         expect((await journalOf(f)).every(row => row.tree !== f.trees.get('T-02'))).toBe(true);
