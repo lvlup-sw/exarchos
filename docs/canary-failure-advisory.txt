@@ -1,0 +1,4 @@
+Throwaway canary for lvlup-sw/.github#130. Do not merge.
+
+This file is not in RETAINED in tools/audit/prose-manifest.ts. The static suite fails on the
+tests/architecture/prose-exodus.test.ts check that nothing under docs/ is tracked unless it is retained.
