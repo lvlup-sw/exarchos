@@ -6,8 +6,9 @@
  *
  * An occurrence that no rule claims fails as `INDETERMINATE_OWNER`. A rule that
  * claims no occurrence fails as `STALE_OWNERSHIP`. The census detects three
- * effect classes: `filesystem`, `process` and `network`. VCS and install effects
- * are process owners, not separate classes.
+ * effect classes: `filesystem`, `process` and `network`. No rule owns a network
+ * effect, so any network occurrence in the shipped tree fails. Process rules name
+ * exact modules in two allowed classes: governor checks and install probes.
  *
  * The lexer is a required port ({@link ModuleLexer}). Only the TypeScript
  * compiler parses TypeScript soundly, but an import of `typescript` here needs an
@@ -343,6 +344,7 @@ export function maskNonCode(source: string, lex: ModuleLexer): string {
  * - a `fetch(` call that is not a member call
  * - a network global on a global root (`globalThis`, `global`, `self`, `window`)
  * - a `= fetch` alias, or `fetch` destructured from a global root
+ * - `fetch` as the value of an operand: after `??`, `||`, `&&`, `=>`, `?`, `:` or `return`
  * - `new WebSocket(`, `new EventSource(` or `new XMLHttpRequest(`
  *
  * No rule matches a bare `fetch` identifier, which is also a property key or member.
@@ -354,6 +356,10 @@ const AMBIENT_NETWORK_RULES: readonly { readonly re: RegExp; readonly evidence: 
     evidence: 'globalThis.fetch',
   },
   { re: /=\s*fetch(?![\w$])/, evidence: 'fetch (aliased binding)' },
+  {
+    re: /(?:\?\?|\|\||&&|=>|(?<!\?)\?(?![?.])|:|(?<![\w$.])return)\s*fetch(?![\w$])/,
+    evidence: 'fetch (operand value)',
+  },
   {
     re: /\{[^{}]*(?<![\w$.])fetch(?![\w$])[^{}]*\}\s*=\s*(?:globalThis|global|self|window)(?![\w$])/,
     evidence: 'fetch (destructured from globalThis)',
@@ -620,22 +626,22 @@ const rule = (
 ): EffectOwnershipRule => ({ effectClass, match, owner, idempotency, compensation });
 
 /**
+ * The owner-name prefix of the second allowed process class: the install probes.
+ * They detect runtimes, check prerequisites and guard derived trees against drift.
+ * They are not settle checks, so the ledger names them apart from the governor process owners.
+ */
+export const INSTALL_PROBE_OWNER_PREFIX = 'install-probe:';
+
+/**
  * The effect ownership ledger, with one rule for each effect class and module or
- * layer. Process and network rules name exact owners. Filesystem rules work at
- * layer granularity. A new effect site in a layer without a rule fails the census.
+ * layer. Process rules name exact measured modules. Filesystem rules work at
+ * layer granularity. No rule owns a network effect. A new effect site without a
+ * rule fails the census.
  */
 export const EFFECT_OWNERSHIP: readonly EffectOwnershipRule[] = registerLedger();
 
 function registerLedger(): readonly EffectOwnershipRule[] {
   return Object.freeze([
-    rule(
-      'network',
-      'workflow/feedback.ts',
-      'workflow-feedback-network',
-      'idempotent: feedback read/post keyed by operation marker',
-      'marker-scan reconciliation dedupes a retried post',
-    ),
-
     rule(
       'process',
       'utils/process.ts',
@@ -664,20 +670,73 @@ function registerLedger(): readonly EffectOwnershipRule[] {
     ),
     rule(
       'process',
-      'verbs/',
-      'orchestrate-process-owner',
-      'per-call: orchestrate probes/gates own their re-run semantics',
-      'orchestrate saga steps carry their own compensation',
+      'verbs/doctor/probes.ts',
+      'doctor-probe-owner',
+      'idempotent: which <command>, git rev-parse --is-inside-work-tree and git --version are reads',
+      'none: the probes read, so a failed probe leaves nothing to unwind',
     ),
     rule(
       'process',
-      'install/',
-      'install-process-owner',
-      'idempotent: every subprocess here probes or re-renders — runtime detection, ' +
-        'the skills/hooks drift guards, and the prerequisite checks all converge on ' +
-        're-run',
-      'none: the subprocesses read or regenerate a derived tree, so a failed run ' +
-        'leaves nothing to unwind — the next run recomputes it',
+      'verbs/gates/gate-utils.ts',
+      'gate-git-exec-owner',
+      'idempotent: the gate handlers pass read-only git queries, such as the merge base of the live checkout',
+      'none: a read leaves no state, and the gate reads a non-zero exit as a finding',
+    ),
+    rule(
+      'process',
+      'verbs/onboard/install.ts',
+      'onboard-install-step-owner',
+      'converges: the onboard step runs the resolved project install command and the skills installer on the CLI surface only',
+      'none: a failed install leaves the step residual, and the next onboard run retries it',
+    ),
+    rule(
+      'process',
+      'verbs/reconcile-state.ts',
+      'reconcile-git-read-owner',
+      'idempotent: git rev-parse --verify of a branch ref and git worktree list --porcelain are reads',
+      'none: a failed read leaves no state, and the reconcile treats it as an absent branch or worktree',
+    ),
+    rule(
+      'process',
+      'verbs/tasks/extract-intent.ts',
+      'extract-intent-git-read-owner',
+      'idempotent: git symbolic-ref refs/remotes/origin/HEAD and git diff --name-only are reads',
+      'none: a failed read gives the default branch or an empty file list',
+    ),
+    rule(
+      'process',
+      'install/advisory-kill-probes.ts',
+      `${INSTALL_PROBE_OWNER_PREFIX}advisory-kill-fixtures`,
+      'idempotent: each probe runs node on a seeded fixture script in a temporary directory',
+      'none: the fixture directory is temporary, so a failed probe leaves nothing to unwind',
+    ),
+    rule(
+      'process',
+      'install/hooks-guard.ts',
+      `${INSTALL_PROBE_OWNER_PREFIX}hooks-drift-guard`,
+      'idempotent: git diff --exit-code over the rendered hook paths is a read',
+      'none: the guard reads, and the next run recomputes the drift',
+    ),
+    rule(
+      'process',
+      'install/runtimes/detect.ts',
+      `${INSTALL_PROBE_OWNER_PREFIX}runtime-detection`,
+      'idempotent: which <command> is a read',
+      'none: a failed probe reports the runtime as absent',
+    ),
+    rule(
+      'process',
+      'install/skills-guard.ts',
+      `${INSTALL_PROBE_OWNER_PREFIX}skills-drift-guard`,
+      'idempotent: the guard re-renders the derived skills tree and runs git diff --exit-code over it',
+      'none: the rendered tree is derived, so the next run recomputes it',
+    ),
+    rule(
+      'process',
+      'install/wizard/prerequisites.ts',
+      `${INSTALL_PROBE_OWNER_PREFIX}prerequisite-checks`,
+      'idempotent: node --version, bun --version and the command checks are reads',
+      'none: a failed check reports the prerequisite as missing',
     ),
 
     rule('filesystem', 'index.ts', 'server-entry-fs', 'startup read-only', 'none'),

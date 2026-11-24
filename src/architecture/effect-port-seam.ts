@@ -150,11 +150,6 @@ const port = (module: string, ports: readonly EffectClass[], note: string): Effe
  */
 export const NARROW_EFFECT_PORTS: readonly EffectPortRule[] = Object.freeze([
   port(
-    'workflow/feedback.ts',
-    ['network'],
-    'The feedback network effect owner — a pure network client; must never grow a filesystem or process port.',
-  ),
-  port(
     'utils/process.ts',
     ['filesystem', 'process'],
     'The cross-OS spawn primitive (+ existsSync probe); must never become a network client.',

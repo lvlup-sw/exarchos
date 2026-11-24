@@ -251,6 +251,8 @@ const RETIRED_TEST_FILES: ReadonlyArray<{ path: string; subject: string }> = [
   { path: 'tests/unit/projections/merge-orchestrator/index.test.ts', subject: 'src/projections/merge-orchestrator/index.ts' },
   { path: 'tests/unit/projections/merge-orchestrator/reducer.test.ts', subject: 'src/projections/merge-orchestrator/reducer.ts' },
   { path: 'tests/process/saga-merge-detour.test.ts', subject: 'src/projections/merge-orchestrator/index.ts' },
+  { path: 'tests/unit/install/operations/version-check.test.ts', subject: 'src/install/operations/version-check.ts' },
+  { path: 'tests/unit/verbs/vcs/push-with-lease.test.ts', subject: 'src/verbs/vcs/push-with-lease.ts' },
 ];
 
 describe('test inventory', () => {

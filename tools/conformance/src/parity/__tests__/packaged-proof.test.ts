@@ -90,7 +90,7 @@ const EMPTY_LEDGER: DimensionSets = {
 describe('packaged-proof denominators are derived from the live registry', () => {
   /**
    * The `actions` denominator is every registered action. The error families are the failure
-   * layers, and the effect families are the three effect-ledger classes. Each dimension is
+   * layers, and the effect families are the effect-ledger classes that a rule owns: filesystem and process. Each dimension is
    * non-empty, because an empty dimension reads as full coverage and hides a gap.
    */
   it('Denominators_MatchLiveRegistryCounts', () => {
@@ -101,7 +101,7 @@ describe('packaged-proof denominators are derived from the live registry', () =>
 
     expect([...d.errorFamilies].sort()).toEqual([...FAILURE_LAYERS].sort());
 
-    expect(d.effectFamilies).toEqual(['filesystem', 'network', 'process']);
+    expect(d.effectFamilies).toEqual(['filesystem', 'process']);
 
     for (const dim of COVERAGE_DIMENSIONS) {
       expect(d[dim].length, `dimension ${dim} must be non-empty`).toBeGreaterThan(0);
@@ -239,12 +239,13 @@ describe('checkRatchet', () => {
   });
 
   /**
-   * The baseline accepts `network` as an effect-family gap, because the compiled proof cannot make
-   * a hermetic network call. A run with the same accepted gap stays green.
+   * The baseline accepts the `task` error family as a gap, because the compiled proof observes no
+   * error in that layer. A run with the same accepted gap stays green.
    */
   it('Ratchet_ToleratesAcceptedGapsRecordedInTheBaseline', () => {
     const d = derivePackagedDenominators();
-    const ledger = ledgerWithout(d, { effectFamilies: ['network'] });
+    expect(d.errorFamilies).toContain('task');
+    const ledger = ledgerWithout(d, { errorFamilies: ['task'] });
     const report = computeCoverage(d, ledger);
     const baseline = reportToBaseline(report);
     expect(checkRatchet(report, baseline).ok).toBe(true);

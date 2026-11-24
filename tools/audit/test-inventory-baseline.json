@@ -4,10 +4,10 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1407,
-    "parsedFiles": 1363,
+    "testFiles": 1405,
+    "parsedFiles": 1361,
     "shellFiles": 44,
-    "cases": 15735,
+    "cases": 15714,
     "dynamicTitles": 317,
     "unparseableFiles": 0
   },
@@ -17705,6 +17705,11 @@
         },
         {
           "suite": "EXIT PROOF — live adapter ownership",
+          "name": "the network adapter has no owner and the live tree performs no network effect",
+          "dynamic": false
+        },
+        {
+          "suite": "EXIT PROOF — live adapter ownership",
           "name": "every declared adapter owner performs the effect it owns (no phantom owner)",
           "dynamic": false
         }
@@ -18290,6 +18295,11 @@
         },
         {
           "suite": "DR-13 kill — the widened detector sees evaded network clients",
+          "name": "EffectLedger_PlantedFallbackFetchClient_CensusFailsClosed",
+          "dynamic": false
+        },
+        {
+          "suite": "DR-13 kill — the widened detector sees evaded network clients",
           "name": "EffectLedger_ReExportOfEffectPrimitive_IsDetectedAtTheReExporter",
           "dynamic": false
         },
@@ -18331,6 +18341,16 @@
         {
           "suite": "DR-13 live tree — the widened census is green and load-bearing",
           "name": "EffectLedger_LiveShippedSource_IsGreenUnderTheWidenedDetector",
+          "dynamic": false
+        },
+        {
+          "suite": "DR-13 live tree — the widened census is green and load-bearing",
+          "name": "EffectLedger_LiveTree_HasNoNetworkOwnerAndNoNetworkOccurrence",
+          "dynamic": false
+        },
+        {
+          "suite": "DR-13 live tree — the widened census is green and load-bearing",
+          "name": "EffectLedger_ProcessOwners_AreTheMeasuredModulesInTwoNamedClasses",
           "dynamic": false
         },
         {
@@ -18447,6 +18467,11 @@
         {
           "suite": "EXIT PROOF — live narrow effect ports",
           "name": "(b) a planted broad effect on a narrow-port module FAILS against the live footprints",
+          "dynamic": false
+        },
+        {
+          "suite": "EXIT PROOF — live narrow effect ports",
+          "name": "no narrow port grants a network effect",
           "dynamic": false
         },
         {
@@ -20067,6 +20092,16 @@
           "suite": "FullExarchosConfigSchema — retired vcs key",
           "name": "<dynamic-case-1>",
           "dynamic": true
+        },
+        {
+          "suite": "ExarchosConfigSchema — retired feedback block",
+          "name": "RetiredFeedbackBlock_StillParses_IsRemoved_AndGetsAMigrationFinding",
+          "dynamic": false
+        },
+        {
+          "suite": "ExarchosConfigSchema — retired feedback block",
+          "name": "NoFeedbackBlock_GetsNoFeedbackFinding",
+          "dynamic": false
         },
         {
           "suite": "ExarchosConfigSchema — invariants.devCatalog retirement (DR-31 / T-43)",
@@ -35531,72 +35566,6 @@
         {
           "suite": "validateSymlinks (B5)",
           "name": "validateSymlinks_MixedState_ReturnsDetailedReport",
-          "dynamic": false
-        }
-      ]
-    },
-    "tests/unit/install/operations/version-check.test.ts": {
-      "file": "tests/unit/install/operations/version-check.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "checkVersion > when remote version matches local",
-          "name": "should return status current",
-          "dynamic": false
-        },
-        {
-          "suite": "checkVersion > when remote version differs from local",
-          "name": "should return status outdated when local is behind remote",
-          "dynamic": false
-        },
-        {
-          "suite": "checkVersion > when remote version differs from local",
-          "name": "should return status outdated when local is ahead of remote",
-          "dynamic": false
-        },
-        {
-          "suite": "checkVersion > when network request fails",
-          "name": "should return status error on fetch rejection",
-          "dynamic": false
-        },
-        {
-          "suite": "checkVersion > when network request fails",
-          "name": "should return status error on non-200 response",
-          "dynamic": false
-        },
-        {
-          "suite": "checkVersion > when network request fails",
-          "name": "should return status error on invalid JSON response",
-          "dynamic": false
-        },
-        {
-          "suite": "checkVersion > when network request fails",
-          "name": "should return status error when response lacks version field",
-          "dynamic": false
-        },
-        {
-          "suite": "checkVersion > when network request fails",
-          "name": "should return status error when version is not a string",
-          "dynamic": false
-        },
-        {
-          "suite": "checkVersion > options",
-          "name": "should use custom URL when provided",
-          "dynamic": false
-        },
-        {
-          "suite": "checkVersion > options",
-          "name": "should use default GitHub URL when not provided",
-          "dynamic": false
-        },
-        {
-          "suite": "formatVersionWarning",
-          "name": "should include both local and remote versions",
-          "dynamic": false
-        },
-        {
-          "suite": "formatVersionWarning",
-          "name": "should include the cache-busting npx command",
           "dynamic": false
         }
       ]
@@ -66785,92 +66754,6 @@
         }
       ]
     },
-    "tests/unit/verbs/vcs/push-with-lease.test.ts": {
-      "file": "tests/unit/verbs/vcs/push-with-lease.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "buildForceWithLeaseArgs",
-          "name": "PushWithLease_EmitsExplicitShaForm",
-          "dynamic": false
-        },
-        {
-          "suite": "buildForceWithLeaseArgs",
-          "name": "honors a custom remote",
-          "dynamic": false
-        },
-        {
-          "suite": "buildForceWithLeaseArgs",
-          "name": "rejects an empty ref",
-          "dynamic": false
-        },
-        {
-          "suite": "buildForceWithLeaseArgs",
-          "name": "rejects a ref with unsafe characters",
-          "dynamic": false
-        },
-        {
-          "suite": "buildForceWithLeaseArgs",
-          "name": "rejects an empty or garbage expected SHA",
-          "dynamic": false
-        },
-        {
-          "suite": "parseLsRemoteSha",
-          "name": "parses the leading SHA from an ls-remote line",
-          "dynamic": false
-        },
-        {
-          "suite": "parseLsRemoteSha",
-          "name": "returns undefined for empty / whitespace stdout (branch absent)",
-          "dynamic": false
-        },
-        {
-          "suite": "parseLsRemoteSha",
-          "name": "returns undefined when the leading token is not a full SHA",
-          "dynamic": false
-        },
-        {
-          "suite": "resolveExpectedSha",
-          "name": "PushWithLease_FreshLsRemote_AnchorsToObservedSha — falls back to ls-remote",
-          "dynamic": false
-        },
-        {
-          "suite": "resolveExpectedSha",
-          "name": "prefers observedSha and never shells out when it is supplied",
-          "dynamic": false
-        },
-        {
-          "suite": "resolveExpectedSha",
-          "name": "falls back to ls-remote when observedSha is not a valid SHA",
-          "dynamic": false
-        },
-        {
-          "suite": "resolveExpectedSha",
-          "name": "returns undefined when the branch is absent on the remote",
-          "dynamic": false
-        },
-        {
-          "suite": "readRemoteSha",
-          "name": "reads via git ls-remote --heads against the named remote",
-          "dynamic": false
-        },
-        {
-          "suite": "buildPushWithLease",
-          "name": "PushWithLease_FreshLsRemote_AnchorsToObservedSha — anchors to the ls-remote SHA",
-          "dynamic": false
-        },
-        {
-          "suite": "buildPushWithLease",
-          "name": "prefers the observed SHA (source observed, no git call)",
-          "dynamic": false
-        },
-        {
-          "suite": "buildPushWithLease",
-          "name": "returns undefined when no SHA can be resolved (cannot build an explicit lease)",
-          "dynamic": false
-        }
-      ]
-    },
     "tests/unit/verbs/vcs/routing.test.ts": {
       "file": "tests/unit/verbs/vcs/routing.test.ts",
       "runner": "vitest:root",
@@ -72423,13 +72306,13 @@
           "dynamic": false
         },
         {
-          "suite": "handleFeedback — optional upstream POST (offline-first / INV-15)",
-          "name": "Feedback_UpstreamConfigured_PostsAndRecordsDelivered",
+          "suite": "handleFeedback — local only, with no network call",
+          "name": "Feedback_AnyReport_CallsNoFetchAndRecordsNoEndpoint",
           "dynamic": false
         },
         {
-          "suite": "handleFeedback — optional upstream POST (offline-first / INV-15)",
-          "name": "Feedback_UpstreamFails_StillRecordsLocallyAsUndelivered",
+          "suite": "handleFeedback — local only, with no network call",
+          "name": "Feedback_OlderRowWithEndpoint_StillParsesWithItsOriginalValues",
           "dynamic": false
         },
         {

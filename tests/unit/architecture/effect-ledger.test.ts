@@ -20,6 +20,7 @@ import {
   EXCLUDED_DIRS,
   GOVERNED_SOURCE_ROOT,
   INERT_DEPENDENCIES,
+  INSTALL_PROBE_OWNER_PREFIX,
   type EffectLedgerDiagnostic,
   type EffectOccurrence,
   type EffectOwnershipRule,
@@ -351,6 +352,45 @@ describe('DR-13 kill — the widened detector sees evaded network clients', () =
   });
 
   /**
+   * Each plant reaches the global `fetch` as the value of an operand, with no call, alias or global root.
+   * The deleted installer version check had the `?? fetch` shape, and no rule claimed it before the operand rule.
+   * Each plant fails with the operand evidence. A type query and a property key with that name stay inert.
+   */
+  it('EffectLedger_PlantedFallbackFetchClient_CensusFailsClosed', async () => {
+    const root = await plant({
+      [OWNER_MODULE]: OWNER_SOURCE,
+      'rogue/nullish.ts': `
+        export interface Options { readonly fetchFn?: typeof fetch }
+        export const client = (options?: Options) => options?.fetchFn ?? fetch;
+      `,
+      'rogue/or.ts': `export const client = (injected?: typeof fetch) => injected || fetch;`,
+      'rogue/ternary.ts': `export const client = (injected?: typeof fetch) => injected ? injected : fetch;`,
+      'rogue/arrow.ts': `export const client = () => fetch;`,
+      'rogue/returned.ts': `export function client() { return fetch; }`,
+      'rogue/object-value.ts': `export const deps = { client: fetch };`,
+      'inert/type-query.ts': `export interface Options { readonly fetchFn?: typeof fetch; readonly fetch?: number }`,
+    });
+
+    const result = await auditEffectOwnership(root, lexModule, SCOPED_RULES);
+
+    expect(result.ok).toBe(false);
+    expect(result.diagnostics.every((d) => d.code === 'INDETERMINATE_OWNER')).toBe(true);
+    const bad = indeterminateOf(result.diagnostics);
+    expect(bad.map((d) => d.module).sort()).toEqual([
+      'rogue/arrow.ts',
+      'rogue/nullish.ts',
+      'rogue/object-value.ts',
+      'rogue/or.ts',
+      'rogue/returned.ts',
+      'rogue/ternary.ts',
+    ]);
+    for (const diagnostic of bad) {
+      expect(diagnostic.effectClass).toBe('network');
+      expect(diagnostic.evidence).toBe('fetch (operand value)');
+    }
+  });
+
+  /**
    * A re-export names the primitive, so the module that re-exports it is the effect site.
    * The scan does not charge the consumer of the re-export, because attribution is per module and never transitive.
    */
@@ -625,6 +665,50 @@ describe('DR-13 live tree — the widened census is green and load-bearing', () 
     const result = await auditEffectOwnership(SRC_ROOT, lexModule);
     expect(result.diagnostics).toEqual([]);
     expect(result.ok).toBe(true);
+  });
+
+  /**
+   * The shipped tree is a local CLI. No rule owns a network effect, and the scan finds no network occurrence.
+   * So any network client that a change adds fails the census as an indeterminate owner.
+   */
+  it('EffectLedger_LiveTree_HasNoNetworkOwnerAndNoNetworkOccurrence', async () => {
+    const scan = await scanEffectTree(SRC_ROOT, lexModule);
+    expect(scan.occurrences.length).toBeGreaterThan(0);
+    expect(scan.occurrences.filter((o) => o.effectClass === 'network')).toEqual([]);
+    expect(EFFECT_OWNERSHIP.filter((r) => r.effectClass === 'network')).toEqual([]);
+  });
+
+  /**
+   * Each process rule names one exact module, and the list equals the measured process sites of the live tree.
+   * The install probes are the second allowed process class, and only their owner names carry the install-probe prefix.
+   * A new process site, or a prefix rule that covers a directory, fails here first.
+   */
+  it('EffectLedger_ProcessOwners_AreTheMeasuredModulesInTwoNamedClasses', async () => {
+    const processRules = EFFECT_OWNERSHIP.filter((r) => r.effectClass === 'process');
+    expect(processRules.filter((r) => r.match.endsWith('/'))).toEqual([]);
+    const live = (await scanEffectTree(SRC_ROOT, lexModule)).occurrences
+      .filter((o) => o.effectClass === 'process')
+      .map((o) => o.module)
+      .sort();
+    expect(processRules.map((r) => r.match).sort()).toEqual(live);
+    expect(live).toEqual([
+      'install/advisory-kill-probes.ts',
+      'install/hooks-guard.ts',
+      'install/runtimes/detect.ts',
+      'install/skills-guard.ts',
+      'install/wizard/prerequisites.ts',
+      'testgen/inspection/collect.ts',
+      'utils/git-tree.ts',
+      'utils/process.ts',
+      'verbs/doctor/probes.ts',
+      'verbs/gates/gate-utils.ts',
+      'verbs/onboard/install.ts',
+      'verbs/reconcile-state.ts',
+      'verbs/tasks/extract-intent.ts',
+    ]);
+    for (const r of processRules) {
+      expect(r.owner.startsWith(INSTALL_PROBE_OWNER_PREFIX), `${r.match} owner ${r.owner}`).toBe(r.match.startsWith('install/'));
+    }
   });
 
   /**

@@ -12,6 +12,7 @@ import {
   MUTATION_COMMAND_RETIRED_CODE,
   MUTATION_REVIEW_RETIRED_CODE,
   VCS_KEY_RETIRED_CODE,
+  FEEDBACK_UPSTREAM_RETIRED_CODE,
 } from '../../../src/config/exarchos-config-schema.js';
 import { FullExarchosConfigSchema } from '../../../src/config/yaml-schema.js';
 import { resolveCatalogSources } from '../../../src/architecture/catalog-sources.js';
@@ -357,6 +358,37 @@ describe('FullExarchosConfigSchema — retired vcs key', () => {
     expect(result.success).toBe(true);
     if (result.success) expect('vcs' in result.data).toBe(false);
     expect(collectConfigDeprecations(document).map((finding) => finding.code)).toEqual([VCS_KEY_RETIRED_CODE]);
+  });
+});
+
+/**
+ * The `feedback` block is retired, because feedback stays in the local event store. Both schemas still accept the block,
+ * so an existing file keeps loading. The parse removes it, and `collectConfigDeprecations` reports one migration finding.
+ */
+describe('ExarchosConfigSchema — retired feedback block', () => {
+  it('RetiredFeedbackBlock_StillParses_IsRemoved_AndGetsAMigrationFinding', () => {
+    const document = { feedback: { upstream: 'https://feedback.example.test/report' } };
+
+    const base = ExarchosConfigSchema.safeParse(document);
+    const full = FullExarchosConfigSchema.safeParse(document);
+
+    expect(base.success).toBe(true);
+    expect(full.success).toBe(true);
+    if (base.success) expect('feedback' in base.data).toBe(false);
+    if (full.success) expect('feedback' in full.data).toBe(false);
+    expect(collectConfigDeprecations(document)).toEqual([
+      {
+        code: FEEDBACK_UPSTREAM_RETIRED_CODE,
+        key: 'feedback',
+        replacement: null,
+        message: expect.stringContaining('Delete the key'),
+      },
+    ]);
+  });
+
+  /** A document with no `feedback` block gets no finding for it. */
+  it('NoFeedbackBlock_GetsNoFeedbackFinding', () => {
+    expect(collectConfigDeprecations({ test: 'npm test' })).toEqual([]);
   });
 });
 

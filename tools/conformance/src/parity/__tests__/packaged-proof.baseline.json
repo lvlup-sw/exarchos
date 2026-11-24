@@ -27,11 +27,9 @@
       ]
     },
     "effectFamilies": {
-      "total": 3,
+      "total": 2,
       "covered": 2,
-      "missing": [
-        "network"
-      ]
+      "missing": []
     },
     "cancellationPaths": {
       "total": 11,

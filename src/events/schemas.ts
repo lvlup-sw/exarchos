@@ -2480,9 +2480,9 @@ export const MutationExecutedData = z.object({
 
 /**
  * An agent friction report. `sessionContext` records the workflow, action and error code.
- * `configuredEndpoint` is the `feedback.upstream` URL at emit time, or null. `upstreamDelivered`
- * records whether the best-effort POST succeeded, and the local write always succeeds. The object
- * is not strict, so an additive field keeps older rows valid.
+ * An older row can hold the retired `feedback.upstream` URL in `configuredEndpoint` and the result of its POST in `upstreamDelivered`.
+ * A new row holds null and false, because the handler sends no report to a remote service.
+ * The object is not strict, so an additive field keeps older rows valid.
  */
 export const FeedbackRecordedData = z.object({
   message: z.string().min(1),

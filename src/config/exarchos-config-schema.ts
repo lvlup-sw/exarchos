@@ -82,6 +82,9 @@ export const RETIRED_MUTATION_REVIEW = 'mutation-adequacy';
 /** Stable machine-readable code for the retired `vcs` key. */
 export const VCS_KEY_RETIRED_CODE = 'RETIRED_VCS_KEY';
 
+/** Stable machine-readable code for the retired `feedback` block. */
+export const FEEDBACK_UPSTREAM_RETIRED_CODE = 'RETIRED_FEEDBACK_UPSTREAM';
+
 /**
  * A typed `.exarchos.yml` deprecation. A consumer can branch on `code` and show `replacement` as an edit, with no match on prose.
  */
@@ -129,8 +132,23 @@ export interface VcsKeyDeprecation {
   readonly message: string;
 }
 
+/**
+ * A migration finding for the `feedback` block. Feedback stays in the local event store, so the loader removes the block and has no replacement for it.
+ */
+export interface FeedbackUpstreamDeprecation {
+  readonly code: typeof FEEDBACK_UPSTREAM_RETIRED_CODE;
+  readonly key: 'feedback';
+  readonly replacement: null;
+  readonly message: string;
+}
+
 /** One typed `.exarchos.yml` deprecation. The loader reports it and removes the key from the parsed config. */
-export type ConfigDeprecation = DevCatalogDeprecation | MutationCommandDeprecation | MutationReviewDeprecation | VcsKeyDeprecation;
+export type ConfigDeprecation =
+  | DevCatalogDeprecation
+  | MutationCommandDeprecation
+  | MutationReviewDeprecation
+  | VcsKeyDeprecation
+  | FeedbackUpstreamDeprecation;
 
 /** True when `value` is a plain object, not null and not an array. */
 function isPlainRecord(value: unknown): value is Record<string, unknown> {
@@ -246,9 +264,33 @@ export function withoutRetiredMutationCommand<T extends { readonly mutation?: un
   return rest;
 }
 
+/** The finding for the retired `feedback` block, if the document holds it. */
+function collectFeedbackUpstreamFindings(document: Record<string, unknown>): FeedbackUpstreamDeprecation[] {
+  if (!('feedback' in document)) return [];
+  return [{
+    code: FEEDBACK_UPSTREAM_RETIRED_CODE,
+    key: 'feedback',
+    replacement: null,
+    message:
+      '`feedback` is retired. Feedback stays in the local event store and Exarchos sends no report to a remote service, ' +
+      'so the loader ignores the key. Delete the key from .exarchos.yml.',
+  }];
+}
+
+/**
+ * Removes the retired top-level keys from a parsed document: `mutation` and `feedback`.
+ * The schema still accepts both keys, so an existing `.exarchos.yml` keeps loading.
+ */
+export function withoutRetiredTopLevelKeys<T extends { readonly mutation?: unknown; readonly feedback?: unknown }>(
+  block: T,
+): Omit<T, 'mutation' | 'feedback'> {
+  const { mutation, feedback, ...rest } = block;
+  return rest;
+}
+
 /**
  * Collects typed deprecations from a raw `.exarchos.yml` document.
- * It must run before the parse, because the schema removes `invariants.devCatalog`, each `mutation` key and the `vcs` key.
+ * It must run before the parse, because the schema removes `invariants.devCatalog`, each `mutation` key, the `vcs` key and the `feedback` block.
  * It is a diagnostic, not a validator. It returns `[]` for malformed input and for a document with no deprecated key.
  */
 export function collectConfigDeprecations(document: unknown): ConfigDeprecation[] {
@@ -258,6 +300,7 @@ export function collectConfigDeprecations(document: unknown): ConfigDeprecation[
     ...collectMutationCommandFindings(document),
     ...collectMutationReviewFindings(document),
     ...collectVcsKeyFindings(document),
+    ...collectFeedbackUpstreamFindings(document),
   ];
 }
 
@@ -457,9 +500,8 @@ export const EscalationConfigSchema = z
   .strict();
 
 /**
- * `feedback.upstream` is an endpoint that receives each `feedback.recorded` payload after the local event write.
- * The POST is best-effort. With no endpoint, feedback stays local and needs no network.
- * The URL check makes a bad endpoint fail at config load, not silently at POST time.
+ * The retired `feedback` block. Older releases sent each report to the `feedback.upstream` URL.
+ * The schema still accepts the block, so an existing file keeps loading. The parse removes it, and `collectConfigDeprecations` reports it.
  */
 export const FeedbackConfigSchema = z
   .object({
@@ -468,7 +510,7 @@ export const FeedbackConfigSchema = z
   .strict();
 
 /**
- * The keys of `.exarchos.yml` that the test runtime reads, before the transform removes the retired `mutation` key.
+ * The keys of `.exarchos.yml` that the test runtime reads, before the transform removes the retired `mutation` and `feedback` keys.
  * `FullExarchosConfigSchema` merges this object, so it stays a plain object schema.
  */
 export const ExarchosConfigBaseSchema = z
@@ -489,12 +531,13 @@ export const ExarchosConfigBaseSchema = z
     storage: StorageConfigSchema.optional(),
     synthesis: SynthesisConfigSchema.optional(),
     escalation: EscalationConfigSchema.optional(),
+    /** Retired. The schema accepts the key, and the transform removes it. `collectConfigDeprecations` reports it. */
     feedback: FeedbackConfigSchema.optional(),
   })
   .strict();
 
-/** The test-runtime keys of `.exarchos.yml`. The parse removes the retired `mutation` key. */
-export const ExarchosConfigSchema = ExarchosConfigBaseSchema.transform(withoutRetiredMutationCommand);
+/** The test-runtime keys of `.exarchos.yml`. The parse removes the retired `mutation` and `feedback` keys. */
+export const ExarchosConfigSchema = ExarchosConfigBaseSchema.transform(withoutRetiredTopLevelKeys);
 
 export type ExarchosConfig = z.infer<typeof ExarchosConfigSchema>;
 

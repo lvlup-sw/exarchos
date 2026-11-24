@@ -254,7 +254,7 @@ describe('workflow handler replies parse against the declared output schemas', (
   /**
    * The reconcile paths are a fold with no new event and a rebuild of a lost state file. The
    * checkpoint paths are with and without an event store, a handoff with lint findings, and a phase
-   * without a playbook. The feedback paths are with and without an upstream endpoint.
+   * without a playbook. The feedback path is the local write, which records no endpoint.
    */
   it('WorkflowOutputSchemas_ReconcileCheckpointAndFeedback_ParseAgainstTheDeclaredSchemas', async () => {
     await handleInit({ featureId: 'wf-misc', workflowType: 'feature' }, tmpDir, store);
@@ -296,18 +296,10 @@ describe('workflow handler replies parse against the declared output schemas', (
     expect(dataOf(noPlaybook).phasePlaybook).toBeNull();
     expect(verdict('checkpoint', noPlaybook)).toBe('ok');
 
-    const local = await handleFeedback({ message: 'schema test' }, tmpDir, store, {
-      resolveUpstream: () => undefined,
-    });
+    const local = await handleFeedback({ message: 'schema test' }, tmpDir, store);
     expect(dataOf(local).configuredEndpoint).toBeNull();
+    expect(dataOf(local).upstreamDelivered).toBe(false);
     expect(verdict('feedback', local)).toBe('ok');
-
-    const upstream = await handleFeedback({ message: 'schema test upstream' }, tmpDir, store, {
-      resolveUpstream: () => 'https://feedback.example.test/report',
-      postUpstream: async () => true,
-    });
-    expect(dataOf(upstream).upstreamDelivered).toBe(true);
-    expect(verdict('feedback', upstream)).toBe('ok');
 
     expectRejected('reconcile', [
       true,
