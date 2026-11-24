@@ -11,7 +11,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { mkdtemp, writeFile } from 'node:fs/promises';
+import { lstat, mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 
@@ -24,7 +24,7 @@ import { EventStore } from '../../src/events/store.js';
 import { canonicalPath } from '../../src/utils/git-tree.js';
 import { createInMemoryResolver } from '../../src/workflow/capabilities/resolver.js';
 import { execFileAsync } from '../../tools/test-helpers/spawn.js';
-import { makeTempDir, rmrfAsync } from '../../tools/test-helpers/temp-dir.js';
+import { rmrfAsync } from '../../tools/test-helpers/temp-dir.js';
 import { scopedRepository, type FixtureFiles, type ScopedRepository } from '../helpers/scoped-repository.js';
 
 const STREAM = 'feat-settle-scope-acceptance';
@@ -202,10 +202,15 @@ describe('settle checks each claimed worktree against the pinned scope', () => {
     expect(message).toContain(JSON.stringify(`${other.checkout}/.git`));
   }, CASE_TIMEOUT_MS);
 
-  /** A directory outside any git work tree is not the root of a worktree. */
+  /**
+   * A directory outside any git work tree is not the root of a worktree.
+   * The claim names the file system root, because the observer stops at the first `.git` entry above a path.
+   * A temp directory has host ancestors that the test does not control, and one stray `.git` entry above it changes the cause.
+   * The root has no ancestor, so the case checks one entry and states it before the act.
+   */
   it('SettleScope_AClaimOutsideAnyRepository_IsUnresolvedBeforeVerification', async () => {
-    const outside = canonicalPath(makeTempDir('settle-scope-outside-'));
-    scratchDirs.push(outside);
+    const outside = canonicalPath(path.parse(repository.root).root);
+    await expect(lstat(path.join(outside, '.git')), `the file system root ${outside} holds a .git entry`).rejects.toMatchObject({ code: 'ENOENT' });
     const { capsuleVersion } = await prepareFrom(repository.checkout, ['task-a']);
     const receipt = await settle(capsuleVersion, [claimOn('task-a', outside)]);
     const message = await unresolvedBeforeVerification(receipt, 'task-a', 'not-a-worktree-root');
