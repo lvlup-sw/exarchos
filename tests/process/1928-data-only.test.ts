@@ -8,8 +8,8 @@
  */
 import { generateKeyPairSync } from 'node:crypto';
 import { constants } from 'node:fs';
-import { access, chmod, mkdir, readFile, realpath, rm, writeFile } from 'node:fs/promises';
-import { delimiter, join, resolve } from 'node:path';
+import { access, chmod, lstat, mkdir, readFile, realpath, rm, writeFile } from 'node:fs/promises';
+import { delimiter, dirname, join, resolve } from 'node:path';
 import { expect, it } from 'vitest';
 import { runCli } from '../helpers/cli-runner.js';
 import { spawnMcpClient } from '../helpers/mcp-client.js';
@@ -38,11 +38,27 @@ function markerScript(marker: string, body = ''): string {
 }
 
 /**
+ * Refuse a fixture root that has a `.git` entry in a host ancestor.
+ * The binary climbs from its working directory to the first `.git` entry, and then it starts Git to read it.
+ * The test does not control the host ancestors of the temp directory, so the case states this precondition before the act.
+ */
+async function assertNoAncestorGitEntry(root: string): Promise<void> {
+  const entries: string[] = [];
+  for (let directory = dirname(root); ; directory = dirname(directory)) {
+    const entry = join(directory, '.git');
+    try { await lstat(entry); entries.push(entry); } catch {}
+    if (dirname(directory) === directory) break;
+  }
+  expect(entries, 'a host ancestor of the fixture root holds a .git entry').toEqual([]);
+}
+
+/**
  * A scratch HOME, a state directory and a PATH Git shim that logs each call and fails.
  * `cli` runs the packaged binary with the shim first on PATH, and `mcp` calls one tool of the packaged MCP server the same way.
  */
 async function dataOnlyFixture() {
   const root = makeTempDir('1928-data-only-');
+  await assertNoAncestorGitEntry(root);
   const home = join(root, 'home');
   const stateDir = join(root, 'state');
   const shim = join(root, 'shim');
