@@ -3247,7 +3247,10 @@ describe('EventSchemaRegistry_RegistersAllNewTwoEventSplitTypes', () => {
     }
   });
 
-  /** The six provider writer types are retired with their writers. The four local types stay automatic. */
+  /**
+   * The six provider writer types are retired with their writers.
+   * The four local types are retired with the ledger-only cancel, because the cancel compensator was their last writer.
+   */
   it('B6_AllTenTypes_HaveAutoOrRetiredEmissionSource', () => {
     const retiredWriterTypes = new Set<string>([
       'pr.create.requested',
@@ -3256,6 +3259,10 @@ describe('EventSchemaRegistry_RegistersAllNewTwoEventSplitTypes', () => {
       'pr.comment.executed',
       'issue.create.requested',
       'issue.create.executed',
+      'branch.delete.requested',
+      'branch.delete.executed',
+      'worktree.remove.requested',
+      'worktree.remove.executed',
     ]);
     for (const eventType of TWO_EVENT_TYPES) {
       expect(
