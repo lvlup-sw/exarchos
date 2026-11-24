@@ -1,12 +1,15 @@
-// @oracle-sources: the packaged exarchos binary on PATH, PATH shims that log each program start, a loopback listener, a trap in a private network namespace, and the MCP tools/list reply
+// @oracle-sources: the packaged exarchos binary on PATH, PATH shims that log each program start, a loopback listener, a trap and the socket counters of a private network namespace, and the MCP tools/list reply
 /**
  * Prove through the packaged binary that the governor is a local CLI on its normal path: prepare, a harness landing, settle and feedback.
- * The binary gets a PATH that holds only recording shims for git, gh, glab, az and node. A start of any other program by name fails.
- * The shims show no gh, glab or az start, no Git merge, fetch, push or other write, and no node start except the approved checks.
+ * The binary gets a PATH that holds only shims. The shims for git and node log and run the real program. The other shims log and fail.
+ * The log shows no gh, glab or az start, no Git write or remote read and no other start by name. Node starts only the approved checks.
+ *
+ * A planted script proves that a remote tool, a Git merge and another program land in the log and fail the assertion. An absolute-path start is outside the log.
  *
  * Feedback names a retired upstream URL on a loopback listener, and the proxy variables name it too. The listener must get no connection.
- * Where user namespaces work, the same path runs in a private network namespace. Every IPv4 and IPv6 address is local there,
- * and a trap listens on the DNS, SSH, HTTP, HTTPS, Git and proxy ports. The trap must get no packet and no connection.
+ * On Linux the same path runs in a private network namespace where every address is local and a trap listens on common ports.
+ * The socket counters of that namespace count a connection or datagram to any port. Both must stay zero.
+ * A Linux host that cannot make the namespace fails, unless EXARCHOS_TEST_SKIP_NAMESPACE_TRAP=1 reports the cases as skipped.
  *
  * The MCP server lists the same four tools as before this work.
  */
@@ -26,6 +29,9 @@ const CASE_TIMEOUT_MS = 180_000;
 /** The programs that the shims record. A start of any other program by name finds no executable. */
 const SHIMMED = ['git', 'gh', 'glab', 'az', 'node'] as const;
 
+/** The other programs that a catch-all shim logs and fails: shells, package managers, network clients and the command lookup. The binary must start none of them. */
+const CATCH_ALL: ReadonlySet<string> = new Set(['sh', 'bash', 'npx', 'npm', 'pnpm', 'yarn', 'bun', 'curl', 'wget', 'ssh', 'which', 'python3']);
+
 /** The remote-service command line tools. The binary must start none of them. */
 const REMOTE_TOOLS: ReadonlySet<string> = new Set(['gh', 'glab', 'az']);
 
@@ -44,6 +50,12 @@ const TRAP_TCP_PORTS = [53, 22, 80, 443, 9418, 8080] as const;
 /** The upstream URL of the namespace case. It names a trap port. */
 const TRAP_UPSTREAM = 'http://127.0.0.1:8080/report';
 
+/** The variable that opts a Linux host out of the namespace cases. With it, the report shows the namespace gate as skipped. */
+const NAMESPACE_OPT_OUT = process.env.EXARCHOS_TEST_SKIP_NAMESPACE_TRAP === '1';
+
+/** The message of a Linux host that cannot run the namespace trap. */
+const NAMESPACE_UNAVAILABLE = 'This Linux host cannot make a private user and network namespace. Enable unprivileged user namespaces, or set EXARCHOS_TEST_SKIP_NAMESPACE_TRAP=1 to report the namespace gate as not run.';
+
 /** The command of the fixture. Each mode exits 0. The integration mode reads the tip that it sees. */
 const COMMAND = [
   "const cp=require('node:child_process');",
@@ -52,17 +64,32 @@ const COMMAND = [
 
 /**
  * The runner of the namespace case. It makes every address local on the loopback device, starts the trap, and runs the binary.
- * It writes each connection and datagram that the trap sees to the report file, and exits with the exit code of the binary.
+ * It reads the TCP active opens and the UDP and UDP6 datagrams sent of the namespace before and after the binary.
+ * It writes the connections and datagrams that the trap sees and the counter deltas to the report file. It exits with the exit code of the binary.
  */
 const TRAP_RUNNER = `
 import net from 'node:net';
 import dgram from 'node:dgram';
 import { execFileSync, spawn } from 'node:child_process';
-import { writeFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 const [ip, report, command, ...args] = process.argv.slice(2);
 execFileSync(ip, ['link', 'set', 'lo', 'up']);
 execFileSync(ip, ['route', 'add', 'local', '0.0.0.0/0', 'dev', 'lo', 'table', 'local']);
 execFileSync(ip, ['-6', 'route', 'add', 'local', '::/0', 'dev', 'lo', 'table', 'local']);
+const field = (lines, protocol, name) => {
+  const rows = lines.filter(line => line.startsWith(protocol + ':'));
+  const keys = rows[0].trim().split(/ +/);
+  return Number(rows[1].trim().split(/ +/)[keys.indexOf(name)]);
+};
+const counters = () => {
+  const snmp = readFileSync('/proc/net/snmp', 'utf8').split(String.fromCharCode(10));
+  const six = readFileSync('/proc/net/snmp6', 'utf8').split(String.fromCharCode(10)).map(line => line.trim().split(/[ \t]+/));
+  return {
+    tcpActiveOpens: field(snmp, 'Tcp', 'ActiveOpens'),
+    udpOutDatagrams: field(snmp, 'Udp', 'OutDatagrams'),
+    udp6OutDatagrams: Number((six.find(row => row[0] === 'Udp6OutDatagrams') ?? [])[1]),
+  };
+};
 const seen = [];
 const ready = [];
 for (const port of ${JSON.stringify(TRAP_TCP_PORTS)}) {
@@ -75,11 +102,26 @@ for (const type of ['udp4', 'udp6']) {
   ready.push(new Promise((resolve, reject) => { socket.once('error', reject); socket.bind(53, resolve); }));
 }
 await Promise.all(ready);
+const before = counters();
 const child = spawn(command, args, { stdio: 'inherit', env: process.env });
 child.on('close', (code) => {
-  setTimeout(() => { writeFileSync(report, JSON.stringify(seen)); process.exit(code ?? 1); }, 200);
+  setTimeout(() => {
+    const after = counters();
+    const delta = Object.fromEntries(Object.keys(before).map(key => [key, after[key] - before[key]]));
+    writeFileSync(report, JSON.stringify({ seen, delta }));
+    process.exit(code ?? 1);
+  }, 200);
 });
 `;
+
+/** The report of one namespace run: what the trap saw and the counter deltas of the namespace. */
+interface TrapReport {
+  readonly seen: readonly unknown[];
+  readonly delta: Readonly<Record<string, number>>;
+}
+
+/** The counter deltas of a namespace run that opens no socket to any port. */
+const NO_SOCKET = { tcpActiveOpens: 0, udpOutDatagrams: 0, udp6OutDatagrams: 0 };
 
 /** One program start that a shim recorded. */
 interface Start {
@@ -116,8 +158,21 @@ async function namespaceTrapAvailable(): Promise<boolean> {
   }
 }
 
-/** Whether the namespace cases run on this host. A host without user namespaces skips them, and the direct case still runs. */
+/** Whether this host can run the namespace trap. A Linux host that cannot fails the namespace cases, unless it opts out. */
 const NAMESPACE_TRAP = await namespaceTrapAvailable();
+
+/** Read one namespace report. */
+async function readTrapReport(report: string): Promise<TrapReport> {
+  const parsed = record(JSON.parse(await readFile(report, 'utf8')));
+  const { seen, delta } = parsed;
+  if (!Array.isArray(seen)) throw new Error('The trap report has no seen list');
+  const counts: Record<string, number> = {};
+  for (const [key, value] of Object.entries(record(delta))) {
+    if (typeof value !== 'number') throw new Error(`The trap report has no number for ${key}`);
+    counts[key] = value;
+  }
+  return { seen, delta: counts };
+}
 
 /** The fixture configuration: the verification profile of the checks and the retired feedback block with `upstream`. */
 function configWith(upstream: string): string {
@@ -131,11 +186,11 @@ function configWith(upstream: string): string {
   });
 }
 
-/** Write one shim for each recorded program. A shim logs its arguments, then runs the real program or fails. */
+/** Write one shim for each recorded and each catch-all program. A shim logs its arguments, then runs the real program or fails. */
 async function writeShims(shimDir: string, log: string): Promise<void> {
   await mkdir(shimDir, { recursive: true });
   const real: Record<string, string | undefined> = { git: await onPath('git'), node: process.execPath };
-  for (const program of SHIMMED) {
+  for (const program of [...SHIMMED, ...CATCH_ALL]) {
     const target = real[program];
     const tail = target === undefined ? 'exit 1' : `exec ${JSON.stringify(target)} "$@"`;
     await writeFile(path.join(shimDir, program), [
@@ -213,14 +268,19 @@ async function normalPath(f: RaceRepository, launch: Launch): Promise<void> {
   expect(data(feedback.envelope)).toMatchObject({ recorded: true, upstreamConfigured: false, configuredEndpoint: null, upstreamDelivered: false });
 }
 
-/** Assert the recorded starts: Git reads and the approved checks only, with no remote tool and no Git write. */
+/** The recorded starts that the boundary refuses. These are a remote tool, a catch-all program, a Git write or remote read, and a node start that is not a check. */
+function unapprovedStarts(starts: readonly Start[]): Start[] {
+  return starts.filter(start => REMOTE_TOOLS.has(start.program) || CATCH_ALL.has(start.program)
+    || (start.program === 'git' && writesOrReaches(start.args))
+    || (start.program === 'node' && start.args[0] !== 'command.cjs'));
+}
+
+/** Assert the recorded starts: Git reads and the approved checks only, with no remote tool, no Git write and no catch-all program. */
 function expectOnlyApprovedStarts(starts: readonly Start[]): void {
   expect(starts.filter(start => start.program === 'git').length).toBeGreaterThan(0);
-  expect(starts.filter(start => REMOTE_TOOLS.has(start.program))).toEqual([]);
-  expect(starts.filter(start => start.program === 'git' && writesOrReaches(start.args))).toEqual([]);
+  expect(unapprovedStarts(starts)).toEqual([]);
   const checks = starts.filter(start => start.program === 'node');
   expect(checks.map(start => start.args[1]).filter(mode => mode === 'integration')).toEqual(['integration']);
-  expect(checks.filter(start => start.args[0] !== 'command.cjs')).toEqual([]);
 }
 
 /** Start a TCP listener on a free loopback port that counts each connection. */
@@ -261,7 +321,8 @@ describe('packaged CLI-only governor boundary', () => {
    * The namespace case. Each packaged call runs in its own user and network namespace, where every address is local and the trap listens.
    * The normal path still settles and records feedback. The trap sees no DNS datagram and no connection.
    */
-  it.runIf(NAMESPACE_TRAP)('GovernorBoundary_NormalPathInAPrivateNetworkNamespace_SendsNoPacket', async () => {
+  it.runIf(process.platform === 'linux' && !NAMESPACE_OPT_OUT)('GovernorBoundary_NormalPathInAPrivateNetworkNamespace_SendsNoPacket', async () => {
+    expect(NAMESPACE_TRAP, NAMESPACE_UNAVAILABLE).toBe(true);
     await withRaceRepository(async (f) => {
       const shimDir = path.join(f.controls, 'shim');
       const log = path.join(f.controls, 'starts.log');
@@ -271,6 +332,7 @@ describe('packaged CLI-only governor boundary', () => {
       const [binary, unshare, ip] = await Promise.all([onPath('exarchos'), onPath('unshare'), onPath('ip')]);
       const env = boundaryEnv(f, shimDir, 'http://127.0.0.1:8080');
       const seen: unknown[] = [];
+      const deltas: Readonly<Record<string, number>>[] = [];
       let calls = 0;
       const launch: Launch = async (args) => {
         calls += 1;
@@ -279,27 +341,71 @@ describe('packaged CLI-only governor boundary', () => {
           command: unshare, args: ['-rn', process.execPath, runner, ip, report, binary, ...args, '--json'],
           cwd: f.repository.checkout, env, timeout: 60_000,
         });
-        seen.push(...JSON.parse(await readFile(report, 'utf8')));
+        const trap = await readTrapReport(report);
+        seen.push(...trap.seen);
+        deltas.push(trap.delta);
         return callOf(result);
       };
       await normalPath(f, launch);
       expect(calls).toBe(3);
       expect(seen).toEqual([]);
+      expect(deltas).toEqual([NO_SOCKET, NO_SOCKET, NO_SOCKET]);
       expectOnlyApprovedStarts(await readStarts(log));
     }, { files: { 'command.cjs': COMMAND, '.exarchos.yml': configWith(TRAP_UPSTREAM) } });
   }, CASE_TIMEOUT_MS);
 
-  /** The control of the namespace trap: a node client in the same kind of namespace reaches a trap port, and the trap records it. */
-  it.runIf(NAMESPACE_TRAP)('GovernorBoundary_NamespaceTrap_RecordsAPlantedConnection', async () => {
+  /**
+   * The control of the namespace trap. A node client in the same kind of namespace connects to a trap port and to a port with no listener, and sends one datagram.
+   * The trap records the trap port only. The counters count both connection attempts and the datagram.
+   */
+  it.runIf(process.platform === 'linux' && !NAMESPACE_OPT_OUT)('GovernorBoundary_NamespaceTrap_RecordsAPlantedConnection', async () => {
+    expect(NAMESPACE_TRAP, NAMESPACE_UNAVAILABLE).toBe(true);
     await withRaceRepository(async (f) => {
       const runner = path.join(f.controls, 'trap-runner.mjs');
       await writeFile(runner, TRAP_RUNNER);
       const report = path.join(f.controls, 'trap-control.json');
       const [unshare, ip] = await Promise.all([onPath('unshare'), onPath('ip')]);
-      const client = "require('node:net').connect(443,'203.0.113.7').on('connect',function(){this.end()}).on('error',function(){})";
+      const client = [
+        "const net=require('node:net');",
+        "net.connect(443,'203.0.113.7').on('connect',function(){this.end()}).on('error',function(){});",
+        "net.connect(4444,'198.51.100.9').on('error',function(){});",
+        "const udp=require('node:dgram').createSocket('udp4');udp.send('x',5353,'192.0.2.1',function(){udp.close()});",
+      ].join('');
       const result = await runCli({ command: unshare, args: ['-rn', process.execPath, runner, ip, report, process.execPath, '-e', client], timeout: 30_000 });
       expect(result.exitCode, result.stderr).toBe(0);
-      expect(JSON.parse(await readFile(report, 'utf8'))).toEqual([{ protocol: 'tcp', port: 443 }]);
+      const trap = await readTrapReport(report);
+      expect(trap.seen).toEqual([{ protocol: 'tcp', port: 443 }]);
+      expect(trap.delta).toMatchObject({ tcpActiveOpens: 2, udpOutDatagrams: 1 });
+    });
+  }, CASE_TIMEOUT_MS);
+
+  /**
+   * The control of the shim log. A planted node script starts programs by name through the same shim PATH, as the binary does.
+   * The starts of gh, a Git merge and curl land in the log, and the boundary assertion fails on them. The log with them removed passes.
+   */
+  it.runIf(process.platform === 'linux')('GovernorBoundary_ShimLog_RecordsAndRefusesAPlantedRemoteToolGitMergeAndCatchAllStart', async () => {
+    await withRaceRepository(async (f) => {
+      const shimDir = path.join(f.controls, 'shim');
+      const log = path.join(f.controls, 'starts.log');
+      await writeShims(shimDir, log);
+      await writeFile(path.join(f.controls, 'command.cjs'), '');
+      const planted = path.join(f.controls, 'planted.cjs');
+      await writeFile(planted, [
+        "const { spawnSync } = require('node:child_process');",
+        "for (const [program, ...args] of [['git', 'rev-parse', '--git-dir'], ['gh', 'pr', 'list'], ['git', 'merge', '--no-edit', 'task/x'], ['curl', 'http://192.0.2.1/'], ['node', 'command.cjs', 'integration']]) {",
+        "  spawnSync(program, args, { stdio: 'ignore' });",
+        "}",
+      ].join('\n'));
+      const result = await runCli({ command: process.execPath, args: [planted], cwd: f.controls, env: { PATH: shimDir }, timeout: 30_000 });
+      expect(result.exitCode, result.stderr).toBe(0);
+      const starts = await readStarts(log);
+      expect(unapprovedStarts(starts)).toEqual([
+        { program: 'gh', args: ['pr', 'list'] },
+        { program: 'git', args: ['merge', '--no-edit', 'task/x'] },
+        { program: 'curl', args: ['http://192.0.2.1/'] },
+      ]);
+      expect(() => expectOnlyApprovedStarts(starts)).toThrow();
+      expect(() => expectOnlyApprovedStarts(starts.filter(start => unapprovedStarts([start]).length === 0))).not.toThrow();
     });
   }, CASE_TIMEOUT_MS);
 

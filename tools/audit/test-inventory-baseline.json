@@ -4,11 +4,11 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1406,
-    "parsedFiles": 1362,
+    "testFiles": 1407,
+    "parsedFiles": 1363,
     "shellFiles": 44,
-    "cases": 15722,
-    "dynamicTitles": 321,
+    "cases": 15736,
+    "dynamicTitles": 325,
     "unparseableFiles": 0
   },
   "unparseable": [],
@@ -11612,12 +11612,22 @@
         },
         {
           "suite": "packaged CLI-only governor boundary",
-          "name": "GovernorBoundary_McpToolList_IsTheFourCompositeTools",
+          "name": "GovernorBoundary_ShimLog_RecordsAndRefusesAPlantedRemoteToolGitMergeAndCatchAllStart",
           "dynamic": false
         },
         {
           "suite": "packaged CLI-only governor boundary",
           "name": "<dynamic-case-4>",
+          "dynamic": true
+        },
+        {
+          "suite": "packaged CLI-only governor boundary",
+          "name": "GovernorBoundary_McpToolList_IsTheFourCompositeTools",
+          "dynamic": false
+        },
+        {
+          "suite": "packaged CLI-only governor boundary",
+          "name": "<dynamic-case-5>",
           "dynamic": true
         }
       ]
@@ -51734,28 +51744,28 @@
       "runner": "vitest:root",
       "cases": [
         {
-          "suite": "observeTree",
-          "name": "ObserveTree_ALinkedWorktree_GivesItsRootTheCommonDirTheBranchAndTheHead",
+          "suite": "observeConstrainedTree",
+          "name": "ObserveConstrainedTree_ALinkedWorktree_GivesItsRootTheCommonDirTheBranchAndTheHead",
           "dynamic": false
         },
         {
-          "suite": "observeTree",
-          "name": "ObserveTree_ASubdirectory_GivesTheRootOfItsWorkTree",
+          "suite": "observeConstrainedTree",
+          "name": "ObserveConstrainedTree_ASubdirectory_GivesTheRootOfItsWorkTree",
           "dynamic": false
         },
         {
-          "suite": "observeTree",
-          "name": "ObserveTree_ADetachedHead_GivesNoBranch",
+          "suite": "observeConstrainedTree",
+          "name": "ObserveConstrainedTree_ADetachedHead_GivesNoBranch",
           "dynamic": false
         },
         {
-          "suite": "observeTree",
-          "name": "ObserveTree_ADirectoryOutsideGit_GivesNoWorkTreeWithItsCanonicalPath",
+          "suite": "observeConstrainedTree",
+          "name": "ObserveConstrainedTree_ADirectoryOutsideGit_GivesNoWorkTreeWithItsCanonicalPath",
           "dynamic": false
         },
         {
-          "suite": "observeTree",
-          "name": "ObserveTree_AMissingPath_GivesNoWorkTreeWithItsLexicalPath",
+          "suite": "observeConstrainedTree",
+          "name": "ObserveConstrainedTree_AMissingPath_GivesNoWorkTreeWithItsLexicalPath",
           "dynamic": false
         },
         {
@@ -62541,6 +62551,72 @@
         {
           "suite": "settle — a blocking gate that blocks",
           "name": "Settle_AnIntegrationSuiteThatBlocks_LeavesTheTaskUnresolvedAndLeavesNoCompletion",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/verbs/settle/claimed-tree.test.ts": {
+      "file": "tests/unit/verbs/settle/claimed-tree.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "observeConstrainedClaimedTree reads tracked links and submodules",
+          "name": "ObserveConstrainedClaimedTree_ACleanTreeWithALinkAndASubmodule_IsCleanUnderBothPolicies",
+          "dynamic": false
+        },
+        {
+          "suite": "observeConstrainedClaimedTree reads tracked links and submodules",
+          "name": "<dynamic-case-1>",
+          "dynamic": true
+        },
+        {
+          "suite": "observeConstrainedClaimedTree reads tracked links and submodules",
+          "name": "ObserveConstrainedClaimedTree_ALinkWithANewTarget_IsADirtyPathUnderBothPolicies",
+          "dynamic": false
+        },
+        {
+          "suite": "observeConstrainedClaimedTree reads tracked links and submodules",
+          "name": "<dynamic-case-2>",
+          "dynamic": true
+        },
+        {
+          "suite": "observeConstrainedClaimedTree reads tracked links and submodules",
+          "name": "ObserveConstrainedClaimedTree_AStagedSubmoduleCommit_IsADirtyPathUnderBothPolicies",
+          "dynamic": false
+        },
+        {
+          "suite": "observeConstrainedClaimedTree reads tracked links and submodules",
+          "name": "<dynamic-case-3>",
+          "dynamic": true
+        },
+        {
+          "suite": "observeConstrainedClaimedTree judges the base and the bounds",
+          "name": "ObserveConstrainedClaimedTree_AnUnknownBaseCommit_SplitsThePolicies",
+          "dynamic": false
+        },
+        {
+          "suite": "observeConstrainedClaimedTree judges the base and the bounds",
+          "name": "ObserveConstrainedClaimedTree_ACheckoutWithNoCommit_IsUnobservable",
+          "dynamic": false
+        },
+        {
+          "suite": "observeConstrainedClaimedTree judges the base and the bounds",
+          "name": "ObserveConstrainedClaimedTree_SevenUntrackedFiles_KeepsTheFirstFive",
+          "dynamic": false
+        },
+        {
+          "suite": "observeConstrainedClaimedTree refuses a checkout that is not one registered checkout",
+          "name": "ObserveConstrainedClaimedTree_ABareCheckout_IsUnobservable",
+          "dynamic": false
+        },
+        {
+          "suite": "observeConstrainedClaimedTree refuses a checkout that is not one registered checkout",
+          "name": "ObserveConstrainedClaimedTree_APrunableWorktree_IsUnobservable",
+          "dynamic": false
+        },
+        {
+          "suite": "observeConstrainedClaimedTree refuses a checkout that is not one registered checkout",
+          "name": "ObserveConstrainedClaimedTree_AnUnregisteredCheckout_IsUnobservable",
           "dynamic": false
         }
       ]
@@ -84529,18 +84605,18 @@
       "runner": "vitest:root",
       "cases": [
         {
-          "suite": "observeTree reads the exact branch name",
-          "name": "ObserveTree_ATagWithTheNameOfTheBranch_ReadsTheBranchName",
+          "suite": "observeConstrainedTree reads the exact branch name",
+          "name": "ObserveConstrainedTree_ATagWithTheNameOfTheBranch_ReadsTheBranchName",
           "dynamic": false
         },
         {
-          "suite": "observeClaimedTree reads no status outside the scope repository",
-          "name": "ObserveClaimedTree_ATreeOfAnotherRepository_RunsNoStatus",
+          "suite": "observeConstrainedClaimedTree reads no listing outside the scope repository",
+          "name": "ObserveConstrainedClaimedTree_ATreeOfAnotherRepository_ReadsNoListing",
           "dynamic": false
         },
         {
-          "suite": "observeClaimedTree reads no status outside the scope repository",
-          "name": "ObserveClaimedTree_ATreeOfTheScopeRepository_StillReadsTheStatus",
+          "suite": "observeConstrainedClaimedTree reads no listing outside the scope repository",
+          "name": "ObserveConstrainedClaimedTree_ATreeOfTheScopeRepository_StillReadsTheListings",
           "dynamic": false
         }
       ]

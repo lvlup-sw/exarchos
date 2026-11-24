@@ -17,7 +17,8 @@ import { EventStore } from '../../src/events/store.js';
 import { RunBundleStore } from '../../src/events/bundle/run-bundle-store.js';
 import { runWithDispatchContext } from '../../src/dispatch/dispatch-context.js';
 import { declared, none } from '../../src/registry.js';
-import { observeRepository, observeTree } from '../../src/utils/git-tree.js';
+import { observeRepository } from '../../src/utils/git-tree.js';
+import { observeConstrainedTree } from '../../src/verbs/settle/claimed-tree.js';
 import { loadPreparedCustody, selectPreparedAuthority } from '../../src/workflow/capsule/prepared-custody.js';
 import { readDesignRecord } from '../../src/workflow/design-record/read.js';
 import { configDigestAt } from '../../src/verbs/prepare/prepare-scope.js';
@@ -266,7 +267,7 @@ describe('immutable segment input', () => {
   it('OverlappingObservations_IndependentSqlitePublishersKeepOneWinner', async () => {
     const f = await setup();
     await f.repo.commitIn('root', { 'file.txt': 'second observed head' });
-    const observed = await observeTree(f.worktree); if (observed.kind !== 'tree' || observed.head === undefined) throw new Error('Missing head');
+    const observed = await observeConstrainedTree(f.worktree); if (observed.kind !== 'tree' || observed.head === undefined) throw new Error('Missing head');
     expect(observed.head).not.toBe(f.coordinate.observedHeadCommit);
     const payloads: string[] = [];
     for (const head of [f.coordinate.observedHeadCommit, observed.head]) {

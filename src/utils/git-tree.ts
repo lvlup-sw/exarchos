@@ -1,7 +1,7 @@
 /**
- * The shared git observation of a tree: its root, its repository, its branch and its head commit.
- * Three more reads serve `prepare`: the repository of a directory, the commit of a ref, and the ancestry of two commits.
- * The observation of a claimed tree serves `settle`: it adds whether HEAD holds the base commit, and the first dirty paths.
+ * The shared types of a git observation of a tree: its root, its repository, its branch and its head commit.
+ * Three reads serve `prepare`: the repository of a directory, the commit of a ref, and the ancestry of two commits.
+ * The type of a claimed tree serves `settle`: it adds whether HEAD holds the base commit, and the first dirty paths.
  *
  * The two path forms follow `normalizeRepoPath` of `paths.ts`. The canonical form is the real path
  * in POSIX form, as `git rev-parse --show-toplevel` prints it. The lexical form reads no file, so it
@@ -34,12 +34,6 @@ const GIT_MAX_BUFFER_BYTES = 1024 * 1024;
  * `merge-base --is-ancestor` exits with it for a commit that is not an ancestor.
  */
 const GIT_ABSENT_EXIT_CODE = 1;
-
-/**
- * The prefix of the full name of a branch.
- * The branch read removes it from the ref of HEAD. A ref with no such prefix keeps its full name.
- */
-const BRANCH_REF_PREFIX = 'refs/heads/';
 
 /** The outcome of one git call: the exit code and the output, or the cause when git did not run to its end. */
 type GitOutcome =
@@ -88,7 +82,7 @@ export type AncestryRead =
 /**
  * What git observes at a claimed worktree.
  * A `tree` adds two reads to the tree of {@link TreeObservation}. `holdsBase` says that HEAD holds the base commit.
- * `dirtyPaths` holds at most five paths that `git status --porcelain` prints under the ignore rules of git. An empty list is a clean tree.
+ * `dirtyPaths` holds at most five paths that differ from HEAD in the closed listings. An empty list is a clean tree.
  * A `no-work-tree` and an `unobservable` claimed tree have the meaning that they have in {@link TreeObservation}.
  *
  * A tree of another repository than the scope repository gets neither read. It has `holdsBase: false` and no dirty path.
@@ -102,7 +96,7 @@ export type ClaimedTreeObservation =
   | Exclude<TreeObservation, { readonly kind: 'tree' }>;
 
 /**
- * The seam over the observation of a claimed worktree. The default is {@link observeClaimedTree}.
+ * The seam over the observation of a claimed worktree. The default is `observeConstrainedClaimedTree` of `verbs/settle/claimed-tree.ts`.
  * The third argument is the canonical common dir of the scope, when the caller judges against a scope.
  */
 export type TreeObserver = (
@@ -110,12 +104,6 @@ export type TreeObserver = (
   baseCommit: string,
   repository?: string,
 ) => Promise<ClaimedTreeObservation>;
-
-/** The most dirty paths that one observation of a claimed worktree keeps. */
-const DIRTY_PATH_LIMIT = 5;
-
-/** The width of the status code and its space at the start of each line of `git status --porcelain`. */
-const PORCELAIN_STATUS_WIDTH = 3;
 
 /** One value of an optional git read: the value, no value, or the cause of a failed read. */
 type OptionalRead =
@@ -223,98 +211,6 @@ export async function isAncestor(dir: string, ancestor: string, descendant: stri
     kind: 'unobservable',
     cause: `git could not compare ${ancestor} with ${descendant} (exit ${outcome.exitCode}): ${outcome.stderr.trim()}`,
   };
-}
-
-/**
- * The branch name of the full ref of HEAD. A ref under `refs/heads/` loses that prefix, and another ref keeps its full name.
- * The short form of git is not exact: when a tag has the name of the branch, git prints `heads/<name>`.
- */
-function branchNameOf(ref: string): string {
-  return ref.startsWith(BRANCH_REF_PREFIX) ? ref.slice(BRANCH_REF_PREFIX.length) : ref;
-}
-
-/**
- * Observes the tree that holds `dir` with three git calls: the root and the common dir, the full ref of HEAD, and the HEAD commit.
- * The root and the common dir are those of {@link observeRepository}. The branch is the full ref with no `refs/heads/` prefix.
- * A directory outside any git work tree gives `no-work-tree` with its canonical path. A path that does not exist keeps its lexical form.
- */
-export async function observeTree(dir: string): Promise<TreeObservation> {
-  const located = await observeRepository(dir);
-  if (located.kind !== 'repository') return located;
-
-  const [branchOutcome, headOutcome] = await Promise.all([
-    runGit(['-C', dir, 'symbolic-ref', '--quiet', 'HEAD']),
-    runGit(['-C', dir, 'rev-parse', '--verify', '--quiet', 'HEAD']),
-  ]);
-  const branch = optionalRead(branchOutcome, 'the branch of HEAD');
-  if (branch.kind === 'failed') return { kind: 'unobservable', cause: branch.cause };
-  const head = optionalRead(headOutcome, 'the HEAD commit');
-  if (head.kind === 'failed') return { kind: 'unobservable', cause: head.cause };
-
-  return {
-    kind: 'tree',
-    toplevel: located.toplevel,
-    repository: located.repository,
-    ...(branch.value === undefined ? {} : { branch: branchNameOf(branch.value) }),
-    ...(head.value === undefined ? {} : { head: head.value }),
-  };
-}
-
-/**
- * Observes a claimed worktree with five git calls: the three calls of {@link observeTree}, the ancestry of the base commit, and the status.
- * The status runs with `--no-optional-locks`, so the call writes no index refresh.
- * A HEAD that git cannot compare with the base commit does not hold it. Examples are a HEAD with no commit, and a base commit that the repository does not hold.
- * A directory outside any git work tree gives `no-work-tree`, as in {@link observeTree}.
- *
- * With `repository`, a tree whose common dir is another repository gets neither the ancestry call nor the status call.
- * The status can run a command that the config of that repository names, such as `core.fsmonitor`.
- */
-export async function observeClaimedTree(
-  dir: string,
-  baseCommit: string,
-  repository?: string,
-): Promise<ClaimedTreeObservation> {
-  const tree = await observeTree(dir);
-  if (tree.kind !== 'tree') return tree;
-  if (repository !== undefined && tree.repository !== repository) return { ...tree, holdsBase: false, dirtyPaths: [] };
-
-  const [ancestry, status] = await Promise.all([
-    runGit(['-C', dir, 'merge-base', '--is-ancestor', '--end-of-options', baseCommit, 'HEAD']),
-    runGit(['--no-optional-locks', '-C', dir, 'status', '--porcelain']),
-  ]);
-  if (ancestry.kind === 'failed') return { kind: 'unobservable', cause: ancestry.cause };
-  if (status.kind === 'failed') return { kind: 'unobservable', cause: status.cause };
-  if (status.exitCode !== 0) {
-    return {
-      kind: 'unobservable',
-      cause: `git could not read the status (exit ${status.exitCode}): ${status.stderr.trim()}`,
-    };
-  }
-  const dirtyPaths = dirtyPathsOf(status.stdout);
-  return { ...tree, holdsBase: ancestry.exitCode === 0, dirtyPaths };
-}
-
-/** Reads the captured head and clean status without index refresh or repository fsmonitor callbacks. */
-export async function observeImmutableClaimedTree(dir: string, baseCommit: string, repository?: string): Promise<ClaimedTreeObservation> {
-  const tree = await observeTree(dir);
-  if (tree.kind !== 'tree') return tree;
-  if (repository !== undefined && tree.repository !== repository) return { ...tree, holdsBase: false, dirtyPaths: [] };
-  if (tree.head === undefined) return { kind: 'unobservable', cause: 'The task checkout has no commit' };
-  const [ancestry, status] = await Promise.all([
-    isAncestor(dir, baseCommit, tree.head),
-    runGit(['--no-optional-locks', '-c', 'core.fsmonitor=false', '-C', dir, 'status', '--porcelain', '--untracked-files=all']),
-  ]);
-  if (ancestry.kind === 'unobservable') return { kind: 'unobservable', cause: ancestry.cause };
-  if (status.kind === 'failed') return { kind: 'unobservable', cause: status.cause };
-  if (status.exitCode !== 0) return { kind: 'unobservable', cause: `Git status failed: ${status.stderr.trim()}` };
-  const dirtyPaths = dirtyPathsOf(status.stdout);
-  return { ...tree, holdsBase: ancestry.kind === 'ancestor', dirtyPaths };
-}
-
-/** Extracts the bounded path list from Git porcelain status. */
-function dirtyPathsOf(stdout: string): readonly string[] {
-  return stdout.split(/\r?\n/).filter(line => line.length > PORCELAIN_STATUS_WIDTH)
-    .slice(0, DIRTY_PATH_LIMIT).map(line => line.slice(PORCELAIN_STATUS_WIDTH));
 }
 
 const OID = /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/;

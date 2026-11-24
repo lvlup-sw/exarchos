@@ -19,7 +19,7 @@ import { fixtureWiring } from '../unit/verbs/execute/fixtures.js';
 import { profiledValidCapsule } from '../../src/contract/capsule/exarchos-capsule-fixtures.js';
 import { EventStore } from '../../src/events/store.js';
 import { resolveConfig } from '../../src/config/resolve.js';
-import { observeRepository, observeClaimedTree } from '../../src/utils/git-tree.js';
+import { observeRepository } from '../../src/utils/git-tree.js';
 import { nodeTestProfile } from '../helpers/verification-profile.js';
 import { scopedRepository } from '../helpers/scoped-repository.js';
 import { makeTempDir, rmrfAsync } from '../../tools/test-helpers/temp-dir.js';
@@ -173,7 +173,7 @@ describe('immutable diff leaves', () => {
     expect(existsSync(`${hook}.invoked`)).toBe(false); expect(await git(f.tree, '--no-optional-locks', '-c', 'core.fsmonitor=false', 'status', '--porcelain')).toBe(''); expect(await git(f.tree, 'show-ref')).toBe(refs);
     expect(await readFile(join(f.tree, 'src/value.cjs'), 'utf8')).toBe('task');
     expect(await readFile(join(f.tree, 'value.test.json'), 'utf8')).toBe(JSON.stringify({ source: 'task' }));
-    await observeClaimedTree(f.tree, f.repo.baseCommit); expect(existsSync(`${hook}.invoked`)).toBe(true);
+    await git(f.tree, 'status', '--porcelain'); expect(existsSync(`${hook}.invoked`)).toBe(true);
   });
 
 });

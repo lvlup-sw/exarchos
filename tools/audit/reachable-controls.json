@@ -144,7 +144,7 @@
       },
       {
         "id": "git-tree-observer",
-        "shipped": "the composition root sets no `treeObserver` on the dispatch context, so `settle` observes each claimed worktree with git through `observeClaimedTree`",
+        "shipped": "the composition root sets no `treeObserver` on the dispatch context, so `settle` observes each claimed worktree through the constrained reader of `observeConstrainedClaimedTree`",
         "offPattern": "\\btreeObserver\\s*:"
       }
     ],
