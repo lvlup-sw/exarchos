@@ -96,20 +96,6 @@ export function classifyFinding(finding: {
   return 'mechanical';
 }
 
-/**
- * The iteration count of a loop: the number of `shepherd.iteration` events in a stream.
- * The shepherd-status view counts by the same rule, so the view and this count agree.
- */
-export function countShepherdIterations(
-  events: ReadonlyArray<{ readonly type: string }>,
-): number {
-  let count = 0;
-  for (const event of events) {
-    if (event.type === 'shepherd.iteration') count++;
-  }
-  return count;
-}
-
 /** A positive integer is a valid bound at any resolution layer. */
 function isPositiveInteger(value: number | undefined): value is number {
   return typeof value === 'number' && Number.isInteger(value) && value > 0;

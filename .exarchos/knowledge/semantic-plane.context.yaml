@@ -849,6 +849,7 @@ decisions:
       shepherd.started, shepherd.approval_requested, shepherd.escalated and shepherd.completed move from the capability tier to workflow-local, because no action edge names them now. Without the move, each is an active capability weld that no edge names, which the boot check refuses.
       The coordinator decided on 2026-11-23 (option B of the report-coupling census, which Reed can reverse) that the four are also retired as emissions. The shepherd skill appends only shepherd.iteration with exarchos_event. The four keep their schemas, the shepherd-status view and every workflow-state reader, and a replay case of a stored log with all four proves the same read results. The report-coupling census reads 24 against seed 24, with no seed change.
       The shepherd-status verdict still declares the paths the four set. No runtime reader uses the partition, so the view, the projections and old rows read the same. The review registry carries a RESERVED header until the provider layer goes.
+      countShepherdIterations lost its last production caller with assess_stack, so it is deleted, and the shepherd_status view is the only iteration count. The governance witness of shepherd.iteration moves from the raw-reader arm to the gate-expectation arm, because the synthesize emission gate still expects the type. The type stays governance, and the partition does not change.
     status: "Committed on codex/1928-s4-remote-integrations. The contract authority lock waits for Reed to re-approve it."
 
   - date: "2026-11-23"

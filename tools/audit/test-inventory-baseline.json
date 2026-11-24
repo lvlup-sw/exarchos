@@ -7,7 +7,7 @@
     "testFiles": 1459,
     "parsedFiles": 1415,
     "shellFiles": 44,
-    "cases": 16344,
+    "cases": 16337,
     "dynamicTitles": 321,
     "unparseableFiles": 0
   },
@@ -44208,11 +44208,6 @@
         },
         {
           "suite": "ShepherdStatusView",
-          "name": "ShepherdStatus_AndLoop_AgreeOnCount",
-          "dynamic": false
-        },
-        {
-          "suite": "ShepherdStatusView",
           "name": "Apply_AllPrsPassing_NoUnresolved_SetsHealthy",
           "dynamic": false
         },
@@ -64168,16 +64163,6 @@
           "dynamic": false
         },
         {
-          "suite": "escalation-policy (DR-3, #1595) > countShepherdIterations",
-          "name": "counts only shepherd.iteration events",
-          "dynamic": false
-        },
-        {
-          "suite": "escalation-policy (DR-3, #1595) > countShepherdIterations",
-          "name": "returns 0 for an empty stream or a stream with no iterations",
-          "dynamic": false
-        },
-        {
           "suite": "escalation-policy (DR-3, #1595) > DivergenceGuard_EscalationDefaults_MatchSdkRepeatUntilSemantics",
           "name": "names the bound exactly the SDK repeatUntil option ('maxIterations')",
           "dynamic": false
@@ -66551,26 +66536,6 @@
         {
           "suite": "readIntent (DR-1 task 006)",
           "name": "ReadIntent_UnknownWorkflow_FailsSoftToUndefined",
-          "dynamic": false
-        },
-        {
-          "suite": "intent body grounding (DR-1 task 006)",
-          "name": "GroundBody_MeaningfulIntent_AppendsIntentSectionAndMarker",
-          "dynamic": false
-        },
-        {
-          "suite": "intent body grounding (DR-1 task 006)",
-          "name": "GroundBody_TranscriptSummary_IncludedWhenPresent",
-          "dynamic": false
-        },
-        {
-          "suite": "intent body grounding (DR-1 task 006)",
-          "name": "GroundBody_EmptyIntent_LeavesBodyUntouched",
-          "dynamic": false
-        },
-        {
-          "suite": "intent body grounding (DR-1 task 006)",
-          "name": "GroundBody_AlreadyMarked_IsIdempotent",
           "dynamic": false
         }
       ]

@@ -189,7 +189,7 @@ git push --force-with-lease
 
 Re-enable auto-merge if needed: the coordinator enables it through its harness, outside governance, with the squash strategy. Before a merge or an auto-merge retry, read the PR state with your own tools (`gh pr list --head <branch> --base <base> --state all --json number,url,state`). Do not merge a PR that is already merged, and stop and report on a closed one.
 
-Append `shepherd.iteration` at the end of each iteration (REQUIRED — the escalation policy counts these events to bound the loop):
+Append `shepherd.iteration` at the end of each iteration (REQUIRED — the `shepherd_status` view counts these events, and its `iteration` value is the count that bounds the loop):
 ```typescript
 exarchos:exarchos_event({
   action: "append",

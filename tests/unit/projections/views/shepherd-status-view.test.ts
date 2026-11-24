@@ -23,7 +23,6 @@ import {
 } from '../../../../src/projections/views/shepherd-status-view.js';
 import type { ShepherdStatusState } from '../../../../src/projections/views/shepherd-status-view.js';
 import type { WorkflowEvent } from '../../../../src/events/schemas.js';
-import { countShepherdIterations } from '../../../../src/verbs/review/escalation-policy.js';
 
 function makeEvent(
   seq: number,
@@ -228,35 +227,6 @@ describe('ShepherdStatusView', () => {
     );
 
     expect(view.iteration).toBe(3);
-  });
-
-  /**
-   * The view and `countShepherdIterations` both count `shepherd.iteration` events. Thus
-   * `shepherd_status`, `ps` and the loop agree, whatever `iteration` value a payload holds.
-   */
-  it('ShepherdStatus_AndLoop_AgreeOnCount', () => {
-    const N = 4;
-    const garbagePayloads = [42, 42, 0, -7];
-    const events: WorkflowEvent[] = [];
-    for (let i = 0; i < N; i++) {
-      events.push(
-        makeEvent(i + 1, 'shepherd.iteration', {
-          prUrl: 'https://github.com/pr/1',
-          iteration: garbagePayloads[i],
-          action: 'push-fix',
-          outcome: 'ci-passed',
-        }),
-      );
-    }
-
-    const view = materializer.materialize<ShepherdStatusState>(
-      'wf-001',
-      SHEPHERD_STATUS_VIEW,
-      events,
-    );
-
-    expect(view.iteration).toBe(N);
-    expect(view.iteration).toBe(countShepherdIterations(events));
   });
 
   it('Apply_AllPrsPassing_NoUnresolved_SetsHealthy', () => {

@@ -167,7 +167,7 @@ exarchos:exarchos_event({ action: "append", stream: "<featureId>", event: {
 }})
 ```
 
-During shepherd iterations (CI monitoring loop), emit after each assessment of your own PR, CI and review reads (REQUIRED — the escalation policy counts these events to bound the loop):
+During shepherd iterations (CI monitoring loop), emit after each assessment of your own PR, CI and review reads (REQUIRED — the `shepherd_status` view counts these events, and its `iteration` value is the count that bounds the loop):
 
 ```typescript
 exarchos:exarchos_event({ action: "append", stream: "<featureId>", event: {

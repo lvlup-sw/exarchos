@@ -13,7 +13,7 @@ When to stop the shepherd loop and escalate to the user.
 | Access failure | GitHub MCP or `gh` CLI returns auth errors | Report — credentials may need refresh |
 | Read failure | A PR, CI or review read fails or stops early | Report — a partial read is never "no items" |
 
-On each automatic trigger, stop the loop and give the report below. Append no `shepherd.escalated` event: that type is retired as an emission. The escalation policy counts the `shepherd.iteration` events of the stream.
+On each automatic trigger, stop the loop and give the report below. Append no `shepherd.escalated` event: that type is retired as an emission. The `shepherd_status` view counts the `shepherd.iteration` events of the stream, and its `iteration` value is the count that you compare with the limit.
 
 ## Escalation Report Format
 

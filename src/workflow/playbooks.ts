@@ -1049,7 +1049,7 @@ export const oneshotPlaybook: readonly PhasePlaybook[] = [
     autoEmittedEvents: phaseRuntimeEmissions('synthesize'),
     transitionCriteria: 'PR merged → completed',
     guardPrerequisites:
-      'artifacts.pr exists AND PR merge verified (merge.verified or shepherd.completed event)',
+      'artifacts.pr exists AND cleanup.mergeVerified is true (the harness reads the merge state with its own tools)',
     validationScripts: ['pre_synthesis_check'],
     humanCheckpoint: true,
     compactGuidance:
