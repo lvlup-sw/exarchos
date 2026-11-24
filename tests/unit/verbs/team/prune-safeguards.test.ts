@@ -1,88 +1,49 @@
-// Tests that `defaultSafeguards().hasOpenPR` uses `VcsProvider.listPrs()`.
+// Tests for `defaultSafeguards`. The safeguard reads branch activity through the injected Git
+// observation, and it reads no PR. The harness owns the open-PR check before a prune.
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import type { VcsProvider, PrSummary, PrFilter } from '../../../../src/vcs/provider.js';
-import { defaultSafeguards } from '../../../../src/verbs/team/prune-safeguards.js';
+import { describe, it, expect, vi } from 'vitest';
+import { defaultSafeguards, type PruneObservation } from '../../../../src/verbs/team/prune-safeguards.js';
+import type { Observation } from '../../../../src/utils/git-observer.js';
 
-function createMockProvider(overrides: {
-  listPrs?: PrSummary[];
-  listPrsError?: Error;
-} = {}): VcsProvider {
-  return {
-    name: 'github',
-    createPr: vi.fn(),
-    checkCi: vi.fn(),
-    mergePr: vi.fn(),
-    addComment: vi.fn(),
-    getReviewStatus: vi.fn(),
-    listPrs: overrides.listPrsError
-      ? vi.fn().mockRejectedValue(overrides.listPrsError)
-      : vi.fn<(filter?: PrFilter) => Promise<PrSummary[]>>().mockResolvedValue(overrides.listPrs ?? []),
-    getPrComments: vi.fn(),
-    getPrDiff: vi.fn(),
-    createIssue: vi.fn(),
-    getRepository: vi.fn(),
-  };
+/** A Git observation whose checkout read gives `checkout`. The reader source refuses, so no test starts Git. */
+function observation(checkout: Observation) {
+  const read = vi.fn(async (): Promise<Observation> => checkout);
+  const reader = vi.fn(async () => { throw new Error('no reader in this test'); });
+  const value: PruneObservation = { reader, checkout: read };
+  return { value, read, reader };
 }
 
 describe('defaultSafeguards', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
+  /** The production bundle holds only the recent-commits safeguard. */
+  it('DefaultSafeguards_HoldsNoOpenPrCheck', () => {
+    const { value } = observation({ kind: 'unreadable', reason: 'not used' });
+
+    expect(Object.keys(defaultSafeguards(value))).toEqual(['hasRecentCommits']);
   });
 
-  describe('hasOpenPR', () => {
-    it('hasOpenPR_WithOpenPR_ReturnsTrue', async () => {
-      const provider = createMockProvider({
-        listPrs: [
-          { number: 42, url: '', title: 'Test PR', headRefName: 'feat/test', baseRefName: 'main', state: 'OPEN' },
-        ],
-      });
+  /** A workflow with no branch has no recent commits, and the safeguard reads nothing. */
+  it('HasRecentCommits_UndefinedBranch_ReturnsFalseWithoutAnyRead', async () => {
+    const { value, read, reader } = observation({ kind: 'unreadable', reason: 'not used' });
 
-      const safeguards = defaultSafeguards(provider);
-      const result = await safeguards.hasOpenPR('test-feature', 'feat/test');
+    expect(await defaultSafeguards(value).hasRecentCommits(undefined, 24)).toBe(false);
+    expect(read).not.toHaveBeenCalled();
+    expect(reader).not.toHaveBeenCalled();
+  });
 
-      expect(result).toBe(true);
-      expect(provider.listPrs).toHaveBeenCalledWith({ head: 'feat/test', state: 'open' });
-    });
+  /** An unsafe branch name keeps the candidate, and the safeguard reads nothing. */
+  it('HasRecentCommits_UnsafeBranchName_KeepsCandidateWithoutAnyRead', async () => {
+    const { value, read } = observation({ kind: 'unreadable', reason: 'not used' });
 
-    it('hasOpenPR_NoOpenPR_ReturnsFalse', async () => {
-      const provider = createMockProvider({ listPrs: [] });
+    expect(await defaultSafeguards(value).hasRecentCommits('branch; rm -rf /', 24)).toBe(true);
+    expect(await defaultSafeguards(value).hasRecentCommits('a/../b', 24)).toBe(true);
+    expect(read).not.toHaveBeenCalled();
+  });
 
-      const safeguards = defaultSafeguards(provider);
-      const result = await safeguards.hasOpenPR('test-feature', 'feat/test');
+  /** An unreadable checkout keeps the candidate with the active-branch reason. */
+  it('HasRecentCommits_UnreadableCheckout_KeepsCandidate', async () => {
+    const { value, read } = observation({ kind: 'unreadable', reason: 'no Git' });
 
-      expect(result).toBe(false);
-    });
-
-    it('hasOpenPR_ProviderError_ReturnsFalse', async () => {
-      const provider = createMockProvider({
-        listPrsError: new Error('gh not found'),
-      });
-
-      const safeguards = defaultSafeguards(provider);
-      const result = await safeguards.hasOpenPR('test-feature', 'feat/test');
-
-      expect(result).toBe(false);
-    });
-
-    it('hasOpenPR_UndefinedBranch_ReturnsFalse', async () => {
-      const provider = createMockProvider();
-
-      const safeguards = defaultSafeguards(provider);
-      const result = await safeguards.hasOpenPR('test-feature', undefined);
-
-      expect(result).toBe(false);
-      expect(provider.listPrs).not.toHaveBeenCalled();
-    });
-
-    it('hasOpenPR_UnsafeBranchName_ReturnsFalse', async () => {
-      const provider = createMockProvider();
-
-      const safeguards = defaultSafeguards(provider);
-      const result = await safeguards.hasOpenPR('test-feature', 'branch; rm -rf /');
-
-      expect(result).toBe(false);
-      expect(provider.listPrs).not.toHaveBeenCalled();
-    });
+    expect(await defaultSafeguards(value).hasRecentCommits('feat/test', 24)).toBe(true);
+    expect(read).toHaveBeenCalledTimes(1);
   });
 });

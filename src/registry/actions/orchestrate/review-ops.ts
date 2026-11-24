@@ -44,7 +44,7 @@ export const reviewOpsActions: readonly BuiltinToolAction[] = [
   contracted(
     {
       name: 'pre_synthesis_check',
-      description: 'Run pre-synthesis checks: task completion, reviews, tests, and stack health',
+      description: 'Run pre-synthesis checks: task completion, reviews, and tests',
       schema: z.object({
         /**
          * Required, because the gate declares durable evidence and the observer reads it on the named stream.
@@ -55,13 +55,12 @@ export const reviewOpsActions: readonly BuiltinToolAction[] = [
         stateFile: z.string().min(1).optional(),
         repoRoot: z.string().optional(),
         skipTests: z.boolean().optional(),
-        skipStack: z.boolean().optional(),
         testCommand: z.string().optional(),
       }),
       phases: new Set<string>(['synthesize']),
       roles: ROLE_LEAD,
       gate: { blocking: true, gateClass: 'pre-synthesis' },
-      /** It runs the test suite, typecheck, build, and stack assessment, which can take minutes. */
+      /** It runs the test suite and the typecheck, which can take minutes. */
       longRunning: true,
       outputSchema: vacuityWaiver('exarchos_orchestrate.pre_synthesis_check'),
       annotations: LOCAL_MUTATION,

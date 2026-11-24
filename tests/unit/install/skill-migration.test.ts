@@ -95,8 +95,8 @@ const SKILLS_REQUIRING_VCS_PREAMBLE = [
   'oneshot',
 ];
 
-/** Skills that read PR state. Each preamble states that the agent reads it with its own tools. */
-const SKILLS_READING_PR_STATE = ['synthesize', 'shepherd', 'cleanup'];
+/** Skills that read PR state. Each preamble states that the agent reads it with its own tools. Prune reads the open PRs of its candidates. */
+const SKILLS_READING_PR_STATE = ['synthesize', 'shepherd', 'cleanup', 'prune'];
 
 describe('skill-migration — harness-owned VCS writes and agent-owned VCS reads', () => {
   /** Only a Markdown table row can name `gh pr create`. */
@@ -276,7 +276,7 @@ describe('skill-migration — harness-owned VCS writes and agent-owned VCS reads
   });
 
   /**
-   * Each `validate_pr_body` example under `content/` checks a body text. No example passes `pr`, because that mode reads the PR through the provider.
+   * Each `validate_pr_body` example under `content/` checks a body text. No example passes `pr`, because the action takes no PR number and reads no PR.
    * The case also asserts that it found at least one example, so it cannot pass on an empty set.
    */
   it('ValidatePrBody_ExamplesCheckBodyTextOnly', () => {
@@ -330,7 +330,7 @@ describe('skill-migration — harness-owned VCS writes and agent-owned VCS reads
       return !preamble.includes(OWN_TOOLS_READ_SENTENCE) || !preamble.includes('with your own tools') || !preamble.includes('`gh`');
     });
 
-    expect(SKILLS_READING_PR_STATE).toHaveLength(3);
+    expect(SKILLS_READING_PR_STATE).toHaveLength(4);
     expect(missing, `Skills whose VCS preamble does not send PR reads to the agent tools: ${missing.join(', ')}`).toEqual([]);
   });
 

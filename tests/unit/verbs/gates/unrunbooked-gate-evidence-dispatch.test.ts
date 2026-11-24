@@ -230,7 +230,6 @@ describe('gates that declare durable evidence pay it on dispatch', () => {
       featureId: stream,
       repoRoot: stateDir,
       skipTests: true,
-      skipStack: true,
     });
     expect(result.success).toBe(true);
     const signal = await store.query(stream, { type: 'gate.executed' });

@@ -3,7 +3,7 @@
 // The unit tests in `tests/unit/verbs/team/prune-stale-workflows.test.ts` stub the handler
 // dependencies. This test runs the handler on real state files, through `handleInit`, `handleList`
 // and `handleCancel`, with a real `EventStore` in a `mkdtemp` directory. The stubs are the
-// safeguards (`hasOpenPR`, `hasRecentCommits`), the branch name and the two second-signal readers.
+// recent-commits safeguard (`hasRecentCommits`), the branch name and the two second-signal readers.
 //
 // The test pins what the unit tests cannot:
 //   1. `handleList` returns the `_checkpoint` shape that `selectPruneCandidates` reads.
@@ -204,7 +204,6 @@ describe('pruneIntegration_dryRunThenApply_cleansStaleWorkflows', () => {
     }
 
     const safeguards: PruneSafeguards = {
-      hasOpenPR: async () => false,
       hasRecentCommits: async () => false,
     };
     const deps = makeRealDeps(tmpDir, eventStore, safeguards);
@@ -268,13 +267,13 @@ describe('pruneIntegration_dryRunThenApply_cleansStaleWorkflows', () => {
   });
 });
 
-describe('pruneIntegration_safeguardOpenPrSkipsOneCandidate', () => {
+describe('pruneIntegration_safeguardActiveBranchSkipsOneCandidate', () => {
   /**
    * The three workflows are all past the threshold. The run has no `force`, so the handler asks
-   * the safeguards about each one. Only `stale-wf-2` has an open PR. The skipped workflow stays
+   * the safeguard about each one. Only `stale-wf-2` has recent commits. The skipped workflow stays
    * non-terminal on disk and gets no `workflow.pruned` event.
    */
-  it('skips the candidate with an open PR and prunes the other', async () => {
+  it('skips the candidate with recent commits and prunes the other', async () => {
     for (const featureId of ['stale-wf-1', 'stale-wf-2', 'stale-wf-3']) {
       const initResult = await handleInit(
         { featureId, workflowType: 'feature' },
@@ -286,8 +285,7 @@ describe('pruneIntegration_safeguardOpenPrSkipsOneCandidate', () => {
     }
 
     const safeguards: PruneSafeguards = {
-      hasOpenPR: async (featureId: string) => featureId === 'stale-wf-2',
-      hasRecentCommits: async () => false,
+      hasRecentCommits: async (branchName: string | undefined) => branchName === 'feat/stale-wf-2',
     };
     const deps = makeRealDeps(tmpDir, eventStore, safeguards);
 
@@ -305,7 +303,7 @@ describe('pruneIntegration_safeguardOpenPrSkipsOneCandidate', () => {
 
     expect(data.skipped).toHaveLength(1);
     expect(data.skipped[0]?.featureId).toBe('stale-wf-2');
-    expect(data.skipped[0]?.reason).toBe('open-pr');
+    expect(data.skipped[0]?.reason).toBe('active-branch');
 
     const skippedPhase = await readPhase(tmpDir, 'stale-wf-2');
     expect(skippedPhase).not.toBe('cancelled');
@@ -345,7 +343,6 @@ describe('pruneIntegration_respectsThresholdInProduction', () => {
       await backdateCheckpoint(tmpDir, 'stale-c', daysAgoIso(30));
 
       const safeguards: PruneSafeguards = {
-        hasOpenPR: async () => false,
         hasRecentCommits: async () => false,
       };
       const deps = makeRealDeps(tmpDir, eventStore, safeguards);

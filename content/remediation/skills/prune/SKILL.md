@@ -1,6 +1,6 @@
 ---
 name: prune
-description: "Interactively prune stale non-terminal workflows from the pipeline. Use when the user says 'prune workflows', 'clean stale workflows', 'pipeline cleanup', or runs /prune. Runs a dry-run preview, displays candidates with staleness and safeguard skips, prompts the user to proceed/abort/force, then bulk-cancels approved workflows with a workflow.pruned audit event. Safeguards skip workflows with open PRs or recent commits unless force is set."
+description: "Interactively prune stale non-terminal workflows from the pipeline. Use when the user says 'prune workflows', 'clean stale workflows', 'pipeline cleanup', or runs /prune. Runs a dry-run preview, displays candidates with staleness and safeguard skips, prompts the user to proceed/abort/force, then bulk-cancels approved workflows with a workflow.pruned audit event. The safeguard skips workflows with recent commits unless force is set. The agent checks for open PRs with its own tools before it applies."
 metadata:
   author: exarchos
   version: 1.0.0
@@ -12,9 +12,11 @@ metadata:
 
 ## VCS Provider
 
-This skill's safeguards use VCS operations internally (open PR detection).
-The orchestrate handler manages VCS provider dispatch automatically.
-No `gh`/`glab`/`az` commands needed — the MCP server handles provider dispatch.
+Exarchos reads no PR, CI or review state, and it does no VCS write.
+The prune action does not check for open PRs. You own that check: before you
+apply a prune, read the open PRs of each candidate branch with your own tools:
+`gh` for GitHub (for example `gh pr list --head <branch> --state open`),
+`glab` for GitLab, `az repos` for Azure DevOps. See Step 2b.
 
 ## Overview
 
@@ -32,8 +34,8 @@ Activate this skill when:
 ## Prerequisites
 
 - An exarchos state directory with one or more non-terminal workflows
-- For safeguard checks against live PRs: `gh` available in PATH (the orchestrate handler shells out)
-- For safeguard checks against branch activity: `git` available in PATH
+- For the open PR check: your own PR tool (for example `gh`)
+- For the safeguard check against branch activity: `git` available in PATH
 
 ## Process
 
@@ -58,7 +60,7 @@ The response shape is:
     { featureId: string, phase: string, workflowType: string, stalenessMinutes: number }
   ],
   skipped: [
-    { featureId: string, reason: "open-pr" | "active-branch" }
+    { featureId: string, reason: "active-branch" }
   ]
 }
 ```
@@ -81,11 +83,10 @@ Render a table to the user so they can review what would be pruned. Use this for
 | oneshot-typo-fix | oneshot | plan | 9120 |
 | debug-flaky-test | debug | investigate | 8650 |
 
-## Skipped by Safeguards (2)
+## Skipped by Safeguard (1)
 
 | Feature ID | Reason |
 |---|---|
-| feat-active-pr | open-pr |
 | feat-recent-work | active-branch |
 ```
 
@@ -95,13 +96,21 @@ If `candidates.length === 0` AND `skipped.length === 0`, output:
 
 Then exit -- no further action.
 
+### Step 2b: Check for Open PRs
+
+For each candidate with a branch, read its open PRs with your own tools.
+Show each candidate that has an open PR to the user. Apply mode prunes every
+candidate, so do not proceed while a candidate has an open PR unless the user
+accepts that it will be cancelled. An open PR means that work on the feature
+is still in progress.
+
 ### Step 3: Prompt for Confirmation
 
 Ask the user one of three choices:
 
 > **proceed** -- prune the listed candidates (skipped workflows stay)
 > **abort** -- exit without changes
-> **force** -- bypass safeguards and prune skipped workflows too
+> **force** -- bypass the safeguard and prune skipped workflows too
 
 Wait for explicit user input. Do **not** auto-proceed.
 
@@ -134,7 +143,7 @@ Each entry in `pruned` corresponds to a workflow that transitioned to `cancelled
 
 ### Step 4b: Apply (force)
 
-On `force`, set `force: true`. Safeguards are bypassed but the bypass is recorded in the `workflow.pruned` event payload as `skippedSafeguards: [...]` so the audit trail is intact.
+On `force`, set `force: true`. The safeguard is bypassed but the bypass is recorded in the `workflow.pruned` event payload as `skippedSafeguards: [...]` so the audit trail is intact.
 
 ```typescript
 exarchos:exarchos_orchestrate({
@@ -160,7 +169,7 @@ After the apply call returns, summarize the outcome:
 ## Prune Complete
 
 **Pruned:** 3 workflows transitioned to cancelled
-**Skipped:** 2 workflows preserved by safeguards
+**Skipped:** 1 workflow preserved by the safeguard
 **Force bypass:** no
 
 ### Pruned Workflows
@@ -169,31 +178,32 @@ After the apply call returns, summarize the outcome:
 - debug-flaky-test (was: investigate)
 ```
 
-If `force` was used, also list any safeguards that were bypassed:
+If `force` was used, also list the workflows whose safeguard was bypassed:
 
 ```markdown
 ### Safeguards Bypassed
-- feat-active-pr: open-pr
 - feat-recent-work: active-branch
 ```
 
 ## Safeguards Explained
 
-Two safeguards run automatically in the orchestrate handler before each cancel:
+One safeguard runs automatically in the orchestrate handler before each cancel:
 
 | Safeguard | Behavior | Reason key |
 |---|---|---|
-| **Open PR** | Skip if `gh pr list --head <branch> --state open` returns any results | `open-pr` |
 | **Recent commits** | Skip if `git log --since "24 hours ago" origin/<branch>` shows commits | `active-branch` |
 
-A workflow without a `branchName` in state (e.g., abandoned at ideate/plan before delegation) cannot have a PR or branch activity, so safeguards short-circuit and the workflow is eligible for pruning.
+The handler reads no PR. You check for open PRs with your own tools before you apply (Step 2b).
 
-`force: true` bypasses both checks but does not bypass the audit -- the bypassed safeguard names are recorded in the `workflow.pruned` event payload.
+A workflow without a `branchName` in state (e.g., abandoned at ideate/plan before delegation) has no branch activity, so the safeguard short-circuits and the workflow is eligible for pruning.
+
+`force: true` bypasses the check but does not bypass the audit -- the bypassed safeguard name is recorded in the `workflow.pruned` event payload. Events from older versions can also name `open-pr`.
 
 ## Error Handling
 
 - **No state directory:** initialize an exarchos workflow first — there is nothing to prune.
-- **`gh` / `git` not available:** the safeguard checks short-circuit with errors. Verify no PRs are open manually, then re-run with `force: true`.
+- **`git` not available:** the safeguard keeps the candidate with reason `active-branch`. Verify the branch activity manually, then re-run with `force: true`.
+- **No PR tool available:** verify manually that no candidate has an open PR before you apply.
 - **All workflows clean:** report "No stale workflows to prune" and exit (see Example 3).
 
 ## Anti-Patterns
@@ -202,6 +212,7 @@ A workflow without a `branchName` in state (e.g., abandoned at ideate/plan befor
 |---|---|
 | Skip the dry-run step | Always start with `dryRun: true` so the user sees candidates first |
 | Auto-confirm without showing the table | Render the candidate table and wait for explicit user input |
+| Apply without the open PR check | Read the open PRs of each candidate branch with your own tools first |
 | Use `force: true` by default | Reserve `force` for cases where the user has explicitly opted in |
 | Manually call `cancel` for each stale workflow | Use this skill -- it batches the cancel loop and emits the `workflow.pruned` audit event |
 | Run on every session | Pruning is a maintenance operation; run when pipeline accumulation is observable |
@@ -220,7 +231,7 @@ A workflow without a `branchName` in state (e.g., abandoned at ideate/plan befor
 | feat-old-spike | feature | plan | 12880 |
 | oneshot-readme-tweak | oneshot | implementing | 9700 |
 
-## Skipped by Safeguards (0)
+## Skipped by Safeguard (0)
 
 (none)
 
@@ -248,13 +259,13 @@ Proceed? (proceed/abort/force)
 
 | Feature ID | Type | Phase | Stale (min) |
 |---|---|---|---|
-| feat-stale-no-pr | feature | implementing | 11200 |
+| feat-stale-quiet | feature | implementing | 11200 |
 
-## Skipped by Safeguards (1)
+## Skipped by Safeguard (1)
 
 | Feature ID | Reason |
 |---|---|
-| feat-stale-with-pr | open-pr |
+| feat-stale-busy | active-branch |
 
 Proceed? (proceed/abort/force)
 
@@ -267,11 +278,11 @@ Proceed? (proceed/abort/force)
 **Force bypass:** yes
 
 ### Pruned Workflows
-- feat-stale-no-pr (was: implementing)
-- feat-stale-with-pr (was: implementing)
+- feat-stale-quiet (was: implementing)
+- feat-stale-busy (was: implementing)
 
 ### Safeguards Bypassed
-- feat-stale-with-pr: open-pr
+- feat-stale-busy: active-branch
 ```
 
 ### Example 3: Empty pipeline

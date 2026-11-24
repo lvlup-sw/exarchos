@@ -850,6 +850,16 @@ decisions:
       The four are now model-sourced telemetry, and the shepherd-status verdict declares the paths they set. No runtime reader uses the partition, so the view, the projections and old rows read the same. The review registry carries a RESERVED header until the provider layer goes.
     status: "Committed on codex/1928-s4-remote-integrations. The contract authority lock waits for Reed to re-approve it."
 
+  - date: "2026-11-23"
+    source: "#1928 revision 26, slice S4 step T-34, the conception of 2026-11-23 (Exarchos reads no PR), and Reed's decision to drop both remote parts."
+    decision: >-
+      The GitHub PR observer and the settle PR observation are deleted, and no network effect owner names them. The feedback client is the only network owner.
+      validate_pr_body checks a body text or a body file only: the pr field, the gh read and the bot and merge-queue skip are gone. pre_synthesis_check has no PR-stack leg and no skipStack field. The prune safeguard keeps only the recent-commits check, and the prune skill tells the agent to read open PRs with its own tools. check_post_merge keeps its local test-suite check and has no CI leg.
+    known: >-
+      No ActionId changes, so the contract authority lock does not move. The synthesis admission requirement named stack stays, because prepare_synthesis checks the branch stack in local Git.
+      A forced prune now records skippedSafeguards active-branch only. Older workflow.pruned events that name open-pr read the same, because the schema takes any string. Stored check_post_merge receipts replay their original results.
+    status: "Committed on codex/1928-s4-remote-integrations."
+
 build_order:
   original: "kernel -> capsule contract -> prepare/settle -> one runtime adapter -> divergence loop -> #1249 laws -> second adapter"
   legs:
@@ -913,7 +923,7 @@ drift:
     resolution: "decided 2026-09-30: per-workflow target; per-wave recorded as interim (#1927)"
   - id: "vcs-effects"
     design: "runtime mutates Git/PR; WLM/lifecycle/serializer demoted explicitly"
-    built: "serialize_merge per worktree on the normal path; setup_worktree. #1928 S4 T-29 retires create_pr, merge_pr, add_pr_comment, create_issue and the synthesis-closeout compilation. T-31 retires the check_ci, list_prs and get_pr_comments reads. T-32 retires check_pr_comments, check_coderabbit and validate_pr_stack and the pr-stack gate. T-33 retires assess_stack and its ci and provider emissions"
+    built: "serialize_merge per worktree on the normal path; setup_worktree. #1928 S4 T-29 retires create_pr, merge_pr, add_pr_comment, create_issue and the synthesis-closeout compilation. T-31 retires the check_ci, list_prs and get_pr_comments reads. T-32 retires check_pr_comments, check_coderabbit and validate_pr_stack and the pr-stack gate. T-33 retires assess_stack and its ci and provider emissions. T-34 removes the PR observer, the gh mode of validate_pr_body, the PR-stack leg of pre_synthesis_check, the open-PR prune safeguard and the CI leg of check_post_merge"
     resolution: "decided 2026-09-30: demote all three; settle observes (#1928). T-01 recorded the expanded retirement matrix and original S7 custody on 2026-11-14; no writer route has been removed yet. On 2026-11-23 the separately provisioned verifier host was removed, and the governor runs the approved checks in its local executor."
   - id: "second-adapter"
     design: "second runtime"

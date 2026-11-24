@@ -1,12 +1,9 @@
 /**
- * Post-merge regression check for the synthesize-to-cleanup boundary. It reads the CI status of
- * the PR through the `VcsProvider`, then runs `npm run test:run`. The status is `fail` when
- * either check fails.
+ * Post-merge regression check for the synthesize-to-cleanup boundary. It runs the resolved test
+ * command of the checkout. The status is `fail` when the test suite fails.
+ * The check reads no CI status from a provider. The harness owns the CI state of the PR.
  */
 
-import type { VcsProvider, CiStatus, CiCheck as VcsCiCheck, PrRepository } from '../../vcs/provider.js';
-import { requireRepository } from '../../vcs/provider.js';
-import { createVcsProvider } from '../../vcs/factory.js';
 import { runCommandSync } from '../../utils/process.js';
 import { resolveRunnableCommand } from '../../config/test-runtime-resolver.js';
 
@@ -26,8 +23,6 @@ export interface PostMergeOptions {
     cmd: string,
     args: readonly string[]
   ) => CommandResult;
-  /** VcsProvider for CI status queries. Falls back to createVcsProvider(). */
-  provider?: VcsProvider;
   /**
    * The test runner of the local approved-check executor. When present, it replaces `runCommand`.
    * A run with no verdict throws, so it never reads as a red suite.
@@ -68,51 +63,11 @@ function defaultCommandRunner(
   }
 }
 
-const PASSING_STATUSES: ReadonlySet<VcsCiCheck['status']> = new Set(['pass', 'skipped']);
-
-/** The pull request that `prUrl` names: its number and, for a GitHub or GitLab URL, its repository. */
-interface PrTarget {
-  readonly number: string;
-  readonly repository?: PrRepository | undefined;
-}
-
-/**
- * Reads the pull request from a bare number, or from the path of a pull request URL.
- * A GitHub `/OWNER/REPO/pull/N` path and a GitLab `/GROUP/PROJECT/-/merge_requests/N` path also give the repository.
- * Then the CI query reads that repository and not the current checkout.
- * An Azure DevOps `/pullrequest/N` path gives only the number.
- * The result is `undefined` when the number or the repository does not have a safe form.
- */
-function prTargetOf(prUrl: string): PrTarget | undefined {
-  if (/^[1-9]\d*$/.test(prUrl)) return { number: prUrl };
-  let url: URL;
-  try {
-    url = new URL(prUrl);
-  } catch {
-    return undefined;
-  }
-  const github = /^\/([^/]+\/[^/]+)\/pull\/([1-9]\d*)\/?$/.exec(url.pathname);
-  const gitlab = /^\/(.+?)(?:\/-)?\/merge_requests\/([1-9]\d*)\/?$/.exec(url.pathname);
-  const [, repoPath, repoNumber] = github ?? gitlab ?? [];
-  if (repoPath !== undefined && repoNumber !== undefined) {
-    const repository: PrRepository = { host: url.host, path: repoPath };
-    try {
-      requireRepository(repository);
-    } catch {
-      return undefined;
-    }
-    return { number: repoNumber, repository };
-  }
-  const azureNumber = /\/pullrequest\/([1-9]\d*)\/?$/.exec(url.pathname)?.[1];
-  return azureNumber === undefined ? undefined : { number: azureNumber };
-}
-
-/** Runs the CI check and the test suite, and builds the report. A PR with no CI checks passes the CI check. */
+/** Runs the test suite and builds the report. */
 export async function checkPostMerge(options: PostMergeOptions): Promise<PostMergeResult> {
   const { prUrl, mergeSha, repoRoot } = options;
   const runCommand =
     options.runCommand ?? ((cmd: string, args: readonly string[]) => defaultCommandRunner(cmd, args, repoRoot));
-  const vcs = options.provider ?? await createVcsProvider();
 
   const results: string[] = [];
   const findings: string[] = [];
@@ -130,53 +85,6 @@ export async function checkPostMerge(options: PostMergeOptions): Promise<PostMer
       : `- **FAIL**: ${name}`;
     results.push(line);
     failCount++;
-  }
-
-  async function checkCiStatus(): Promise<void> {
-    const target = prTargetOf(prUrl);
-    if (target === undefined) {
-      const evidence = 'prUrl names no pull request number';
-      findings.push(
-        `FINDING [D4] [HIGH] criterion="ci-green" evidence="${evidence}"`
-      );
-      checkFail('CI green', evidence);
-      return;
-    }
-
-    let ciStatus: CiStatus;
-    try {
-      ciStatus = await vcs.checkCi(target.number, { repository: target.repository });
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : String(err);
-      const evidence = message.includes('command not found')
-        ? 'gh CLI not found in PATH'
-        : 'CI status query failed';
-      findings.push(
-        `FINDING [D4] [HIGH] criterion="ci-green" evidence="${evidence}"`
-      );
-      checkFail('CI green', evidence);
-      return;
-    }
-
-    if (ciStatus.checks.length === 0) {
-      checkPass('CI green (no checks configured)');
-      return;
-    }
-
-    const failedChecks = ciStatus.checks
-      .filter((c) => !PASSING_STATUSES.has(c.status))
-      .map((c) => `${c.name} (${c.status.toUpperCase()})`)
-      .join(', ');
-
-    if (failedChecks.length > 0) {
-      findings.push(
-        `FINDING [D4] [HIGH] criterion="ci-green" evidence="Failed checks: ${failedChecks}"`
-      );
-      checkFail('CI green', `Failed checks: ${failedChecks}`);
-      return;
-    }
-
-    checkPass('CI green (all checks SUCCESS, SKIPPED, or NEUTRAL)');
   }
 
   async function checkTestSuite(): Promise<void> {
@@ -203,7 +111,6 @@ export async function checkPostMerge(options: PostMergeOptions): Promise<PostMer
     checkPass(`Test suite (${resolved.command} passed)`);
   }
 
-  await checkCiStatus();
   await checkTestSuite();
 
   const reportLines: string[] = [];

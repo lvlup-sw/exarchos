@@ -776,7 +776,7 @@ function pruneDepsListing(
     }),
     handleCancel: vi.fn(),
     readBranchName: async () => undefined,
-    safeguards: { hasOpenPR: async () => false, hasRecentCommits: async () => false },
+    safeguards: { hasRecentCommits: async () => false },
     readPhaseTransitionTimestamp: async () => undefined,
     readBranchActivityTimestamp: async () => undefined,
   };

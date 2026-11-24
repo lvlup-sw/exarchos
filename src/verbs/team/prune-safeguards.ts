@@ -1,33 +1,28 @@
 /**
- * Production open-PR and recent-commits safeguards for
- * `handlePruneStaleWorkflows`. The open-PR check uses a `VcsProvider`, and the
- * recent-commits check reads the remote-tracking tip through the constrained Git reader.
- * The handler takes them as injected dependencies, so tests can use stubs and run no git or VCS commands.
- * One prune call shares one located checkout and one reader between the branch-activity read, the recent-commits read and detection.
+ * The production recent-commits safeguard for `handlePruneStaleWorkflows`. It reads the
+ * remote-tracking tip through the constrained Git reader.
+ * The handler takes it as an injected dependency, so tests can use a stub and run no Git command.
+ * One prune call shares one located checkout and one reader between the branch-activity read and the recent-commits read.
+ * The safeguard reads no PR from a provider. The harness checks for an open PR before it starts a prune.
  */
 
-import type { VcsProvider } from '../../vcs/provider.js';
-import { createVcsProvider } from '../../vcs/factory.js';
 import { exitedWithOne, locateObservational, type ObservationalCheckout, type Observation } from '../../utils/git-observer.js';
 import { constrainedCommitId, observationalReader, type ConstrainedGitReads } from '../../utils/git-tree.js';
 
 /**
- * Safeguard backends. Both accept an `undefined` branch name for a workflow
+ * The safeguard backend. It accepts an `undefined` branch name for a workflow
  * that has no branch yet.
  */
 export interface PruneSafeguards {
-  /** Returns true if there is an OPEN pull request whose head is `branchName`. */
-  hasOpenPR: (featureId: string, branchName: string | undefined) => Promise<boolean>;
   /** Returns true if `branchName` has commits inside the last `windowHours`. */
   hasRecentCommits: (branchName: string | undefined, windowHours: number) => Promise<boolean>;
 }
 
 /**
- * The Git observation of one prune call: the selected Git path, the one reader source, and the one located checkout of the working directory.
+ * The Git observation of one prune call: the one reader source and the one located checkout of the working directory.
  * The checkout read runs once, at its first use.
  */
 export interface PruneObservation {
-  readonly gitPath?: string;
   readonly reader: () => Promise<ConstrainedGitReads>;
   readonly checkout: () => Promise<Observation>;
 }
@@ -40,7 +35,6 @@ export function pruneObservation(gitPath?: string): PruneObservation {
   const reader = observationalReader(gitPath);
   let checkout: Promise<Observation> | undefined;
   return {
-    ...(gitPath === undefined || gitPath === '' ? {} : { gitPath }),
     reader,
     checkout: () => (checkout ??= locateObservational(process.cwd(), reader)),
   };
@@ -61,28 +55,10 @@ export async function observedCommitTime(located: ObservationalCheckout, commit:
 
 /**
  * True when a branch name holds only alphanumerics, `/`, `_`, `.`, and `-`, and
- * no `..`. The provider query and the ref read take only these names.
+ * no `..`. The ref read takes only these names.
  */
 function isSafeBranchName(branch: string): boolean {
   return /^[A-Za-z0-9/_.\-]+$/.test(branch) && !branch.includes('..');
-}
-
-/**
- * Asks the provider for an open PR with `branchName` as its head. A provider
- * failure returns false, so the prune can continue.
- */
-async function defaultHasOpenPR(
-  provider: VcsProvider,
-  _featureId: string,
-  branchName: string | undefined,
-): Promise<boolean> {
-  if (!branchName || !isSafeBranchName(branchName)) return false;
-  try {
-    const prs = await provider.listPrs({ head: branchName, state: 'open' });
-    return prs.length > 0;
-  } catch {
-    return false;
-  }
 }
 
 /**
@@ -112,36 +88,12 @@ async function observedHasRecentCommits(
 }
 
 /**
- * Builds the production safeguards. When the caller passes a provider other
- * than GitHub, the open-PR check always returns false.
+ * Builds the production safeguard.
  *
- * @param provider - An optional `VcsProvider`. Without it, the first open-PR check calls `createVcsProvider()`.
- * @param observation - The Git observation of the prune call. Detection gets its Git path and its reader, so it runs no second probe.
+ * @param observation - The Git observation of the prune call.
  */
-export function defaultSafeguards(provider?: VcsProvider, observation: PruneObservation = pruneObservation()): PruneSafeguards {
-  const hasRecentCommits = (branchName: string | undefined, windowHours: number) =>
-    observedHasRecentCommits(observation, branchName, windowHours);
-  if (provider && provider.name !== 'github') {
-    return {
-      hasOpenPR: async () => false,
-      hasRecentCommits,
-    };
-  }
-
-  let resolvedProvider: VcsProvider | undefined = provider;
-
+export function defaultSafeguards(observation: PruneObservation = pruneObservation()): PruneSafeguards {
   return {
-    hasOpenPR: async (featureId, branchName) => {
-      if (!resolvedProvider) {
-        resolvedProvider = await createVcsProvider({
-          detectorDeps: {
-            ...(observation.gitPath === undefined ? {} : { gitPath: observation.gitPath }),
-            reader: observation.reader,
-          },
-        });
-      }
-      return defaultHasOpenPR(resolvedProvider, featureId, branchName);
-    },
-    hasRecentCommits,
+    hasRecentCommits: (branchName, windowHours) => observedHasRecentCommits(observation, branchName, windowHours),
   };
 }

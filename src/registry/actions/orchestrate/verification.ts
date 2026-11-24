@@ -231,7 +231,6 @@ export const verificationActions: readonly BuiltinToolAction[] = [
     name: 'validate_pr_body',
     description: 'Validate PR body contains required sections (Summary, Changes, Test Plan)',
     schema: z.object({
-      pr: z.number().int().positive().optional(),
       bodyFile: z.string().optional(),
       body: z.string().optional(),
       template: z.string().optional(),

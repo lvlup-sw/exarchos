@@ -69,14 +69,13 @@ function makePassingResult() {
     status: 'pass' as const,
     prUrl: 'https://github.com/org/repo/pull/42',
     mergeSha: 'abc1234',
-    passCount: 2,
+    passCount: 1,
     failCount: 0,
     results: [
-      '- **PASS**: CI green (all checks SUCCESS or NEUTRAL)',
       '- **PASS**: Test suite (npm run test:run passed)',
     ],
     findings: [],
-    report: '## Post-Merge Regression Report\n\n**Result: PASS** (2/2 checks passed)',
+    report: '## Post-Merge Regression Report\n\n**Result: PASS** (1/1 checks passed)',
   };
 }
 
@@ -86,16 +85,14 @@ function makeFailingResult() {
     prUrl: 'https://github.com/org/repo/pull/42',
     mergeSha: 'abc1234',
     passCount: 0,
-    failCount: 2,
+    failCount: 1,
     results: [
-      '- **FAIL**: CI green -- Failed checks: ci/build (FAILURE)',
       '- **FAIL**: Test suite -- npm run test:run failed',
     ],
     findings: [
-      'FINDING [D4] [HIGH] criterion="ci-green" evidence="Failed checks: ci/build (FAILURE)"',
       'FINDING [D4] [HIGH] criterion="test-suite" evidence="npm run test:run failed (merge-sha: abc1234)"',
     ],
-    report: '## Post-Merge Regression Report\n\n**Result: FAIL** (2/2 checks failed)',
+    report: '## Post-Merge Regression Report\n\n**Result: FAIL** (1/1 checks failed)',
   };
 }
 
@@ -106,7 +103,7 @@ describe('handlePostMerge', () => {
     mockStore.query.mockResolvedValue([]);
   });
 
-  it('handlePostMerge_CIPassing_ReturnsPassed', async () => {
+  it('handlePostMerge_SuitePassing_ReturnsPassed', async () => {
     mockCheckPostMerge.mockReturnValue(makePassingResult());
 
     const result = await handlePostMerge(
@@ -136,9 +133,8 @@ describe('handlePostMerge', () => {
     expect(result.success).toBe(true);
     const data = result.data as { passed: boolean; findings: string[]; report: string };
     expect(data.passed).toBe(false);
-    expect(data.findings).toHaveLength(2);
-    expect(data.findings[0]).toContain('ci-green');
-    expect(data.findings[1]).toContain('test-suite');
+    expect(data.findings).toHaveLength(1);
+    expect(data.findings[0]).toContain('test-suite');
     expect(data.report).toContain('FAIL');
   });
 

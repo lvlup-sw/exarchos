@@ -1,7 +1,7 @@
 // Tests for `handleValidatePrBody`. The `node:child_process` mock keeps the
 // real exports, because modules in the import graph call `promisify(execFile)`
-// at load. It replaces only `execFileSync`, which the handler calls for
-// `gh pr view`.
+// at load. It replaces only `execFileSync`, so a test can prove that the
+// handler starts no process.
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { handleValidatePrBody } from '../../../../src/verbs/vcs/validate-pr-body.js';
@@ -86,21 +86,15 @@ describe('handleValidatePrBody', () => {
     expect(data.missingSections).toEqual([]);
   });
 
-  it('ReadsFromPrNumber', async () => {
-    mockedExecFileSync.mockReturnValue(
-      JSON.stringify({ body: VALID_BODY, author: { login: 'human' }, headRefName: 'feat/cool' }),
-    );
+  /** An old caller that passes only a PR number gets an input refusal, and no `gh` process starts. */
+  it('PrNumberOnly_RefusedWithoutAnyProcess', async () => {
+    const legacy = { pr: 42, enforce: true };
+    const result = await handleValidatePrBody(legacy);
 
-    const result = await handleValidatePrBody({ pr: 42 });
-
-    expect(result.success).toBe(true);
-    expect(mockedExecFileSync).toHaveBeenCalledWith(
-      'gh',
-      expect.arrayContaining(['pr', 'view', '42']),
-      expect.objectContaining({ encoding: 'utf-8' }),
-    );
-    const data = result.data as { passed: boolean };
-    expect(data.passed).toBe(true);
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('INVALID_INPUT');
+    expect(result.error?.message).toBe('No input source provided: specify bodyFile or body');
+    expect(mockedExecFileSync).not.toHaveBeenCalled();
   });
 
   it('ReadsFromBodyFile', async () => {
@@ -130,17 +124,6 @@ describe('handleValidatePrBody', () => {
     expect(result.error?.message).toMatch(/no input source/i);
   });
 
-  it('GhFailure_ReturnsError', async () => {
-    mockedExecFileSync.mockImplementation(() => {
-      throw new Error('gh: not found');
-    });
-
-    const result = await handleValidatePrBody({ pr: 999 });
-
-    expect(result.success).toBe(false);
-    expect(result.error?.code).toBe('GH_ERROR');
-  });
-
   it('ReportListsMissingSections', async () => {
     const body = '## Summary\nSome summary\n';
     const result = await handleValidatePrBody({ body });
@@ -150,30 +133,15 @@ describe('handleValidatePrBody', () => {
     expect(data.report).toContain('Missing: ## Test Plan');
   });
 
-  it('SkipsBotAuthors', async () => {
-    mockedExecFileSync.mockReturnValue(
-      JSON.stringify({ body: '', author: { login: 'renovate[bot]' }, headRefName: 'renovate/foo' }),
-    );
-
-    const result = await handleValidatePrBody({ pr: 10 });
+  /** A bot or merge-queue body text gets the same section check as any other body. */
+  it('BotShapedBody_NoSkipPath_SectionsChecked', async () => {
+    const result = await handleValidatePrBody({ body: '' });
 
     expect(result.success).toBe(true);
-    const data = result.data as { passed: boolean; skipped: boolean };
-    expect(data.passed).toBe(true);
-    expect(data.skipped).toBe(true);
-  });
-
-  it('SkipsMergeQueuePRs', async () => {
-    mockedExecFileSync.mockReturnValue(
-      JSON.stringify({ body: '', author: { login: 'human' }, headRefName: 'gh-readonly-queue/main/pr-123' }),
-    );
-
-    const result = await handleValidatePrBody({ pr: 10 });
-
-    expect(result.success).toBe(true);
-    const data = result.data as { passed: boolean; skipped: boolean };
-    expect(data.passed).toBe(true);
-    expect(data.skipped).toBe(true);
+    const data = result.data as { passed: boolean; skipped?: boolean };
+    expect(data.passed).toBe(false);
+    expect(data.skipped).toBeUndefined();
+    expect(mockedExecFileSync).not.toHaveBeenCalled();
   });
 
   it('TemplateExtractsSections', async () => {

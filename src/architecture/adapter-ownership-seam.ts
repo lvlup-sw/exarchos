@@ -135,8 +135,8 @@ export const ADAPTER_OWNERSHIP: readonly AdapterOwnershipRule[] = Object.freeze(
   adapter(
     'network-adapter',
     'network',
-    ['workflow/feedback.ts', 'vcs/github-pr-observer.ts'],
-    'All network I/O (http/https/net/tls/dgram/undici/fetch) is owned by the feedback client and the exact GitHub PR GET observer. ' +
+    ['workflow/feedback.ts'],
+    'All network I/O (http/https/net/tls/dgram/undici/fetch) is owned by the feedback client. ' +
       'A second network caller must be a conscious ADAPTER_OWNERSHIP change, not a silent bypass.',
   ),
 ]);

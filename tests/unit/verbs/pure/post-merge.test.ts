@@ -3,31 +3,7 @@ import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { checkPostMerge } from '../../../../src/verbs/pure/post-merge.js';
-import type { VcsProvider, CiStatus, CiCheck } from '../../../../src/vcs/provider.js';
 import { rmrf } from '../../../../tools/test-helpers/temp-dir.js';
-
-function createMockProvider(overrides: {
-  checkCi?: CiStatus;
-  checkCiError?: Error;
-} = {}): VcsProvider {
-  const defaultCi: CiStatus = { status: 'pass', checks: [] };
-
-  return {
-    name: 'github',
-    createPr: vi.fn(),
-    checkCi: overrides.checkCiError
-      ? vi.fn().mockRejectedValue(overrides.checkCiError)
-      : vi.fn<(prId: string) => Promise<CiStatus>>().mockResolvedValue(overrides.checkCi ?? defaultCi),
-    mergePr: vi.fn(),
-    addComment: vi.fn(),
-    getReviewStatus: vi.fn(),
-    listPrs: vi.fn(),
-    getPrComments: vi.fn(),
-    getPrDiff: vi.fn(),
-    createIssue: vi.fn(),
-    getRepository: vi.fn(),
-  };
-}
 
 /** The result of the injected command runner. */
 type CommandResult = { exitCode: number; stdout: string; stderr: string };
@@ -73,18 +49,8 @@ describe('checkPostMerge', () => {
     vi.restoreAllMocks();
   });
 
-  it('clean merge (all checks pass via provider) returns pass', async () => {
-    const provider = createMockProvider({
-      checkCi: {
-        status: 'pass',
-        checks: [
-          { name: 'build', status: 'pass' },
-          { name: 'test', status: 'pass' },
-          { name: 'lint', status: 'skipped' },
-        ],
-      },
-    });
-
+  /** The check runs only the test suite, so a green suite is a pass with one check. */
+  it('clean merge (test suite passes) returns pass', async () => {
     const testRunner = createCommandRunner({
       'npm run test:run': { exitCode: 0, stdout: 'All tests passed', stderr: '' },
     });
@@ -94,106 +60,14 @@ describe('checkPostMerge', () => {
       mergeSha: 'abc1234',
       repoRoot: nodeRepo,
       runCommand: testRunner,
-      provider,
     });
 
     expect(result.status).toBe('pass');
-    expect(result.passCount).toBe(2);
+    expect(result.passCount).toBe(1);
     expect(result.failCount).toBe(0);
-    expect(provider.checkCi).toHaveBeenCalledWith('42', {
-      repository: { host: 'github.com', path: 'org/repo' },
-    });
-  });
-
-  /**
-   * The CI query reads the repository that `prUrl` names, not the current checkout.
-   * A bare number and an Azure DevOps URL name no repository, so the provider resolves the number itself.
-   */
-  it.each([
-    ['https://github.example.com/org/repo/pull/7/', { host: 'github.example.com', path: 'org/repo' }],
-    ['https://gitlab.com/group/sub/project/-/merge_requests/7', { host: 'gitlab.com', path: 'group/sub/project' }],
-    ['7', undefined],
-    ['https://dev.azure.com/org/project/_git/repo/pullrequest/7', undefined],
-  ])('prUrl %s binds the CI query to its repository', async (prUrl, repository) => {
-    const provider = createMockProvider({ checkCi: { status: 'pass', checks: [] } });
-    await checkPostMerge({
-      prUrl,
-      mergeSha: 'abc1234',
-      repoRoot: nodeRepo,
-      runCommand: createCommandRunner({
-        'npm run test:run': { exitCode: 0, stdout: 'All tests passed', stderr: '' },
-      }),
-      provider,
-    });
-    expect(provider.checkCi).toHaveBeenCalledWith('7', { repository });
-  });
-
-  /** Only the number and a safe repository from the URL path reach the provider. Other text fails the check with no provider call. */
-  it.each([
-    '--admin',
-    'https://github.com/org/repo/pull/-1',
-    'https://github.com/org/repo/issues/42/comments',
-    'https://github.com/-R/repo/pull/42',
-    'https://github.com/org/%2E%2E/pull/42',
-  ])(
-    'prUrl %s with no pull request number fails the CI check without a provider call',
-    async (prUrl) => {
-      const provider = createMockProvider({});
-      const result = await checkPostMerge({
-        prUrl,
-        mergeSha: 'abc1234',
-        repoRoot: nodeRepo,
-        runCommand: createCommandRunner({
-          'npm run test:run': { exitCode: 0, stdout: 'All tests passed', stderr: '' },
-        }),
-        provider,
-      });
-      expect(provider.checkCi).not.toHaveBeenCalled();
-      expect(result.status).toBe('fail');
-      expect(result.findings.join('\n')).toContain('prUrl names no pull request number');
-    },
-  );
-
-  it('CI failure after merge via provider returns fail', async () => {
-    const provider = createMockProvider({
-      checkCi: {
-        status: 'fail',
-        checks: [
-          { name: 'build', status: 'pass' },
-          { name: 'test', status: 'fail' },
-          { name: 'lint', status: 'pass' },
-        ],
-      },
-    });
-
-    const testRunner = createCommandRunner({
-      'npm run test:run': { exitCode: 0, stdout: 'All tests passed', stderr: '' },
-    });
-
-    const result = await checkPostMerge({
-      prUrl: 'https://github.com/org/repo/pull/42',
-      mergeSha: 'abc1234',
-      repoRoot: nodeRepo,
-      runCommand: testRunner,
-      provider,
-    });
-
-    expect(result.status).toBe('fail');
-    expect(result.failCount).toBeGreaterThanOrEqual(1);
-    expect(result.report).toContain('test');
   });
 
   it('test regression after merge returns fail', async () => {
-    const provider = createMockProvider({
-      checkCi: {
-        status: 'pass',
-        checks: [
-          { name: 'build', status: 'pass' },
-          { name: 'test', status: 'pass' },
-        ],
-      },
-    });
-
     const testRunner = createCommandRunner({
       'npm run test:run': { exitCode: 1, stdout: '', stderr: 'FAIL: some test broke' },
     });
@@ -203,71 +77,36 @@ describe('checkPostMerge', () => {
       mergeSha: 'abc1234',
       repoRoot: nodeRepo,
       runCommand: testRunner,
-      provider,
     });
 
     expect(result.status).toBe('fail');
-    expect(result.failCount).toBeGreaterThanOrEqual(1);
+    expect(result.failCount).toBe(1);
     expect(result.report).toContain('FAIL');
+    expect(result.findings).toEqual([
+      'FINDING [D4] [HIGH] criterion="test-suite" evidence="npm run test:run failed (merge-sha: abc1234)"',
+    ]);
   });
 
-  it('both CI and tests fail returns fail with two findings', async () => {
-    const provider = createMockProvider({
-      checkCi: {
-        status: 'fail',
-        checks: [
-          { name: 'build', status: 'fail' },
-          { name: 'test', status: 'fail' },
-        ],
+  /** The check has no CI leg: the only command it runs is the resolved test command, and the report names no CI check. */
+  it('reads no CI status and runs only the test command', async () => {
+    const runs: string[] = [];
+
+    const result = await checkPostMerge({
+      prUrl: 'https://github.com/org/repo/pull/42',
+      mergeSha: 'abc1234',
+      repoRoot: nodeRepo,
+      runCommand: (cmd, args) => {
+        runs.push([cmd, ...args].join(' '));
+        return { exitCode: 0, stdout: 'ok', stderr: '' };
       },
     });
 
-    const testRunner = createCommandRunner({
-      'npm run test:run': { exitCode: 1, stdout: '', stderr: 'FAIL: regression' },
-    });
-
-    const result = await checkPostMerge({
-      prUrl: 'https://github.com/org/repo/pull/42',
-      mergeSha: 'abc1234',
-      repoRoot: nodeRepo,
-      runCommand: testRunner,
-      provider,
-    });
-
-    expect(result.status).toBe('fail');
-    expect(result.failCount).toBe(2);
-    expect(result.findings.length).toBeGreaterThanOrEqual(2);
-  });
-
-  it('provider error reports failure', async () => {
-    const provider = createMockProvider({
-      checkCiError: new Error('command not found: gh'),
-    });
-
-    const testRunner = createCommandRunner({
-      'npm run test:run': { exitCode: 0, stdout: 'All tests passed', stderr: '' },
-    });
-
-    const result = await checkPostMerge({
-      prUrl: 'https://github.com/org/repo/pull/42',
-      mergeSha: 'abc1234',
-      repoRoot: nodeRepo,
-      runCommand: testRunner,
-      provider,
-    });
-
-    expect(result.status).toBe('fail');
-    expect(result.failCount).toBeGreaterThanOrEqual(1);
+    expect(runs).toEqual(['npm run test:run']);
+    expect(result.results).toEqual(['- **PASS**: Test suite (npm run test:run passed)']);
+    expect(result.report).not.toContain('CI');
   });
 
   it('report output is structured markdown', async () => {
-    const provider = createMockProvider({
-      checkCi: {
-        status: 'pass',
-        checks: [{ name: 'build', status: 'pass' }],
-      },
-    });
-
     const testRunner = createCommandRunner({
       'npm run test:run': { exitCode: 0, stdout: 'All tests passed', stderr: '' },
     });
@@ -277,58 +116,12 @@ describe('checkPostMerge', () => {
       mergeSha: 'abc1234',
       repoRoot: nodeRepo,
       runCommand: testRunner,
-      provider,
     });
 
     expect(result.report).toContain('## Post-Merge Regression Report');
     expect(result.report).toContain('**PR:**');
     expect(result.report).toContain('**Merge SHA:**');
     expect(result.report).toContain('**Result: PASS**');
-  });
-
-  it('pending CI checks are treated as non-passing', async () => {
-    const provider = createMockProvider({
-      checkCi: {
-        status: 'pending',
-        checks: [{ name: 'build', status: 'pending' }],
-      },
-    });
-
-    const testRunner = createCommandRunner({
-      'npm run test:run': { exitCode: 0, stdout: 'ok', stderr: '' },
-    });
-
-    const result = await checkPostMerge({
-      prUrl: 'https://github.com/org/repo/pull/42',
-      mergeSha: 'abc1234',
-      repoRoot: nodeRepo,
-      runCommand: testRunner,
-      provider,
-    });
-
-    expect(result.status).toBe('fail');
-    expect(result.failCount).toBe(1);
-  });
-
-  it('empty checks from provider returns pass for CI', async () => {
-    const provider = createMockProvider({
-      checkCi: { status: 'pass', checks: [] },
-    });
-
-    const testRunner = createCommandRunner({
-      'npm run test:run': { exitCode: 0, stdout: 'ok', stderr: '' },
-    });
-
-    const result = await checkPostMerge({
-      prUrl: 'https://github.com/org/repo/pull/42',
-      mergeSha: 'abc1234',
-      repoRoot: nodeRepo,
-      runCommand: testRunner,
-      provider,
-    });
-
-    expect(result.status).toBe('pass');
-    expect(result.passCount).toBe(2);
   });
 
   /** A Go module resolves `go test ./...` from the toolchain registry, and that command runs. */
@@ -344,7 +137,6 @@ describe('checkPostMerge', () => {
         runs.push({ cmd, args });
         return { exitCode: 0, stdout: 'ok', stderr: '' };
       },
-      provider: createMockProvider(),
     });
 
     expect(runs).toEqual([{ cmd: 'go', args: ['test', './...'] }]);
@@ -362,7 +154,6 @@ describe('checkPostMerge', () => {
       mergeSha: 'abc1234',
       repoRoot: emptyRepo,
       runCommand,
-      provider: createMockProvider(),
     });
 
     expect(runCommand).not.toHaveBeenCalled();
@@ -370,6 +161,6 @@ describe('checkPostMerge', () => {
     expect(result.findings).toEqual([
       'FINDING [D4] [HIGH] criterion="test-suite" evidence="no test command resolved (merge-sha: abc1234)"',
     ]);
-    expect(result.results[1]).toMatch(/^- \*\*FAIL\*\*: Test suite -- no test command resolved: No project markers detected/);
+    expect(result.results[0]).toMatch(/^- \*\*FAIL\*\*: Test suite -- no test command resolved: No project markers detected/);
   });
 });

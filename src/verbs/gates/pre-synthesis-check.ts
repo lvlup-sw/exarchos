@@ -5,26 +5,21 @@
  *   3. All tasks are complete.
  *   4. The reviews passed.
  *   5. No task needs fixes.
- *   6. A PR stack exists (skippable).
- *   7. The tests pass (skippable).
+ *   6. The tests pass (skippable).
  * Checks 2 to 5 run only when check 1 passes.
- * The local approved-check executor runs check 7 as a lifecycle check of the phase attempt, with no verifier provisioning.
+ * The local approved-check executor runs check 6 as a lifecycle check of the phase attempt, with no verifier provisioning.
  * A caller test-command override takes the override layer of the resolver, so the approved plan holds the override.
- * Check 6 reads the current branch through the constrained reader with the process-wide Git path.
+ * The gate reads no PR from a provider. The harness owns the PR state.
  */
 
-import { resolve } from 'node:path';
 import type { ToolResult } from '../../format.js';
 import type { EventStore } from '../../events/store.js';
 import { resolveTestRuntime } from '../../config/test-runtime-resolver.js';
 import { splitCommand } from '../../config/tokenize-command.js';
-import type { VcsProvider } from '../../vcs/provider.js';
-import { createVcsProvider } from '../../vcs/factory.js';
 import { classifyStateFile, resolveWorkflowState } from '../resolve-state.js';
 import { createEvidenceSubject } from '../../workflow/admission/evidence-subject.js';
-import { processObservationalGitPath } from '../../utils/git-tree.js';
 import { hostedPendingResult, runPhaseGateWithEvidence } from './gate-runner.js';
-import { emitGateEvent, observeCurrentCheckout, sameOperationGateKey } from './gate-utils.js';
+import { emitGateEvent, sameOperationGateKey } from './gate-utils.js';
 import { admitLifecycleLegs, type LifecycleLeg } from '../verification/lifecycle-check.js';
 import type { CheckExecutor } from '../verification/check-executor.js';
 
@@ -41,7 +36,6 @@ export interface PreSynthesisCheckArgs {
   readonly stateDir?: string;
   readonly repoRoot?: string;
   readonly skipTests?: boolean;
-  readonly skipStack?: boolean;
   readonly testCommand?: string;
 }
 
@@ -333,49 +327,6 @@ function checkNoFixRequests(
   checkPass(ctx, 'No outstanding fix requests');
 }
 
-/**
- * Check 6: passes when the current branch has an open PR. It is skipped with
- * `skipStack`, or when the provider is not GitHub.
- * The branch is the symbolic HEAD of the checkout root above `repoRoot`, read with the process-wide Git path.
- * No usable Git, a detached HEAD and a refused observation fail the check.
- */
-async function checkPrStack(
-  ctx: CheckContext,
-  repoRoot: string,
-  skipStack: boolean,
-  provider: VcsProvider,
-  gitPath: string | undefined,
-): Promise<void> {
-  if (skipStack) {
-    checkSkip(ctx, 'PR stack exists (--skip-stack)');
-    return;
-  }
-
-  if (provider && provider.name !== 'github') {
-    checkSkip(ctx, `PR stack exists (skipped: ${provider.name} provider — gh CLI required)`);
-    return;
-  }
-
-  const observed = gitPath === undefined ? undefined : await observeCurrentCheckout(gitPath, resolve(repoRoot));
-  const currentBranch = observed?.kind === 'observed' ? observed.checkout.branch.slice('refs/heads/'.length) : '';
-  if (!currentBranch) {
-    checkFail(ctx, 'PR stack exists', 'Could not determine current branch');
-    return;
-  }
-
-  try {
-    const prs = await provider.listPrs({ state: 'open', head: currentBranch });
-    if (prs.length < 1) {
-      checkFail(ctx, 'PR stack exists', `No open PRs found for branch '${currentBranch}'`);
-      return;
-    }
-
-    checkPass(ctx, `PR stack exists (${prs.length} open PRs for '${currentBranch}')`);
-  } catch {
-    checkFail(ctx, 'PR stack exists', 'Failed querying PRs (VcsProvider error)');
-  }
-}
-
 /** The event store, the executor and the phase attempt that scope the test run of one call. */
 interface PreSynthesisRun {
   readonly eventStore: EventStore;
@@ -394,7 +345,7 @@ function argvOf(command: string): readonly string[] | undefined {
 }
 
 /**
- * Check 7 in the local executor. The test leg and the typecheck leg run in one check, and a failed test leg stops it.
+ * Check 6 in the local executor. The test leg and the typecheck leg run in one check, and a failed test leg stops it.
  * A caller test-command override takes the override layer of the resolver. A refusal returns as the gate result.
  * A pending result and a leg with no verdict throw the pending signal.
  */
@@ -453,14 +404,13 @@ async function checkTestsPass(
 /**
  * Runs the readiness checks through `runPhaseGateWithEvidence`. The runner
  * records durable gate evidence before a success result returns.
- * Check 7 runs in the local executor with no verifier provisioning. `skipTests`, `skipStack` and a caller test-command override apply.
+ * Check 6 runs in the local executor with no verifier provisioning. `skipTests` and a caller test-command override apply.
  * A pending result maps to its existing code with no evidence.
  *
  * @param executor - The local check executor. The default is the real executor. A test passes its own executor.
  */
 export async function handlePreSynthesisCheck(
   args: PreSynthesisCheckArgs,
-  provider?: VcsProvider,
   executor?: CheckExecutor,
 ): Promise<ToolResult> {
   if (!args.featureId) {
@@ -497,7 +447,7 @@ export async function handlePreSynthesisCheck(
         );
       },
       providerInput: args,
-      executeProvider: async () => executePreSynthesisCheck(args, eventStore, provider, run),
+      executeProvider: async () => executePreSynthesisCheck(args, eventStore, run),
     });
   } catch (error) {
     return hostedPendingResult(error);
@@ -505,7 +455,7 @@ export async function handlePreSynthesisCheck(
 }
 
 /**
- * Runs the seven checks and appends the `gate.executed` event. The state comes
+ * Runs the six checks and appends the `gate.executed` event. The state comes
  * from `resolveWorkflowState`, with the event store as fallback. A malformed
  * explicit `stateFile` fails check 1 at once, because the resolver otherwise
  * hides the parse error behind the fallback. The gate event uses a
@@ -514,12 +464,9 @@ export async function handlePreSynthesisCheck(
 async function executePreSynthesisCheck(
   args: PreSynthesisCheckArgs,
   store: EventStore,
-  provider: VcsProvider | undefined,
   run: PreSynthesisRun,
 ): Promise<ToolResult> {
-  const { stateFile, featureId, eventStore, repoRoot = '.', skipStack = false } = args;
-  const gitPath = processObservationalGitPath();
-  const vcs = provider ?? await createVcsProvider(gitPath === undefined ? undefined : { detectorDeps: { gitPath, cwd: repoRoot } });
+  const { stateFile, featureId, eventStore, repoRoot = '.' } = args;
 
   const ctx: CheckContext = {
     results: [],
@@ -551,8 +498,6 @@ async function executePreSynthesisCheck(
     checkReviewsPassed(ctx, state);
     checkNoFixRequests(ctx, state);
   }
-
-  await checkPrStack(ctx, repoRoot, skipStack, vcs, gitPath);
 
   const refused = await checkTestsPass(ctx, args, repoRoot, run);
   if (refused !== undefined) return refused;

@@ -42,7 +42,7 @@ A green CI run and an approved review do not make a PR ready while a minor `comm
 
 ## Pipeline Hygiene
 
-When the pipeline accumulates stale workflows (inactive > 7 days), run `@skills/prune/SKILL.md` to bulk-cancel abandoned workflows before starting a new shepherd cycle. Discover the stale set with `exarchos:exarchos_view({ action: "pipeline", scope: "all" })` — the default view is repo-scoped to the caller's repo and hides *legacy* rows (workflows started before repo identity was recorded), which are exactly the stale ones this cleanup targets. Safeguards skip workflows with open PRs or recent commits, so active shepherd targets are never touched. A clean pipeline makes shepherd iteration reporting easier to read and reduces noise in the stale-count view.
+When the pipeline accumulates stale workflows (inactive > 7 days), run `@skills/prune/SKILL.md` to bulk-cancel abandoned workflows before starting a new shepherd cycle. Discover the stale set with `exarchos:exarchos_view({ action: "pipeline", scope: "all" })` — the default view is repo-scoped to the caller's repo and hides *legacy* rows (workflows started before repo identity was recorded), which are exactly the stale ones this cleanup targets. The safeguard skips workflows with recent commits, and the prune skill reads the open PRs of each candidate with your own tools before it applies, so active shepherd targets are not touched. A clean pipeline makes shepherd iteration reporting easier to read and reduces noise in the stale-count view.
 
 ## Triggers
 

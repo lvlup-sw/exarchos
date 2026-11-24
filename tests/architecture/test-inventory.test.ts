@@ -187,6 +187,7 @@ const RETIRED_TEST_FILES: ReadonlyArray<{ path: string; subject: string }> = [
   { path: 'tests/unit/verbs/vcs/add-pr-comment.test.ts', subject: 'src/verbs/vcs/add-pr-comment.ts' },
   { path: 'tests/unit/verbs/vcs/assess-stack.test.ts', subject: 'src/verbs/vcs/assess-stack.ts' },
   { path: 'tests/integration/shepherd-classifier.integration.test.ts', subject: 'src/verbs/vcs/assess-stack.ts' },
+  { path: 'tests/integration/1928-pr-observation.test.ts', subject: 'src/vcs/github-pr-observer.ts' },
   { path: 'tests/unit/verbs/vcs/check-ci.test.ts', subject: 'src/verbs/vcs/check-ci.ts' },
   { path: 'tests/unit/verbs/vcs/check-coderabbit.test.ts', subject: 'src/verbs/vcs/check-coderabbit.ts' },
   { path: 'tests/unit/verbs/vcs/check-pr-comments.test.ts', subject: 'src/verbs/vcs/check-pr-comments.ts' },

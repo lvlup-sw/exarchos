@@ -4,10 +4,10 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1460,
-    "parsedFiles": 1416,
+    "testFiles": 1459,
+    "parsedFiles": 1415,
     "shellFiles": 44,
-    "cases": 16363,
+    "cases": 16343,
     "dynamicTitles": 321,
     "unparseableFiles": 0
   },
@@ -10479,7 +10479,7 @@
         },
         {
           "suite": "converted reads of the lifecycle and team routes",
-          "name": "PreSynthesisBranchRead_ProcessGitPath_NoPathGitAndDetachedFailsClosed",
+          "name": "PreSynthesis_NoPrStackLeg_DetachedHeadChangesNothingAndNoProviderStarts",
           "dynamic": false
         },
         {
@@ -10640,42 +10640,6 @@
         {
           "suite": "constrained observational reads: acquire_worktree adoption",
           "name": "AcquireWorktree_MainWorktreeConfigWorktree_DoesNotMoveALinkedUpstream",
-          "dynamic": false
-        }
-      ]
-    },
-    "tests/integration/1928-pr-observation.test.ts": {
-      "file": "tests/integration/1928-pr-observation.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "exact staged PR observation",
-          "name": "OneApprovedGET_BindsExactRecordAndFiveHeadingTemplate",
-          "dynamic": false
-        },
-        {
-          "suite": "exact staged PR observation",
-          "name": "WrongOwnerHeadRefsStateAndMalformedIdentity_Refuse",
-          "dynamic": false
-        },
-        {
-          "suite": "exact staged PR observation",
-          "name": "CapturedTemplate_NoDefaultBotOrQueueBypass",
-          "dynamic": false
-        },
-        {
-          "suite": "exact staged PR observation",
-          "name": "RedirectCredentialAndBoundedResponse_RefuseWithoutSecondFetch",
-          "dynamic": false
-        },
-        {
-          "suite": "exact staged PR observation",
-          "name": "SlowHeadersAndBody_AbortWithinFixedBound",
-          "dynamic": false
-        },
-        {
-          "suite": "exact staged PR observation",
-          "name": "SharedPurePolicy_PreservesLegacyDefaultAndCaseSemantics",
           "dynamic": false
         }
       ]
@@ -11114,8 +11078,8 @@
           "dynamic": false
         },
         {
-          "suite": "pruneIntegration_safeguardOpenPrSkipsOneCandidate",
-          "name": "skips the candidate with an open PR and prunes the other",
+          "suite": "pruneIntegration_safeguardActiveBranchSkipsOneCandidate",
+          "name": "skips the candidate with recent commits and prunes the other",
           "dynamic": false
         },
         {
@@ -58158,7 +58122,7 @@
       "cases": [
         {
           "suite": "handlePostMerge",
-          "name": "handlePostMerge_CIPassing_ReturnsPassed",
+          "name": "handlePostMerge_SuitePassing_ReturnsPassed",
           "dynamic": false
         },
         {
@@ -58239,7 +58203,7 @@
         },
         {
           "suite": "handlePreSynthesisCheck",
-          "name": "UsesProviderListPrs_ForPrStackCheck",
+          "name": "NoPrStackLeg_ReadsNoBranchAndNoProvider",
           "dynamic": false
         },
         {
@@ -58270,11 +58234,6 @@
         {
           "suite": "handlePreSynthesisCheck",
           "name": "SkipTests_SkipsTestExecution",
-          "dynamic": false
-        },
-        {
-          "suite": "handlePreSynthesisCheck",
-          "name": "SkipStack_SkipsPrStackCheck",
           "dynamic": false
         },
         {
@@ -58324,11 +58283,6 @@
         },
         {
           "suite": "handlePreSynthesisCheck",
-          "name": "NoPrsForBranch_ReturnsFailForStack",
-          "dynamic": false
-        },
-        {
-          "suite": "handlePreSynthesisCheck",
           "name": "FilelessMcpOnly_ResolvesFromEventStore_NoStateFileRequired",
           "dynamic": false
         },
@@ -58350,11 +58304,6 @@
         {
           "suite": "handlePreSynthesisCheck",
           "name": "LocalRefusal_ReturnsTheRefusalAndSkipTestsRunsNoCheck",
-          "dynamic": false
-        },
-        {
-          "suite": "handlePreSynthesisCheck",
-          "name": "PrStack_ConstrainedBranchRead_UsesTheProcessGitPathAndFailsClosed",
           "dynamic": false
         }
       ]
@@ -63388,27 +63337,12 @@
       "cases": [
         {
           "suite": "behavioral parity with check-post-merge.sh",
-          "name": "all pass — CI green + tests pass yields PASS (2/2)",
+          "name": "tests pass yields PASS (1/1)",
           "dynamic": false
         },
         {
           "suite": "behavioral parity with check-post-merge.sh",
-          "name": "CI fail — lint FAILURE yields FAIL (1/2)",
-          "dynamic": false
-        },
-        {
-          "suite": "behavioral parity with check-post-merge.sh",
-          "name": "test fail — test suite failure yields FAIL (1/2)",
-          "dynamic": false
-        },
-        {
-          "suite": "behavioral parity with check-post-merge.sh",
-          "name": "both fail — CI + test failures yield FAIL (0/2)",
-          "dynamic": false
-        },
-        {
-          "suite": "behavioral parity with check-post-merge.sh",
-          "name": "SKIPPED CI state — treated as passing",
+          "name": "test fail — test suite failure yields FAIL (1/1)",
           "dynamic": false
         }
       ]
@@ -63419,12 +63353,7 @@
       "cases": [
         {
           "suite": "checkPostMerge",
-          "name": "clean merge (all checks pass via provider) returns pass",
-          "dynamic": false
-        },
-        {
-          "suite": "checkPostMerge",
-          "name": "CI failure after merge via provider returns fail",
+          "name": "clean merge (test suite passes) returns pass",
           "dynamic": false
         },
         {
@@ -63434,27 +63363,12 @@
         },
         {
           "suite": "checkPostMerge",
-          "name": "both CI and tests fail returns fail with two findings",
-          "dynamic": false
-        },
-        {
-          "suite": "checkPostMerge",
-          "name": "provider error reports failure",
+          "name": "reads no CI status and runs only the test command",
           "dynamic": false
         },
         {
           "suite": "checkPostMerge",
           "name": "report output is structured markdown",
-          "dynamic": false
-        },
-        {
-          "suite": "checkPostMerge",
-          "name": "pending CI checks are treated as non-passing",
-          "dynamic": false
-        },
-        {
-          "suite": "checkPostMerge",
-          "name": "empty checks from provider returns pass for CI",
           "dynamic": false
         },
         {
@@ -68526,28 +68440,23 @@
       "runner": "vitest:root",
       "cases": [
         {
-          "suite": "defaultSafeguards > hasOpenPR",
-          "name": "hasOpenPR_WithOpenPR_ReturnsTrue",
+          "suite": "defaultSafeguards",
+          "name": "DefaultSafeguards_HoldsNoOpenPrCheck",
           "dynamic": false
         },
         {
-          "suite": "defaultSafeguards > hasOpenPR",
-          "name": "hasOpenPR_NoOpenPR_ReturnsFalse",
+          "suite": "defaultSafeguards",
+          "name": "HasRecentCommits_UndefinedBranch_ReturnsFalseWithoutAnyRead",
           "dynamic": false
         },
         {
-          "suite": "defaultSafeguards > hasOpenPR",
-          "name": "hasOpenPR_ProviderError_ReturnsFalse",
+          "suite": "defaultSafeguards",
+          "name": "HasRecentCommits_UnsafeBranchName_KeepsCandidateWithoutAnyRead",
           "dynamic": false
         },
         {
-          "suite": "defaultSafeguards > hasOpenPR",
-          "name": "hasOpenPR_UndefinedBranch_ReturnsFalse",
-          "dynamic": false
-        },
-        {
-          "suite": "defaultSafeguards > hasOpenPR",
-          "name": "hasOpenPR_UnsafeBranchName_ReturnsFalse",
+          "suite": "defaultSafeguards",
+          "name": "HasRecentCommits_UnreadableCheckout_KeepsCandidate",
           "dynamic": false
         }
       ]
@@ -68668,11 +68577,6 @@
         },
         {
           "suite": "handlePruneStaleWorkflows",
-          "name": "safeguard (open PR) skips candidate and records reason",
-          "dynamic": false
-        },
-        {
-          "suite": "handlePruneStaleWorkflows",
           "name": "safeguard (recent commits) skips candidate and records reason",
           "dynamic": false
         },
@@ -68688,7 +68592,7 @@
         },
         {
           "suite": "handlePruneStaleWorkflows",
-          "name": "skips both safeguards when branchName missing, still prunes",
+          "name": "skips the safeguard when branchName missing, still prunes",
           "dynamic": false
         },
         {
@@ -69489,7 +69393,7 @@
         },
         {
           "suite": "handleValidatePrBody",
-          "name": "ReadsFromPrNumber",
+          "name": "PrNumberOnly_RefusedWithoutAnyProcess",
           "dynamic": false
         },
         {
@@ -69509,22 +69413,12 @@
         },
         {
           "suite": "handleValidatePrBody",
-          "name": "GhFailure_ReturnsError",
-          "dynamic": false
-        },
-        {
-          "suite": "handleValidatePrBody",
           "name": "ReportListsMissingSections",
           "dynamic": false
         },
         {
           "suite": "handleValidatePrBody",
-          "name": "SkipsBotAuthors",
-          "dynamic": false
-        },
-        {
-          "suite": "handleValidatePrBody",
-          "name": "SkipsMergeQueuePRs",
+          "name": "BotShapedBody_NoSkipPath_SectionsChecked",
           "dynamic": false
         },
         {
