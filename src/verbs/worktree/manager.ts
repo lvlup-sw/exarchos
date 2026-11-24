@@ -21,7 +21,6 @@ import {
 import { constrainedCommitId, observationalReader, type ConstrainedGitReads } from '../../utils/git-tree.js';
 import type { EventStore } from '../../events/store.js';
 import type { EventInput } from '../../events/atomic-appender.js';
-import { spawnCommandSync } from '../../utils/process.js';
 import { withStateRetry } from '../../workflow/state-retry.js';
 import {
   defaultProcessSource,
@@ -126,30 +125,6 @@ export type FeatureIdResolver = (worktree: OnDiskWorktree) => string | null;
 
 /** Default resolver: no harness assumption — every worktree is unattached. */
 export const unattachedFeatureIdResolver: FeatureIdResolver = () => null;
-
-/**
- * Run `git <args>` from `cwd` through {@link spawnCommandSync}, not through
- * `execFileSync` of a resolved `.cmd` shim. It does not throw: a failure is a
- * non-zero `status`. When git does not start, `stderr` falls back to the spawn
- * error message, so a spawn failure still has a message.
- */
-function gitCapture(
-  args: readonly string[],
-  cwd: string,
-): { status: number; stdout: string; stderr: string } {
-  const result = spawnCommandSync('git', args, {
-    cwd,
-    encoding: 'utf-8',
-    timeout: 30_000,
-    stdio: ['ignore', 'pipe', 'pipe'],
-  });
-  const stderr = result.stderr ?? '';
-  return {
-    status: result.status ?? 1,
-    stdout: result.stdout ?? '',
-    stderr: stderr || (result.error?.message ?? ''),
-  };
-}
 
 /** The closed verdict of a worktree whose HEAD, upstream or ancestry cannot be read. */
 const HEAD_UNRESOLVED: HeadVerification = { head: null, upstream: null, mutable: false, reason: 'head-unresolved' };
@@ -265,29 +240,6 @@ export function createGitWorktreeProbe(): GitWorktreeProbe {
     verifyHead: (worktreePath: string) => verifyListedHead(worktreePath, reader),
   };
 }
-
-/**
- * An injectable seam over `git`. The cancel teardown probe in
- * `workflow/compensation.ts` runs its dirty check through this runner. A test
- * can record the argument vectors. It does not throw: a failure is a non-zero
- * `status`.
- */
-export interface GitRunner {
-  run(
-    args: readonly string[],
-    cwd: string,
-  ): { status: number; stdout: string; stderr?: string };
-}
-
-/** Default real git runner over the portable {@link spawnCommandSync} helper. */
-export const defaultGitRunner: GitRunner = {
-  run(
-    args: readonly string[],
-    cwd: string,
-  ): { status: number; stdout: string; stderr: string } {
-    return gitCapture(args, cwd);
-  },
-};
 
 /** Per-worktree outcome of an {@link WorktreeManager.adopt} pass. */
 export interface WorktreeAdoptionReport {

@@ -70,6 +70,7 @@ export interface UnverifiableActionEmission {
  * and `execution.settled` commit through `decideOnce`, which is not an `.append(...)`
  * call. The phase rows of a settle move, `phase.entered` and `phase.exited`, commit the same way.
  * Bootstrap group entries also commit through the atomic prepared batch.
+ * The worktree adoption, reservation and release rows commit through `decide` or carry a runtime type.
  * The scan does not see them.
  *
  * SHRINK-ONLY. A row is stale when its append resolves, or when no edge declares the
@@ -97,6 +98,7 @@ export const UNRESOLVED_ACTION_EVENT_ALLOWANCE: readonly string[] = Object.freez
   'workflow.rehydrated',
   'workflow.started',
   'workflow.transition',
+  'worktree.adopted',
   'worktree.merge_executed',
   'worktree.orphan_detected',
   'worktree.released',
@@ -405,34 +407,6 @@ export const ACTION_APPEND_OWNERSHIP: readonly ActionAppendOwnership[] = Object.
     module: 'verbs/team/prune-stale-workflows.ts',
     event: 'prune.diagnostics',
     wiring: 'the prune evaluation writes its own audit line, fire-and-forget',
-  },
-  {
-    action: 'cancel',
-    declaringTool: 'exarchos_workflow',
-    module: 'workflow/compensation.ts',
-    event: 'branch.delete.requested',
-    wiring: 'cancel is the sole caller of the compensation saga, whose branch compensator journals intent',
-  },
-  {
-    action: 'cancel',
-    declaringTool: 'exarchos_workflow',
-    module: 'workflow/compensation.ts',
-    event: 'branch.delete.executed',
-    wiring: 'cancel is the sole caller of the compensation saga, whose branch compensator journals the result',
-  },
-  {
-    action: 'cancel',
-    declaringTool: 'exarchos_workflow',
-    module: 'workflow/compensation.ts',
-    event: 'worktree.remove.requested',
-    wiring: 'cancel is the sole caller of the compensation saga, whose worktree compensator journals intent',
-  },
-  {
-    action: 'cancel',
-    declaringTool: 'exarchos_workflow',
-    module: 'workflow/compensation.ts',
-    event: 'worktree.remove.executed',
-    wiring: 'cancel is the sole caller of the compensation saga, whose worktree compensator journals the result',
   },
   {
     action: 'prepare_review',

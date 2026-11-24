@@ -30,52 +30,20 @@ describe('v2.12 cancellation process manager (DR-7)', () => {
   let stateDir: string;
   let store: EventStore;
   let featureId: string;
-  let branchExists: boolean;
-  let branchDeleteFails: boolean;
-  let branchDeleteCalls: number;
+  let processStarts: number;
 
+  /** The cancel is ledger-only, so each `execFile` call counts as a fault and fails. */
   beforeEach(async () => {
     stateDir = await mkdtemp(join(tmpdir(), 'cancel-process-manager-'));
     store = new EventStore(stateDir);
     await store.initialize();
     featureId = `cancel-pm-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-    branchExists = true;
-    branchDeleteFails = false;
-    branchDeleteCalls = 0;
+    processStarts = 0;
 
-    mockedExecFile.mockImplementation(
-      (_command: unknown, argsValue: unknown, optionsValue: unknown, callbackValue?: unknown) => {
-        const callback =
-          typeof optionsValue === 'function' ? optionsValue : callbackValue;
-        const args = argsValue as string[];
-        const cb = callback as (
-          error: Error | null,
-          stdout?: string,
-          stderr?: string,
-        ) => void;
-
-        if (args.includes('rev-parse') && args.includes('--verify')) {
-          if (branchExists) cb(null, 'abc123\n', '');
-          else cb(new Error('not a valid ref'), '', '');
-          return undefined as never;
-        }
-        if (args.includes('ls-remote')) {
-          cb(null, '', '');
-          return undefined as never;
-        }
-        if (args.includes('branch') && args.includes('-D')) {
-          branchDeleteCalls += 1;
-          if (branchDeleteFails) cb(new Error('branch delete failed'), '', '');
-          else {
-            branchExists = false;
-            cb(null, '', '');
-          }
-          return undefined as never;
-        }
-        cb(null, '', '');
-        return undefined as never;
-      },
-    );
+    mockedExecFile.mockImplementation(() => {
+      processStarts += 1;
+      throw new Error('the ledger-only cancel started a process');
+    });
 
     await handleInit({ featureId, workflowType: 'feature' }, stateDir, store);
     await setDelegateState();
@@ -111,11 +79,24 @@ describe('v2.12 cancellation process manager (DR-7)', () => {
     await writeFile(file, JSON.stringify(state, null, 2), 'utf8');
   }
 
+  async function cancelIdOf(): Promise<string> {
+    const file = join(stateDir, `${featureId}.state.json`);
+    const state = JSON.parse(await readFile(file, 'utf8')) as Record<string, unknown>;
+    const phaseAttemptId = allocatePhaseAttemptId(
+      featureId,
+      'delegate',
+      'cancelled',
+      state.phaseAttemptId,
+      Number(state._version ?? 1),
+    );
+    return `cancel:${phaseAttemptId}`;
+  }
+
   it('CancelInitialRequest_IsDurableBeforeCompensationIntentAndEffect', async () => {
     const result = await handleCancel({ featureId }, stateDir, store);
 
     expect(result.success).toBe(true);
-    expect(branchDeleteCalls).toBe(1);
+    expect(processStarts).toBe(0);
     const events = await store.query(featureId);
     const requested = events.find((event) => event.type === 'cancel.requested');
     const firstIntent = events.find(
@@ -164,12 +145,11 @@ describe('v2.12 cancellation process manager (DR-7)', () => {
       success: false,
       error: { code: 'EVENT_APPEND_FAILED' },
     });
-    expect(branchDeleteCalls).toBe(1);
 
     vi.restoreAllMocks();
     const retried = await handleCancel({ featureId }, stateDir, store);
     expect(retried.success).toBe(true);
-    expect(branchDeleteCalls).toBe(1);
+    expect(processStarts).toBe(0);
 
     const events = await store.query(featureId);
     const integrationOutcomes = events.filter(
@@ -180,8 +160,25 @@ describe('v2.12 cancellation process manager (DR-7)', () => {
     expect(integrationOutcomes).toHaveLength(1);
   });
 
-  it('CancelFailedEffect_RecordsFailureAndNeverReadiness', async () => {
-    branchDeleteFails = true;
+  /**
+   * An earlier attempt of this cancel recorded a failed branch removal. The ledger-only retry does not
+   * upgrade it: each attempt fails again, the saga escalates, and no readiness proof lands.
+   */
+  it('CancelPriorFailedRemoval_StaysAFailureAndNeverReadiness', async () => {
+    const cancelId = await cancelIdOf();
+    await store.append(featureId, {
+      type: 'cancel.compensation-failed',
+      data: {
+        eventVersion: '1.0',
+        cancelId,
+        featureId,
+        phaseAttemptId: cancelId.slice('cancel:'.length),
+        actionId: 'delegate:delete-integration-branch',
+        reason: 'effect-failed',
+        message: 'branch delete failed',
+        failedAt: new Date().toISOString(),
+      },
+    });
 
     const result = await handleCancel({ featureId }, stateDir, store);
 
@@ -189,16 +186,23 @@ describe('v2.12 cancellation process manager (DR-7)', () => {
       success: false,
       error: { code: 'COMPENSATION_PARTIAL' },
     });
+    expect(processStarts).toBe(0);
     const events = await store.query(featureId);
-    expect(events).toContainEqual(
-      expect.objectContaining({
-        type: 'cancel.compensation-failed',
-        data: expect.objectContaining({
-          actionId: 'delegate:delete-integration-branch',
-          reason: 'effect-failed',
-        }),
-      }),
+    const failures = events.filter(
+      (event) =>
+        event.type === 'cancel.compensation-failed'
+        && event.data?.actionId === 'delegate:delete-integration-branch',
     );
+    expect(failures.length).toBeGreaterThan(1);
+    for (const failure of failures.slice(1)) {
+      expect(failure.data?.message).toContain('branch delete failed');
+    }
+    expect(events.some(
+      (event) =>
+        event.type === 'cancel.compensation-completed'
+        && event.data?.actionId === 'delegate:delete-integration-branch',
+    )).toBe(false);
+    expect(events.some((event) => event.type === 'cancel.manual-intervention-required')).toBe(true);
     expect(events.some((event) => event.type === 'cancel.ready')).toBe(false);
     expect(events.some((event) => event.type === 'workflow.cancel')).toBe(false);
   });
@@ -214,7 +218,7 @@ describe('v2.12 cancellation process manager (DR-7)', () => {
       success: false,
       error: { code: 'EVENT_APPEND_FAILED' },
     });
-    expect(branchDeleteCalls).toBe(0);
+    expect(processStarts).toBe(0);
     expect(
       (await store.query(featureId)).some((event) =>
         event.type.startsWith('cancel.compensation-')),
@@ -222,16 +226,7 @@ describe('v2.12 cancellation process manager (DR-7)', () => {
   });
 
   it('CancelMalformedReplay_RecordsExplicitFailureAndFailsClosed', async () => {
-    const file = join(stateDir, `${featureId}.state.json`);
-    const state = JSON.parse(await readFile(file, 'utf8')) as Record<string, unknown>;
-    const phaseAttemptId = allocatePhaseAttemptId(
-      featureId,
-      'delegate',
-      'cancelled',
-      state.phaseAttemptId,
-      Number(state._version ?? 1),
-    );
-    const cancelId = `cancel:${phaseAttemptId}`;
+    const cancelId = await cancelIdOf();
     await store.append(featureId, {
       type: 'cancel.compensation-completed',
       data: {
@@ -247,7 +242,7 @@ describe('v2.12 cancellation process manager (DR-7)', () => {
       success: false,
       error: { code: 'COMPENSATION_PARTIAL' },
     });
-    expect(branchDeleteCalls).toBe(0);
+    expect(processStarts).toBe(0);
     expect(await store.query(featureId)).toContainEqual(
       expect.objectContaining({
         type: 'cancel.compensation-failed',
@@ -314,7 +309,6 @@ describe('v2.12 cancellation process manager (DR-7)', () => {
     });
     expect((await store.query(featureId)).some((event) => event.type === 'cancel.ready'))
       .toBe(true);
-    expect(branchDeleteCalls).toBe(1);
 
     vi.restoreAllMocks();
     store.close();
@@ -323,7 +317,7 @@ describe('v2.12 cancellation process manager (DR-7)', () => {
     const replayed = await invoke();
 
     expect(replayed.success).toBe(true);
-    expect(branchDeleteCalls).toBe(1);
+    expect(processStarts).toBe(0);
     const events = await store.query(featureId);
     expect(events.filter((event) => event.type === 'cancel.requested')).toHaveLength(1);
     expect(events.filter((event) => event.type === 'cancel.ready')).toHaveLength(1);

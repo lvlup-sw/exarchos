@@ -5,7 +5,8 @@
  *
  * Rule 1: a worktree-mutating git argv literal under `src/orchestrate/`,
  * `src/verbs/`, or in `src/workflow/compensation.ts` is legal only in a file of
- * `WIRED_ALLOWLIST`. Each wired file must also call its retry idiom.
+ * `WIRED_ALLOWLIST`. Each wired file must also call its retry idiom. The
+ * ledger-only cancel compensation holds no such literal, so it is not wired.
  *
  * Rule 2: a `content/` line that names `merge_orchestrate` in an integration
  * context must also name `serialize_merge`.
@@ -143,11 +144,10 @@ const WORKTREE_MUTATION_RE = /\[\s*['"]worktree['"]\s*,\s*['"](?:add|remove|prun
 
 /**
  * The wired files and the retry idiom that each must call. Paths are relative to
- * the source root and use POSIX separators.
+ * the source root and use POSIX separators. No live file runs a worktree
+ * mutation, so the map is empty.
  */
-const WIRED_IDIOM_REQUIREMENTS = new Map([
-  ['workflow/compensation.ts', /\bwithIndexLockRetry\s*\(/],
-]);
+const WIRED_IDIOM_REQUIREMENTS = new Map();
 /**
  * The files that can hold a worktree-mutating literal. `git-retry.ts` defines
  * the idioms, so it has no idiom requirement.

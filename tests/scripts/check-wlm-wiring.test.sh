@@ -19,7 +19,7 @@ check() { # <description> <expected-exit> <actual-exit>
 }
 
 # ── WiringGate_NakedWorktreeMutation_Fails ──────────────────────────────────
-# A file under orchestrate/ that is not one of the 2 wired files holds a naked
+# A file under orchestrate/ that is not a wired file holds a naked
 # worktree-mutating git spawn. The gate must fail.
 mkdir -p "$TMP/naked/orchestrate"
 cat > "$TMP/naked/orchestrate/reap-worktree.ts" <<'EOF'
@@ -36,18 +36,17 @@ check "WiringGate_NakedWorktreeMutation_Fails" 1 "$naked_exit"
 grep -q "rule1-naked-worktree-mutation" /tmp/wlm-naked.out || { echo "  FAIL: missing rule1-naked-worktree-mutation tag"; fail=$((fail + 1)); }
 
 # ── WiringGate_WrappedIdioms_Pass ───────────────────────────────────────────
-# The fixture holds the 2 wired files with their retry idioms. The gate must
-# pass. The paths match the allowlist of the gate.
+# The fixture holds the wired file that defines the retry idioms, and a
+# ledger-only compensation module with no worktree mutation. The gate must
+# pass. The paths match the allowlist and the walked scope of the gate.
 mkdir -p "$TMP/wrapped/verbs/worktree" "$TMP/wrapped/workflow"
 cat > "$TMP/wrapped/verbs/worktree/git-retry.ts" <<'EOF'
 export async function withIndexLockRetry(op: () => Promise<unknown>) { return op(); }
 export function withIndexLockRetrySync<T>(op: () => T): T { return op(); }
 EOF
 cat > "$TMP/wrapped/workflow/compensation.ts" <<'EOF'
-import { withIndexLockRetry } from '../verbs/worktree/git-retry.js';
-async function runCommand(cmd: string, args: readonly string[]) { return { status: 0 }; }
-export async function cleanupWorktree(worktreePath: string) {
-  return withIndexLockRetry(() => runCommand('git', ['worktree', 'remove', worktreePath, '--force']));
+export function recordWorktree(worktreePath: string) {
+  return { kind: 'worktree', ref: worktreePath, status: 'outstanding' };
 }
 EOF
 set +e
@@ -56,6 +55,24 @@ wrapped_exit=$?
 set -e
 check "WiringGate_WrappedIdioms_Pass" 0 "$wrapped_exit"
 [[ "$wrapped_exit" == "0" ]] || cat /tmp/wlm-wrapped.out
+
+# ── WiringGate_CompensationWorktreeMutation_Fails ───────────────────────────
+# The cancel compensation is ledger-only and is not a wired file. A worktree
+# removal in it, even inside the retry idiom, must fail.
+mkdir -p "$TMP/compensation/workflow"
+cat > "$TMP/compensation/workflow/compensation.ts" <<'EOF'
+import { withIndexLockRetry } from '../verbs/worktree/git-retry.js';
+async function runCommand(cmd: string, args: readonly string[]) { return { status: 0 }; }
+export async function cleanupWorktree(worktreePath: string) {
+  return withIndexLockRetry(() => runCommand('git', ['worktree', 'remove', worktreePath, '--force']));
+}
+EOF
+set +e
+node "$GATE" --src-root "$TMP/compensation" >/tmp/wlm-compensation.out 2>&1
+compensation_exit=$?
+set -e
+check "WiringGate_CompensationWorktreeMutation_Fails" 1 "$compensation_exit"
+grep -q "workflow/compensation.ts:.*rule1-naked-worktree-mutation" /tmp/wlm-compensation.out || { echo "  FAIL: compensation.ts site not reported"; fail=$((fail + 1)); }
 
 # ── WiringGate_SkillRawMergeOrchestrate_Fails ───────────────────────────────
 # A content fixture directs a raw `merge_orchestrate` at an integration merge,
@@ -98,8 +115,8 @@ check "skills fixture with serialize_merge caveat passes" 0 "$goodskill_exit"
 # ── WiringGate_MergeSeamOutsideWorktreeDir_StillInScope ─────────────────────
 # A naked worktree-mutating git spawn sits directly under orchestrate/, not
 # under orchestrate/worktree/. The gate must walk the file and fail. The path
-# orchestrate/merge-orchestrate.ts is not one of the 2 wired files, so no
-# allowlist entry covers it.
+# orchestrate/merge-orchestrate.ts is not a wired file, so no allowlist entry
+# covers it.
 mkdir -p "$TMP/seam/orchestrate"
 cat > "$TMP/seam/orchestrate/merge-orchestrate.ts" <<'EOF'
 import { execFileSync } from 'node:child_process';

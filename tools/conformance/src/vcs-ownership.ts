@@ -68,8 +68,7 @@ export interface VcsOwnershipResult {
 
 /**
  * The modules that can mutate git worktrees, branches and merges directly. `vcs/mutation-owner.ts`
- * is the canonical owner, with idempotency, fencing and compensation. The saga compensation
- * teardown is an older owner.
+ * is the canonical owner, with idempotency, fencing and compensation.
  *
  * `verbs/pure/execute-merge.ts` runs `git merge --abort`, which reverses a merge, so it cannot use
  * the create-shaped idempotency of the owner. A new mutating module fails the census until it is
@@ -78,7 +77,6 @@ export interface VcsOwnershipResult {
 export const VCS_MUTATION_OWNERS: readonly string[] = Object.freeze([
   'verbs/pure/execute-merge.ts',
   'vcs/mutation-owner.ts',
-  'workflow/compensation.ts',
 ]);
 
 /**

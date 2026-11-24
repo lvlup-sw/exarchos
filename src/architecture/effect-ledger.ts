@@ -671,13 +671,6 @@ function registerLedger(): readonly EffectOwnershipRule[] {
     ),
     rule(
       'process',
-      'workflow/compensation.ts',
-      'compensation-process-owner',
-      'idempotent: teardown re-run is a no-op when already absent',
-      'this IS the compensation effect (saga repair)',
-    ),
-    rule(
-      'process',
       'verbs/',
       'orchestrate-process-owner',
       'per-call: orchestrate probes/gates own their re-run semantics',

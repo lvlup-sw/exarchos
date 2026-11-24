@@ -345,23 +345,23 @@ export const EVENT_ANNOTATIONS: Readonly<Record<string, EventRegistration>> = Ob
     rationale: 'operation-record',
   },
   /**
-   * The two-event VCS operations. `*.requested` records the intent before the effect, which is
-   * not idempotent. `*.executed` records the result. `worktree.remove.executed` has a consumer
-   * fold, so it is a `capability` entry.
+   * Retired with the ledger-only cancel. The cancel compensator wrote these two-event VCS operations,
+   * and now it records its resources in `workflow.compensation`. The schemas stay so that old logs
+   * replay the same, but no code writes these events.
    */
   'branch.delete.requested': {
-    lifecycle: 'active',
+    lifecycle: 'retired',
     tier: 'substrate',
     rationale: 'operation-record',
   },
   'branch.delete.executed': {
-    lifecycle: 'active',
+    lifecycle: 'retired',
     tier: 'substrate',
     rationale: 'operation-record',
   },
-  /** The cancel compensator of `exarchos_workflow.cancel` appends it before it removes a worktree. */
+  /** Retired with the ledger-only cancel. The schema stays so that old logs replay the same, but no code writes this event. */
   'worktree.remove.requested': {
-    lifecycle: 'active',
+    lifecycle: 'retired',
     tier: 'substrate',
     rationale: 'operation-record',
   },
@@ -577,11 +577,11 @@ export const EVENT_ANNOTATIONS: Readonly<Record<string, EventRegistration>> = Ob
     consumedBy: ['merge-orchestrator@v1', 'rehydration@v1', 'workflow-state@v1'],
   },
   /**
-   * The cancel compensator of `exarchos_workflow.cancel` appends it after a worktree removal. The
-   * retired `prune_worktrees` action also wrote it, and old rows of both writers fold the same.
+   * Retired with the ledger-only cancel. The cancel compensator and the retired `prune_worktrees`
+   * action wrote it. The schema and the `worktrees@v1` fold stay, so old rows of both writers fold the same.
    */
   'worktree.remove.executed': {
-    lifecycle: 'active',
+    lifecycle: 'retired',
     tier: 'capability',
     provider: 'exarchos_workflow',
     consumedBy: ['worktrees@v1'],

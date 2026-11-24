@@ -898,6 +898,19 @@ decisions:
       The invariant catalog re-points INV-10, INV-13 and INV-14 off the deleted module. The measured floors of the primary-owner population, the autoEmits population, the emission denominator, the emitter closure, the provider areas, the public-root action coverage, the oracle subjects and the output-schema census fall with the two actions.
     status: "Committed on codex/1928-s5-worktrees-merges-cancel. The contract authority lock and the merge.executed seed entry wait for Reed."
 
+  - date: "2026-11-23"
+    source: "#1928 revision 26, slice S5 step T-37, the conception of 2026-11-23 (the harness removes the resources of a cancelled workflow)."
+    decision: >-
+      A cancellation starts no process. compensation.ts no longer runs gh pr close, git branch -D, git push origin --delete or git worktree remove. Each of the four actions keeps its action id, reads its resources from the workflow state and records each one as outstanding. The reply returns the status and the resources of each action that the call records, and an action that an earlier call of the same cancel completed keeps the replay result.
+      The final cancel trail holds one workflow.compensation row for each action, with the new outstanding status and a resources list. cancel.compensation-completed takes the status outstanding. Both schema changes only add values, so old rows parse the same.
+      The cancel does not ask whether a branch or a worktree exists, so a missing resource stays outstanding and never reads as a completion. A prior effect failure of an action in the same cancel stays a failure on each retry, so the saga escalates to manual intervention. A malformed prior outcome is not a removal failure.
+      Worktree reservations stay outstanding after a cancel. release_worktree or reconcile_worktrees clears them.
+    known: >-
+      The emitter closure audit forced the branch.delete and worktree.remove declarations out of exarchos_workflow.cancel, because compensation.ts was their only appender. The four events are retired as emissions and keep their schemas, readers and the worktrees@v1 fold, so old logs read the same. worktree.adopted moved onto the unresolved-append allowance, because its remaining append in manager.ts commits through decide.
+      The effect ledger loses the workflow/compensation.ts process rule, vcs-ownership loses the compensation owner, and the WLM wiring gate no longer wires compensation.ts but still scans it. manager.ts loses defaultGitRunner, gitCapture and its spawn import. withIndexLockRetry in git-retry.ts has no production caller now, and T-38 owns it.
+      The measured floors of the primary-owner population, the emission denominator, the emitter closure, the provider areas and the cast census fall with the deleted appends, and the stale-cover eligible pin moves from 27 to 26.
+    status: "Committed on codex/1928-s5-worktrees-merges-cancel."
+
 build_order:
   original: "kernel -> capsule contract -> prepare/settle -> one runtime adapter -> divergence loop -> #1249 laws -> second adapter"
   legs:

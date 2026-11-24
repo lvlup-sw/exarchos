@@ -4,7 +4,7 @@
  * A seed writes the rows and the document through the handlers. A forge then changes the document only, or appends a row only.
  * The fold gives the source phase, the phase attempt id and the terminal check. `phaseMoveEvents` gives the trail of the move.
  *
- * The subprocess mock refuses unexpected commands. Resource cases supply explicit responses without external effects.
+ * The cancel is ledger-only, so the subprocess mock refuses every command. Resource cases record each start and expect none.
  *
  * @oracle-sources: ../../../src/workflow/phase-attempt-id.ts, hand-seeded stream rows
  */
@@ -18,7 +18,7 @@ vi.mock('child_process', async () => {
   return { ...actual, execFile: vi.fn(() => { throw new Error('Unexpected subprocess'); }) };
 });
 
-import { ChildProcess, execFile } from 'child_process';
+import { execFile } from 'child_process';
 
 import type { WorkflowEvent } from '../../../src/events/schemas.js';
 import { EventStore } from '../../../src/events/store.js';
@@ -54,7 +54,7 @@ const SEEDED_ATTEMPT_ID = `phase-attempt:${'c4'.repeat(32)}`;
 /** The result type of the legacy guard. */
 type LegacyAttempt = Awaited<ReturnType<typeof hsmTransitionGuard.attempt>>;
 
-/** The integration branch of the saga case. Its delete fails in the fake `execFile`. */
+/** The integration branch of the saga case. The cancel records it as outstanding. */
 const INTEGRATION_BRANCH = 'integrate/cancel-decide';
 
 /** Each release of the current case, in the order of creation. The teardown runs them in reverse order. */
@@ -171,31 +171,18 @@ function cancelInsideTheFirstRead(store: CancelStore): () => ToolResult | undefi
   return () => inner;
 }
 
-/**
- * Gives `execFile` a fake for one case. A branch lookup finds each branch, and each branch delete fails.
- * A remote lookup reports no branch. Each other command fails. The result gives the count of the branch deletes.
- */
-function failEachBranchDelete(): () => number {
-  let branchDeletes = 0;
-  const fake = (_file: string, args?: unknown, options?: unknown, callback?: unknown): ChildProcess => {
-    const done = typeof options === 'function' ? options : callback;
-    const argv: readonly unknown[] = Array.isArray(args) ? args : [];
-    let error: Error | null = null;
-    let stdout = '';
-    if (_file !== 'git' || !['rev-parse', 'ls-remote', 'branch'].includes(String(argv[0]))) throw new Error('Unexpected subprocess');
-    if (argv.includes('rev-parse') && argv.includes('--verify')) stdout = 'abc123\n';
-    if (argv.includes('branch') && argv.includes('-D')) {
-      branchDeletes += 1;
-      error = new Error('branch delete failed');
+/** Makes the first durable completion of the worktree action fail once, after the integration-branch completion is durable. */
+function crashTheFirstWorktreeCompletion(store: CancelStore): void {
+  const appender = store.eventStore.getAppender();
+  const original = appender.decideOnce.bind(appender);
+  let crashed = false;
+  replaceMethod(appender, 'decideOnce', async (operationId, requestDigest, closure) => {
+    if (!crashed && operationId.includes('delegate:cleanup-worktrees') && operationId.endsWith(':completed')) {
+      crashed = true;
+      throw new Error('simulated crash before the worktree completion');
     }
-    if (typeof done === 'function') Reflect.apply(done, undefined, [error, stdout, '']);
-    return new ChildProcess();
-  };
-  vi.mocked(execFile).mockImplementation(fake);
-  releases.push(() => {
-    vi.mocked(execFile).mockImplementation(() => { throw new Error('Unexpected subprocess'); });
+    return original(operationId, requestDigest, closure);
   });
-  return () => branchDeletes;
 }
 
 /**
@@ -411,27 +398,31 @@ describe('the cancel handler decides on the ledger fold', () => {
   });
 
   /**
-   * The stream has no phase attempt id. The first cancel meets a failed branch delete, and the retry runs.
+   * The stream has no phase attempt id. The first cancel crashes before a durable completion, and the retry runs.
    * The saga rows of the first cancel do not change the phase attempt id, so the retry continues the same saga.
-   * The stream holds one cancel id, three branch deletes and one manual-intervention row.
+   * The stream holds one cancel id and one completion of the integration-branch action.
    */
   it('HandleCancel_ARetryOnAStreamWithNoAttemptId_KeepsOneCancelId', async () => {
     const store = await openStore();
     await featureAtDelegateWithNoAttemptId(store);
-    const branchDeletes = failEachBranchDelete();
+    crashTheFirstWorktreeCompletion(store);
     expect((await rowsOf(store)).map((row) => recordOf(row.data).phaseAttemptId).filter((id) => id !== undefined)).toEqual([]);
     expect((await documentOf(store)).phaseAttemptId).toBeUndefined();
 
     const first = await handleCancel({ featureId: FEATURE_ID }, store.stateDir, store.eventStore);
     const second = await handleCancel({ featureId: FEATURE_ID }, store.stateDir, store.eventStore);
 
-    expect(second.error?.code).toBe('COMPENSATION_PARTIAL');
-    expect(first.error?.code).toBe('COMPENSATION_PARTIAL');
+    expect(first.error?.code).toBe('EVENT_APPEND_FAILED');
+    expect(second.success).toBe(true);
     const rows = await rowsOf(store);
     const cancelIds = new Set(rows.filter((row) => row.type === 'cancel.requested').map((row) => recordOf(row.data).cancelId));
     expect(cancelIds.size).toBe(1);
-    expect(branchDeletes()).toBe(3);
-    expect(rows.filter((row) => row.type === 'cancel.manual-intervention-required')).toHaveLength(1);
+    const integrationCompletions = rows.filter(
+      (row) => row.type === 'cancel.compensation-completed' && recordOf(row.data).actionId === 'delegate:delete-integration-branch',
+    );
+    expect(integrationCompletions).toHaveLength(1);
+    expect(recordOf(integrationCompletions[0]?.data).status).toBe('outstanding');
+    expect(vi.mocked(execFile)).not.toHaveBeenCalled();
   });
 
   /**
@@ -580,25 +571,13 @@ async function seedLedgerResources(store: CancelStore): Promise<void> {
   await appendRow(store, 'state.patched', { patch: structuredClone(LEDGER_RESOURCES) });
 }
 
-/** Emulates only the resource commands of these fixtures and records each command. No subprocess runs. */
-function stubResourceCommands(): string[][] {
+/** Records each subprocess start of a case and fails it. The ledger-only cancel starts none. */
+function recordProcessStarts(): string[][] {
   const calls: string[][] = [];
-  vi.mocked(execFile).mockImplementation((file: string, args?: unknown, options?: unknown, callback?: unknown) => {
+  vi.mocked(execFile).mockImplementation((file: string, args?: unknown) => {
     const argv = Array.isArray(args) ? args.map(String) : [];
     calls.push([file, ...argv]);
-    const done = typeof options === 'function' ? options : callback;
-    let stdout: string;
-    if (file === 'gh' && argv[0] === 'pr' && argv[1] === 'view') stdout = 'OPEN';
-    else if (file === 'gh' && argv[0] === 'pr' && argv[1] === 'close') stdout = '';
-    else if (file === 'git' && argv[0] === 'rev-parse' && argv[1] === '--verify') stdout = 'abc123';
-    else if (file === 'git' && argv[0] === 'ls-remote' && argv[1] === '--heads') stdout = '';
-    else if (file === 'git' && argv[0] === 'branch' && argv[1] === '-D') stdout = '';
-    else if (file === 'git' && argv.join(' ') === 'worktree list') stdout = '/absent-cancel-ledger/worktree abc123 [task/ledger]';
-    else if (file === 'git' && argv[0] === 'worktree' && argv[1] === 'remove') stdout = '';
-    else throw new Error(`Unexpected subprocess: ${file} ${argv.join(' ')}`);
-    if (typeof done !== 'function') throw new Error('Missing subprocess callback');
-    Reflect.apply(done, undefined, [null, stdout, '']);
-    return new ChildProcess();
+    throw new Error(`Unexpected subprocess: ${file} ${argv.join(' ')}`);
   });
   releases.push(() => vi.mocked(execFile).mockImplementation(() => { throw new Error('Unexpected subprocess'); }));
   return calls;
@@ -615,7 +594,7 @@ describe('Cancellation resource authority', () => {
     await seedLedgerResources(store);
     await forgeDocument(store, (document) => ({ ...document, operatorNote: { owner: 'document' }, _compensationCheckpoint: { completedActions: ['kept-operational-marker'] } }));
     const before = await documentOf(store);
-    const calls = stubResourceCommands();
+    const calls = recordProcessStarts();
     const original = compensation.executeCompensation;
     let selected: Record<string, unknown> | undefined;
     vi.spyOn(compensation, 'executeCompensation').mockImplementation(async (...args) => {
@@ -630,11 +609,32 @@ describe('Cancellation resource authority', () => {
       expect(selected![key]).toEqual(before[key]);
     }
     expect(selected!._events).toEqual(before._events);
-    expect(calls.filter((call) => call.includes('-D') || call.includes('close') || call.includes('remove'))).toEqual([
-      ['gh', 'pr', 'close', '--comment', 'Cancelled via compensation', '--', 'https://example.invalid/pull/17'],
-      ['git', 'branch', '-D', 'integrate/ledger'],
-      ['git', 'worktree', 'remove', '/absent-cancel-ledger/worktree', '--force'],
-      ['git', 'branch', '-D', 'task/ledger'],
+    expect(calls).toEqual([]);
+    expect(recordOf(result.data).actions).toEqual([
+      {
+        actionId: 'synthesize:close-pr',
+        status: 'outstanding',
+        message: 'Recorded PR as outstanding: https://example.invalid/pull/17',
+        resources: [{ kind: 'pull-request', ref: 'https://example.invalid/pull/17', status: 'outstanding' }],
+      },
+      {
+        actionId: 'delegate:delete-integration-branch',
+        status: 'outstanding',
+        message: 'Recorded integration branch as outstanding: integrate/ledger',
+        resources: [{ kind: 'integration-branch', ref: 'integrate/ledger', status: 'outstanding' }],
+      },
+      {
+        actionId: 'delegate:cleanup-worktrees',
+        status: 'outstanding',
+        message: 'Recorded 1 worktree(s) as outstanding: /absent-cancel-ledger/worktree',
+        resources: [{ kind: 'worktree', ref: '/absent-cancel-ledger/worktree', status: 'outstanding' }],
+      },
+      {
+        actionId: 'delegate:delete-feature-branches',
+        status: 'outstanding',
+        message: 'Recorded 1 feature branch(es) as outstanding: task/ledger',
+        resources: [{ kind: 'feature-branch', ref: 'task/ledger', status: 'outstanding' }],
+      },
     ]);
     expect(closingCancelRowOf(await rowsOf(store))).toMatchObject({ from: 'synthesize', to: 'cancelled' });
     expect(resourcesOf(await documentOf(store))).toEqual({ ...LEDGER_RESOURCES, tasks: [{ id: 'live', title: 'Ledger task', status: 'complete', branch: 'task/ledger', blockedBy: [] }] });
@@ -648,17 +648,17 @@ describe('Cancellation resource authority', () => {
     await appendRow(store, 'workflow.transition', { from: 'plan', to: 'synthesize', featureId: FEATURE_ID });
     await forgeDocument(store, (document) => ({ ...document, ...structuredClone(LEDGER_RESOURCES), synthesis: { ...LEDGER_RESOURCES.synthesis, obsolete: { branch: 'obsolete' } } }));
     await appendRow(store, 'state.patched', { patch: { worktrees: {}, tasks: [], synthesis: {} } });
-    const calls = stubResourceCommands();
+    const calls = recordProcessStarts();
     const capture = vi.spyOn(compensation, 'executeCompensation');
     const result = await handleCancel({ featureId: FEATURE_ID, dryRun }, store.stateDir, store.eventStore);
     expect(result.success).toBe(true);
     expect(resourcesOf(capture.mock.calls[0]![0])).toEqual({ worktrees: {}, tasks: [], synthesis: { integrationBranch: null, prUrl: null, mergeOrder: [], mergedBranches: [], prFeedback: [] } });
     expect(calls).toEqual([]);
     expect(recordOf(result.data).actions).toEqual([
-      { actionId: 'synthesize:close-pr', status: 'skipped', message: dryRun ? 'No PR to close' : 'Already completed (event replay)' },
-      { actionId: 'delegate:delete-integration-branch', status: 'skipped', message: dryRun ? 'No integration branch to delete' : 'Already completed (event replay)' },
-      { actionId: 'delegate:cleanup-worktrees', status: 'skipped', message: dryRun ? 'No worktrees to clean up' : 'Already completed (event replay)' },
-      { actionId: 'delegate:delete-feature-branches', status: 'skipped', message: dryRun ? 'No feature branches to delete' : 'Already completed (event replay)' },
+      { actionId: 'synthesize:close-pr', status: 'skipped', message: 'No PR to close' },
+      { actionId: 'delegate:delete-integration-branch', status: 'skipped', message: 'No integration branch to delete' },
+      { actionId: 'delegate:cleanup-worktrees', status: 'skipped', message: 'No worktrees to clean up' },
+      { actionId: 'delegate:delete-feature-branches', status: 'skipped', message: 'No feature branches to delete' },
     ]);
   });
 
@@ -670,14 +670,34 @@ describe('Cancellation resource authority', () => {
     await writeStateFile(stateFileOf(store), document);
     const before = await readFile(stateFileOf(store), 'utf8');
     const rows = await rowsOf(store);
-    const calls = stubResourceCommands();
+    const calls = recordProcessStarts();
     const result = await handleCancel({ featureId: FEATURE_ID, dryRun: true }, store.stateDir, store.eventStore);
     expect(result.success).toBe(true);
     expect(recordOf(result.data).actions).toEqual([
-      { actionId: 'synthesize:close-pr', status: 'dry-run', message: 'Would close PR: https://example.invalid/pull/17' },
-      { actionId: 'delegate:delete-integration-branch', status: 'dry-run', message: 'Would delete branch: integrate/ledger' },
-      { actionId: 'delegate:cleanup-worktrees', status: 'dry-run', message: 'Would remove worktrees for branches: task/ledger' },
-      { actionId: 'delegate:delete-feature-branches', status: 'dry-run', message: 'Would delete branches: task/ledger' },
+      {
+        actionId: 'synthesize:close-pr',
+        status: 'dry-run',
+        message: 'Would record PR as outstanding: https://example.invalid/pull/17',
+        resources: [{ kind: 'pull-request', ref: 'https://example.invalid/pull/17', status: 'outstanding' }],
+      },
+      {
+        actionId: 'delegate:delete-integration-branch',
+        status: 'dry-run',
+        message: 'Would record integration branch as outstanding: integrate/ledger',
+        resources: [{ kind: 'integration-branch', ref: 'integrate/ledger', status: 'outstanding' }],
+      },
+      {
+        actionId: 'delegate:cleanup-worktrees',
+        status: 'dry-run',
+        message: 'Would record 1 worktree(s) as outstanding: /absent-cancel-ledger/worktree',
+        resources: [{ kind: 'worktree', ref: '/absent-cancel-ledger/worktree', status: 'outstanding' }],
+      },
+      {
+        actionId: 'delegate:delete-feature-branches',
+        status: 'dry-run',
+        message: 'Would record 1 feature branch(es) as outstanding: task/ledger',
+        resources: [{ kind: 'feature-branch', ref: 'task/ledger', status: 'outstanding' }],
+      },
     ]);
     expect(await readFile(stateFileOf(store), 'utf8')).toBe(before);
     expect(await rowsOf(store)).toEqual(rows);
@@ -719,7 +739,7 @@ describe('Cancellation resource authority', () => {
     if (route === 'custom') await writeStateFile(stateFileOf(store), { ...(await documentOf(store)), workflowType: 'custom' }, { skipValidation: true });
     const before = await documentOf(store);
     const capture = vi.spyOn(compensation, 'executeCompensation');
-    const calls = stubResourceCommands();
+    const calls = recordProcessStarts();
     const result = await handleCancel({ featureId: FEATURE_ID, dryRun: true }, store.stateDir, route === 'no-store' ? null : store.eventStore);
     expect(result.success).toBe(true);
     expect(resourcesOf(capture.mock.calls[0]![0])).toEqual(LEDGER_RESOURCES);

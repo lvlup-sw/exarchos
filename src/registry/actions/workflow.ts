@@ -61,42 +61,6 @@ const CANCEL_EMISSIONS: readonly [ActionEmission, ...ActionEmission[]] = [
     role: 'primary',
     owner: 'workflow',
   },
-  /**
-   * The branch-deletion compensator records its intent and then its result. A dry run, an earlier
-   * failure, or a phase that never orders the deletion leaves both events absent.
-   */
-  {
-    event: 'branch.delete.requested',
-    condition: 'conditional',
-    description: 'Before the compensator deletes a feature branch',
-    role: 'primary',
-    owner: 'workflow',
-  },
-  {
-    event: 'branch.delete.executed',
-    condition: 'conditional',
-    description: 'After the compensator deletes a feature branch',
-    role: 'primary',
-    owner: 'workflow',
-  },
-  /**
-   * The worktree-removal compensator records its intent and then its result. A dry run, an earlier
-   * failure, or a phase that never orders the removal leaves both events absent.
-   */
-  {
-    event: 'worktree.remove.requested',
-    condition: 'conditional',
-    description: 'Before the compensator removes a feature worktree',
-    role: 'primary',
-    owner: 'workflow',
-  },
-  {
-    event: 'worktree.remove.executed',
-    condition: 'conditional',
-    description: 'After the compensator removes a feature worktree',
-    role: 'primary',
-    owner: 'workflow',
-  },
 ];
 
 const CLEANUP_EMISSIONS: readonly [ActionEmission, ...ActionEmission[]] = [

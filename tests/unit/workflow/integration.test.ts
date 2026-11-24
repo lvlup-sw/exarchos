@@ -332,13 +332,12 @@ describe('Integration', () => {
     });
   });
 
-  describe('Compensation_WorkflowWithSideEffects_CleansUpOnCancel', () => {
+  describe('Compensation_WorkflowWithSideEffects_RecordsResourcesOnCancel', () => {
     /**
-     * Compensation deletes real branches and checks the result.
-     * So the test gives it a git repository with the two task branches and a bare `origin` remote.
-     * Without them, cancel reports a compensation failure.
+     * The test gives the cancel a real repository with the two task branches and a bare `origin` remote.
+     * The cancel is ledger-only, so both branches stay in the repository and on `origin`, and the trail records them as outstanding.
      */
-    it('should run compensation actions and log events on cancel', async () => {
+    it('should record each resource as outstanding and leave the branches in place on cancel', async () => {
       const eventStore = new EventStore(stateDir);
 
       const git = async (...args: string[]): Promise<void> => {
@@ -420,6 +419,18 @@ describe('Integration', () => {
 
       const actions = cancelData.actions as Array<Record<string, unknown>>;
       expect(actions.length).toBeGreaterThan(0);
+      const branchAction = actions.find((a) => a.actionId === 'delegate:delete-feature-branches');
+      expect(branchAction?.status).toBe('outstanding');
+      expect(branchAction?.resources).toEqual([
+        { kind: 'feature-branch', ref: 'feat/task-1', status: 'outstanding' },
+        { kind: 'feature-branch', ref: 'feat/task-2', status: 'outstanding' },
+      ]);
+
+      for (const branch of ['feat/task-1', 'feat/task-2']) {
+        await git('rev-parse', '--verify', branch);
+        const remote = await execFileAsync('git', ['ls-remote', '--heads', 'origin', branch], { cwd: stateDir });
+        expect(remote.trim().length, `${branch} is still on origin`).toBeGreaterThan(0);
+      }
 
       const getResult = await handleGet({ featureId: 'cancel-test' }, stateDir, null);
       expect(getResult.success).toBe(true);
@@ -429,6 +440,11 @@ describe('Integration', () => {
       const allEvents = await eventStore.query('cancel-test');
       const cancelEvents = allEvents.filter((e) => e.type === 'workflow.cancel');
       expect(cancelEvents.length).toBeGreaterThan(0);
+      const records = allEvents.filter((e) => e.type === 'workflow.compensation');
+      expect(records.map((e) => (e.data as Record<string, unknown>).status)).toEqual(
+        actions.map((a) => a.status),
+      );
+      expect(allEvents.some((e) => e.type === 'branch.delete.requested')).toBe(false);
     });
   });
 

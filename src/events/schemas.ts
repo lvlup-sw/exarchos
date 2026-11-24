@@ -907,11 +907,25 @@ export const WorkflowCancelData = z.object({
   reason: z.string().optional(),
 });
 
+/**
+ * One compensation action of a cancel. A ledger-only cancel records each resource of the action
+ * as `outstanding`, or as `failed` after a prior failed removal. Rows from before the ledger-only
+ * cancel carry `executed` and no resources, and they parse the same.
+ */
 export const WorkflowCompensationData = z.object({
   featureId: z.string(),
   actionId: z.string(),
-  status: z.enum(['executed', 'skipped', 'failed', 'dry-run']),
+  status: z.enum(['executed', 'skipped', 'outstanding', 'failed', 'dry-run']),
   message: z.string(),
+  resources: z
+    .array(
+      z.object({
+        kind: z.enum(['pull-request', 'integration-branch', 'worktree', 'feature-branch']),
+        ref: z.string(),
+        status: z.enum(['outstanding', 'failed']),
+      }),
+    )
+    .optional(),
 });
 
 const CancellationEventVersionSchema = z.literal('1.0');
@@ -951,7 +965,10 @@ export const CancelCompensationRequestedData = z
   .strict()
   .readonly();
 
-/** Durable successful result for one compensation action. */
+/**
+ * Durable successful result for one compensation action. A ledger-only cancel records `outstanding`.
+ * Rows from before the ledger-only cancel carry `executed` or `skipped`.
+ */
 export const CancelCompensationCompletedData = z
   .object({
     eventVersion: CancellationEventVersionSchema,
@@ -959,7 +976,7 @@ export const CancelCompensationCompletedData = z
     featureId: z.string().min(1),
     phaseAttemptId: PhaseAttemptIdSchema,
     actionId: CancellationActionIdSchema,
-    status: z.enum(['executed', 'skipped']),
+    status: z.enum(['executed', 'skipped', 'outstanding']),
     message: z.string().min(1),
     completedAt: CancellationRecordedAtSchema,
   })

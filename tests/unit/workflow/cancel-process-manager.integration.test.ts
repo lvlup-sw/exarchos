@@ -16,6 +16,7 @@ import { execFile } from 'child_process';
 import { EventStore } from '../../../src/events/store.js';
 import { handleInit } from '../../../src/workflow/tools.js';
 import { handleCancel } from '../../../src/workflow/cancel.js';
+import { allocatePhaseAttemptId } from '../../../src/workflow/phase-attempt-id.js';
 import {
   appendFencedCancelEvent,
   planCancelCompletion,
@@ -50,47 +51,20 @@ describe('cancellation process-manager — integration exit proofs (P04-02)', ()
   let stateDir: string;
   let store: EventStore;
   let featureId: string;
-  let branchExists: boolean;
-  let branchDeleteFails: boolean;
-  let branchDeleteCalls: number;
+  let processStarts: number;
 
+  /** The cancel is ledger-only, so each `execFile` call counts as a fault and fails. */
   beforeEach(async () => {
     stateDir = await mkdtemp(join(tmpdir(), 'cancel-pm-integration-'));
     store = new EventStore(stateDir);
     await store.initialize();
     featureId = `cancel-int-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-    branchExists = true;
-    branchDeleteFails = false;
-    branchDeleteCalls = 0;
+    processStarts = 0;
 
-    mockedExecFile.mockImplementation(
-      (_command: unknown, argsValue: unknown, optionsValue: unknown, callbackValue?: unknown) => {
-        const callback = typeof optionsValue === 'function' ? optionsValue : callbackValue;
-        const args = argsValue as string[];
-        const cb = callback as (error: Error | null, stdout?: string, stderr?: string) => void;
-
-        if (args.includes('rev-parse') && args.includes('--verify')) {
-          if (branchExists) cb(null, 'abc123\n', '');
-          else cb(new Error('not a valid ref'), '', '');
-          return undefined as never;
-        }
-        if (args.includes('ls-remote')) {
-          cb(null, '', '');
-          return undefined as never;
-        }
-        if (args.includes('branch') && args.includes('-D')) {
-          branchDeleteCalls += 1;
-          if (branchDeleteFails) cb(new Error('branch delete failed'), '', '');
-          else {
-            branchExists = false;
-            cb(null, '', '');
-          }
-          return undefined as never;
-        }
-        cb(null, '', '');
-        return undefined as never;
-      },
-    );
+    mockedExecFile.mockImplementation(() => {
+      processStarts += 1;
+      throw new Error('the ledger-only cancel started a process');
+    });
 
     await handleInit({ featureId, workflowType: 'feature' }, stateDir, store);
     await setDelegateState();
@@ -166,16 +140,46 @@ describe('cancellation process-manager — integration exit proofs (P04-02)', ()
     );
   }
 
+  async function seedPriorFailedRemoval(): Promise<void> {
+    const file = join(stateDir, `${featureId}.state.json`);
+    const state = JSON.parse(await readFile(file, 'utf8')) as Record<string, unknown>;
+    const phaseAttemptId = allocatePhaseAttemptId(
+      featureId,
+      'delegate',
+      'cancelled',
+      state.phaseAttemptId,
+      Number(state._version ?? 1),
+    );
+    const cancelId = `cancel:${phaseAttemptId}`;
+    const actionId = 'delegate:delete-integration-branch';
+    await store.append(featureId, {
+      type: 'cancel.compensation-requested',
+      data: { eventVersion: '1.0', cancelId, featureId, phaseAttemptId, actionId, requestedAt: new Date().toISOString() },
+    });
+    await store.append(featureId, {
+      type: 'cancel.compensation-failed',
+      data: {
+        eventVersion: '1.0',
+        cancelId,
+        featureId,
+        phaseAttemptId,
+        actionId,
+        reason: 'effect-failed',
+        message: 'branch delete failed',
+        failedAt: new Date().toISOString(),
+      },
+    });
+  }
+
   /**
    * The restart drops all in-memory state and opens the durable log again.
-   * The completed `branch -D` compensation does not run a second time.
+   * The completed integration-branch record does not run a second time.
    */
   it('ExitProof_RestartMidCancel_DoesNotRepeatCompletedCompensation', async () => {
     crashOnSecondCompletion();
 
     const interrupted = await handleCancel({ featureId }, stateDir, store);
     expect(interrupted).toMatchObject({ success: false, error: { code: 'EVENT_APPEND_FAILED' } });
-    expect(branchDeleteCalls).toBe(1);
     expect(completedFor(await events(), 'delegate:delete-integration-branch')).toHaveLength(1);
 
     vi.restoreAllMocks();
@@ -186,7 +190,7 @@ describe('cancellation process-manager — integration exit proofs (P04-02)', ()
     const resumed = await handleCancel({ featureId }, stateDir, store);
     expect(resumed.success).toBe(true);
 
-    expect(branchDeleteCalls).toBe(1);
+    expect(processStarts).toBe(0);
     expect(completedFor(await events(), 'delegate:delete-integration-branch')).toHaveLength(1);
 
     const persisted = JSON.parse(
@@ -204,7 +208,6 @@ describe('cancellation process-manager — integration exit proofs (P04-02)', ()
     crashOnSecondCompletion();
     const instanceA = await handleCancel({ featureId }, stateDir, store);
     expect(instanceA).toMatchObject({ success: false, error: { code: 'EVENT_APPEND_FAILED' } });
-    expect(branchDeleteCalls).toBe(1);
     expect(completedFor(await events(), 'delegate:delete-integration-branch')).toHaveLength(1);
 
     const { cancelId, phaseAttemptId } = await readCancelIdentity();
@@ -215,7 +218,7 @@ describe('cancellation process-manager — integration exit proofs (P04-02)', ()
     const instanceB = await handleCancel({ featureId }, stateDir, store);
     expect(instanceB.success).toBe(true);
 
-    expect(branchDeleteCalls).toBe(1);
+    expect(processStarts).toBe(0);
     expect(completedFor(await events(), 'delegate:delete-integration-branch')).toHaveLength(1);
 
     const sagaAfterB = await queryCancelSaga(store, featureId, cancelId);
@@ -246,12 +249,12 @@ describe('cancellation process-manager — integration exit proofs (P04-02)', ()
   });
 
   /**
-   * The integration-branch compensation fails on every attempt.
-   * Cancellation never reports ready, and after three attempts the saga records a manual-intervention terminal.
-   * `planCancelCompletion` then returns a `blocked` plan.
+   * The first attempt of the integration-branch action recorded a failed removal. The ledger-only cancel keeps
+   * that failure on each retry, so cancellation never reports ready. After three attempts the saga records a
+   * manual-intervention terminal, and `planCancelCompletion` then returns a `blocked` plan.
    */
   it('ExitProof_RetryExhaustion_BlocksReadiness_AndLandsInManualIntervention', async () => {
-    branchDeleteFails = true;
+    await seedPriorFailedRemoval();
 
     const result = await handleCancel({ featureId }, stateDir, store);
 
@@ -264,7 +267,7 @@ describe('cancellation process-manager — integration exit proofs (P04-02)', ()
     expect(all.some((e) => e.type === 'cancel.ready')).toBe(false);
     expect(all.some((e) => e.type === 'workflow.cancel')).toBe(false);
 
-    expect(branchDeleteCalls).toBe(3);
+    expect(processStarts).toBe(0);
     const retries = all.filter(
       (e) =>
         e.type === 'cancel.compensation-retry-scheduled'
@@ -362,6 +365,6 @@ describe('cancellation process-manager — integration exit proofs (P04-02)', ()
     const all = await events();
     expect(all.some((e) => e.type === 'cancel.requested')).toBe(false);
     expect(all.some((e) => e.type === 'workflow.cancel')).toBe(false);
-    expect(branchDeleteCalls).toBe(0);
+    expect(processStarts).toBe(0);
   });
 });

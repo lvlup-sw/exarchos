@@ -4,10 +4,10 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1435,
-    "parsedFiles": 1391,
+    "testFiles": 1436,
+    "parsedFiles": 1392,
     "shellFiles": 44,
-    "cases": 16127,
+    "cases": 16106,
     "dynamicTitles": 321,
     "unparseableFiles": 0
   },
@@ -10230,6 +10230,32 @@
         {
           "suite": "YieldBetweenTests_UnderFakeTimers",
           "name": "NextTestStarts_BecauseTheYieldUsesRealTimers",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/integration/1928-cancel-ledger.test.ts": {
+      "file": "tests/integration/1928-cancel-ledger.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "ledger-only cancellation",
+          "name": "CancelLedger_ARealCancel_LeavesEachResourceAndRecordsItOutstanding",
+          "dynamic": false
+        },
+        {
+          "suite": "ledger-only cancellation",
+          "name": "CancelLedger_MissingResources_StayOutstanding",
+          "dynamic": false
+        },
+        {
+          "suite": "ledger-only cancellation",
+          "name": "CancelLedger_APriorFailedRemoval_StaysAFailure",
+          "dynamic": false
+        },
+        {
+          "suite": "ledger-only cancellation",
+          "name": "CancelLedger_AWorktreeReservation_StaysUntilARelease",
           "dynamic": false
         }
       ]
@@ -72563,7 +72589,7 @@
         },
         {
           "suite": "v2.12 cancellation process manager (DR-7)",
-          "name": "CancelFailedEffect_RecordsFailureAndNeverReadiness",
+          "name": "CancelPriorFailedRemoval_StaysAFailureAndNeverReadiness",
           "dynamic": false
         },
         {
@@ -73564,28 +73590,13 @@
           "dynamic": false
         },
         {
-          "suite": "Compensation > ExecuteCompensation_PartialFailure_ContinuesOtherActions",
-          "name": "should continue with remaining actions when one fails and report partial failure",
-          "dynamic": false
-        },
-        {
           "suite": "Compensation > ExecuteCompensation_DryRun_ListsActionsNoExecution",
           "name": "should list what would happen in dry-run mode without executing",
           "dynamic": false
         },
         {
-          "suite": "Compensation > ExecuteCompensation_CommandInjection_PreventsShellInterpolation",
-          "name": "should pass branch names as separate arguments to prevent command injection",
-          "dynamic": false
-        },
-        {
-          "suite": "Compensation > ExecuteCompensation_CommandInjection_PreventsShellInterpolation",
-          "name": "should use cwd from options.stateDir when provided",
-          "dynamic": false
-        },
-        {
-          "suite": "Compensation > ExecuteCompensation_CommandInjection_PreventsShellInterpolation",
-          "name": "should include timeout option in command execution",
+          "suite": "Compensation > ExecuteCompensation_LedgerOnly_StartsNoProcess",
+          "name": "should record a shell-shaped branch name literally and start no process",
           "dynamic": false
         },
         {
@@ -73644,58 +73655,13 @@
           "dynamic": false
         },
         {
-          "suite": "Compensation > CleanupWorktrees_DryRun_ListsBranchNames",
-          "name": "should list worktree branch names in dry-run message",
+          "suite": "Compensation > CleanupWorktrees_DryRun_ListsWorktreePaths",
+          "name": "should list worktree paths in dry-run message",
           "dynamic": false
         },
         {
-          "suite": "Compensation > CleanupWorktrees_OuterCatch_ReturnsFailed",
-          "name": "should trigger outer catch when worktree property access throws",
-          "dynamic": false
-        },
-        {
-          "suite": "Compensation > CleanupWorktrees_OuterCatch_ReturnsFailed",
-          "name": "should handle non-Error thrown values in outer catch via String()",
-          "dynamic": false
-        },
-        {
-          "suite": "Compensation > DeleteFeatureBranches_OuterCatch_ViaCorruptedIteration",
-          "name": "should trigger outer catch when branches array iteration throws unexpectedly",
-          "dynamic": false
-        },
-        {
-          "suite": "Compensation > DeleteIntegrationBranch_RemoteDeleteFailure_StillSucceeds",
-          "name": "should succeed when remote branch delete fails (inner catch swallows)",
-          "dynamic": false
-        },
-        {
-          "suite": "Compensation > CleanupWorktrees_WorktreeRemoveFailure_StillSucceeds",
-          "name": "should succeed when worktree remove command fails (inner catch swallows)",
-          "dynamic": false
-        },
-        {
-          "suite": "Compensation > DeleteIntegrationBranch_Executed_ReturnsSuccess",
-          "name": "should delete the local branch it finds and leave an absent remote alone",
-          "dynamic": false
-        },
-        {
-          "suite": "Compensation > DeleteIntegrationBranch_Executed_ReturnsSuccess",
-          "name": "should report failed when the delete errors and the branch still exists",
-          "dynamic": false
-        },
-        {
-          "suite": "Compensation > DeleteIntegrationBranch_Executed_ReturnsSuccess",
-          "name": "should report executed when the delete errors but the branch is gone",
-          "dynamic": false
-        },
-        {
-          "suite": "Compensation > DeleteFeatureBranches_RemoteDeleteFailure_StillSucceeds",
-          "name": "should succeed when remote branch push --delete fails (inner catch swallows)",
-          "dynamic": false
-        },
-        {
-          "suite": "Compensation > DeleteFeatureBranches_RemoteDeleteFailure_StillSucceeds",
-          "name": "should succeed when both local and remote deletes fail for feature branches",
+          "suite": "Compensation > DeleteIntegrationBranch_RecordsOutstanding",
+          "name": "should record the integration branch as outstanding without a probe",
           "dynamic": false
         },
         {
@@ -73711,11 +73677,6 @@
         {
           "suite": "Compensation > ExecuteCompensation_ReturnsCheckpoint",
           "name": "should return null checkpoint when all actions succeed",
-          "dynamic": false
-        },
-        {
-          "suite": "Compensation > ExecuteCompensation_ReturnsCheckpoint",
-          "name": "should return a checkpoint with completed action IDs on partial failure",
           "dynamic": false
         },
         {
@@ -73740,123 +73701,53 @@
       "runner": "vitest:root",
       "cases": [
         {
-          "suite": "B4: delete-feature-branches two-event split",
-          "name": "DeleteFeatureBranches_PhaseARetry_DoesNotRefireGitDeletion",
+          "suite": "ledger-only compensation",
+          "name": "Compensation_EachResource_RecordedOutstandingWithNoProcess (checkpoint)",
           "dynamic": false
         },
         {
-          "suite": "B4: delete-feature-branches two-event split",
-          "name": "DeleteFeatureBranches_BranchAlreadyAbsent_RecoversWithoutError",
+          "suite": "ledger-only compensation",
+          "name": "Compensation_EachResource_RecordedOutstandingWithNoProcess (process-managed)",
           "dynamic": false
         },
         {
-          "suite": "B4: delete-feature-branches two-event split",
-          "name": "DeleteFeatureBranches_PhaseCExecutedAppend_RetriesOnConcurrencyError",
+          "suite": "ledger-only compensation",
+          "name": "Compensation_AbsentWorktreeAndBranch_StayOutstanding",
           "dynamic": false
         },
         {
-          "suite": "B5: cleanup-worktrees two-event split",
-          "name": "CleanupWorktrees_PhaseARetry_DoesNotRefireGitWorktreeRemove",
+          "suite": "ledger-only compensation",
+          "name": "Compensation_PriorFailedRemoval_StaysAFailure",
           "dynamic": false
         },
         {
-          "suite": "B5: cleanup-worktrees two-event split",
-          "name": "CleanupWorktrees_WorktreeAlreadyAbsent_RecoversWithoutError",
+          "suite": "ledger-only compensation",
+          "name": "Compensation_MalformedPriorOutcome_IsNotAFailedRemoval",
           "dynamic": false
         },
         {
-          "suite": "B4.5: delete-feature-branches parity harness (two-event sequence)",
-          "name": "DeleteFeatureBranches_Parity_BothCarriersObserveTwoEventSequence",
+          "suite": "ledger-only compensation",
+          "name": "Compensation_ProcessManaged_FreshRunReportsStatusAndReplayKeepsItsResult",
           "dynamic": false
         },
         {
-          "suite": "B5.5: cleanup-worktrees parity harness (two-event sequence)",
-          "name": "CleanupWorktrees_Parity_BothCarriersObserveTwoEventSequence",
+          "suite": "ledger-only compensation",
+          "name": "Compensation_ProcessManaged_ReturnsOneLedgerRecordPerAction",
           "dynamic": false
         },
         {
-          "suite": "#1352: compensation operationId recovery (reuse vs mint)",
-          "name": "Compensation_RecoveryWithUnmatchedRequested_ReusesOperationId (cleanup-worktrees)",
+          "suite": "ledger-only compensation",
+          "name": "Compensation_WorktreeReservation_StaysOutstanding",
           "dynamic": false
         },
         {
-          "suite": "#1352: compensation operationId recovery (reuse vs mint)",
-          "name": "Compensation_NoPriorRequested_MintsFreshId (cleanup-worktrees)",
+          "suite": "ledger-only compensation",
+          "name": "Compensation_DryRun_ListsTheResourcesAndWritesNothing",
           "dynamic": false
         },
         {
-          "suite": "#1352: compensation operationId recovery (reuse vs mint)",
-          "name": "Compensation_RecoveryWithUnmatchedRequested_ReusesOperationId (delete-feature-branches)",
-          "dynamic": false
-        },
-        {
-          "suite": "#1352: compensation operationId recovery (reuse vs mint)",
-          "name": "Compensation_NoPriorRequested_MintsFreshId (delete-feature-branches)",
-          "dynamic": false
-        },
-        {
-          "suite": "#1352: compensation operationId recovery (reuse vs mint)",
-          "name": "Compensation_PriorRequestedAlreadyExecuted_MintsFreshId (delete-feature-branches)",
-          "dynamic": false
-        },
-        {
-          "suite": "Compensation action error handling (close-pr)",
-          "name": "ClosePR_GhCommandFails_ReturnsFailed",
-          "dynamic": false
-        },
-        {
-          "suite": "Compensation action error handling (close-pr)",
-          "name": "ClosePR_NonErrorThrown_StringifiesMessage",
-          "dynamic": false
-        },
-        {
-          "suite": "compensation: operational git failures surface (CodeRabbit #3224631272)",
-          "name": "DeleteFeatureBranches_GitRevParseTimesOut_ActionFails",
-          "dynamic": false
-        },
-        {
-          "suite": "compensation: operational git failures surface (CodeRabbit #3224631272)",
-          "name": "CleanupWorktrees_GitNotARepository_ActionFails",
-          "dynamic": false
-        },
-        {
-          "suite": "compensation: operational git failures surface (CodeRabbit #3224631272)",
-          "name": "DeleteFeatureBranches_BranchAbsentExitCode_StillRecoversCleanly",
-          "dynamic": false
-        },
-        {
-          "suite": "Task 009: worktree.remove unified onto the `worktrees` stream (DR-3/DR-1)",
-          "name": "Compensation_WorktreeRemove_AdoptsThenEmitsPairOnWorktreesStream_ViewDropsEntry",
-          "dynamic": false
-        },
-        {
-          "suite": "Task 009: worktree.remove unified onto the `worktrees` stream (DR-3/DR-1)",
-          "name": "Compensation_CrashBetweenRequestedAndExecuted_ResumesIdempotently",
-          "dynamic": false
-        },
-        {
-          "suite": "Task 009: worktree.remove unified onto the `worktrees` stream (DR-3/DR-1)",
-          "name": "Compensation_PreDeployCrashLegacyFeatureStreamRequested_ResumedUnderOriginalOperationId",
-          "dynamic": false
-        },
-        {
-          "suite": "Task 009: worktree.remove unified onto the `worktrees` stream (DR-3/DR-1)",
-          "name": "Compensation_WorktreeRemove_IndexLockContention_RetriesRemove (DR-1)",
-          "dynamic": false
-        },
-        {
-          "suite": "Task 010: teardown dirty-guard (INV-14 / DR-3)",
-          "name": "Compensation_DirtyWorktreeIncludingUntrackedOnly_SkippedAndSurfacedNeverForceRemoved",
-          "dynamic": false
-        },
-        {
-          "suite": "Task 010: teardown dirty-guard (INV-14 / DR-3)",
-          "name": "Compensation_CleanWorktree_RemovedAsBefore",
-          "dynamic": false
-        },
-        {
-          "suite": "Task 010: teardown dirty-guard (INV-14 / DR-3)",
-          "name": "Compensation_SkipResult_CarriesScannableReason",
+          "suite": "ledger-only compensation",
+          "name": "Compensation_EventStoreWithoutFeatureId_Throws",
           "dynamic": false
         }
       ]
@@ -76005,8 +75896,8 @@
           "dynamic": false
         },
         {
-          "suite": "Integration > Compensation_WorkflowWithSideEffects_CleansUpOnCancel",
-          "name": "should run compensation actions and log events on cancel",
+          "suite": "Integration > Compensation_WorkflowWithSideEffects_RecordsResourcesOnCancel",
+          "name": "should record each resource as outstanding and leave the branches in place on cancel",
           "dynamic": false
         },
         {
@@ -91354,6 +91245,11 @@
         },
         {
           "suite": "Cancellation resource authority",
+          "name": "HandleCancel_EmptyLedgerContainers_ExcludeObsoleteDocumentResources (%s)",
+          "dynamic": false
+        },
+        {
+          "suite": "Cancellation resource authority",
           "name": "<dynamic-case-3>",
           "dynamic": true
         },
@@ -91365,6 +91261,11 @@
         {
           "suite": "Cancellation resource authority",
           "name": "HandleCancel_CompensationResourceMutation_DoesNotAliasFoldRowsOrDocument",
+          "dynamic": false
+        },
+        {
+          "suite": "Cancellation resource authority",
+          "name": "HandleCancel_FallbackResources_KeepDocumentContainers (%s)",
           "dynamic": false
         },
         {

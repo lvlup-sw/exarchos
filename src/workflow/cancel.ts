@@ -24,7 +24,7 @@ import { compileDecideDefinition, type DecideDefinition } from './decide/edges.j
 import { phaseMoveEvents, type TransitionEvent } from './decide/emit.js';
 import { builtInDefinition, isBuiltInDefinitionType } from './definitions/built-in.js';
 import type { EventStore } from '../events/store.js';
-import type { WorkflowEvent } from '../events/schemas.js';
+import type { EventType, WorkflowEvent } from '../events/schemas.js';
 import { foldGuardInput, foldWorkflowState } from '../projections/guard-input/fold.js';
 import {
   CancelReadyData,
@@ -50,6 +50,9 @@ const START_ROW_TYPE = 'workflow.started';
 
 /** The text that starts the warning of a cancel that the state document decided. */
 const DOCUMENT_FALLBACK_WARNING = 'GUARD_INPUT_DOCUMENT_FALLBACK';
+
+/** The type of the ledger row that records the resources of one compensation action. */
+const COMPENSATION_ROW_TYPE: EventType = 'workflow.compensation';
 
 /** The most writes of the document level of an idempotent cancel. A conflict reads the document again. */
 const MAX_LEVEL_WRITES = 4;
@@ -168,7 +171,8 @@ function trustedCancellationProvenance(stateDir: string): Record<string, unknown
 }
 
 /**
- * Cancel a workflow: run compensation, then move the phase to `cancelled`.
+ * Cancel a workflow: record its resources as outstanding, then move the phase to `cancelled`.
+ * The compensation starts no process. The trail of the move holds one `workflow.compensation` row for each action.
  * The event-first path needs an ES v2 state and a store. It takes ownership under a fencing epoch before it
  * records intent, and only `buildCancelReadiness` makes the `cancel.ready` proof.
  *
@@ -398,7 +402,7 @@ async function cancelOnRoute(
       currentPhase,
       [],
       0,
-      { dryRun: true, stateDir, checkpoint: existingCheckpoint },
+      { dryRun: true, checkpoint: existingCheckpoint },
     );
     return {
       success: true,
@@ -474,7 +478,6 @@ async function cancelOnRoute(
         0,
         {
           dryRun: false,
-          stateDir,
           eventStore,
           featureId: input.featureId,
           cancelProcess: {
@@ -501,7 +504,7 @@ async function cancelOnRoute(
       currentPhase,
       [],
       0,
-      { dryRun: false, stateDir, checkpoint: existingCheckpoint },
+      { dryRun: false, checkpoint: existingCheckpoint },
     );
   }
 
@@ -531,7 +534,7 @@ async function cancelOnRoute(
     };
   }
 
-  if (eventStore && compensationResult.events.length > 0) {
+  if (!useEventFirst && eventStore && compensationResult.events.length > 0) {
     try {
       for (let i = 0; i < compensationResult.events.length; i++) {
         const event = compensationResult.events[i];
@@ -668,6 +671,13 @@ async function cancelOnRoute(
           ...(transitionEvent.metadata ?? {}),
         },
         idempotencyKey: `${input.featureId}:cancel:transition:${transitionEvent.type}:${transitionEvent.from}:cancelled`,
+      })),
+      ...(useEventFirst ? compensationResult.events : []).map((record) => ({
+        type: COMPENSATION_ROW_TYPE,
+        correlationId: input.featureId,
+        source: 'workflow',
+        data: { ...record.metadata, featureId: input.featureId },
+        idempotencyKey: `${input.featureId}:cancel:${record.trigger}`,
       })),
       {
         type: mapInternalToExternalType('cancel') as import('../events/schemas.js').EventType,

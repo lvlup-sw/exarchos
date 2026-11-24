@@ -218,13 +218,13 @@
     },
     {
       "type": "branch.delete.executed",
-      "lifecycle": "active",
+      "lifecycle": "retired",
       "tier": "substrate",
       "rationale": "operation-record"
     },
     {
       "type": "branch.delete.requested",
-      "lifecycle": "active",
+      "lifecycle": "retired",
       "tier": "substrate",
       "rationale": "operation-record"
     },
@@ -1176,12 +1176,12 @@
     },
     {
       "type": "worktree.remove.executed",
-      "lifecycle": "active",
+      "lifecycle": "retired",
       "tier": "capability"
     },
     {
       "type": "worktree.remove.requested",
-      "lifecycle": "active",
+      "lifecycle": "retired",
       "tier": "substrate",
       "rationale": "operation-record"
     },
