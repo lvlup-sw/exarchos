@@ -14,12 +14,6 @@ import { devNull, homedir, tmpdir } from 'node:os';
 import { delimiter, dirname, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-vi.mock('../../src/vcs/factory.js', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../src/vcs/factory.js')>();
-  return { ...actual, createVcsProvider: vi.fn(actual.createVcsProvider) };
-});
-
-import { createVcsProvider } from '../../src/vcs/factory.js';
 import type { DispatchContext } from '../../src/dispatch/core/dispatch.js';
 import { dispatch } from '../../src/dispatch/core/dispatch.js';
 import { deriveMcpCallerIdentity } from '../../src/dispatch/caller-identity.js';
@@ -48,7 +42,6 @@ import { runCli } from '../helpers/cli-runner.js';
 import { spawnMcpClient } from '../helpers/mcp-client.js';
 import { observationalReader, primeObservationalGitPath } from '../../src/utils/git-tree.js';
 import { defaultSafeguards, pruneObservation } from '../../src/verbs/team/prune-safeguards.js';
-import { detectVcsProvider } from '../../src/vcs/detector.js';
 
 /** The absolute real path of the Git executable on the test process PATH, read before any shim. */
 function gitExecutable(): string {
@@ -105,7 +98,6 @@ afterEach(async () => {
   process.env.PATH = ORIGINAL_PATH;
   resetRepoKeyMemo();
   resetMaterializerCache();
-  vi.mocked(createVcsProvider).mockClear();
   for (const cleanup of cleanups.splice(0).reverse()) await cleanup();
 });
 
@@ -244,7 +236,6 @@ describe('lifecycle and team routes in the local executor', () => {
 
     expect(await markerRuns(marker)).toBe(5);
     expect(await shimCalls()).toHaveLength(0);
-    expect(createVcsProvider).not.toHaveBeenCalled();
     expect(await git(main, 'status', '--porcelain')).toBe('');
   });
 
@@ -263,7 +254,6 @@ describe('lifecycle and team routes in the local executor', () => {
 
     expect(result.error?.code).not.toBe('VERIFIER_NOT_PROVISIONED');
     expect(await markerRuns(marker)).toBe(0);
-    expect(createVcsProvider).not.toHaveBeenCalled();
   });
 
   /** Real dispatch runs the baseline in the local executor. */
@@ -318,7 +308,6 @@ describe('converted reads of the lifecycle and team routes', () => {
     const report = (result: typeof attached) => (result.data as { report: string }).report;
     expect(report(attached)).not.toContain('PR stack');
     expect(report(detached)).toBe(report(attached));
-    expect(createVcsProvider).not.toHaveBeenCalled();
     expect(await shimCalls()).toHaveLength(0);
   });
 
@@ -910,30 +899,6 @@ describe('constrained observational reads: Git path selection', () => {
   });
 
   /**
-   * The primed Git path serves a detection that gets no Git path, after the PATH shim is in place.
-   * The GitLab remote proves that the primed read decided the provider. The teardown primes the real Git again.
-   */
-  it('PrimedGitPath_DetectionWithoutGitPath_OnlyThePrimedWrapperRuns', async () => {
-    const root = await tempRoot('observational-primed-');
-    const { main } = await repository(root, { 'README.md': '# fixture\n' });
-    await git(main, 'config', 'remote.origin.url', 'https://gitlab.com/group/project.git');
-    const shimCalls = await pathShim(root);
-    const primedLog = join(root, 'primed.log');
-    const primedGit = join(root, 'primed-git');
-    await writeFile(primedGit, `#!/bin/sh\nprintf '%s\\n' "$*" >> '${primedLog}'\nexec '${GIT}' "$@"\n`);
-    await chmod(primedGit, 0o755);
-    primeUntilTeardown(primedGit);
-    const exec = async (): Promise<string> => { throw new Error('no provider CLI'); };
-
-    const provider = await createVcsProvider({ detectorDeps: { cwd: main, env: {}, exec } });
-
-    expect(provider.name).toBe('gitlab');
-    const primedCalls = (await readFile(primedLog, 'utf8')).split('\n').filter(Boolean);
-    expect(primedCalls.some(line => / remote get-url origin$/.test(line))).toBe(true);
-    expect(await shimCalls()).toHaveLength(0);
-  });
-
-  /**
    * An unprimed process searches PATH once at its first read. A planted `./git` and an empty PATH segment never run.
    * After the first read, the first PATH entry is removed: the next read fails and runs no Git from a later entry.
    */
@@ -968,21 +933,6 @@ describe('constrained observational reads: Git path selection', () => {
     expect(lines).toHaveLength(1);
     expect(lines[0]).toMatch(/^first .*--version$/);
     expect(await markerRan(marker)).toBe(false);
-  });
-
-  /** An unusable Git path detects no provider and starts no PATH Git, so the factory keeps github. */
-  it('Detection_UnusableGitPath_GivesNullAndNoShimGit', async () => {
-    const root = await tempRoot('observational-detect-');
-    const { main } = await repository(root, { 'README.md': '# fixture\n' });
-    await git(main, 'config', 'remote.origin.url', 'https://gitlab.com/group/project.git');
-    const shimCalls = await pathShim(root);
-    const exec = async (): Promise<string> => { throw new Error('none'); };
-
-    expect(await detectVcsProvider({ cwd: main, gitPath: GIT, exec, env: {} })).toMatchObject({ provider: 'gitlab' });
-    expect(await detectVcsProvider({ cwd: main, gitPath: join(root, 'no-git'), exec, env: {} })).toBeNull();
-    const provider = await createVcsProvider({ detectorDeps: { cwd: main, gitPath: join(root, 'no-git'), exec, env: {} } });
-    expect(provider.name).toBe('github');
-    expect(await shimCalls()).toHaveLength(0);
   });
 });
 

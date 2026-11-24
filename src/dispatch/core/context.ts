@@ -50,23 +50,17 @@ export interface InitializeContextOptions {
    * backend, which is the only substrate.
    */
   readonly backend?: StorageBackend;
-  /** The project root of the YAML configuration, the VCS provider and the topology. */
+  /** The project root of the YAML configuration and the topology. */
   readonly projectRoot?: string;
-  /**
-   * Whether startup with a project root creates the VCS provider. An absent value reads true.
-   * The harness entry sets false, so its context starts no provider detection and no observational Git read.
-   */
-  readonly detectVcs?: boolean;
 }
 
 /**
  * Creates the DispatchContext for the MCP and CLI adapters. It first checks the event
  * registration welds, so an unresolvable `EffectProviderId` halts startup before the first append.
  *
- * The context never reads the home directory.
- * Without `projectRoot`, it skips config, VCS and topology. With it, it lazy-imports the YAML config
- * and VCS modules, applies the storage durability before the first append, and loads `topology.yaml`.
- * With `detectVcs: false` and a project root, it does the same steps without the VCS module, and the context holds no `vcsProvider`.
+ * The context never reads the home directory, and it builds no VCS provider.
+ * Without `projectRoot`, it skips config and topology. With it, it lazy-imports the YAML config,
+ * applies the storage durability before the first append, and loads `topology.yaml`.
  *
  * Startup is data-only. It never imports executable configuration and never runs a hook, and `config` is `{}`.
  */
@@ -103,38 +97,15 @@ export async function initializeContext(
 
   const projectRoot = options.projectRoot;
 
-  if (options.detectVcs === false) {
-    const [{ loadProjectConfig }, { resolveConfig }] = await Promise.all([
-      import('../../config/yaml-loader.js'),
-      import('../../config/resolve.js'),
-    ]);
-    const projectConfig = resolveConfig(loadProjectConfig(projectRoot));
-    eventStore.setStorageDurability(projectConfig.storage.synchronous);
-    warnRetiredExecutableConfiguration(projectRoot, projectConfig);
-    await loadTopologyIfPresent(projectRoot, eventStore);
-    return { ...base, config: {}, projectConfig };
-  }
-
-  const [
-    { loadProjectConfig },
-    { resolveConfig },
-    { createVcsProvider },
-  ] = await Promise.all([
+  const [{ loadProjectConfig }, { resolveConfig }] = await Promise.all([
     import('../../config/yaml-loader.js'),
     import('../../config/resolve.js'),
-    import('../../vcs/factory.js'),
   ]);
-
   const projectConfig = resolveConfig(loadProjectConfig(projectRoot));
-  const vcsProvider = await createVcsProvider({ config: projectConfig });
-
   eventStore.setStorageDurability(projectConfig.storage.synchronous);
-
   warnRetiredExecutableConfiguration(projectRoot, projectConfig);
-
   await loadTopologyIfPresent(projectRoot, eventStore);
-
-  return { ...base, config: {}, projectConfig, vcsProvider };
+  return { ...base, config: {}, projectConfig };
 }
 
 /**

@@ -31,7 +31,6 @@
     "src/review/classifier.ts": 1,
     "src/runtime/extensions/manifest.ts": 1,
     "src/runtime/extensions/revocation.ts": 1,
-    "src/vcs/provider.ts": 1,
     "src/verbs/composite.ts": 13,
     "src/verbs/merge/merge-orchestrate.ts": 1,
     "src/verbs/reconcile-state.ts": 1,

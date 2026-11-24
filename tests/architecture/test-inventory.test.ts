@@ -225,6 +225,19 @@ const RETIRED_TEST_FILES: ReadonlyArray<{ path: string; subject: string }> = [
   { path: 'tests/unit/verbs/worktree/serialize-dryrun.test.ts', subject: 'src/verbs/worktree/merge-serializer.ts' },
   { path: 'tests/unit/verbs/pure/execute-merge.test.ts', subject: 'src/verbs/pure/execute-merge.ts' },
   { path: 'tests/unit/verbs/worktree/git-retry.test.ts', subject: 'src/verbs/worktree/git-retry.ts' },
+  { path: 'tests/unit/vcs/provider.test.ts', subject: 'src/vcs/provider.ts' },
+  { path: 'tests/unit/vcs/github.test.ts', subject: 'src/vcs/github.ts' },
+  { path: 'tests/unit/vcs/github-pr-id-injection.test.ts', subject: 'src/vcs/github.ts' },
+  { path: 'tests/unit/vcs/gitlab.test.ts', subject: 'src/vcs/gitlab.ts' },
+  { path: 'tests/unit/vcs/azure-devops.test.ts', subject: 'src/vcs/azure-devops.ts' },
+  { path: 'tests/unit/vcs/factory.test.ts', subject: 'src/vcs/factory.ts' },
+  { path: 'tests/unit/vcs/detector.test.ts', subject: 'src/vcs/detector.ts' },
+  { path: 'tests/unit/review/registry.test.ts', subject: 'src/review/registry.ts' },
+  { path: 'tests/unit/review/providers/coderabbit.test.ts', subject: 'src/review/providers/coderabbit.ts' },
+  { path: 'tests/unit/review/providers/github-copilot.test.ts', subject: 'src/review/providers/github-copilot.ts' },
+  { path: 'tests/unit/review/providers/human.test.ts', subject: 'src/review/providers/human.ts' },
+  { path: 'tests/unit/review/providers/sentry.test.ts', subject: 'src/review/providers/sentry.ts' },
+  { path: 'tests/unit/review/providers/unknown.test.ts', subject: 'src/review/providers/unknown.ts' },
 ];
 
 describe('test inventory', () => {

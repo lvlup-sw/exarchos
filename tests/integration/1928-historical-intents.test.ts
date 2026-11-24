@@ -1,4 +1,4 @@
-// @oracle-sources: persisted SQLite operation membership and original content-addressed run bytes, a separately maintained fake remote creation log, and the frozen S7 request digest recipe
+// @oracle-sources: persisted SQLite operation membership and original content-addressed run bytes, and the frozen S7 request digest recipe
 /** Prove that captured S7 writer custody replays after the retirement of synthesis closeout, without contact with a remote service. */
 import { Database } from 'bun:sqlite';
 import { join } from 'node:path';
@@ -16,10 +16,6 @@ import { decodeExecuteIntentBundle, encodeExecuteIntentBundle } from '../../src/
 import { makeTempDir, rmrfAsync } from '../../tools/test-helpers/temp-dir.js';
 import { seedActivePhaseAttempt } from '../../tools/test-helpers/trusted-context.js';
 import { fixtureCorrelation, fixtureWiring, receiptOf } from '../unit/verbs/execute/fixtures.js';
-import type { VcsProvider } from '../../src/vcs/provider.js';
-
-vi.mock('../../src/vcs/factory.js', () => ({ createVcsProvider: vi.fn() }));
-import { createVcsProvider } from '../../src/vcs/factory.js';
 
 const STREAM = 'historical-s7-writer';
 const INTENT = 'synthesis-closeout';
@@ -33,22 +29,15 @@ function historicalDigest(args: Record<string, unknown>): string {
     args: Object.keys(args).sort().map(key => [key, args[key]]) })).digest('hex')}`;
 }
 
-/** Only the remote transport is fake. The handlers, the append and claim path, and the custody store stay real. */
+/** The handlers, the append and claim path, and the custody store are real. No module can open a remote pull request. */
 async function fixture(seed = true) {
   const state = makeTempDir('1928-history-'); const events = new EventStore(state); await events.initialize();
   closes.push(async () => { events.close(); await rmrfAsync(state); });
   if (seed) await seedActivePhaseAttempt(events, STREAM, { phase: 'synthesize' });
-  const opened: { number: number; url: string; headRefName: string; baseRefName: string }[] = [];
-  const provider: VcsProvider = { name: 'github',
-    createPr: vi.fn(async input => { const pr = { number: 42, url: 'https://example.invalid/pr/42', headRefName: input.headBranch, baseRefName: input.baseBranch }; opened.push(pr); return { number: pr.number, url: pr.url }; }),
-    listPrs: vi.fn(async () => [...opened]), checkCi: vi.fn(), mergePr: vi.fn(), addComment: vi.fn(), getReviewStatus: vi.fn(),
-    addReply: vi.fn(), searchIssuesByMarker: vi.fn(), getPrComments: vi.fn(), getPrDiff: vi.fn(), createIssue: vi.fn(), getRepository: vi.fn(),
-  };
-  vi.mocked(createVcsProvider).mockResolvedValue(provider);
   const run = (operationId: string, args: Record<string, unknown> = ARGS, retired = false) => runWithDispatchContext(fixtureCorrelation(), () =>
     handleExecuteIntent({ intent: INTENT, streamId: STREAM, operationId, args }, state, fixtureWiring(state, events),
       { ...productionExecuteDeps(ACTION_HANDLERS, 'exarchos_orchestrate'), ...(retired ? { runbookTable: [] } : {}) }));
-  return { state, events, run, opened, provider, backend: events.getAppender().ensureSqliteBackendSync() };
+  return { state, events, run, backend: events.getAppender().ensureSqliteBackendSync() };
 }
 
 describe('S7 historical writer provenance', () => {
@@ -78,12 +67,12 @@ describe('S7 historical writer provenance', () => {
     const reordered = { headBranch: ARGS.headBranch, baseBranch: ARGS.baseBranch, prBody: ARGS.prBody, title: ARGS.title };
     const replayed = await f.run(operationId, reordered);
     expect(replayed).toMatchObject({ success: true, data: receipt });
-    expect(await f.events.query(STREAM)).toEqual(rows); expect(await f.events.query('vcs')).toEqual(vcsRows); expect(f.opened).toEqual([]);
+    expect(await f.events.query(STREAM)).toEqual(rows); expect(await f.events.query('vcs')).toEqual(vcsRows);
     expect(await f.run(operationId, { ...ARGS, title: 'changed' })).toMatchObject({ success: false, error: { code: 'INTENT_REPLAY_DIGEST_MISMATCH' } });
     expect((await f.run(operationId, { ...ARGS, unknown: true })).success).toBe(false);
     expect(await f.run(operationId, ARGS, true)).toEqual(replayed);
     expect(await f.run('history-fresh', ARGS)).toMatchObject({ success: false, error: { code: 'SYNTHESIS_CLOSEOUT_RETIRED' } });
-    expect(durableSnapshot(f.state)).toEqual(before); expect(f.opened).toEqual([]);
+    expect(durableSnapshot(f.state)).toEqual(before);
 
     const interrupted = await importedHistory(true); const interruptedId = interrupted.original.operationId;
     expect(interruptedId).toBe('history-interrupted');
@@ -93,7 +82,7 @@ describe('S7 historical writer provenance', () => {
     expect(interruptedVcs.map(row => row.type)).toEqual(['pr.create.requested', 'pr.create.executed']);
     expect(decodeExecuteIntentBundle(interrupted.bytes).requestDigest).toBe(historicalDigest(ARGS));
     const retry = await interrupted.run(interruptedId);
-    expect(retry).toMatchObject({ success: false, error: { code: 'INTENT_HISTORY_INCOMPLETE' } }); expect(interrupted.opened).toEqual([]);
+    expect(retry).toMatchObject({ success: false, error: { code: 'INTENT_HISTORY_INCOMPLETE' } });
     expect(interrupted.backend.lookupOperationClaim(interruptedId)).toBeUndefined();
     expect(await interrupted.events.query('vcs')).toEqual(interruptedVcs);
   });
@@ -184,7 +173,7 @@ describe('historical terminal admission without live compilation', () => {
       { intent: INTENT, streamId: STREAM, featureId: 'other', operationId: f.original.operationId, args: ARGS },
       { intent: INTENT, streamId: STREAM, operationId: '../invalid', args: ARGS },
     ]) expect((await handleExecuteIntent(raw, f.state, fixtureWiring(f.state, f.events), { ...productionExecuteDeps(ACTION_HANDLERS, 'exarchos_orchestrate'), runbookTable: [] })).success).toBe(false);
-    expect(durableSnapshot(f.state)).toEqual(before); expect(put).not.toHaveBeenCalled(); expect(f.opened).toEqual([]);
+    expect(durableSnapshot(f.state)).toEqual(before); expect(put).not.toHaveBeenCalled();
     expect(await f.events.bundleStore.resolve(f.digest)).toEqual(f.bytes);
   });
 
@@ -192,13 +181,12 @@ describe('historical terminal admission without live compilation', () => {
   it('UnfinishedOriginal_RefusesIncomplete_FreshOperationGetsTheRetiredRefusal', async () => {
     const f = await importedHistory(true); const before = durableSnapshot(f.state);
     for (const retired of [false, true]) expect(await f.run(f.original.operationId, ARGS, retired)).toMatchObject({ success: false, error: { code: 'INTENT_HISTORY_INCOMPLETE' } });
-    expect(durableSnapshot(f.state)).toEqual(before); expect(f.opened).toEqual([]);
+    expect(durableSnapshot(f.state)).toEqual(before);
     const fresh: readonly (readonly [string, Record<string, unknown>, boolean])[] = [['new-retired-operation', ARGS, true], ['new-malformed', {}, false], ['new-operation', ARGS, false]];
     for (const [operationId, args, retired] of fresh) {
       expect(await f.run(operationId, args, retired)).toMatchObject({ success: false, error: { code: 'SYNTHESIS_CLOSEOUT_RETIRED' } });
       expect(durableSnapshot(f.state)).toEqual(before);
     }
-    expect(f.opened).toEqual([]);
   });
 
   it('PhysicalCustodyCorruption_NoFallbackNoMutation', async () => {
@@ -239,7 +227,7 @@ describe('historical terminal admission without live compilation', () => {
       const result = await f.run(f.original.operationId, ARGS, true);
       expect(result.success, mutation).toBe(false);
       expect(result.error?.code, mutation).toBe(mutation === 'claim-missing' ? 'INTENT_HISTORY_INCOMPLETE' : 'INTENT_HISTORY_REFUSED');
-      expect(durableSnapshot(f.state), mutation).toEqual(before); expect(f.opened, mutation).toEqual([]); expect(put, mutation).not.toHaveBeenCalled();
+      expect(durableSnapshot(f.state), mutation).toEqual(before); expect(put, mutation).not.toHaveBeenCalled();
     }
   });
 
@@ -262,7 +250,7 @@ describe('historical terminal admission without live compilation', () => {
       expect(published).toBe(true);
       if (changed) expect(result).toMatchObject({ success: false, error: { code: 'INTENT_REPLAY_DIGEST_MISMATCH' } });
       else expect(result).toMatchObject({ success: true, data: f.saved.terminal.claim.result });
-      expect(durableSnapshot(f.state)).toEqual(before); expect(f.opened).toEqual([]);
+      expect(durableSnapshot(f.state)).toEqual(before);
     }
   });
 
@@ -272,7 +260,7 @@ describe('historical terminal admission without live compilation', () => {
     expect(receiptOf(saved.result).outcome).toBe('failed'); expect(saved.vcsRows).toEqual([]);
     const before = durableSnapshot(f.state);
     for (const retired of [false, true]) expect(await f.run(saved.operationId, saved.args, retired)).toEqual(saved.result);
-    expect(durableSnapshot(f.state)).toEqual(before); expect(f.opened).toEqual([]);
+    expect(durableSnapshot(f.state)).toEqual(before);
   });
 });
 

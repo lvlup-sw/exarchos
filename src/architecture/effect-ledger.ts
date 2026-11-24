@@ -664,13 +664,6 @@ function registerLedger(): readonly EffectOwnershipRule[] {
     ),
     rule(
       'process',
-      'vcs/',
-      'vcs-process-owner',
-      'idempotent: git/gh reads; writes guarded by the VCS provider',
-      'VCS provider surfaces failures; no partial local state',
-    ),
-    rule(
-      'process',
       'verbs/',
       'orchestrate-process-owner',
       'per-call: orchestrate probes/gates own their re-run semantics',

@@ -20,8 +20,11 @@ import { promisify } from 'node:util';
 import { lexicalRepoPath, normalizeRepoPath } from './paths.js';
 import { spawnCommand } from './process.js';
 
-/** The wall-clock budget of one git call. A call that runs longer gives an unobservable tree. */
-const GIT_TIMEOUT_MS = 30_000;
+/**
+ * The wall-clock budget of one git call. A call that runs longer gives an unobservable tree.
+ * A harness that spawns the binary with its own timeout sets that timeout greater than this value.
+ */
+export const GIT_TIMEOUT_MS = 30_000;
 
 /** The output cap of one git call. Each call prints a few short lines, so a larger output is a fault. */
 const GIT_MAX_BUFFER_BYTES = 1024 * 1024;

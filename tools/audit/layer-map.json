@@ -207,7 +207,7 @@
       "disposition": "mapped",
       "target": "adapters",
       "layer": "L8",
-      "reason": "GitHub/GitLab/ADO providers adapt an external system; same shape as L8."
+      "reason": "The VCS mutation owner adapts local git writes, and the PR template parser reads PR text. Same shape as L8."
     },
     "verbs": {
       "disposition": "mapped",

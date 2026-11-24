@@ -44,17 +44,16 @@ import {
   type CoverageReport,
   type CoverageBaseline,
 } from '../../../tools/conformance/src/parity/__tests__/packaged-proof.js';
-import { EXEC_TIMEOUT_MS } from '../../../src/vcs/shell.js';
+import { GIT_TIMEOUT_MS } from '../../../src/utils/git-tree.js';
 
 /**
- * The harness budget for one spawn of the compiled binary. It must stay above
- * {@link EXEC_TIMEOUT_MS}, the budget that the binary gives its own child CLIs (`gh`, `git`). This
- * timer starts at the spawn, and the inner timer starts after the binary boots. With equal
- * values, this timer kills a slow `gh` before the action turns the inner timeout into a
- * `VCS_ERROR` envelope. The sweep then scores a bounded failure as a hang. On Windows runners,
- * `gh pr list` can take more than 30 s. The doubled value still fails a real hang.
+ * The harness budget for one spawn of the compiled binary. It stays above {@link GIT_TIMEOUT_MS},
+ * the budget that the binary gives each of its own git calls. This timer starts at the spawn,
+ * and the inner timer starts after the binary boots. With equal values, this timer kills a slow
+ * git call before the action turns the inner timeout into an error envelope. The sweep then
+ * scores a bounded failure as a hang. The doubled value still fails a real hang.
  */
-const CLI_TIMEOUT_MS = EXEC_TIMEOUT_MS * 2;
+const CLI_TIMEOUT_MS = GIT_TIMEOUT_MS * 2;
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = findRepoRoot(__dirname);

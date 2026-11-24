@@ -55,12 +55,6 @@ vi.mock('../../../src/verbs/doctor/index.js', () => ({
   handleDoctor: vi.fn(),
 }));
 
-vi.mock('../../../src/vcs/factory.js', () => ({
-  createVcsProvider: vi.fn().mockResolvedValue({
-    searchIssuesByMarker: vi.fn().mockResolvedValue([]),
-  }),
-}));
-
 
 
 vi.mock('../../../src/runtime/agents/handler.js', async (importOriginal) => {

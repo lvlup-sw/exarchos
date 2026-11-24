@@ -22,14 +22,6 @@ vi.mock('../../../../src/config/register.js', async (importOriginal) => {
   };
 });
 
-vi.mock('../../../../src/vcs/factory.js', async (importOriginal) => {
-  const original = await importOriginal<typeof import('../../../../src/vcs/factory.js')>();
-  return {
-    ...original,
-    createVcsProvider: vi.fn(original.createVcsProvider),
-  };
-});
-
 describe('initializeContext', () => {
   let tmpDir: string;
 
@@ -387,7 +379,8 @@ describe('initializeContext — projectConfig (YAML)', () => {
     }
   });
 
-  it('initializeContext_WithProjectRoot_VcsProviderAvailable', async () => {
+  /** Startup with a project root builds no VCS provider, and the context holds no `vcsProvider` key. */
+  it('initializeContext_WithProjectRoot_BuildsNoVcsProvider', async () => {
     const { initializeContext } = await import('../../../../src/dispatch/core/context.js');
 
     const projectRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'ctx-vcs-'));
@@ -395,14 +388,14 @@ describe('initializeContext — projectConfig (YAML)', () => {
     try {
       const ctx = await initializeContext(tmpDir, { projectRoot });
 
-      expect(ctx.vcsProvider).toBeDefined();
-      expect(ctx.vcsProvider!.name).toBe('github');
+      expect(Object.keys(ctx)).not.toContain('vcsProvider');
     } finally {
       await rmrfAsync(projectRoot);
     }
   });
 
-  it('initializeContext_WithGitLabConfig_VcsProviderIsGitLab', async () => {
+  /** The `vcs` config key still loads into the project config, and startup builds no provider from it. */
+  it('initializeContext_WithGitLabConfig_VcsKeyLoadsWithoutProvider', async () => {
     const { initializeContext } = await import('../../../../src/dispatch/core/context.js');
 
     const projectRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'ctx-vcs-gl-'));
@@ -414,8 +407,8 @@ describe('initializeContext — projectConfig (YAML)', () => {
     try {
       const ctx = await initializeContext(tmpDir, { projectRoot });
 
-      expect(ctx.vcsProvider).toBeDefined();
-      expect(ctx.vcsProvider!.name).toBe('gitlab');
+      expect(ctx.projectConfig?.vcs.provider).toBe('gitlab');
+      expect(Object.keys(ctx)).not.toContain('vcsProvider');
     } finally {
       await rmrfAsync(projectRoot);
     }
@@ -426,17 +419,13 @@ describe('initializeContext — projectConfig (YAML)', () => {
 
     const ctx = await initializeContext(tmpDir);
 
-    expect(ctx.vcsProvider).toBeUndefined();
+    expect(Object.keys(ctx)).not.toContain('vcsProvider');
   });
 
-  /**
-   * With `detectVcs: false` and a project root, startup loads the YAML config and applies its durability.
-   * It never calls the VCS factory, and the context holds no `vcsProvider` key.
-   */
-  it('InitializeContext_DetectVcsFalse_AppliesDurabilityWithoutVcsProvider', async () => {
+  /** With a project root, startup loads the YAML config and applies its durability before the first append. */
+  it('InitializeContext_WithProjectRoot_AppliesDurabilityWithoutVcsProvider', async () => {
     const { initializeContext } = await import('../../../../src/dispatch/core/context.js');
     const { EventStore } = await import('../../../../src/events/store.js');
-    const { createVcsProvider } = await import('../../../../src/vcs/factory.js');
     const durability = vi.spyOn(EventStore.prototype, 'setStorageDurability');
 
     const projectRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'ctx-novcs-'));
@@ -446,33 +435,15 @@ describe('initializeContext — projectConfig (YAML)', () => {
     );
 
     try {
-      const ctx = await initializeContext(tmpDir, { projectRoot, detectVcs: false });
+      const ctx = await initializeContext(tmpDir, { projectRoot });
 
       expect(durability).toHaveBeenCalledWith('full');
       expect(ctx.projectConfig?.storage.synchronous).toBe('full');
       expect(ctx.projectConfig?.tools.commitStyle).toBe('freeform');
       expect(ctx.config).toEqual({});
       expect(Object.keys(ctx)).not.toContain('vcsProvider');
-      expect(vi.mocked(createVcsProvider)).not.toHaveBeenCalled();
     } finally {
       durability.mockRestore();
-      await rmrfAsync(projectRoot);
-    }
-  });
-
-  /** The same project root without the option still calls the VCS factory once and holds a provider. */
-  it('InitializeContext_DetectVcsAbsent_CallsTheVcsFactory', async () => {
-    const { initializeContext } = await import('../../../../src/dispatch/core/context.js');
-    const { createVcsProvider } = await import('../../../../src/vcs/factory.js');
-
-    const projectRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'ctx-withvcs-'));
-
-    try {
-      const ctx = await initializeContext(tmpDir, { projectRoot });
-
-      expect(vi.mocked(createVcsProvider)).toHaveBeenCalledTimes(1);
-      expect(ctx.vcsProvider?.name).toBe('github');
-    } finally {
       await rmrfAsync(projectRoot);
     }
   });
@@ -596,8 +567,8 @@ phases:
     }
   });
 
-  /** With `detectVcs: false`, startup still loads a valid `topology.yaml` from the project root. */
-  it('Context_InitializeWithDetectVcsFalse_LoadsTopology', async () => {
+  /** Startup loads a valid `topology.yaml` from the project root. */
+  it('Context_InitializeWithProjectRoot_LoadsTopology', async () => {
     const { initializeContext } = await import('../../../../src/dispatch/core/context.js');
     const { getTopology } = await import('../../../../src/workflow/topology/loader.js');
 
@@ -605,7 +576,7 @@ phases:
     await fs.writeFile(path.join(projectRoot, 'topology.yaml'), IMPLEMENTING_ONLY_TOPOLOGY, 'utf-8');
 
     try {
-      await initializeContext(tmpDir, { projectRoot, detectVcs: false });
+      await initializeContext(tmpDir, { projectRoot });
       expect(() => getTopology()).not.toThrow();
     } finally {
       await rmrfAsync(projectRoot);

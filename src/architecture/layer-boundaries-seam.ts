@@ -347,7 +347,7 @@ export const LAYER_ALLOWED_IMPORTS: readonly LayerAllowance[] = Object.freeze([
       'census structurally cannot see. `task-store` carries `isTaskTerminal` because ' +
       'v2 deleted the SDK predicate; it is generation-neutral and imports nothing.',
   ),
-  allowance('review', [ROOT_LAYER, 'events', 'vcs', 'verbs'], 'Review reads event state and drives verbs through the VCS surface.'),
+  allowance('review', [ROOT_LAYER, 'events', 'verbs'], 'Review reads event state and drives the verb surface.'),
   allowance(
     'architecture',
     [ROOT_LAYER, 'config', 'contract', 'review', 'verbs'],
@@ -404,8 +404,8 @@ export const LAYER_ALLOWED_IMPORTS: readonly LayerAllowance[] = Object.freeze([
   ),
   allowance(
     'vcs',
-    ['config', 'dispatch', 'events', 'utils'],
-    'VCS providers reach config, the dispatch core and the event store.',
+    ['dispatch', 'events', 'utils'],
+    'The VCS mutation owner reaches the dispatch core, the event store and the process primitive.',
   ),
   allowance(
     'lifecycle',
@@ -493,9 +493,9 @@ export const LAYER_ALLOWED_IMPORTS: readonly LayerAllowance[] = Object.freeze([
     [
       ROOT_LAYER, 'adapters', 'adapters/cli', 'config', 'contract', 'events',
       'install', 'projections', 'registry', 'review', 'runtime', 'storage', 'sync',
-      'utils', 'vcs', 'verbs', 'workflow',
+      'utils', 'verbs', 'workflow',
     ],
-    'The dispatch core — 17 targets after the nested CLI adapter split out of the parent facade and the ' +
+    'The dispatch core — 16 targets after the nested CLI adapter split out of the parent facade and the ' +
       'action contract took up residence under `registry/`, which dispatch reads to decide admission. ' +
       'It is the hub, so breadth is expected; the row exists so the breadth stops growing silently. ' +
       'The `utils` edge is the store-path resolver: the chokepoint refuses a mutation whose resolved ' +

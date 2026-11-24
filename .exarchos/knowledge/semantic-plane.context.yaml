@@ -921,6 +921,16 @@ decisions:
       vcs/mutation-owner.ts still has no production importer, so check-module-intent reports it. T-39 or a decision of Reed owns it. The cast census baseline falls from 1549 to 1546 with the three deleted casts.
     status: "Committed on codex/1928-s5-worktrees-merges-cancel."
 
+  - date: "2026-11-23"
+    source: "#1928 revision 26, slice S5 step T-39, the conception of 2026-11-23 (Exarchos reads and writes no PR)."
+    decision: >-
+      The VcsProvider layer goes: provider.ts, github.ts, gitlab.ts, azure-devops.ts, factory.ts, detector.ts, shell.ts and the two recorded CI fixtures. The review registry and the five review adapters go with it. Their twelve suites are retired rows of the test inventory oracle.
+      The dispatch context builds no provider, and the detectVcs option and the vcsProvider field are gone. The vcs config key still loads into the project config. review/types.ts holds its own ReviewComment type.
+    known: >-
+      No stored event or receipt came from the deleted modules, so old rows keep their read results. The effect ledger drops the vcs/ process owner, and the layer table drops the review to vcs, vcs to config and dispatch to vcs edges, because no live import uses them.
+      ProviderAdapter and ReviewAdapterRegistry stay in review/types.ts as type-only contracts with no implementation. The observational originUrl read in utils/git-tree.ts has no caller now. vcs/mutation-owner.ts still has no production importer. The cast census baseline falls from 1546 to 1509.
+    status: "Committed on codex/1928-s5-worktrees-merges-cancel."
+
 build_order:
   original: "kernel -> capsule contract -> prepare/settle -> one runtime adapter -> divergence loop -> #1249 laws -> second adapter"
   legs:

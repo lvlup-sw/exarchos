@@ -22,7 +22,6 @@ import { logger } from '../../logger.js';
 import type { EventStore } from '../../events/store.js';
 import type { ExarchosConfig } from '../../config/define.js';
 import type { ResolvedProjectConfig } from '../../config/resolve.js';
-import type { VcsProvider } from '../../vcs/provider.js';
 import type { Outbox } from '../../sync/outbox.js';
 import type { ChannelEmitter } from '../../adapters/channel/emitter.js';
 import type { CapabilityResolver } from '../../workflow/capabilities/resolver.js';
@@ -107,7 +106,6 @@ export interface DispatchContext {
   readonly callerIdentity?: CallerIdentity;
   readonly config?: ExarchosConfig;
   readonly projectConfig?: ResolvedProjectConfig;
-  readonly vcsProvider?: VcsProvider;
   readonly slimRegistration?: boolean;
   readonly outbox?: Outbox;
   readonly channelEmitter?: ChannelEmitter;
