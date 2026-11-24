@@ -1571,8 +1571,8 @@ const MergePreflightDriftData = z.object({
 
 /**
  * Debug data for a Windows ancestry mismatch. `merge.preflight` carries it only when
- * `EXARCHOS_PREFLIGHT_DEBUG=1` and ancestry failed, to limit event-store growth. The shape mirrors
- * `PreflightDebug` in `verbs/pure/merge-preflight.ts`.
+ * `EXARCHOS_PREFLIGHT_DEBUG=1` and ancestry failed, to limit event-store growth. The retired
+ * `merge_orchestrate` preflight wrote it, and old rows keep this shape.
  */
 const MergePreflightDebugRefData = z.object({
   sha: z.string(),
@@ -1676,15 +1676,18 @@ export const livenessInstanceFields = {
  * `git reset --keep <rollbackSha>`, and never with `--hard`.
  */
 export const MergeExecutedData = z.object({
-  taskId: z.string().optional(),
-  sourceBranch: z.string().min(1),
-  targetBranch: z.string().min(1),
+  taskId: z.string().optional().describe('The task whose accepted head landed'),
+  sourceBranch: z.string().min(1).describe('The task branch that landed'),
+  targetBranch: z.string().min(1).describe('The integration branch that received the landing'),
   /** The operator-selected merge strategy, kept so that replay does not derive it from state. */
-  strategy: z.enum(['squash', 'rebase', 'merge']).optional(),
-  mergeSha: z.string().min(1),
-  rollbackSha: z.string().min(1),
-  /** The liveness instance key: `taskId`, or `sourceBranch→targetBranch`. */
-  ...livenessInstanceFields,
+  strategy: z.enum(['squash', 'rebase', 'merge']).optional().describe('The merge strategy of an old row'),
+  mergeSha: z.string().min(1).describe('The integration tip after the landing'),
+  rollbackSha: z.string().min(1).describe('The integration tip before the landing'),
+  /**
+   * The liveness instance key: `taskId`, or `sourceBranch→targetBranch`. It has the type of the shared
+   * liveness field. The coordinator appends this event, so the field has a short description for the model.
+   */
+  instanceId: livenessInstanceFields.instanceId.describe('The liveness key: taskId, or source→target branch'),
 });
 
 /**

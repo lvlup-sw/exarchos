@@ -61,8 +61,8 @@ describe('nextActionsFromResult — shape recognition', () => {
     expect(actions.map((a) => a.verb)).toEqual(['plan-review']);
   });
 
-  /** The idempotency key is `<featureId>:merge_orchestrate:<taskId>`. */
-  it('surfaces merge_orchestrate from shape 2 when phase is merge-pending', () => {
+  /** A rehydrate envelope in `merge-pending` offers its HSM edge back to `delegate`, and never the retired `merge_orchestrate`. */
+  it('offers only the delegate return from shape 2 when phase is merge-pending', () => {
     const actions = nextActionsFromResult(
       ok({
         workflowState: {
@@ -73,9 +73,7 @@ describe('nextActionsFromResult — shape recognition', () => {
         },
       }),
     );
-    expect(actions.some((a) => a.verb === 'merge_orchestrate')).toBe(true);
-    const mo = actions.find((a) => a.verb === 'merge_orchestrate');
-    expect(mo?.idempotencyKey).toBe('p2-detour:merge_orchestrate:001');
+    expect(actions.map((a) => a.verb)).toEqual(['delegate']);
   });
 
   it('does NOT surface merge_orchestrate when mergeOrchestrator phase is terminal', () => {
@@ -109,44 +107,6 @@ describe('nextActionsFromResult — shape recognition', () => {
   });
 
   /**
-   * This shape 1 payload has no top-level `mergeOrchestrator`. The reader must take it from
-   * `workflowState`, or the payload loses `merge_orchestrate`.
-   */
-  it('backfills mergeOrchestrator from workflowState when shape 1 supplies phase', () => {
-    const actions = nextActionsFromResult(
-      ok({
-        phase: 'merge-pending',
-        workflowType: 'feature',
-        featureId: 'p2-backfill',
-        workflowState: {
-          featureId: 'p2-backfill',
-          phase: 'merge-pending',
-          workflowType: 'feature',
-          mergeOrchestrator: { taskId: '042', phase: 'pending' },
-        },
-      }),
-    );
-    expect(actions.some((a) => a.verb === 'merge_orchestrate')).toBe(true);
-    const mo = actions.find((a) => a.verb === 'merge_orchestrate');
-    expect(mo?.idempotencyKey).toBe('p2-backfill:merge_orchestrate:042');
-  });
-
-  /** A top-level `mergeOrchestrator` needs no `workflowState` wrapper. */
-  it('reads mergeOrchestrator at top level when shape 1 carries it directly', () => {
-    const actions = nextActionsFromResult(
-      ok({
-        phase: 'merge-pending',
-        workflowType: 'feature',
-        featureId: 'top-level-mo',
-        mergeOrchestrator: { taskId: '099', phase: 'pending' },
-      }),
-    );
-    expect(actions.some((a) => a.verb === 'merge_orchestrate')).toBe(true);
-    const mo = actions.find((a) => a.verb === 'merge_orchestrate');
-    expect(mo?.idempotencyKey).toBe('top-level-mo:merge_orchestrate:099');
-  });
-
-  /**
    * `ResultDataSchema` is a Zod union of the two shapes. A payload that advertises a shape and
    * fails its parse gives `[]` and a warning.
    */
@@ -168,9 +128,7 @@ describe('nextActionsFromResult — shape recognition', () => {
           mergeOrchestrator: { taskId: '007', phase: 'pending' },
         }),
       );
-      const mo = actions.find((a) => a.verb === 'merge_orchestrate');
-      expect(mo).toBeDefined();
-      expect(mo?.idempotencyKey).toBe('shape-one:merge_orchestrate:007');
+      expect(actions.map((a) => a.verb)).toEqual(['delegate']);
     });
 
     it('NextActionsFromResult_RehydrationDocument_ParsesShapeTwo', () => {
@@ -194,9 +152,7 @@ describe('nextActionsFromResult — shape recognition', () => {
           },
         }),
       );
-      const mo = actions.find((a) => a.verb === 'merge_orchestrate');
-      expect(mo).toBeDefined();
-      expect(mo?.idempotencyKey).toBe('shape-two:merge_orchestrate:042');
+      expect(actions.map((a) => a.verb)).toEqual(['delegate']);
     });
 
     describe('NextActionsFromResult_MalformedPayload_FailsClosed', () => {
@@ -293,7 +249,7 @@ describe('nextActionsFromResult — shape recognition', () => {
 
     /**
      * The rehydration schema must accept each phase that the write-side schema can persist. A
-     * missing phase fails the parse and hides `merge_orchestrate`.
+     * missing phase fails the parse and empties `next_actions`.
      */
     it('RehydrationMergeOrchestratorSchema_PhaseEnum_MatchesMergeOrchestratorStateSchema', () => {
       const rehydrationShape = RehydrationMergeOrchestratorSchema.shape;
@@ -309,8 +265,8 @@ describe('nextActionsFromResult — shape recognition', () => {
       }
     });
 
-    /** `executing` is not a terminal merge phase, so `merge_orchestrate` must still surface. */
-    it('NextActionsFromResult_RehydrationDocWithExecutingMergePhase_StillSurfacesMergeOrchestrate', () => {
+    /** An old `executing` merge phase still parses, so the envelope keeps its return to `delegate`. */
+    it('NextActionsFromResult_RehydrationDocWithExecutingMergePhase_StillOffersTheDelegateReturn', () => {
       const actions = nextActionsFromResult(
         ok({
           workflowState: {
@@ -321,7 +277,7 @@ describe('nextActionsFromResult — shape recognition', () => {
           },
         }),
       );
-      expect(actions.some((a) => a.verb === 'merge_orchestrate')).toBe(true);
+      expect(actions.map((a) => a.verb)).toEqual(['delegate']);
     });
 
     /** An error envelope is a legitimate no-actions path, so it must not log a warning. */
@@ -374,7 +330,7 @@ describe('nextActionsFromResult — shape recognition', () => {
 /**
  * These tests compose the rehydration reducer with `nextActionsFromResult`, in process. The reducer
  * folds a `task.completed` event with a `worktreePath` into `phase: merge-pending`. The reader must
- * then surface `merge_orchestrate` from the `workflowState` segment.
+ * then offer the return to `delegate` from the `workflowState` segment, and no `merge_orchestrate`.
  *
  * `tests/process/saga-merge-detour.test.ts` pins the same contract through a real MCP server. That
  * test covers the cross-process envelope, and this one covers the composition.
@@ -395,11 +351,8 @@ describe('nextActionsFromResult — #1374 cross-boundary pin (reducer ⇒ reader
     } as WorkflowEvent;
   }
 
-  /**
-   * The test folds the event sequence that the saga test drives through MCP. The idempotency key
-   * must be `<featureId>:merge_orchestrate:<taskId>`.
-   */
-  it('NextActions_FromReducerProjectedRehydrationDoc_AfterWorktreeBearingTaskCompleted_SurfacesMergeOrchestrate', () => {
+  /** The test folds the event sequence that the saga test drives through MCP. */
+  it('NextActions_FromReducerProjectedRehydrationDoc_AfterWorktreeBearingTaskCompleted_OffersTheDelegateReturn', () => {
     let doc = rehydrationReducer.apply(
       rehydrationReducer.initial,
       makeEvent(
@@ -433,9 +386,7 @@ describe('nextActionsFromResult — #1374 cross-boundary pin (reducer ⇒ reader
 
     const actions = nextActionsFromResult({ success: true, data: doc });
 
-    const mo = actions.find((a) => a.verb === 'merge_orchestrate');
-    expect(mo).toBeDefined();
-    expect(mo?.idempotencyKey).toBe('pin-1374:merge_orchestrate:001');
+    expect(actions.map((a) => a.verb)).toEqual(['delegate']);
   });
 
   /**

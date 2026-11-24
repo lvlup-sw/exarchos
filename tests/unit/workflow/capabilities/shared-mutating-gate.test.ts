@@ -9,7 +9,7 @@
 //   Thus a posture gate at dispatch cannot judge that agent.
 //   Agent postures apply at render time, through `resolveCapabilities` and the `isolation: worktree` frontmatter of the agent.
 //
-// The `serialize_merge` single-writer lease, the merge preflight ancestry check, and launcher-owned placement protect the shared ref.
+// The harness owns the landing on the shared ref, and the coordinator records it with a `merge.executed` row.
 // `enforceReadonlyGate` keeps state authority, so dispatch still rejects the read-only caller below.
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -69,12 +69,12 @@ describe('shared-mutating posture gate — removed (INV-11)', () => {
   });
 
   /**
-   * A `task-isolated` caller of `serialize_merge` must reach the handler and not get CAPABILITY_DENIED.
+   * A `task-isolated` caller of the `shared-mutating` action `cutover_decide` must reach the handler and not get CAPABILITY_DENIED.
    * Admission takes capabilities from the trusted caller, so the context sets `callerIdentity`.
    * Without an identity, admission counts no capability for the caller and refuses the call before the handler.
    * The spy call is the proof, because a result without CAPABILITY_DENIED can still come from an earlier refusal.
    */
-  it('TaskIsolatedCaller_SerializeMerge_ReachesTheHandler', async () => {
+  it('TaskIsolatedCaller_SharedMutatingAction_ReachesTheHandler', async () => {
     const resolver = createInMemoryResolver(taskIsolatedCaps);
     expect(resolver.has('isolation:worktree')).toBe(true);
 
@@ -89,11 +89,7 @@ describe('shared-mutating posture gate — removed (INV-11)', () => {
       const result = await dispatch(
         'exarchos_orchestrate',
         {
-          action: 'serialize_merge',
-          featureId: 'feat-x',
-          integrationRef: 'integration',
-          sourceBranch: 'feat/x',
-          strategy: 'squash',
+          action: 'cutover_decide',
         },
         taskIsolatedCtx,
       );

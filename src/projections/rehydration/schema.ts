@@ -54,14 +54,14 @@ export const PhasePlaybookSchema = z
   .nullable();
 
 /**
- * Merge orchestrator state on the envelope. With it, a `next_actions` consumer decides on the `merge_orchestrate` verb without an event store query.
+ * Merge orchestrator state on the envelope. It records the landing state of the pending worktree task without an event store query.
  * The reducer sets it on a `task.completed` with a worktree. `merge.executed`, `merge.recovered`, `merge.rollback` and `merge.aborted` update it.
  */
 export const RehydrationMergeOrchestratorSchema = z.object({
   /** The task that owns the worktree merge. */
   taskId: z.string(),
   /**
-   * `completed`, `rolled-back` and `aborted` are terminal, and do not surface `merge_orchestrate` again.
+   * `completed`, `rolled-back` and `aborted` are terminal.
    * The schema accepts `executing`, so a `handleGet` during a merge does not fail closed.
    * It must match the `phase` enum of `MergeOrchestratorStateSchema` in `workflow/schemas.ts`. A test in `next-actions-from-result.test.ts` pins this.
    */
@@ -72,7 +72,7 @@ export const WorkflowStateSchema = z.object({
   featureId: z.string(),
   phase: z.string(),
   workflowType: z.string(),
-  /** Absent until the reducer folds a `task.completed` with a worktree. `nextActionsFromResult` reads it. */
+  /** Absent until the reducer folds a `task.completed` with a worktree. */
   mergeOrchestrator: RehydrationMergeOrchestratorSchema.optional(),
 });
 

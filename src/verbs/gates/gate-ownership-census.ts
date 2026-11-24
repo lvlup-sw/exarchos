@@ -102,7 +102,7 @@ export const ACKNOWLEDGED_UNRESOLVED_MODULES: ReadonlySet<string> = Object.freez
     'vcs/mutation-owner.ts',
     'verbs/team/prepare-delegation.ts',
     'verbs/worktree/manager.ts',
-    'verbs/worktree/merge-serializer.ts',
+    'verbs/worktree/merge-lease-reconciler.ts',
     'workflow/cancel.ts',
   ]),
 );

@@ -248,15 +248,15 @@ register({
   skillRef: '@skills/merge-orchestrator/SKILL.md',
   tools: [
     {
-      tool: 'exarchos_orchestrate',
-      action: 'merge_orchestrate',
+      tool: 'exarchos_event',
+      action: 'append',
       purpose:
-        'Run preflight + execute merge for the worktree-associated task; resumes idempotently on retry',
+        'Record the harness landing of the worktree task with one merge.executed row, keyed by taskId and mergeSha',
     },
     {
       tool: 'exarchos_workflow',
       action: 'get',
-      purpose: 'Read mergeOrchestrator state to detect prior phase and rollback points',
+      purpose: 'Read mergeOrchestrator state to detect a prior terminal phase',
     },
     {
       tool: 'exarchos_event',
@@ -273,7 +273,7 @@ register({
   validationScripts: [],
   humanCheckpoint: false,
   compactGuidance:
-    'Local-git merge handoff. Call exarchos_orchestrate merge_orchestrate to land the subagent worktree branch on the integration branch via local git merge with recorded rollback sha. NOT a remote PR merge — the harness owns that in synthesize. Runs preflight (ancestry / current-branch / main-worktree / drift), records HEAD as rollback anchor, runs git merge per strategy, and on failure runs the INV-14 recovery ladder (git merge --abort → git reset --keep <rollbackSha>, never --hard). Strategy required (no default). Resumable: terminal phases (completed / rolled-back / aborted) short-circuit on re-entry. Events auto-emitted: merge.preflight carries structured guard sub-results + failureReasons; merge.executed records mergeSha; merge.recovered records reason + optional recoveryError/recoveryErrorDetail. Use exarchos_event describe before any manual emission. HSM exits merge-pending back to delegate on terminal merge event. Full guidance: @skills/merge-orchestrator/SKILL.md.',
+    'Harness landing handoff. Land the accepted head of the worktree task on the integration branch with the git of your harness, from the clean integration worktree: git merge --ff-only <accepted head>, or git merge --no-ff <accepted head> when the integration branch advanced. Check git merge-base --is-ancestor first, and skip a head that landed already. Never rebase or squash an accepted head. Exarchos runs no merge. After the landing, record it with exarchos_event append of one merge.executed row (taskId, sourceBranch, targetBranch, mergeSha = integration tip after, rollbackSha = integration tip before), with idempotencyKey <taskId>:<mergeSha>. Use exarchos_event describe before the first append. HSM exits merge-pending back to delegate on that row. NOT a remote PR merge — the harness owns that in synthesize. Full guidance: @skills/merge-orchestrator/SKILL.md.',
 });
 
 register({

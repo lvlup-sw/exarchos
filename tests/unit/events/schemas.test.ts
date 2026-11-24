@@ -2711,7 +2711,7 @@ describe('MergeRollbackData', () => {
   /**
    * `merge.rollback` keeps its schema and type-map entry, so stored events replay.
    * Its source is `retired`, and a `retired` type must not appear in `autoEmits`.
-   * Its successor `merge.recovered` is `auto`.
+   * Its successor `merge.recovered` is retired too, with the local merge action that wrote it.
    */
   it('schemas_MergeRollback_ReadTolerantButNotEmittable', () => {
     expect(EventTypes).toContain('merge.rollback');
@@ -2729,7 +2729,7 @@ describe('MergeRollbackData', () => {
 
     expect(EVENT_EMISSION_REGISTRY['merge.rollback']).toBe('retired');
     expect(EVENT_EMISSION_REGISTRY['merge.rollback']).not.toBe('auto');
-    expect(EVENT_EMISSION_REGISTRY['merge.recovered']).toBe('auto');
+    expect(EVENT_EMISSION_REGISTRY['merge.recovered']).toBe('retired');
 
     const catalog = serializeEventCatalog();
     expect(catalog.bySource.retired).toContain('merge.rollback');
@@ -3998,10 +3998,14 @@ describe('WLM operational-core merge lease schemas', () => {
     expect(EVENT_DATA_SCHEMAS[VIOLATION]).not.toBe(EVENT_DATA_SCHEMAS['promotion.executed']);
   });
 
-  /** Deterministic code appends the merge pair, so each type is `auto`. */
+  /**
+   * The retired `serialize_merge` action wrote the claim, so the claim is `retired`. `reconcile_worktrees`
+   * still appends the release, so the release is `auto`. Both keep their schemas, so old rows replay.
+   */
   it('WorktreeMergeEvents_ClassificationMaps_Exhaustive', () => {
+    expect(EVENT_EMISSION_REGISTRY['worktree.merge_requested']).toBe('retired');
+    expect(EVENT_EMISSION_REGISTRY['worktree.merge_executed']).toBe('auto');
     for (const type of MERGE_TYPES) {
-      expect(EVENT_EMISSION_REGISTRY[type], `${type} should be classified 'auto'`).toBe('auto');
       const schema = EVENT_DATA_SCHEMAS[type];
       expect(schema, `${type} missing from EVENT_DATA_SCHEMAS`).toBeDefined();
     }

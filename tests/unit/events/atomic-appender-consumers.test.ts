@@ -16,8 +16,8 @@ import { fileURLToPath } from 'node:url';
 /** The files under `src/` that import `AtomicAppender`, in sorted order. */
 const FROZEN_IMPORT_BASELINE = [
   'src/events/store.ts',
-  /** The `serialize_merge` optimistic lease claims the worktrees stream through the `decide` seam. */
-  'src/verbs/worktree/merge-serializer.ts',
+  /** The merge lease reconciler releases a lease of a dead holder on the worktrees stream through the appender. */
+  'src/verbs/worktree/merge-lease-reconciler.ts',
 ] as const;
 
 /** Resolves `src` from the URL of this file. */

@@ -324,7 +324,8 @@ describe('reviewer MCP session cannot use the operator grant', () => {
 
   /**
    * The session first inits the workflow the merge stores, then merges feature into integration.
-   * Both calls must be refused. The named repo, a second repo, and this checkout must keep their commits.
+   * The grant refuses the init. The retired-action table refuses the merge before the grant runs.
+   * The named repo, a second repo, and this checkout must keep their commits.
    * The feature stream and the state file must stay absent.
    */
   it('cli_mcp_refuses_merge_orchestrate', async () => {
@@ -355,9 +356,7 @@ describe('reviewer MCP session cannot use the operator grant', () => {
       expect(await git(victim, ['rev-parse', 'integration'])).toBe(victimBefore.integration);
       expectNoSideEffect(events, [stateFile]);
       expect(refusalCode(initEnv)).toBe('CAPABILITY_DENIED');
-      expect(AUTH_DENIAL.has(refusalCode(env)), `${refusalCode(env)} ${env.error?.message ?? ''}`).toBe(
-        true,
-      );
+      expect(refusalCode(env), env.error?.message ?? '').toBe('PROVIDER_WRITE_RETIRED');
       expect(await git(bystander, ['rev-parse', 'integration'])).toBe(bystanderBefore.integration);
       expect(await git(process.cwd(), ['rev-parse', 'HEAD'])).toBe(workspaceHead);
     } finally {
@@ -402,7 +401,6 @@ describe('reviewer MCP session cannot use the operator grant', () => {
  * The other rows need a prepared workflow, a worktree lease, or a long host command.
  */
 export const UNTESTED_SHARED_OPERATIONS: readonly string[] = [
-  'exarchos_orchestrate.serialize_merge',
   'exarchos_orchestrate.execute_intent',
   'exarchos_orchestrate.settle',
   'exarchos_orchestrate.prepare_delegation',

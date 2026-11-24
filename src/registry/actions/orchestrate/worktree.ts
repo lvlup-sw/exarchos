@@ -1,8 +1,8 @@
 import { withCappedShape } from '../../../output-schema-declaration.js';
-import { AcquireWorktreeOutputSchema, ReconcileWorktreesOutputSchema, ReleaseWorktreeOutputSchema, SerializeMergeOutputSchema } from '../../../verbs/worktree/schemas.js';
+import { AcquireWorktreeOutputSchema, ReconcileWorktreesOutputSchema, ReleaseWorktreeOutputSchema } from '../../../verbs/worktree/schemas.js';
 import { z } from 'zod';
 import { declared, none, withActionContract } from '../../action-contract.js';
-import { COMPENSABLE_REMOTE, LOCAL_MUTATION_IDEMPOTENT } from '../../annotations.js';
+import { LOCAL_MUTATION_IDEMPOTENT } from '../../annotations.js';
 import { ALL_PHASES, ROLE_LEAD, featureIdSchema } from '../../phases.js';
 import type { BuiltinActionDraft, BuiltinToolAction } from '../../types.js';
 
@@ -161,84 +161,6 @@ export const worktreeActions: readonly BuiltinToolAction[] = [
           owner: 'orchestrate',
           role: 'primary',
           description: 'Frees a merge lease whose holder is provably dead',
-        },
-      ),
-    }
-  ),
-  /**
-   * The integration-branch merge serializer. An optimistic lease in the event log allows at most
-   * one in-flight merge per `integrationRef`. The `worktree.merge_requested` and
-   * `worktree.merge_executed` pair on the `worktrees` stream holds the lease. Then `merge_orchestrate`
-   * does the git work. No file lock is used.
-   */
-  contracted(
-    {
-      name: 'serialize_merge',
-      surface: 'worktree',
-      description:
-        'Serialize an integration-branch merge behind an optimistic per-integrationRef lease, then compose merge_orchestrate UNCHANGED. DEFAULTS TO DRY-RUN (INV-5c): omitting dryRun (or dryRun:true) claims NO lease, runs NO merge, and returns the planned effect (integration head + merge params); pass dryRun:false to actually claim the lease and execute. Grants at most one in-flight merge per integrationRef: a held slot bounded-waits (re-folding worktrees@v1) and reclaims a provably-dead holder inline, or returns a structured merge-slot-timeout. Auto-emits worktree.merge_requested (claim) then worktree.merge_executed (release) ONLY on an apply run. Use for: landing a source branch onto a shared integration ref under cross-process serialization. Do NOT use for: a single unsynchronized merge (use merge_orchestrate); a raw provider PR merge (the harness owns it).',
-      schema: z.object({
-        featureId: z.string().min(1),
-        integrationRef: z.string().min(1),
-        sourceBranch: z.string().min(1),
-        strategy: z.enum(['squash', 'rebase', 'merge']),
-        taskId: z.string().optional(),
-        repoRoot: z.string().optional(),
-        /**
-         * The wait budget before `merge-slot-timeout`. It has the same base type as
-         * `doctor.timeoutMs`, so the MCP flattener sees one shape for the shared field name.
-         */
-        timeoutMs: z.number().int().positive().optional(),
-        /**
-         * Dry-run is the safe default, and only `dryRun: false` applies. `handleSerializeMerge`
-         * applies the default, because the MCP flattener rejects different defaults for the shared
-         * `dryRun` field. A dry run emits no lease event.
-         */
-        dryRun: z.boolean().optional(),
-      }),
-      phases: ALL_PHASES,
-      roles: ROLE_LEAD,
-      /**
-       * An advisory hint. The serialized merge has many steps (wait, claim, merge, release), so it
-       * suits Tasks-augmented dispatch, like `merge_orchestrate`.
-       */
-      dispatch: { taskSuitable: true, taskTtlSuggestionMs: 60_000 },
-      /**
-       * The merge changes the integration branch and the working tree from the main worktree, so
-       * it has the strictest mutating posture, like `merge_orchestrate`.
-       */
-      posture: 'shared-mutating',
-      outputSchema: withCappedShape(SerializeMergeOutputSchema),
-      annotations: COMPENSABLE_REMOTE,
-    },
-    {
-      requires: none('serialize-merge admission is the in-handler lease wait, not an authored obligation discriminant'),
-      ensures: none('lease events append only on an apply run; dry-run success has no durable postcondition'),
-      needs: declared('fs:write', 'shell:exec'),
-      touches: {
-        frame: 'single-machine',
-        resources: declared(
-          { kind: 'stream', selector: 'featureId' },
-          { kind: 'git-ref', selector: 'integrationRef' },
-          { kind: 'git-ref', selector: 'sourceBranch' },
-        ),
-      },
-      executionAuthority: { kind: 'local' },
-      replay: { kind: 'claim-required', scope: 'stream-subject-request' },
-      emissions: declared(
-        {
-          event: 'worktree.merge_requested',
-          condition: 'conditional',
-          owner: 'orchestrate',
-          role: 'primary',
-          description: 'The lease CLAIM (single-writer per integrationRef) — apply run only (dryRun:false)',
-        },
-        {
-          event: 'worktree.merge_executed',
-          condition: 'conditional',
-          owner: 'orchestrate',
-          role: 'primary',
-          description: 'The lease RELEASE (plain keyed append) — apply run only (dryRun:false)',
         },
       ),
     }

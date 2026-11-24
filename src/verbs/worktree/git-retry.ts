@@ -91,7 +91,7 @@ export function isIndexLockError(err: unknown): boolean {
 /**
  * The minimal result shape of a git executor that reports failures through
  * `exitCode` and does not throw. The type is structural, so this module does
- * not depend on `GitExecResult` in `pure/merge-preflight.ts`.
+ * not depend on a git executor module.
  */
 export interface GitExecLikeResult {
   /** Process exit code — non-zero signals a git failure. */

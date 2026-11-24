@@ -180,32 +180,24 @@ describe('Runbook definitions', () => {
   });
 
   /**
-   * `MERGE_ORCHESTRATION` is the runbook of the `merge-pending` phase: a dry-run
-   * preflight, the merge, then a transition to `delegate`. Recovery emits only
-   * `merge.recovered`, so `autoEmits` must not name `merge.rollback`.
+   * `MERGE_ORCHESTRATION` is the runbook of the `merge-pending` phase. The harness checks and lands
+   * the accepted head, the coordinator appends one `merge.executed` row, and the workflow moves back
+   * to `delegate`. No step calls the retired `merge_orchestrate`, and only the transition auto-emits.
    */
   it('Runbook_PhaseMergePending_ReturnsPopulatedSteps', () => {
     expect(MERGE_ORCHESTRATION).toBeDefined();
     expect(MERGE_ORCHESTRATION.id).toBe('merge-orchestration');
     expect(MERGE_ORCHESTRATION.phase).toBe('merge-pending');
-    expect(MERGE_ORCHESTRATION.steps).toHaveLength(3);
-    expect(MERGE_ORCHESTRATION.autoEmits).toEqual(
-      expect.arrayContaining([
-        'merge.preflight',
-        'merge.executed',
-        'merge.recovered',
-        'workflow.transition',
-      ]),
-    );
-    expect(MERGE_ORCHESTRATION.autoEmits).not.toContain('merge.rollback');
-    expect(MERGE_ORCHESTRATION.steps[0].tool).toBe('exarchos_orchestrate');
-    expect(MERGE_ORCHESTRATION.steps[0].action).toBe('merge_orchestrate');
-    expect(MERGE_ORCHESTRATION.steps[0].params?.dryRun).toBe(true);
-    expect(MERGE_ORCHESTRATION.steps[1].tool).toBe('exarchos_orchestrate');
-    expect(MERGE_ORCHESTRATION.steps[1].action).toBe('merge_orchestrate');
-    expect(MERGE_ORCHESTRATION.steps[2].tool).toBe('exarchos_workflow');
-    expect(MERGE_ORCHESTRATION.steps[2].action).toBe('transition');
-    expect(MERGE_ORCHESTRATION.steps[2].params?.target).toBe('delegate');
+    expect(MERGE_ORCHESTRATION.steps.map((step) => `${step.tool}.${step.action}`)).toEqual([
+      'native:bash.git_is_ancestor',
+      'native:bash.git_merge',
+      'exarchos_event.append',
+      'exarchos_workflow.transition',
+    ]);
+    expect(MERGE_ORCHESTRATION.autoEmits).toEqual(['workflow.transition']);
+    expect(MERGE_ORCHESTRATION.steps[2].params?.type).toBe('merge.executed');
+    expect(MERGE_ORCHESTRATION.steps[3].params?.target).toBe('delegate');
+    expect(MERGE_ORCHESTRATION.steps.some((step) => step.action === 'merge_orchestrate')).toBe(false);
   });
 
   it('TaskClassification_HasCorrectPhase_Delegate', () => {

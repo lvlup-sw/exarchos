@@ -118,7 +118,7 @@ const LIFECYCLE_VIEW_DECLARATIONS: readonly BuiltinActionDraft[] = [
     name: 'wait',
     surface: 'worktree',
     description:
-      "Block until an event-log predicate holds; PURE CONSUMER — emits NO events, never hangs (structured WAIT_TIMEOUT on expiry). Feature-scoped (needs featureId, pick one): phase resolves on entering the target phase (already-passed ⇒ immediate; a failed/cancelled terminal first ⇒ WAIT_FAILED); status resolves on the requested terminal (completed/failed/cancelled; a DIFFERENT terminal ⇒ WAIT_FAILED); operation <surface> is the S-6 predicate for feature-scoped surfaces (merge, mutation), resolving when the unpaired executing_started gains its registry terminal by instance key (none in flight ⇒ immediate; launch/prune ⇒ INVALID_INPUT → use until). Worktree scope: until:'merge' (default) awaits the serialized merge on integrationRef, until:'idle' awaits prune-idle; timeoutMs bounds it. Use for: gating on a phase/status/operation/merge/idle condition. Do NOT use for: a snapshot (use ps/inspect); running a merge (use serialize_merge).",
+      "Block until an event-log predicate holds; PURE CONSUMER — emits NO events, never hangs (structured WAIT_TIMEOUT on expiry). Feature-scoped (needs featureId, pick one): phase resolves on entering the target phase (already-passed ⇒ immediate; a failed/cancelled terminal first ⇒ WAIT_FAILED); status resolves on the requested terminal (completed/failed/cancelled; a DIFFERENT terminal ⇒ WAIT_FAILED); operation <surface> is the S-6 predicate for feature-scoped surfaces (merge, mutation), resolving when the unpaired executing_started gains its registry terminal by instance key (none in flight ⇒ immediate; launch/prune ⇒ INVALID_INPUT → use until). Worktree scope: until:'merge' (default) awaits the serialized merge on integrationRef, until:'idle' awaits prune-idle; timeoutMs bounds it. Use for: gating on a phase/status/operation/merge/idle condition. Do NOT use for: a snapshot (use ps/inspect); running a merge (the harness lands branches with its own tools).",
     schema: z.object({
       /**
        * The target of a feature-scoped predicate (`phase`, `status`, `operation`). The `until`
@@ -133,9 +133,7 @@ const LIFECYCLE_VIEW_DECLARATIONS: readonly BuiltinActionDraft[] = [
       status: lifecycleStatusField.optional(),
       operation: lifecycleOperationField.optional(),
       /**
-       * Required only for `until: 'merge'`, where the handler rejects a missing ref. The base type
-       * matches the required `integrationRef` of `serialize_merge`. The flattener accepts a
-       * difference in optionality only.
+       * Required only for `until: 'merge'`, where the handler rejects a missing ref.
        */
       integrationRef: z.string().min(1).optional(),
       /**
@@ -144,8 +142,8 @@ const LIFECYCLE_VIEW_DECLARATIONS: readonly BuiltinActionDraft[] = [
        */
       until: z.enum(['merge', 'idle']).optional(),
       /**
-       * The wait budget. It has the same base type as `timeoutMs` on `serialize_merge` and `doctor`,
-       * so the MCP flattener sees one shape.
+       * The wait budget. It has the same base type as `timeoutMs` on `doctor`, so the MCP flattener
+       * sees one shape.
        */
       timeoutMs: z.number().int().positive().optional(),
     }),

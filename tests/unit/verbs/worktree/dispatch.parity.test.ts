@@ -37,13 +37,11 @@ import {
   handleViewWorktrees,
   handleViewPs,
   handleViewWait,
-  handleSerializeMerge,
   type WorktreeViewDeps,
 } from '../../../../src/verbs/worktree/handlers.js';
 import { envelopeDataSchemaIsTyped } from '../../../../src/verbs/worktree/schemas.js';
 import type { GitWorktreeProbe } from '../../../../src/verbs/worktree/manager.js';
 import type { ProcessSource } from '../../../../src/verbs/worktree/pure/process-identity.js';
-import type { SerializeMergeDeps } from '../../../../src/verbs/worktree/merge-serializer.js';
 
 /** Empty probe — `adopt` observes zero on-disk worktrees, no git. */
 const EMPTY_PROBE: GitWorktreeProbe = {
@@ -59,8 +57,6 @@ const FIXED_SOURCE: ProcessSource = {
 const DETERMINISTIC_DEPS = { gitProbe: EMPTY_PROBE, processSource: FIXED_SOURCE };
 /** `ps`/`wait` seams: fixed clock so `waitedMs` folds to a deterministic 0. */
 const VIEW_DEPS: WorktreeViewDeps = { gitProbe: EMPTY_PROBE, processSource: FIXED_SOURCE, now: () => 1000 };
-/** serialize_merge dry-run reads a fixed (null) integration head — no git, no lease. */
-const SERIALIZE_DEPS: SerializeMergeDeps = { readIntegrationHead: () => null, processSource: FIXED_SOURCE };
 
 /**
  * Fixed arguments for each surface action.
@@ -69,8 +65,6 @@ const SERIALIZE_DEPS: SerializeMergeDeps = { readIntegrationHead: () => null, pr
 const FIXTURE_ARGS: Readonly<Record<string, Record<string, unknown>>> = {
   acquire_worktree: { repoRoot: '/tmp/wlm-parity-repo', worktreeId: '/tmp/wlm-parity-wt' },
   release_worktree: { worktreeId: '/tmp/wlm-parity-wt' },
-  /** `dryRun` defaults to true, so the result is a planned effect with no lease and no git side effects. */
-  serialize_merge: { featureId: 'F', integrationRef: 'main', sourceBranch: 'feat', strategy: 'squash' },
   worktrees: {},
   ps: {},
   /** This mutation takes no parameters. On an empty store each pass finds nothing to heal, so the run has no side effects. */
@@ -108,8 +102,6 @@ const orchestrateStub: CompositeHandler = async (args, ctx): Promise<ToolResult>
       return handleAcquireWorktree(rest, ctx, DETERMINISTIC_DEPS);
     case 'release_worktree':
       return handleReleaseWorktree(rest, ctx, DETERMINISTIC_DEPS);
-    case 'serialize_merge':
-      return handleSerializeMerge(rest, ctx, SERIALIZE_DEPS);
     case 'reconcile_worktrees':
       return handleReconcileWorktrees(rest, ctx, VIEW_DEPS);
     default:
@@ -217,7 +209,6 @@ describe('worktree surface conformance (registry-driven, DR-1)', () => {
       'ps',
       'reconcile_worktrees',
       'release_worktree',
-      'serialize_merge',
       'wait',
       'worktrees',
     ]);

@@ -35,7 +35,7 @@ describe('Capability_PostureSpec_ResolverDerivesEffectiveCapabilities (DR-6)', (
 
 /**
  * A `read-only` caller has `mcp:exarchos:readonly` and no `mcp:exarchos`.
- * Dispatch must reject its `merge_orchestrate` call at `enforceReadonlyGate`, before the composite handler runs.
+ * Dispatch must reject its `cutover_decide` call at `enforceReadonlyGate`, before the composite handler runs.
  * The test makes a real `dispatch()` call with a spy as the composite handler.
  * The uncalled spy is the proof, because a handler that rejects internally still runs.
  */
@@ -80,11 +80,7 @@ describe('Resolver_ReadOnlyCaller_RejectedBeforeMergeHandler (#1305 T14)', () =>
       const result = await dispatch(
         'exarchos_orchestrate',
         {
-          action: 'merge_orchestrate',
-          featureId: 'feat-x',
-          sourceBranch: 'feat/x',
-          targetBranch: 'main',
-          strategy: 'squash',
+          action: 'cutover_decide',
         },
         readonlyCtx,
       );
@@ -92,7 +88,7 @@ describe('Resolver_ReadOnlyCaller_RejectedBeforeMergeHandler (#1305 T14)', () =>
       expect(result.success).toBe(false);
       expect(result.error?.code).toBe('CAPABILITY_DENIED');
       expect(result.error?.tool).toBe('exarchos_orchestrate');
-      expect(result.error?.action).toBe('merge_orchestrate');
+      expect(result.error?.action).toBe('cutover_decide');
 
       expect(compositeSpy).not.toHaveBeenCalled();
     } finally {

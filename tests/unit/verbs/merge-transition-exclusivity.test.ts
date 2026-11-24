@@ -1,10 +1,10 @@
 /**
- * Structural guard: the `merge-pending` entry and exit transitions of the merge orchestrator must use the HSM transition primitive.
+ * Structural guard: a `merge-pending` entry or exit must use the HSM transition primitive.
  * That path is `handleSet({ phase })`, then `hsmTransitionGuard.attempt`, then one `workflow.transition` event.
  * A direct top-level phase mutation bypasses the event log and desyncs the projection from the event store.
  *
- * The scan reads every `.ts` source file under `src/verbs/`. The merge orchestrator can write its own sub-state, `mergeOrchestrator.phase`.
- * That sub-state is not the top-level workflow phase.
+ * The scan reads every `.ts` source file under `src/verbs/`. The retired merge orchestrator wrote only its own sub-state,
+ * `mergeOrchestrator.phase`, and no module under `src/verbs/` writes the top-level workflow phase for the detour now.
  */
 
 import { describe, it, expect } from 'vitest';
@@ -65,30 +65,6 @@ describe('Orchestrate_NoSetPhaseCalls_ForMergeTransitions (#1305 T15)', () => {
       for (const pattern of FORBIDDEN_PATTERNS) {
         if (contents.includes(pattern)) {
           offenders.push(`${file} contains forbidden bare phase-set "${pattern}"`);
-        }
-      }
-    }
-
-    expect(offenders).toEqual([]);
-  });
-
-  /**
-   * The two merge source files must contain no top-level phase-set token, in either spacing.
-   * Their `mergeOrchestrator: { phase }` sub-state is an object key, so it does not match.
-   */
-  it('the merge orchestrator source contains no top-level workflow phase-set call at all', () => {
-    const mergeFiles = [
-      join(here, 'merge', 'merge-orchestrate.ts'),
-      join(here, 'merge', 'execute-merge.ts'),
-    ];
-    const bareSetTokens = [`${setCall}${phaseKey}`, `${setCallTight}${phaseKey}`];
-
-    const offenders: string[] = [];
-    for (const file of mergeFiles) {
-      const contents = readFileSync(file, 'utf-8');
-      for (const token of bareSetTokens) {
-        if (contents.includes(token)) {
-          offenders.push(`${file} contains "${token}"`);
         }
       }
     }

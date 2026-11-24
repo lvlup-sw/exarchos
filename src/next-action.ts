@@ -10,7 +10,7 @@ import { z } from 'zod';
 /**
  * The fields that each `NextAction` carries. Verb-specific branches extend this base.
  *
- * - `verb`: a snake_case control verb such as `merge_orchestrate`, or an HSM target phase such as
+ * - `verb`: a snake_case control verb such as `divergent_loop`, or an HSM target phase such as
  *   `plan`.
  * - `reason`: a free-form rationale for a human reader.
  * - `validTargets`: an optional list of canonical target identifiers.
@@ -35,7 +35,7 @@ const VERB_SPECIFIC_LITERALS = ['retry_with_task'] as const;
 
 /**
  * The catch-all branch for a verb with only the base payload, such as an HSM transition name or
- * `merge_orchestrate`. Its `verb` refinement rejects each verb with a dedicated branch. Without it,
+ * `divergent_loop`. Its `verb` refinement rejects each verb with a dedicated branch. Without it,
  * a malformed `retry_with_task` fails its own branch and then parses here. This branch must be the
  * last member of the union.
  */

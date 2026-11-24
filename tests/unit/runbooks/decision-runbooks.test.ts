@@ -28,7 +28,8 @@ describe('Decision runbooks', () => {
    * The `merge-pending` phase must have the `merge-orchestration` runbook. Its
    * `templateVars` must be the six fields of `expectedVars`. The first loop finds a
    * missing field. The second loop finds a template var that has no value in
-   * `sampleBindings`, which holds the same six fields.
+   * `sampleBindings`, which holds the same six fields. `stream` and `event` fill the
+   * append of the `merge.executed` row.
    */
   it('Runbook_MergePending_TemplateVarsExpand', () => {
     const mergePendingRunbooks = ALL_RUNBOOKS.filter(r => r.phase === 'merge-pending');
@@ -37,7 +38,7 @@ describe('Decision runbooks', () => {
     const mergeOrchestration = mergePendingRunbooks.find(r => r.id === 'merge-orchestration');
     expect(mergeOrchestration).toBeDefined();
 
-    const expectedVars = ['featureId', 'taskId', 'sourceBranch', 'targetBranch', 'strategy', 'repoRoot'];
+    const expectedVars = ['featureId', 'taskId', 'sourceBranch', 'targetBranch', 'stream', 'event'];
     for (const v of expectedVars) {
       expect(mergeOrchestration!.templateVars).toContain(v);
     }
@@ -47,8 +48,8 @@ describe('Decision runbooks', () => {
       taskId: 'task-001',
       sourceBranch: 'feature/test-branch',
       targetBranch: 'main',
-      strategy: 'merge',
-      repoRoot: '/tmp/repo',
+      stream: 'feat-test',
+      event: 'merge.executed',
     };
     for (const v of mergeOrchestration!.templateVars) {
       expect(sampleBindings[v], `template var "${v}" missing from sample bindings`).toBeTruthy();

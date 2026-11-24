@@ -47,8 +47,6 @@
     "tests/unit/verbs/gates/plan-coverage.parity.test.ts",
     "tests/unit/verbs/gates/security-scan.parity.test.ts",
     "tests/unit/verbs/gates/static-analysis.parity.test.ts",
-    "tests/unit/verbs/merge/merge-orchestrate.parity.test.ts",
-    "tests/unit/verbs/merge/merge-orchestrate.race.test.ts",
     "tests/unit/verbs/onboard/onboard.parity.test.ts",
     "tests/unit/verbs/pure/context-economy.parity.test.ts",
     "tests/unit/verbs/pure/design-completeness.parity.test.ts",

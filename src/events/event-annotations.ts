@@ -291,9 +291,11 @@ export const EVENT_ANNOTATIONS: Readonly<Record<string, EventRegistration>> = Ob
   /** Retired with the mutation gate. The schema stays so that old logs replay the same, but no code writes this event. */
   'mutation.executed': { lifecycle: 'retired', tier: 'substrate', rationale: 'operation-record' },
   'feedback.recorded': { lifecycle: 'active', tier: 'substrate', rationale: 'operation-record' },
-  'merge.retry_attempt': { lifecycle: 'active', tier: 'substrate', rationale: 'operation-record' },
+  /** Retired with `merge_orchestrate`. The schema, the readers and the projections stay so that old logs replay the same, but no code writes this event. */
+  'merge.retry_attempt': { lifecycle: 'retired', tier: 'substrate', rationale: 'operation-record' },
+  /** Retired with `merge_orchestrate`. The schema, the readers and the projections stay so that old logs replay the same, but no code writes this event. */
   'merge.executing_started': {
-    lifecycle: 'active',
+    lifecycle: 'retired',
     tier: 'substrate',
     rationale: 'operation-record',
   },
@@ -543,27 +545,23 @@ export const EVENT_ANNOTATIONS: Readonly<Record<string, EventRegistration>> = Ob
     provider: 'exarchos_orchestrate',
     consumedBy: ['code-quality'],
   },
+  /** Retired with `merge_orchestrate`. The schema, the readers and the projections stay so that old logs replay the same, but no code writes this event. */
   'merge.preflight': {
-    lifecycle: 'active',
+    lifecycle: 'retired',
     tier: 'capability',
     provider: 'exarchos_orchestrate',
     consumedBy: ['merge-orchestrator@v1', 'workflow-state@v1'],
   },
-  'merge.executed': {
-    lifecycle: 'active',
-    tier: 'capability',
-    provider: 'exarchos_orchestrate',
-    consumedBy: ['merge-orchestrator@v1', 'rehydration@v1', 'workflow-state@v1'],
-  },
+  /** Retired with `merge_orchestrate`. The schema, the readers and the projections stay so that old logs replay the same, but no code writes this event. */
   'merge.completed': {
-    lifecycle: 'active',
+    lifecycle: 'retired',
     tier: 'capability',
     provider: 'exarchos_orchestrate',
     consumedBy: ['merge-orchestrator@v1'],
   },
-  /** The only merge recovery terminal that code emits. */
+  /** Retired with `merge_orchestrate`. The schema, the readers and the projections stay so that old logs replay the same, but no code writes this event. */
   'merge.recovered': {
-    lifecycle: 'active',
+    lifecycle: 'retired',
     tier: 'capability',
     provider: 'exarchos_orchestrate',
     consumedBy: ['merge-orchestrator@v1', 'rehydration@v1', 'workflow-state@v1'],
@@ -612,12 +610,14 @@ export const EVENT_ANNOTATIONS: Readonly<Record<string, EventRegistration>> = Ob
     provider: 'exarchos_orchestrate',
     consumedBy: ['worktrees@v1'],
   },
+  /** Retired with `serialize_merge`. The schema, the reader and the projection stay so that old logs replay the same, but no code writes this event. */
   'worktree.merge_requested': {
-    lifecycle: 'active',
+    lifecycle: 'retired',
     tier: 'capability',
     provider: 'exarchos_orchestrate',
     consumedBy: ['worktrees@v1'],
   },
+  /** `reconcile_worktrees` appends it when it frees a lease of a dead holder. The retired `serialize_merge` action also wrote it. */
   'worktree.merge_executed': {
     lifecycle: 'active',
     tier: 'capability',
@@ -899,6 +899,12 @@ export const EVENT_ANNOTATIONS: Readonly<Record<string, EventRegistration>> = Ob
   'comment.posted': { lifecycle: 'active', tier: 'workflow-local', workflow: 'feature' },
   'comment.resolved': { lifecycle: 'active', tier: 'workflow-local', workflow: 'feature' },
   'merge.requested': { lifecycle: 'active', tier: 'workflow-local', workflow: 'feature' },
+  /**
+   * The coordinator appends it with `exarchos_event` after the harness lands a task branch, as the
+   * merge-pending runbook says. No action appends it now. The retired `merge_orchestrate` action also
+   * wrote it, and old rows of both writers fold the same.
+   */
+  'merge.executed': { lifecycle: 'active', tier: 'workflow-local', workflow: 'feature' },
 });
 
 /**

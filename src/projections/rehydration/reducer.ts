@@ -191,7 +191,7 @@ export function eventDataHasWorktreeAssociation(
  * The phase `''` is allowed because production flows reach `delegate` with no `workflow.transition` event.
  *
  * It skips the detour when another task has a `pending` merge, so a later terminal merge event cannot apply to the wrong task.
- * It also skips it when the same task already has a terminal merge phase, so a replayed event does not offer `merge_orchestrate` again.
+ * It also skips it when the same task already has a terminal merge phase, so a replayed event does not reopen the detour.
  */
 function applyTaskEvent(
   state: RehydrationDocument,

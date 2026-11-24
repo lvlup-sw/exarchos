@@ -72,13 +72,11 @@ import { handleRequestSynthesize } from './team/request-synthesize.js';
 import { handleFinalizeOneshot } from './tasks/finalize-oneshot.js';
 import { handleDoctor } from './doctor/index.js';
 import { handleOnboard } from './onboard/index.js';
-import { handleMergeOrchestrate } from './merge/merge-orchestrate.js';
 import { handleStackPlace } from './stack/tools.js';
 import {
   handleAcquireWorktree,
   handleReleaseWorktree,
   handleReconcileWorktrees,
-  handleSerializeMerge,
 } from './worktree/handlers.js';
 import {
   handleCutoverDecide,
@@ -443,8 +441,6 @@ export const ACTION_HANDLERS: Readonly<Record<string, ActionHandler>> = {
   prune_stale_workflows: handlePruneStaleWorkflows as ActionHandler,
   request_synthesize: adaptArgsWithStateDirAndEventStore(handleRequestSynthesize),
   finalize_oneshot: adaptArgsWithStateDirAndEventStore(handleFinalizeOneshot),
-  /** Merge orchestrator. It composes the preflight and the executor under one public action. The internal `handleExecuteMerge` is not in this table. */
-  merge_orchestrate: adaptCtx(handleMergeOrchestrate),
   /**
    * Worktree lifecycle action. Each handler delegates to the in-process `WorktreeManager` over `ctx.eventStore`.
    * The third handler parameter is a test seam, left at its default. The read action, `worktrees`, is on `exarchos_view`.
@@ -455,11 +451,6 @@ export const ACTION_HANDLERS: Readonly<Record<string, ActionHandler>> = {
   reconcile_worktrees: adaptCtx(handleReconcileWorktrees),
   /** Records a stack position and appends `stack.position-filled`. Its registration names this tool as the effect provider. */
   stack_place: adaptWithEventStore(handleStackPlace),
-  /**
-   * Integration-branch merge serializer: an optimistic lease for each `integrationRef` that composes `merge_orchestrate` unchanged.
-   * It adds no visible tool. The third handler parameter keeps its production default.
-   */
-  serialize_merge: adaptCtx(handleSerializeMerge),
   /**
    * Cutover promotion: the read action. Its pair, `cutover_decide`, is the decision that an operator gates.
    * Both handlers take `(args, stateDir, eventStore)`. The fourth parameter is a test seam, left at its default.

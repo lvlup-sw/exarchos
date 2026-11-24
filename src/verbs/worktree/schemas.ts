@@ -1,6 +1,6 @@
 /**
  * Typed output schemas for the `surface: 'worktree'` actions. Each success `data` schema follows
- * the real handler return in `handlers.ts` and `merge-serializer.ts`. The shared
+ * the real handler return in `handlers.ts`. The shared
  * `ErrorEnvelopeSchema` inside {@link EnvelopeSchema} models the error branch. The MCP adapter
  * replaces output that fails its `outputSchema` with an `INTERNAL_ERROR`. A schema stricter than
  * the real output thus breaks production. For this reason, every data object uses `.passthrough()`,
@@ -69,31 +69,6 @@ const ReleaseWorktreeData = z
   .object({
     worktreeId: z.string(),
     released: z.boolean(),
-  })
-  .passthrough();
-
-/**
- * `serialize_merge` success: the planned effect of a dry run, or the `merge_orchestrate` data with
- * the `serializedMerge` lease metadata added. The `merge_orchestrate` payload has many shapes, so
- * every field is optional.
- */
-const SerializeMergeData = z
-  .object({
-    dryRun: z.boolean().optional(),
-    integrationRef: z.string().optional(),
-    sourceBranch: z.string().optional(),
-    strategy: z.string().optional(),
-    featureId: z.string().optional(),
-    integrationHead: z.string().nullable().optional(),
-    /** Lease metadata, present on an executed merge. */
-    serializedMerge: z
-      .object({
-        integrationRef: z.string(),
-        operationId: z.string(),
-        integrationHead: z.string().nullable(),
-      })
-      .passthrough()
-      .optional(),
   })
   .passthrough();
 
@@ -204,7 +179,6 @@ const WorktreesData = z
 
 export const AcquireWorktreeOutputSchema = EnvelopeSchema(AcquireWorktreeData);
 export const ReleaseWorktreeOutputSchema = EnvelopeSchema(ReleaseWorktreeData);
-export const SerializeMergeOutputSchema = EnvelopeSchema(SerializeMergeData);
 export const PsOutputSchema = EnvelopeSchema(PsData);
 export const ReconcileWorktreesOutputSchema = EnvelopeSchema(ReconcileWorktreesData);
 export const WaitOutputSchema = EnvelopeSchema(WaitData);

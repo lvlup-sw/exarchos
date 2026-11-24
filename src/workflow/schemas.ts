@@ -188,7 +188,7 @@ export const WorktreeSchema = z.object({
 );
 
 /**
- * The persisted shape of `mergeOrchestrator.preflight`. It has the fields of `MergePreflightResult` in `verbs/pure/merge-preflight.ts`.
+ * The persisted shape of `mergeOrchestrator.preflight`. The retired `merge_orchestrate` preflight wrote it, and old states keep this shape.
  * The sub-results stay open, and `.passthrough()` accepts fields that a newer composer adds.
  */
 const MergeOrchestratorPreflightSchema = z.object({

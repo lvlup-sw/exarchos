@@ -50,22 +50,21 @@ describe('F.4 — ComputeNextActions per-workflow-type schema round-trip', () =>
   });
 
   /**
-   * `merge_orchestrate` does not come from an HSM transition. `computeNextActions` adds it in
-   * `merge-pending`, with an idempotency key. It must also parse with the `NextAction` schema.
+   * The harness lands the task branch, so `merge-pending` adds no `merge_orchestrate` verb. Its only
+   * action is the HSM return to `delegate`, and it must parse with the `NextAction` schema.
    */
-  it('ComputeNextActions_MergePending_WithOrchestratorPending_EmitsValidMergeVerb', () => {
+  it('ComputeNextActions_MergePending_WithOrchestratorPending_EmitsOnlyTheDelegateReturn', () => {
     const hsm = getHSMDefinition('feature');
     const result = computeNextActions(
       {
         phase: 'merge-pending',
         workflowType: 'feature',
-        featureId: 'rt-merge',
         mergeOrchestrator: { phase: 'pending', taskId: 'T1' },
       },
       hsm,
     );
     const parsed = z.array(NextActionSchema).safeParse(result);
     expect(parsed.success).toBe(true);
-    expect(result.some((a) => a.verb === 'merge_orchestrate')).toBe(true);
+    expect(result.map((a) => a.verb)).toEqual(['delegate']);
   });
 });

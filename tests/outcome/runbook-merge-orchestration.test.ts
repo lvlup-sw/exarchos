@@ -2,9 +2,9 @@
  * Outcome tests for the `merge-orchestration` runbook, read through `handleRunbook`.
  *
  * A list call with `phase: 'merge-pending'` returns the runbook summary (`id`, `phase`,
- * `description`, `stepCount`). A detail call returns three steps: a dry-run preflight, the real
- * merge, and the transition back to `delegate`. The runbook auto-emits four events:
- * `merge.preflight`, `merge.executed`, `merge.recovered` and `workflow.transition`.
+ * `description`, `stepCount`). A detail call returns four steps. The harness checks the ancestry and
+ * lands the head. Then one `merge.executed` row is appended, and the workflow moves back to `delegate`.
+ * Only the transition auto-emits, with `workflow.transition`.
  */
 
 import { describe, it, expect } from 'vitest';
@@ -20,10 +20,10 @@ interface RunbookSummary {
 
 describe('MERGE_ORCHESTRATION runbook outcome (#1363)', () => {
   /**
-   * `autoEmits` must hold exactly the four lifecycle events. `arrayContaining` alone accepts a
-   * longer list, so the test also asserts the length.
+   * The coordinator records the harness landing through an `exarchos_event` append, so `autoEmits`
+   * holds only `workflow.transition`, and no step names the retired `merge_orchestrate`.
    */
-  it('Runbook_MergePendingPhase_ReturnsCanonicalFourEventSequence', async () => {
+  it('Runbook_MergePendingPhase_ReturnsHarnessLandingSequence', async () => {
     const listResult = await handleRunbook({ phase: 'merge-pending' });
     expect(listResult.success).toBe(true);
 
@@ -36,7 +36,7 @@ describe('MERGE_ORCHESTRATION runbook outcome (#1363)', () => {
     expect(mergeOrch!.phase).toBe('merge-pending');
     expect(typeof mergeOrch!.description).toBe('string');
     expect(mergeOrch!.description.length).toBeGreaterThan(0);
-    expect(mergeOrch!.stepCount).toBe(3);
+    expect(mergeOrch!.stepCount).toBe(4);
 
     const detailResult = await handleRunbook({ id: 'merge-orchestration' });
     expect(detailResult.success).toBe(true);
@@ -54,24 +54,14 @@ describe('MERGE_ORCHESTRATION runbook outcome (#1363)', () => {
     expect(detail.id).toBe('merge-orchestration');
     expect(detail.phase).toBe('merge-pending');
 
-    expect(detail.autoEmits).toHaveLength(4);
-    expect(detail.autoEmits).toEqual(
-      expect.arrayContaining([
-        'merge.preflight',
-        'merge.executed',
-        'merge.recovered',
-        'workflow.transition',
-      ]),
-    );
+    expect(detail.autoEmits).toEqual(['workflow.transition']);
 
-    expect(detail.steps).toHaveLength(3);
-    const [preflight, realMerge, transition] = detail.steps;
-    expect(preflight?.tool).toBe('exarchos_orchestrate');
-    expect(preflight?.action).toBe('merge_orchestrate');
-    expect(realMerge?.tool).toBe('exarchos_orchestrate');
-    expect(realMerge?.action).toBe('merge_orchestrate');
-    expect(transition?.tool).toBe('exarchos_workflow');
-    expect(transition?.action).toBe('transition');
+    expect(detail.steps.map((step) => `${step.tool}.${step.action}`)).toEqual([
+      'native:bash.git_is_ancestor',
+      'native:bash.git_merge',
+      'exarchos_event.append',
+      'exarchos_workflow.transition',
+    ]);
   });
 
   /**

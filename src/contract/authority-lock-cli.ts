@@ -160,13 +160,25 @@ const LOCK_NOTE =
   're-approval at the pull request: exarchos_orchestrate.setup_worktree and prune_worktrees ' +
   'are the removed ActionIds. The closed retired-action table refuses a call of each before ' +
   'dispatch, with the code PROVIDER_WRITE_RETIRED and a message that names the harness. All ' +
-  'other authority pins remain unchanged.';
+  'other authority pins remain unchanged.' +
+  ' RE-APPROVED for #1928 S5 T-36 under the slice plan that Reed approved, for Reed ' +
+  're-approval at the pull request: exarchos_orchestrate.merge_orchestrate and serialize_merge ' +
+  'are the removed ActionIds, and the merge-orchestrate top-level verb leaves the CLI. The closed ' +
+  'retired-action table refuses a call of each before dispatch, with the code ' +
+  'PROVIDER_WRITE_RETIRED and a message that names the harness landing. The ' +
+  '`invariant-catalog` digest moves because INV-10, INV-13 and INV-14 no longer reference the ' +
+  'deleted merge orchestrator module: INV-10 references the liveness registry, INV-13 keeps the ' +
+  'atomic appender, and INV-14 references the recovery runbook of the merge-orchestrator skill. ' +
+  'No invariant summary, dimension, enforcement mode or audit prompt changed. All other ' +
+  'authority pins remain unchanged.';
 
 /**
  * The approver that the freeze records for the current snapshot. Change it at each new approval, so
  * the lockfile records who approved and not the tool.
  */
 export const CURRENT_APPROVER =
+  'Delegated Claude worker (#1928 S5 T-36 local merge retirement under the slice plan that ' +
+  'Reed approved, 2026-11-23; for Reed re-approval at the pull request). Previously: ' +
   'Delegated Claude worker (#1928 S5 T-35 worktree provisioning retirement under the slice ' +
   'plan that Reed approved, 2026-11-23; for Reed re-approval at the pull request). Previously: ' +
   'Delegated Claude worker (#1928 S4 T-33 stack assessment retirement under the slice plan ' +

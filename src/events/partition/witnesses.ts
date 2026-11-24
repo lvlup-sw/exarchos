@@ -105,6 +105,14 @@ export const GOVERNANCE_WITNESSES: Readonly<Record<string, AuthorityWitness>> = 
       'id and a source, and refuses the append when they are missing. The task family is pinned ' +
       'governance by charter as well, but a live reader is the stronger basis.',
   },
+  'merge.executed': {
+    arm: 'projection-fold',
+    evidence: ['src/projections/views/workflow-state-projection.ts'],
+    because:
+      'The canonical workflow-state fold consumes it, and the merge-pending exit guard reads the ' +
+      'folded merge state. The coordinator records each harness landing with it, so dropping it ' +
+      'leaves a workflow parked in merge-pending.',
+  },
   'merge.requested': {
     arm: 'charter-pin',
     evidence: [CHARTER],

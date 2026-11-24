@@ -67,7 +67,6 @@ const KNOWN_WRAPPERS: ReadonlyArray<{ readonly module: string; readonly name: st
   { module: 'src/utils/process', name: 'spawnCommandSync', condition: 'always' },
   { module: 'src/verbs/gates/static-analysis', name: 'execCommandRunner', condition: 'always' },
   { module: 'src/verbs/gates/check-integration-suite', name: 'execCommandRunner', condition: 'always' },
-  { module: 'src/verbs/vcs/git-exec-default', name: 'defaultGitExec', condition: 'always' },
   { module: 'src/verbs/vcs/push-with-lease', name: 'readRemoteSha', condition: [{ argument: 2 }] },
 ];
 
@@ -86,18 +85,7 @@ const MAX_EXEMPT_TIMEOUT_MS = 15_000;
  * names the production function that forces them. Each call must state a
  * `timeout` of at most {@link MAX_EXEMPT_TIMEOUT_MS}.
  */
-const SYNC_SPAWN_EXEMPTIONS: ReadonlyArray<{ readonly file: string; readonly calls: number; readonly forcedBy: string }> = [
-  {
-    file: 'tests/outcome/preflight-debug.test.ts',
-    calls: 1,
-    forcedBy: 'mergePreflight (src/verbs/pure/merge-preflight.ts) takes a synchronous GitExec',
-  },
-  {
-    file: 'tests/unit/verbs/merge/local-git-merge.test.ts',
-    calls: 1,
-    forcedBy: 'buildLocalGitMergeAdapter (src/verbs/merge/local-git-merge.ts) and executeMerge take a synchronous GitExec',
-  },
-];
+const SYNC_SPAWN_EXEMPTIONS: ReadonlyArray<{ readonly file: string; readonly calls: number; readonly forcedBy: string }> = [];
 
 interface Scan {
   readonly scanned: number;
@@ -220,8 +208,8 @@ describe('NoSyncSpawnInTestCode', () => {
         'execCommandRunner',
       ],
       [
-        "const { defaultGitExec } = await import('../../src/verbs/vcs/git-exec-default.js');\ndefaultGitExec('.', ['status']);",
-        'defaultGitExec',
+        "const { spawnCommandSync } = await import('../../src/utils/process.js');\nspawnCommandSync('git', ['status']);",
+        'spawnCommandSync',
       ],
       [
         "const cp = await vi.importActual<typeof import('node:child_process')>('node:child_process');\ncp.spawnSync('git', []);",

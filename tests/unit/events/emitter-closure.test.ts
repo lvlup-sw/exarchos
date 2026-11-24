@@ -54,7 +54,7 @@ const UNRESOLVED_BASELINE: Readonly<Record<string, number>> = Object.freeze({
   'vcs/mutation-owner.ts': 2,
   'verbs/team/prepare-delegation.ts': 1,
   'verbs/worktree/manager.ts': 1,
-  'verbs/worktree/merge-serializer.ts': 1,
+  'verbs/worktree/merge-lease-reconciler.ts': 1,
   'workflow/cancel.ts': 1,
 });
 
@@ -135,8 +135,8 @@ describe('emitter closure', () => {
     );
     const closure = auditEmitterClosure(census, declaredEmissionEdges());
 
-    expect(closure.measuredSiteCount, 'no append site was measured').toBeGreaterThan(59);
-    expect(closure.explainedByAction, 'no site was explained by an action edge').toBeGreaterThan(37);
+    expect(closure.measuredSiteCount, 'no append site was measured').toBeGreaterThan(53);
+    expect(closure.explainedByAction, 'no site was explained by an action edge').toBeGreaterThan(31);
     expect(
       closure.explainedByModule,
       'no site was explained by the non-action surface',

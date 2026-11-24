@@ -4,7 +4,7 @@
   "counts": {
     "tools": 5,
     "visibleTools": 4,
-    "actions": 113,
+    "actions": 111,
     "eventTypes": 186
   },
   "tools": [
@@ -61,7 +61,6 @@
         "invariants_amend",
         "invariants_scaffold",
         "investigation_timer",
-        "merge_orchestrate",
         "needs_schema_sync",
         "onboard",
         "post_delegation_check",
@@ -80,7 +79,6 @@
         "review_triage",
         "runbook",
         "select_debug_track",
-        "serialize_merge",
         "settle",
         "spec_coverage_check",
         "stack_place",
@@ -486,28 +484,28 @@
     },
     {
       "type": "merge.completed",
-      "lifecycle": "active",
+      "lifecycle": "retired",
       "tier": "capability"
     },
     {
       "type": "merge.executed",
       "lifecycle": "active",
-      "tier": "capability"
+      "tier": "workflow-local"
     },
     {
       "type": "merge.executing_started",
-      "lifecycle": "active",
+      "lifecycle": "retired",
       "tier": "substrate",
       "rationale": "operation-record"
     },
     {
       "type": "merge.preflight",
-      "lifecycle": "active",
+      "lifecycle": "retired",
       "tier": "capability"
     },
     {
       "type": "merge.recovered",
-      "lifecycle": "active",
+      "lifecycle": "retired",
       "tier": "capability"
     },
     {
@@ -517,7 +515,7 @@
     },
     {
       "type": "merge.retry_attempt",
-      "lifecycle": "active",
+      "lifecycle": "retired",
       "tier": "substrate",
       "rationale": "operation-record"
     },
@@ -1163,7 +1161,7 @@
     },
     {
       "type": "worktree.merge_requested",
-      "lifecycle": "active",
+      "lifecycle": "retired",
       "tier": "capability"
     },
     {

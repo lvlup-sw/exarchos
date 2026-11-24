@@ -9,9 +9,8 @@ import type { ExarchosExtension } from './definitions/extension.js';
 
 /**
  * Phases of `state.mergeOrchestrator.phase` that mean the merge is over. In
- * these phases the `merge-pending` transition does not fire, and
- * `next-actions-computer` does not surface `merge_orchestrate`. One constant
- * keeps the entry predicate and the surfacing filter in step.
+ * these phases the `merge-pending` entry does not fire, and the exit guard
+ * admits the return to `delegate`. One constant keeps both guards in step.
  */
 export const EXCLUDED_MERGE_PHASES: ReadonlySet<string> = new Set<string>([
   'completed',
@@ -39,7 +38,7 @@ function findLatestTaskCompleted(
  * It delegates to `eventDataHasWorktreeAssociation` from the rehydration
  * reducer, so the live HSM and the replayed projection see the same trigger.
  * Otherwise a whitespace-only worktree value moves only the live state to
- * `merge-pending`, and a restart loses `merge_orchestrate`.
+ * `merge-pending`, and a restart loses the detour.
  */
 function latestTaskCompletedHasWorktree(state: Record<string, unknown>): boolean {
   const events = (state._events as readonly Record<string, unknown>[]) ?? [];

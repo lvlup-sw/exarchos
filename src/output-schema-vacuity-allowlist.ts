@@ -70,7 +70,6 @@ export const VACUITY_ALLOWLIST = Object.freeze({
   'exarchos_orchestrate.invariants_add': { owner: 'orchestration', expires: '2027-02-28' },
   'exarchos_orchestrate.invariants_scaffold': { owner: 'orchestration', expires: '2027-02-28' },
   'exarchos_orchestrate.investigation_timer': { owner: 'orchestration', expires: '2027-02-28' },
-  'exarchos_orchestrate.merge_orchestrate': { owner: 'orchestration', expires: '2027-02-28' },
   'exarchos_orchestrate.needs_schema_sync': { owner: 'orchestration', expires: '2027-02-28' },
   'exarchos_orchestrate.onboard': { owner: 'orchestration', expires: '2027-02-28' },
   'exarchos_orchestrate.post_delegation_check': { owner: 'orchestration', expires: '2027-02-28' },
@@ -201,6 +200,11 @@ export const VACUITY_RETIRED: Readonly<Record<string, VacuityRetiredEntry>> = Ob
   },
   /** The provider read is deleted. The retired-action table refuses a call of it before dispatch, so it declares no schema. */
   'exarchos_orchestrate.list_prs': {
+    owner: 'orchestration',
+    retiredAt: '2026-11-23',
+  },
+  /** The local merge action is deleted. The retired-action table refuses a call of it before dispatch, so it declares no schema. */
+  'exarchos_orchestrate.merge_orchestrate': {
     owner: 'orchestration',
     retiredAt: '2026-11-23',
   },

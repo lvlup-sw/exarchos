@@ -146,7 +146,6 @@ const WORKTREE_MUTATION_RE = /\[\s*['"]worktree['"]\s*,\s*['"](?:add|remove|prun
  * the source root and use POSIX separators.
  */
 const WIRED_IDIOM_REQUIREMENTS = new Map([
-  ['verbs/vcs/git-exec-default.ts', /\bwithIndexLockRetrySync\s*\(/],
   ['workflow/compensation.ts', /\bwithIndexLockRetry\s*\(/],
 ]);
 /**
@@ -158,15 +157,8 @@ const WIRED_ALLOWLIST = new Set([
   'verbs/worktree/git-retry.ts',
 ]);
 
-/**
- * The scope pin of rule 1: the wired files and the merge seam. The seam
- * `merge-orchestrate.ts` calls the wrapped `defaultGitExec`, so it needs no
- * wrapper, but it must stay in scope.
- */
-const EXPECTED_SRC_SCOPE_FILES = [
-  ...WIRED_ALLOWLIST,
-  'verbs/merge/merge-orchestrate.ts',
-];
+/** The scope pin of rule 1: the wired files. */
+const EXPECTED_SRC_SCOPE_FILES = [...WIRED_ALLOWLIST];
 
 function checkRule1(srcRoot, srcRootIsDefault, violations) {
   for (const file of collectRule1Files(srcRoot)) {

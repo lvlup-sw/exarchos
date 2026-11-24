@@ -12,9 +12,11 @@ export interface RetiredAction {
   readonly action: string;
   readonly code: string;
   readonly message: string;
+  /** The top-level CLI verb that the retired action owned, when it had one. A call of that verb gets the same refusal. */
+  readonly topLevel?: string;
 }
 
-/** The one closed code of a retired write that the harness now owns. Provider writes and worktree provisioning share it. */
+/** The one closed code of a retired write that the harness now owns. Provider writes, worktree provisioning and local merges share it. */
 const PROVIDER_WRITE_RETIRED = 'PROVIDER_WRITE_RETIRED';
 
 /** The one message of a retired provider write. It names the harness as the owner of the write. */
@@ -31,6 +33,10 @@ const PROVIDER_READ_MESSAGE =
 /** The one message of a retired worktree provisioning action. It names the harness as the owner of worktree setup and removal. */
 const WORKTREE_PROVISIONING_MESSAGE =
   'Exarchos retires worktree provisioning. The harness creates task worktrees and removes them from disk with its own tools.';
+
+/** The one message of a retired local merge action. It names the harness as the owner of the landing and the merge.executed row as its record. */
+const MERGE_LANDING_MESSAGE =
+  'Exarchos retires local merges. The harness lands the task branch on the integration branch with its own tools, and the coordinator records that landing with a merge.executed event.';
 
 /** The closed table. Each row names one pair of tool and action, and no registered action is in it. */
 export const RETIRED_ACTIONS: readonly RetiredAction[] = Object.freeze([
@@ -67,6 +73,19 @@ export const RETIRED_ACTIONS: readonly RetiredAction[] = Object.freeze([
     code: PROVIDER_WRITE_RETIRED,
     message: WORKTREE_PROVISIONING_MESSAGE,
   })),
+  Object.freeze({
+    tool: 'exarchos_orchestrate',
+    action: 'merge_orchestrate',
+    code: PROVIDER_WRITE_RETIRED,
+    message: MERGE_LANDING_MESSAGE,
+    topLevel: 'merge-orchestrate',
+  }),
+  Object.freeze({
+    tool: 'exarchos_orchestrate',
+    action: 'serialize_merge',
+    code: PROVIDER_WRITE_RETIRED,
+    message: MERGE_LANDING_MESSAGE,
+  }),
 ]);
 
 /** The row that a call of `tool` with `args` names, or undefined when `args` names no retired action. */

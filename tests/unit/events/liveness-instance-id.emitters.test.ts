@@ -1,17 +1,15 @@
-// Characterization of the two live liveness emitters at the emission boundary: merge and launch.
-// Each one runs through its real emission path into a real `EventStore`.
-// The tests parse the start and terminal payloads with the exported Zod schemas, because
-// `EventStore.append` validates only the envelope. Each payload must carry the canonical
-// `instanceId`:
-//   - merge: `taskId`, or `${sourceBranch}→${targetBranch}` with no `taskId`
-//   - launch: `worktreeId`
-//
-// The mutation gate and the prune action are retired, so no code emits the mutation pair or the
-// prune pair. A stored pair of each still parses and still pairs by its `operationId`.
-// The import of `projections/merge-orchestrator/index.js` registers `merge-orchestrator@v1`, so
-// the `decide` closure of the merge executor can resolve the reducer against a real `EventStore`.
+/**
+ * Characterization of the live liveness emitter at the emission boundary: launch.
+ * It runs through its real emission path into a real `EventStore`.
+ * The tests parse the start and terminal payloads with the exported Zod schemas, because
+ * `EventStore.append` validates only the envelope. The launch payload carries `worktreeId` as its `instanceId`.
+ *
+ * The local merge action, the mutation gate and the prune action are retired, so no code emits their pairs.
+ * A stored pair of each still parses and still pairs by its `instanceId`.
+ * A merge pair keys on `taskId`, or on `<sourceBranch>→<targetBranch>` with no `taskId`.
+ */
 
-import { describe, it, expect, vi, afterEach } from 'vitest';
+import { describe, it, expect, afterEach } from 'vitest';
 import { mkdtemp, mkdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
@@ -29,9 +27,6 @@ import {
   type WorkflowEvent,
 } from '../../../src/events/schemas.js';
 import { rmrfAsync } from '../../../tools/test-helpers/temp-dir.js';
-import type { DispatchContext } from '../../../src/dispatch/core/dispatch.js';
-import { handleExecuteMerge } from '../../../src/verbs/merge/execute-merge.js';
-import '../../../src/projections/merge-orchestrator/index.js';
 import {
   emitLaunchExecutingStarted,
   emitLaunchExecuted,
@@ -50,19 +45,13 @@ async function makeStore(prefix: string): Promise<{ store: EventStore; stateDir:
   return { store, stateDir };
 }
 
-function makeCtx(eventStore: EventStore, stateDir: string): DispatchContext {
-  return { stateDir, eventStore, enableTelemetry: false } as unknown as DispatchContext;
-}
+/** The data of a merge pair with a `taskId`, as the retired `merge_orchestrate` action stored it. */
+const STORED_MERGE_START = { taskId: 'T11', sourceBranch: 'feat/x', targetBranch: 'main', recoveryPointSha: 'b'.repeat(40), startedAt: '2026-11-01T00:00:00.000Z', instanceId: 'T11' };
+const STORED_MERGE_TERMINAL = { taskId: 'T11', sourceBranch: 'feat/x', targetBranch: 'main', strategy: 'squash', mergeSha: 'a'.repeat(40), rollbackSha: 'b'.repeat(40), instanceId: 'T11' };
 
-/** gitExec stub — `git rev-parse HEAD` yields the recovery-point sha. */
-function makeGitExec(recoverySha: string) {
-  return vi.fn().mockImplementation((_repo: string, args: readonly string[]) => {
-    if (args[0] === 'rev-parse' && args[1] === 'HEAD') {
-      return { stdout: `${recoverySha}\n`, exitCode: 0 };
-    }
-    return { stdout: '', exitCode: 0 };
-  });
-}
+/** The data of a merge pair with no `taskId`, so the instance key is the source and target pair. */
+const STORED_UNTASKED_MERGE_START = { sourceBranch: 'feat/y', targetBranch: 'integration', recoveryPointSha: 'd'.repeat(40), startedAt: '2026-11-01T00:00:00.000Z', instanceId: 'feat/y→integration' };
+const STORED_UNTASKED_MERGE_TERMINAL = { sourceBranch: 'feat/y', targetBranch: 'integration', strategy: 'merge', mergeSha: 'c'.repeat(40), rollbackSha: 'd'.repeat(40), instanceId: 'feat/y→integration' };
 
 /** The data of a mutation pair that the retired gate stored before its retirement. */
 const STORED_MUTATION_START = { command: 'npx stryker run', repoRoot: '/repo', operationId: 'op-mutation-run', instanceId: 'op-mutation-run' };
@@ -87,61 +76,26 @@ function findByType(events: readonly WorkflowEvent[], type: string): WorkflowEve
 
 describe('DR-2 liveness emitters', () => {
   /**
-   * Merge: with a `taskId`, the `instanceId` is the `taskId`. With none, it is `<source>→<target>`.
-   * Mutation and prune: a stored pair parses with its schemas, and the registry pairs it by its `instanceId`.
+   * Merge, mutation and prune: a stored pair parses with its schemas, and the registry pairs it by its `instanceId`.
+   * A merge with a `taskId` keys on the `taskId`. With none, it keys on `<source>→<target>`.
    * Prune uses its `operationId` as the instance key, so start and terminal hold the same value.
    */
-  it('TwoLiveEmittersAndTheStoredMutationAndPrunePairs_CarryCanonicalInstanceIdAdditively', async () => {
+  it('OneLiveEmitterAndTheStoredMergeMutationAndPrunePairs_CarryCanonicalInstanceIdAdditively', async () => {
     {
-      const { store, stateDir } = await makeStore('dr2-merge-');
-      const recoverySha = 'b'.repeat(40);
-      const result = await handleExecuteMerge(
-        {
-          featureId: 'feat-merge',
-          sourceBranch: 'feat/x',
-          targetBranch: 'main',
-          taskId: 'T11',
-          strategy: 'squash',
-          vcsMerge: vi.fn().mockResolvedValue({ mergeSha: 'a'.repeat(40) }),
-          persistState: vi.fn().mockResolvedValue(undefined),
-          gitExec: makeGitExec(recoverySha),
-        },
-        makeCtx(store, stateDir),
-      );
-      expect(result.success).toBe(true);
-
-      const events = await store.query('feat-merge');
-      const started = MergeExecutingStartedData.parse(
-        findByType(events, 'merge.executing_started').data,
-      );
-      const terminal = MergeExecutedData.parse(findByType(events, 'merge.executed').data);
+      const { instanceKeyOf } = getLivenessDescriptor('merge');
+      const started = MergeExecutingStartedData.parse(STORED_MERGE_START);
+      const terminal = MergeExecutedData.parse(STORED_MERGE_TERMINAL);
       expect(started.instanceId).toBe('T11');
       expect(terminal.instanceId).toBe('T11');
-    }
+      expect(instanceKeyOf(started)).toBe('T11');
+      expect(instanceKeyOf(terminal)).toBe('T11');
 
-    {
-      const { store, stateDir } = await makeStore('dr2-merge-notask-');
-      const result = await handleExecuteMerge(
-        {
-          featureId: 'feat-merge-notask',
-          sourceBranch: 'feat/y',
-          targetBranch: 'integration',
-          strategy: 'merge',
-          vcsMerge: vi.fn().mockResolvedValue({ mergeSha: 'c'.repeat(40) }),
-          persistState: vi.fn().mockResolvedValue(undefined),
-          gitExec: makeGitExec('d'.repeat(40)),
-        },
-        makeCtx(store, stateDir),
-      );
-      expect(result.success).toBe(true);
-
-      const events = await store.query('feat-merge-notask');
-      const started = MergeExecutingStartedData.parse(
-        findByType(events, 'merge.executing_started').data,
-      );
-      const terminal = MergeExecutedData.parse(findByType(events, 'merge.executed').data);
-      expect(started.instanceId).toBe('feat/y→integration');
-      expect(terminal.instanceId).toBe('feat/y→integration');
+      const untaskedStarted = MergeExecutingStartedData.parse(STORED_UNTASKED_MERGE_START);
+      const untaskedTerminal = MergeExecutedData.parse(STORED_UNTASKED_MERGE_TERMINAL);
+      expect(untaskedStarted.instanceId).toBe('feat/y→integration');
+      expect(untaskedTerminal.instanceId).toBe('feat/y→integration');
+      expect(instanceKeyOf(untaskedStarted)).toBe('feat/y→integration');
+      expect(instanceKeyOf(untaskedTerminal)).toBe('feat/y→integration');
     }
 
     {

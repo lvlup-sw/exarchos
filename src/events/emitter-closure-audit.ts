@@ -98,7 +98,6 @@ export const UNRESOLVED_ACTION_EVENT_ALLOWANCE: readonly string[] = Object.freez
   'workflow.started',
   'workflow.transition',
   'worktree.merge_executed',
-  'worktree.merge_requested',
   'worktree.orphan_detected',
   'worktree.released',
   'worktree.reserved',
@@ -400,20 +399,6 @@ export function reasonedAbstentions(
  * so an action does not get every append in its module.
  */
 export const ACTION_APPEND_OWNERSHIP: readonly ActionAppendOwnership[] = Object.freeze([
-  {
-    action: 'merge_orchestrate',
-    declaringTool: 'exarchos_orchestrate',
-    module: 'verbs/merge/execute-merge.ts',
-    event: 'merge.executing_started',
-    wiring: 'the orchestrator delegates to the executor, which marks the executing phase',
-  },
-  {
-    action: 'merge_orchestrate',
-    declaringTool: 'exarchos_orchestrate',
-    module: 'verbs/merge/execute-merge.ts',
-    event: 'merge.retry_attempt',
-    wiring: 'the executor retry hook records each timeout retry',
-  },
   {
     action: 'prune_stale_workflows',
     declaringTool: 'exarchos_orchestrate',

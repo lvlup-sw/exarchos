@@ -139,7 +139,7 @@ describe('validateExample against the LIVE registry — seeded drift FAILS', () 
 
   it('flags an unknown param on a real action', () => {
     const md = fence(
-      'exarchos_orchestrate({ action: "serialize_merge", featureId: "f", integrationRef: "i", sourceBranch: "s", strategy: "squash", bogusParam: 1 })',
+      'exarchos_workflow({ action: "init", featureId: "f", workflowType: "oneshot", synthesisPolicy: "always", bogusParam: 1 })',
     );
     const issues = validateMarkdown(md, 'seed.md', oracle);
     expect(issues.some((i) => i.code === 'UNKNOWN_PARAM' && i.param === 'bogusParam')).toBe(true);
@@ -151,12 +151,12 @@ describe('validateExample against the LIVE registry — seeded drift FAILS', () 
     expect(issues.some((i) => i.code === 'RANGE_MISMATCH' && i.param === 'capsuleVersion')).toBe(true);
   });
 
-  it('flags a value outside a real enum (strategy)', () => {
+  it('flags a value outside a real enum (synthesisPolicy)', () => {
     const md = fence(
-      'exarchos_orchestrate({ action: "serialize_merge", featureId: "f", integrationRef: "i", sourceBranch: "s", strategy: "fast-forward" })',
+      'exarchos_workflow({ action: "init", featureId: "f", workflowType: "oneshot", synthesisPolicy: "sometimes" })',
     );
     const issues = validateMarkdown(md, 'seed.md', oracle);
-    expect(issues.some((i) => i.code === 'ENUM_MISMATCH' && i.param === 'strategy')).toBe(true);
+    expect(issues.some((i) => i.code === 'ENUM_MISMATCH' && i.param === 'synthesisPolicy')).toBe(true);
   });
 });
 

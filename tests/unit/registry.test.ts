@@ -378,21 +378,6 @@ describe('buildRegistrationSchema', () => {
   });
 });
 
-describe('merge_orchestrate description', () => {
-  /** The description must state the wrong uses and name the correct owner for each one. */
-  it('MergeOrchestrateDescription_StatesDoNotUseFor_WithPointers', () => {
-    const action = findActionInRegistry('exarchos_orchestrate', 'merge_orchestrate');
-    expect(action).toBeDefined();
-    const description = action!.description;
-
-    expect(description).toContain('Do NOT use for');
-
-    expect(description).toContain('the harness owns it');
-    expect(description).toContain('verify_worktree');
-    expect(description).toContain('request_synthesize');
-  });
-});
-
 describe('coercedRecord', () => {
   const schema = coercedRecord();
 
@@ -675,7 +660,7 @@ describe('TOOL_REGISTRY', () => {
     it('should have 71 actions for task management, review triage, gate checks, validation handlers, runbooks, agent spec, oneshot/pruning, onboard (DR-2 task 011), doctor, VCS, classify_review_items (#1159), merge_orchestrate (DR-MO-1), check_integration_suite (#1329), check_invariant_conformance (DR-3), invariants_scaffold/invariants_add (invariants-catalog-wizard P2), check_contract_drift + check_mock_boundary (verification-ladder slice 1), and composite actions', () => {
       const composite = findComposite('exarchos_orchestrate');
       expect(composite).toBeDefined();
-      expect(composite!.actions).toHaveLength(71);
+      expect(composite!.actions).toHaveLength(69);
 
       const actionNames = composite!.actions.map((a) => a.name);
       expect(actionNames).toEqual(
@@ -727,14 +712,12 @@ describe('TOOL_REGISTRY', () => {
           'request_synthesize',
           'finalize_oneshot',
           'onboard',
-          'merge_orchestrate',
           'check_integration_suite',
           'check_invariant_conformance',
           'invariants_scaffold',
           'invariants_add',
           'acquire_worktree',
           'release_worktree',
-          'serialize_merge',
           'check_exploration_depth',
         ]),
       );
@@ -1069,14 +1052,13 @@ describe('TOOL_REGISTRY', () => {
   });
 
   /**
-   * Covers `serialize_merge` on `exarchos_orchestrate`, and `ps` and `wait` on `exarchos_view`.
+   * Covers `ps` and `wait` on `exarchos_view`.
    * The registry runs `validateAction` on each action at module load.
    * Thus a missing `outputSchema` or a malformed `annotations` block throws at import.
    * These tests give that regression a named failure.
    */
   describe('WLM operational-core registration floor (DR-4/DR-7)', () => {
     const NEW_ACTIONS: ReadonlyArray<readonly [string, string]> = [
-      ['exarchos_orchestrate', 'serialize_merge'],
       ['exarchos_view', 'ps'],
       ['exarchos_view', 'wait'],
     ];
@@ -1135,13 +1117,11 @@ describe('TOOL_REGISTRY', () => {
       expect(reconcile!.annotations!.readOnly).toBe(false);
       expect(reconcile!.annotations!.idempotent).toBe(true);
       expect(reconcile!.annotations!.destructive).toBe(false);
-      const serializeMerge = findAction('exarchos_orchestrate', 'serialize_merge');
-      expect(serializeMerge!.annotations!.readOnly).toBe(false);
     });
 
     /**
      * This file imports `TOOL_REGISTRY`, so the `validateAction` loop at module load did not throw.
-     * The test runs `validateAction` again on each of the three actions, to name the action that fails.
+     * The test runs `validateAction` again on each of the two actions, to name the action that fails.
      */
     it('Registry_ModuleLoad_DoesNotThrowOnNewActions', () => {
       for (const [tool, name] of NEW_ACTIONS) {
@@ -1732,7 +1712,7 @@ describe('AutoEmits Drift Tests', () => {
     }
 
     expect(populatedCount, 'declared autoEmits population dropped below the floor').toBeGreaterThan(
-      53,
+      51,
     );
     expect(violations, `AutoEmits drift:\n${violations.join('\n')}`).toEqual([]);
   });
@@ -2481,19 +2461,18 @@ describe('ToolAction.dispatch - DispatchHints shape', () => {
 });
 
 /**
- * Four long-running actions must declare `dispatch: { taskSuitable: true, taskTtlSuggestionMs: 60_000 }`.
- * The actions are `merge_orchestrate`, `request_synthesize`, `cleanup` and `rehydrate`.
+ * Three long-running actions must declare `dispatch: { taskSuitable: true, taskTtlSuggestionMs: 60_000 }`.
+ * The actions are `request_synthesize`, `cleanup` and `rehydrate`.
  * The block is advisory, so the test pins only the registry declaration and not the dispatch behavior.
  */
 describe('Registry — taskSuitable annotations (T9, #1440 Op 2)', () => {
-  it('Registry_TaskSuitableAnnotations_FourActionsMarked', () => {
+  it('Registry_TaskSuitableAnnotations_ThreeActionsMarked', () => {
     const orchestrateTool = TOOL_REGISTRY.find(t => t.name === 'exarchos_orchestrate');
     const workflowTool = TOOL_REGISTRY.find(t => t.name === 'exarchos_workflow');
     expect(orchestrateTool, 'exarchos_orchestrate tool must exist').toBeDefined();
     expect(workflowTool, 'exarchos_workflow tool must exist').toBeDefined();
 
     const targets: Array<{ tool: 'exarchos_orchestrate' | 'exarchos_workflow'; action: string }> = [
-      { tool: 'exarchos_orchestrate', action: 'merge_orchestrate' },
       { tool: 'exarchos_orchestrate', action: 'request_synthesize' },
       { tool: 'exarchos_workflow', action: 'cleanup' },
       { tool: 'exarchos_workflow', action: 'rehydrate' },
@@ -2694,7 +2673,6 @@ const EXPECTED_EFFECTIVE_BUDGETS: Readonly<Record<string, number>> = {
   'exarchos_orchestrate.check_contract_drift': 2000,
   'exarchos_orchestrate.check_mock_boundary': 2000,
   'exarchos_orchestrate.check_post_merge': 2000,
-  'exarchos_orchestrate.merge_orchestrate': 2000,
   'exarchos_orchestrate.check_task_decomposition': 2000,
   'exarchos_orchestrate.check_event_emissions': 2000,
   'exarchos_orchestrate.extract_task': 2000,
@@ -2738,7 +2716,6 @@ const EXPECTED_EFFECTIVE_BUDGETS: Readonly<Record<string, number>> = {
   'exarchos_orchestrate.invariants_amend': 2000,
   'exarchos_orchestrate.acquire_worktree': 2000,
   'exarchos_orchestrate.release_worktree': 2000,
-  'exarchos_orchestrate.serialize_merge': 2000,
   'exarchos_orchestrate.cutover_readiness': 2000,
   'exarchos_orchestrate.cutover_decide': 2000,
   'exarchos_orchestrate.execute_intent': 1000,
@@ -3036,10 +3013,6 @@ describe('Task 022 — registry schema batch (DR-1/DR-3/DR-8)', () => {
       worktreeId: 'wt', path: '/tmp/wt', featureId: null, reserved: true, adopted: true,
     },
     'exarchos_orchestrate.release_worktree': { worktreeId: 'wt', released: true },
-    'exarchos_orchestrate.serialize_merge': {
-      dryRun: true, integrationRef: 'main', sourceBranch: 'feat/x', strategy: 'squash',
-      featureId: 'f', integrationHead: null,
-    },
     'exarchos_view.telemetry': {
       session: { start: '2026-01-01T00:00:00Z', totalInvocations: 0, totalTokens: 0 },
       tools: [], hints: [],
@@ -3288,7 +3261,7 @@ describe('Task 022 — registry schema batch (DR-1/DR-3/DR-8)', () => {
      */
     it('every typed-output action validates a {summary,counts,firstPage} capped envelope', () => {
       const actions = typedOutputActions();
-      expect(actions.length).toBe(35);
+      expect(actions.length).toBe(34);
       for (const { tool, action } of actions) {
         const parsed = action.outputSchema.safeParse(cappedEnvelope());
         expect(
@@ -3609,7 +3582,6 @@ describe('Task 022 — registry schema batch (DR-1/DR-3/DR-8)', () => {
         'task.assigned',
         'workflow.started',
         'workflow.transition',
-        'worktree.merge_executed',
         'worktree.released',
       ]);
 
@@ -3785,9 +3757,16 @@ describe('the closed retired-action table', () => {
       'exarchos_orchestrate.assess_stack',
       'exarchos_orchestrate.setup_worktree',
       'exarchos_orchestrate.prune_worktrees',
+      'exarchos_orchestrate.merge_orchestrate',
+      'exarchos_orchestrate.serialize_merge',
     ]);
     expect(new Set(RETIRED_ACTIONS.filter((entry) => entry.action !== 'mutation-adequacy' && entry.action !== 'check_test_adequacy').map((entry) => entry.code))).toEqual(new Set(['PROVIDER_WRITE_RETIRED', 'PROVIDER_READ_RETIRED']));
-    expect(RETIRED_ACTIONS.filter((entry) => entry.code === 'PROVIDER_WRITE_RETIRED').map((entry) => entry.action)).toEqual(['create_pr', 'merge_pr', 'add_pr_comment', 'create_issue', 'setup_worktree', 'prune_worktrees']);
+    expect(RETIRED_ACTIONS.filter((entry) => entry.code === 'PROVIDER_WRITE_RETIRED').map((entry) => entry.action)).toEqual(['create_pr', 'merge_pr', 'add_pr_comment', 'create_issue', 'setup_worktree', 'prune_worktrees', 'merge_orchestrate', 'serialize_merge']);
+    expect(RETIRED_ACTIONS.filter((entry) => entry.action === 'merge_orchestrate' || entry.action === 'serialize_merge').map((entry) => entry.message)).toEqual([
+      'Exarchos retires local merges. The harness lands the task branch on the integration branch with its own tools, and the coordinator records that landing with a merge.executed event.',
+      'Exarchos retires local merges. The harness lands the task branch on the integration branch with its own tools, and the coordinator records that landing with a merge.executed event.',
+    ]);
+    expect(RETIRED_ACTIONS.filter((entry) => entry.topLevel !== undefined).map((entry) => [entry.action, entry.topLevel])).toEqual([['merge_orchestrate', 'merge-orchestrate']]);
     expect(RETIRED_ACTIONS.filter((entry) => entry.action === 'setup_worktree' || entry.action === 'prune_worktrees').map((entry) => entry.message)).toEqual([
       'Exarchos retires worktree provisioning. The harness creates task worktrees and removes them from disk with its own tools.',
       'Exarchos retires worktree provisioning. The harness creates task worktrees and removes them from disk with its own tools.',

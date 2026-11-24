@@ -1,6 +1,6 @@
 /**
  * Replay regression for the retired `merge.rollback` event.
- * `src/verbs/merge/execute-merge.ts` appends only `merge.recovered`, but the data schema of `merge.rollback` stays.
+ * No code appends `merge.rollback` or `merge.recovered` now, but the data schema of each stays.
  * An old log with `merge.rollback` must still fold to its recovery state in three reducers.
  * They are `workflowStateProjection`, the rehydration reducer and the `merge-orchestrator@v1` reducer.
  * The HSM `merge-pending-exit` guard must also accept the event.

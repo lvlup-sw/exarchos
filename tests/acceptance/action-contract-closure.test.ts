@@ -286,7 +286,6 @@ describe('action-contract advertise / execute / ensure / HSM closure', () => {
     const advertised = computeRegistryAdvertisements({
       phase: 'plan',
       workflowType: 'feature',
-      featureId,
       actionAdmission: {
         subject: { featureId, stream: featureId },
         evidence: [],
@@ -324,7 +323,6 @@ describe('action-contract advertise / execute / ensure / HSM closure', () => {
     const advertised = computeRegistryAdvertisements({
       phase: 'review',
       workflowType: 'feature',
-      featureId,
       actionAdmission: {
         subject: { featureId, stream: featureId },
         evidence: [passing],

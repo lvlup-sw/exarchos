@@ -129,7 +129,7 @@ describe('DR-6 slim tools/list registration', () => {
 
   /**
    * A slim description leaves out the detail of each action, so it must name the `describe` action.
-   * `describe` must still return the "Do NOT use for" clause of `merge_orchestrate`, together with the harness as the owner of a provider PR merge.
+   * `describe` must still return the "Do NOT use for" clause of `release_worktree`, together with the harness as the owner of worktree removal.
    */
   it('toolsList_SlimDescriptions_RetainWhenNotToUseClause', async () => {
     const client = await bootProductionClient();
@@ -149,15 +149,15 @@ describe('DR-6 slim tools/list registration', () => {
 
     const result = (await client.callTool({
       name: 'exarchos_orchestrate',
-      arguments: { action: 'describe', actions: ['merge_orchestrate'] },
+      arguments: { action: 'describe', actions: ['release_worktree'] },
     })) as CallToolTextResult;
 
     expect(Array.isArray(result.content)).toBe(true);
     const describeText = result.content!.map((c) => c.text).join('\n');
     expect(
       describeText,
-      'describe(merge_orchestrate) did not return the "Do NOT use for" clause — slim registration dropped the negative-space guidance (INV-5a)',
+      'describe(release_worktree) did not return the "Do NOT use for" clause — slim registration dropped the negative-space guidance (INV-5a)',
     ).toContain('Do NOT use for');
-    expect(describeText).toContain('a raw provider PR/MR merge (the harness owns it)');
+    expect(describeText).toContain('the harness removes worktrees with its own tools');
   });
 });

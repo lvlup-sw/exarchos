@@ -292,13 +292,13 @@ describe('merged PLAN phase posture (Task 009, #1581 DR-4, INV-11)', () => {
 });
 
 /**
- * `merge_orchestrate` changes shared state from the main worktree, without worktree isolation.
+ * `cutover_decide` changes the store-wide enforcement posture, which is shared state, without worktree isolation.
  * Its registration must declare `posture: 'shared-mutating'`, so the resolver mints `fs:write` and `shell:exec`.
  * That tier holds no `isolation:worktree`.
  */
-describe('merge_orchestrate posture (#1305 T13)', () => {
-  it('MergeOrchestrate_Posture_ResolvesSharedMutatingWriteCaps', () => {
-    const action = findActionInRegistry('exarchos_orchestrate', 'merge_orchestrate');
+describe('shared-mutating posture (#1305 T13)', () => {
+  it('CutoverDecide_Posture_ResolvesSharedMutatingWriteCaps', () => {
+    const action = findActionInRegistry('exarchos_orchestrate', 'cutover_decide');
     expect(action).toBeDefined();
 
     expect(action!.posture).toBe('shared-mutating');

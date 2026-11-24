@@ -739,7 +739,7 @@ describe('rehydration reducer — state.patched.tasks fold (Fix 2 / #1179)', () 
 
 /**
  * A `task.completed` event with `data.worktree` or `data.worktreePath` moves a feature workflow to `merge-pending`.
- * Then a consumer of the rehydration document can offer the `merge_orchestrate` verb.
+ * Then a consumer of the rehydration document sees the pending landing without an event store query.
  */
 describe('rehydration reducer — worktree auto-detour (#1208)', () => {
   it('Rehydration_TaskCompletedWithWorktreePath_StampsMergePending', () => {
@@ -983,7 +983,7 @@ describe('rehydration reducer — worktree auto-detour (#1208)', () => {
 
   /**
    * A replayed worktree `task.completed` after the merge ended must not set the entry back to `pending`.
-   * Otherwise `next_actions` offers `merge_orchestrate` again.
+   * Otherwise the detour opens again for a merge that already ended.
    */
   it('Rehydration_RefoldedSameTaskCompleted_DoesNotRegressTerminalMerge', () => {
     const seeded = featureInDelegate();

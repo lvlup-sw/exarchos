@@ -1,15 +1,13 @@
-import { fc } from '@fast-check/vitest';
 import { describe, expect, it } from 'vitest';
 import { isBuiltInEventType } from '../../src/events/schemas.js';
 import {
   normalizeActionContract,
   type ActionContract,
 } from '../../src/registry/action-contract.js';
-import { mergeActions } from '../../src/registry/actions/orchestrate/merge.js';
 import { worktreeActions } from '../../src/registry/actions/orchestrate/worktree.js';
 import { TOOL_REGISTRY, type ToolAction } from '../../src/registry.js';
 
-const FAMILY_ACTIONS: readonly ToolAction[] = [...mergeActions, ...worktreeActions];
+const FAMILY_ACTIONS: readonly ToolAction[] = [...worktreeActions];
 const FAMILY_NAMES = new Set(FAMILY_ACTIONS.map((action) => action.name));
 
 function readContract(action: ToolAction): ActionContract {
@@ -70,15 +68,12 @@ function nonIdempotentMutations(actions: readonly ToolAction[]): readonly ToolAc
 describe('merge VCS worktree action contracts', () => {
   it('Registry_MergeVcsWorktreeActions_HaveCompleteContracts', () => {
     expect(FAMILY_ACTIONS.map((action) => action.name)).toEqual([
-      'merge_orchestrate',
       'acquire_worktree',
       'release_worktree',
       'reconcile_worktrees',
-      'serialize_merge',
     ]);
     const ledgerCoordination = ['acquire_worktree', 'release_worktree', 'reconcile_worktrees'];
-    const retiringEffects = ['serialize_merge', 'merge_orchestrate'];
-    expect([...ledgerCoordination, ...retiringEffects].sort()).toEqual([...FAMILY_NAMES].sort());
+    expect([...ledgerCoordination].sort()).toEqual([...FAMILY_NAMES].sort());
     const live = liveFamilyActions();
     expect(live.map((action) => action.name)).toEqual(FAMILY_ACTIONS.map((action) => action.name));
     for (const action of live) {
@@ -87,34 +82,17 @@ describe('merge VCS worktree action contracts', () => {
     }
   });
 
+  /**
+   * The local merge actions were the only non-idempotent mutations of the family, and they are retired.
+   * The ledger actions converge, so none of them needs a claim or a replay refusal.
+   */
   it('Registry_NonIdempotentMutations_RequireClaimsOrRejectReplay', () => {
-    const mutations = nonIdempotentMutations(liveFamilyActions());
-    expect(mutations.map((action) => action.name).sort()).toEqual([
-      'merge_orchestrate',
-      'serialize_merge',
-    ]);
-    for (const action of mutations) {
-      const replay = assertCompleteContract(action).replay;
-      expect(replay.kind === 'claim-required' || replay.kind === 'reject-replay').toBe(true);
-      if (replay.kind === 'claim-required') {
-        expect(replay.scope).toBe('stream-subject-request');
-      }
+    const live = liveFamilyActions();
+    expect(live.length).toBe(FAMILY_ACTIONS.length);
+    expect(nonIdempotentMutations(live).map((action) => action.name)).toEqual([]);
+    for (const action of live) {
+      expect(action.annotations.idempotent, action.name).toBe(true);
+      expect(assertCompleteContract(action).replay.kind, action.name).toBe('safe-repeat');
     }
-    const mergeReplay = assertCompleteContract(
-      mutations.find((action) => action.name === 'merge_orchestrate')!,
-    ).replay;
-    expect(mergeReplay.kind).toBe('claim-required');
-    expect(mergeReplay).toEqual({ kind: 'claim-required', scope: 'stream-subject-request' });
-  });
-
-  it('non-idempotent mutations declare claim-required or reject-replay', () => {
-    const mutations = nonIdempotentMutations(liveFamilyActions());
-    expect(mutations.length).toBeGreaterThan(0);
-    fc.assert(
-      fc.property(fc.constantFrom(...mutations), (action) => {
-        const replay = readContract(action).replay;
-        expect(replay.kind === 'claim-required' || replay.kind === 'reject-replay').toBe(true);
-      }),
-    );
   });
 });

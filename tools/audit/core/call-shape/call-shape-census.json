@@ -2541,7 +2541,7 @@
   ],
   "pins": {
     "contractAuthority": {
-      "actionIdRegistryDigest": "sha256:40ce58b4a36308166be1e8ec48b6fc494b0e8052acf42cc064f69124273c258c",
+      "actionIdRegistryDigest": "sha256:62dabaa6e3bbbd43e3eadbb9d3e46308b5c03868993753a2238cf9a40822ba96",
       "file": "src/contract/contract-authority.lock.json"
     },
     "inputs": [
@@ -2563,12 +2563,12 @@
       },
       {
         "file": "src/runbooks/definitions.ts",
-        "sha256": "ec348fc5bd4db6b86e74bee9ac7027bfeb9046fb078d0fc709345955e77a3e4f"
+        "sha256": "467cdc54f30e25b8460f1b8e161c2b02e28b84f9954be81489ee319bfa17603b"
       }
     ],
     "registry": {
-      "actionIdsSha256": "40ce58b4a36308166be1e8ec48b6fc494b0e8052acf42cc064f69124273c258c",
-      "actions": 113,
+      "actionIdsSha256": "62dabaa6e3bbbd43e3eadbb9d3e46308b5c03868993753a2238cf9a40822ba96",
+      "actions": 111,
       "file": "tools/audit/registered-actions-snapshot.json",
       "tools": 5,
       "visibleTools": 4
@@ -3121,19 +3121,24 @@
     {
       "counts": {
         "decision": 0,
-        "exarchos": 3,
-        "native": 0
+        "exarchos": 2,
+        "native": 2
       },
       "id": "merge-orchestration",
       "phase": "merge-pending",
       "steps": [
         {
-          "call": "exarchos_orchestrate.merge_orchestrate",
-          "status": "registered",
-          "surface": "exarchos"
+          "call": "native:bash.git_is_ancestor",
+          "status": "harness",
+          "surface": "native"
         },
         {
-          "call": "exarchos_orchestrate.merge_orchestrate",
+          "call": "native:bash.git_merge",
+          "status": "harness",
+          "surface": "native"
+        },
+        {
+          "call": "exarchos_event.append",
           "status": "registered",
           "surface": "exarchos"
         },

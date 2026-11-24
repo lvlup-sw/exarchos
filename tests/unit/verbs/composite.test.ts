@@ -62,9 +62,6 @@ vi.mock('../../../src/vcs/factory.js', () => ({
 }));
 
 
-vi.mock('../../../src/verbs/merge/merge-orchestrate.js', () => ({
-  handleMergeOrchestrate: vi.fn(),
-}));
 
 vi.mock('../../../src/runtime/agents/handler.js', async (importOriginal) => {
   const actual = await importOriginal() as Record<string, unknown>;
@@ -99,7 +96,6 @@ import { handlePruneStaleWorkflows } from '../../../src/verbs/team/prune-stale-w
 import { handleRequestSynthesize } from '../../../src/verbs/team/request-synthesize.js';
 import { handleFinalizeOneshot } from '../../../src/verbs/tasks/finalize-oneshot.js';
 import { handleDoctor } from '../../../src/verbs/doctor/index.js';
-import { handleMergeOrchestrate } from '../../../src/verbs/merge/merge-orchestrate.js';
 import { handleScaffold } from '../../../src/verbs/invariants/scaffold.js';
 import { handleAdd } from '../../../src/verbs/invariants/add.js';
 import { TOOL_REGISTRY } from '../../../src/registry.js';
@@ -618,46 +614,19 @@ describe('handleOrchestrate', () => {
 
   describe('merge orchestrate routing', () => {
     /**
-     * The handler is registered through `adaptCtx`, so it receives `(args, ctx)`.
-     * The registry makes `strategy` required with no default, so the test asserts that dispatch forwards it.
+     * The local merge actions are retired. The registry lists neither of them, and the router has no route for them.
+     * The adapters refuse a call of either one before dispatch, from the closed retired-action table.
      */
-    it('compositeOrchestrate_ActionMergeOrchestrate_RoutesToHandleMergeOrchestrate', async () => {
-      const expected = successResult({
-        phase: 'completed',
-        mergeSha: 'a'.repeat(40),
-        rollbackSha: 'b'.repeat(40),
-        preflight: { passed: true },
-      });
-      vi.mocked(handleMergeOrchestrate).mockResolvedValue(expected);
-      const args = {
-        action: 'merge_orchestrate',
-        featureId: 'feat-x',
-        sourceBranch: 'feat/x',
-        targetBranch: 'main',
-        strategy: 'squash',
-      };
-
-      const result = await handleOrchestrate(args, CTX);
-
-      expectEnvelopedSuccess(result, expected);
-      expect(handleMergeOrchestrate).toHaveBeenCalledTimes(1);
-      const call = vi.mocked(handleMergeOrchestrate).mock.calls[0];
-      expect(call[0]).toEqual({
-        featureId: 'feat-x',
-        sourceBranch: 'feat/x',
-        targetBranch: 'main',
-        strategy: 'squash',
-      });
-      expect(call[1]).toBe(CTX);
-    });
-
-    /** Dispatch validation accepts only the actions that the registry lists. */
-    it('OrchestrateRegistry_ActionList_IncludesMergeOrchestrate', () => {
+    it('OrchestrateRegistry_ActionList_ExcludesRetiredMergeActions', async () => {
       const orchestrate = TOOL_REGISTRY.find((t) => t.name === 'exarchos_orchestrate');
       expect(orchestrate).toBeDefined();
-
       const actionNames = orchestrate!.actions.map((a) => a.name);
-      expect(actionNames).toContain('merge_orchestrate');
+      for (const retired of ['merge_orchestrate', 'serialize_merge']) {
+        expect(actionNames).not.toContain(retired);
+        const result = await handleOrchestrate({ action: retired, featureId: 'feat-x' }, CTX);
+        expect(result.success).toBe(false);
+        expect(result.error?.code).toBe('UNKNOWN_ACTION');
+      }
     });
   });
 

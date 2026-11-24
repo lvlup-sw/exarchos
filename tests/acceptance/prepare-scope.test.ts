@@ -321,7 +321,7 @@ describe('prepare pins the commit of the base', () => {
 
   /**
    * A squash puts the work of the blocker on the base as a new commit. So the completion commit alone is still not on the base.
-   * The row that serialize_merge records for the squash names the new commit, and that commit passes.
+   * The merge.executed row that records the squash names the new commit, and that commit passes.
    */
   it('Prepare_ABlockerSquashedBySerializeMerge_PassesWhereItsCompletionCommitAloneIsRefused', async () => {
     const worktree = await repository.worktreeFor('task-a', { 'src/a.js': 'export const a = 2;\n' });

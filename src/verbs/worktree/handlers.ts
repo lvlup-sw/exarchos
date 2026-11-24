@@ -1,7 +1,7 @@
 /**
  * Dispatch handlers for the worktree-lifecycle actions on `exarchos_orchestrate` and
- * `exarchos_view`. They validate their arguments, then delegate to the {@link WorktreeManager},
- * the merge serializer, or a reconciler. The CLI and MCP adapters share one composite router, so
+ * `exarchos_view`. They validate their arguments, then delegate to the {@link WorktreeManager} or a
+ * reconciler. The CLI and MCP adapters share one composite router, so
  * the same context and arguments give the same `ToolResult` on both.
  */
 
@@ -19,12 +19,7 @@ import {
   type ProcessSource,
 } from './pure/process-identity.js';
 import { canonicalWorktreeId, defaultRealpath } from './pure/path-containment.js';
-import {
-  serializeMerge,
-  type SerializeMergeInput,
-  type SerializeMergeDeps,
-  reconcileMerges,
-} from './merge-serializer.js';
+import { reconcileMerges } from './merge-lease-reconciler.js';
 import type { SleepFn } from './git-retry.js';
 import type { InFlightMerge, InFlightPrune } from './projections/worktrees.js';
 import { reconcileLaunches } from '../../runtime/launcher/launch-reconcile.js';
@@ -65,10 +60,6 @@ function invalidInput(message: string, expectedShape?: Record<string, unknown>):
 
 function optionalString(value: unknown): string | undefined {
   return typeof value === 'string' ? value : undefined;
-}
-
-function optionalBoolean(value: unknown): boolean | undefined {
-  return typeof value === 'boolean' ? value : undefined;
 }
 
 /** Parses a non-negative integer from a number or a numeric string. */
@@ -322,68 +313,6 @@ export async function handleViewWorktrees(
     success: true,
     data: detailData,
   };
-}
-
-/**
- * Serializes an integration-branch merge behind a lease per `integrationRef`, then runs
- * `merge_orchestrate`. The lease is a `worktree.merge_requested` and `worktree.merge_executed`
- * pair on the `worktrees` stream. It is a dry run unless `dryRun` is `false`, and a dry run claims
- * no lease and runs no merge. The default lives here and not on the schema, because the MCP
- * registration flattener forbids different defaults on a shared field. Direct callers of
- * `serializeMerge` pass their own `dryRun`.
- */
-export async function handleSerializeMerge(
-  args: Record<string, unknown>,
-  ctx: DispatchContext,
-  deps?: SerializeMergeDeps,
-): Promise<ToolResult> {
-  const featureId = optionalString(args.featureId);
-  if (!featureId) {
-    return invalidInput('serialize_merge requires featureId: string', {
-      featureId: 'string',
-    });
-  }
-  const integrationRef = optionalString(args.integrationRef);
-  if (!integrationRef) {
-    return invalidInput('serialize_merge requires integrationRef: string', {
-      integrationRef: 'string',
-    });
-  }
-  const sourceBranch = optionalString(args.sourceBranch);
-  if (!sourceBranch) {
-    return invalidInput('serialize_merge requires sourceBranch: string', {
-      sourceBranch: 'string',
-    });
-  }
-  const strategy = optionalString(args.strategy);
-  if (strategy !== 'squash' && strategy !== 'rebase' && strategy !== 'merge') {
-    return invalidInput(
-      "serialize_merge requires strategy: 'squash' | 'rebase' | 'merge'",
-      { strategy: "'squash' | 'rebase' | 'merge'" },
-    );
-  }
-  const taskId = optionalString(args.taskId);
-  const repoRoot = optionalString(args.repoRoot);
-  const timeoutMs =
-    typeof args.timeoutMs === 'number' &&
-    Number.isInteger(args.timeoutMs) &&
-    args.timeoutMs > 0
-      ? args.timeoutMs
-      : undefined;
-
-  const dryRun = optionalBoolean(args.dryRun) !== false;
-
-  const input: SerializeMergeInput = {
-    featureId,
-    integrationRef,
-    sourceBranch,
-    strategy,
-    dryRun,
-    ...(taskId !== undefined ? { taskId } : {}),
-    ...(repoRoot !== undefined ? { repoRoot } : {}),
-    ...(timeoutMs !== undefined ? { timeoutMs } : {}),
-  };
-  return serializeMerge(input, ctx, deps);
 }
 
 /**

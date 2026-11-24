@@ -76,6 +76,24 @@ const WORKTREE_PROVISIONERS: readonly { readonly action: string; readonly cli: r
   { action: 'prune_worktrees', cli: ['--repo-root', '.', '--dry-run', 'false'], mcp: { repoRoot: '.', dryRun: false } },
 ];
 
+/** The refusal of a retired local merge action. It keeps the closed code of the provider writers, and its message names the harness landing. */
+const MERGE_LANDING_REFUSAL = {
+  success: false,
+  error: {
+    code: 'PROVIDER_WRITE_RETIRED',
+    message: 'Exarchos retires local merges. The harness lands the task branch on the integration branch with its own tools, and the coordinator records that landing with a merge.executed event.',
+  },
+};
+
+/** The flags of a `merge_orchestrate` call that its old schema accepted. The `merge-orchestrate` top-level verb took the same flags. */
+const MERGE_ORCHESTRATE_CLI: readonly string[] = ['--feature-id', 'retired-mutation', '--source-branch', 'feat/x', '--target-branch', 'main', '--strategy', 'squash'];
+
+/** Each retired local merge action with arguments that its old schema accepted. */
+const MERGERS: readonly { readonly action: string; readonly cli: readonly string[]; readonly mcp: Record<string, unknown> }[] = [
+  { action: 'merge_orchestrate', cli: MERGE_ORCHESTRATE_CLI, mcp: { sourceBranch: 'feat/x', targetBranch: 'main', strategy: 'squash' } },
+  { action: 'serialize_merge', cli: ['--feature-id', 'retired-mutation', '--integration-ref', 'main', '--source-branch', 'feat/x', '--strategy', 'squash', '--dry-run', 'false'], mcp: { integrationRef: 'main', sourceBranch: 'feat/x', strategy: 'squash', dryRun: false } },
+];
+
 /** Resolve one executable from the PATH of the test process, before any shim directory goes first. */
 async function onPath(name: string): Promise<string> {
   for (const directory of (process.env.PATH ?? '').split(delimiter)) {
@@ -168,6 +186,25 @@ it.runIf(process.platform === 'linux')('RetiredAction_PackagedCli_RefusesBeforeS
       expect(bare.stdout).toBe('');
       expect(bare.stderr).toContain(`Error [PROVIDER_WRITE_RETIRED]: ${WORKTREE_PROVISIONING_REFUSAL.error.message}`);
     }
+    for (const merger of MERGERS) {
+      for (const group of ['orch', 'orchestrate']) {
+        const refused = await f.cli([group, merger.action, ...merger.cli, '--json']);
+        expect(refused.exitCode, `${merger.action} ${refused.stderr}`).toBe(2);
+        expect(JSON.parse(refused.stdout)).toMatchObject(MERGE_LANDING_REFUSAL);
+        expect(refused.stderr).not.toContain('executable-configuration-retired');
+      }
+      const bare = await f.cli(['orch', merger.action, '--unknown-flag']);
+      expect(bare.exitCode, merger.action).toBe(2);
+      expect(bare.stdout).toBe('');
+      expect(bare.stderr).toContain(`Error [PROVIDER_WRITE_RETIRED]: ${MERGE_LANDING_REFUSAL.error.message}`);
+    }
+    const topLevel = await f.cli(['merge-orchestrate', ...MERGE_ORCHESTRATE_CLI, '--json']);
+    expect(topLevel.exitCode, topLevel.stderr).toBe(2);
+    expect(JSON.parse(topLevel.stdout)).toMatchObject(MERGE_LANDING_REFUSAL);
+    const topLevelBare = await f.cli(['merge-orchestrate', '--unknown-flag']);
+    expect(topLevelBare.exitCode).toBe(2);
+    expect(topLevelBare.stdout).toBe('');
+    expect(topLevelBare.stderr).toContain(`Error [PROVIDER_WRITE_RETIRED]: ${MERGE_LANDING_REFUSAL.error.message}`);
     expect(await readdir(f.stateDir)).toEqual([]);
     expect(await f.gitCalls()).toEqual([]);
     expect(await exists(f.marker('config'))).toBe(false);
@@ -216,6 +253,14 @@ it.runIf(process.platform === 'linux')('RetiredAction_PackagedMcp_RefusesBeforeS
           arguments: { action: provisioner.action, ...provisioner.mcp, featureId: 'retired-mutation', notARegisteredField: true },
         }, { timeout: 35_000 })));
         expect(provisionRefused).toMatchObject(WORKTREE_PROVISIONING_REFUSAL);
+      }
+      for (const merger of MERGERS) {
+        expect(JSON.stringify(listed)).not.toContain(merger.action);
+        const mergeRefused = record(extractEnvelope(await client.client.callTool({
+          name: 'exarchos_orchestrate',
+          arguments: { action: merger.action, ...merger.mcp, featureId: 'retired-mutation', notARegisteredField: true },
+        }, { timeout: 35_000 })));
+        expect(mergeRefused).toMatchObject(MERGE_LANDING_REFUSAL);
       }
       const refused = record(extractEnvelope(await client.client.callTool({
         name: 'exarchos_orchestrate',

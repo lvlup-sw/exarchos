@@ -46,9 +46,10 @@ export const ALLOWLIST_PATH = 'tools/audit/core/cli-derivation-allowlist.json';
 /**
  * The kill fixture: command names that the allowlist can never hold.
  *
- * `merge-orchestrate` is a registry action. A hand-written
- * `.command('merge-orchestrate')` beside it is a second declaration, and the
- * remedy is to delete the hand-written command. {@link findDerivationViolations}
+ * `merge-orchestrate` was the top-level verb of the retired `merge_orchestrate`
+ * action, and the closed retired-action table refuses it. A hand-written
+ * `.command('merge-orchestrate')` brings the retired verb back, and the remedy
+ * is to delete the hand-written command. {@link findDerivationViolations}
  * reports these names whatever the allowlist holds. {@link readPolicy} refuses a
  * policy file that lists one in either map, so the mistake fails at authoring
  * time.

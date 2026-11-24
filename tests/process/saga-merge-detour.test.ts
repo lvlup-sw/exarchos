@@ -1,8 +1,9 @@
 /**
  * Regression test for the `merge-pending` detour.
- * After a `task.completed` event with a `worktreePath`, the rehydration envelope must offer `merge_orchestrate` in `next_actions`.
- * A runtime that reads `next_actions` can then start the worktree merge with no operator step.
- * `content/delivery/skills/delegate/SKILL.md` documents this contract.
+ * After a `task.completed` event with a `worktreePath`, the workflow parks in `merge-pending`.
+ * The rehydration envelope offers no retired `merge_orchestrate`, because the harness lands the task branch.
+ * The coordinator records the landing with one `merge.executed` row, and the rehydrated workflow then leaves `merge-pending`.
+ * `content/delivery/skills/merge-orchestrator/SKILL.md` documents this contract.
  */
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
@@ -27,6 +28,18 @@ const WORKTREE_BINARY = path.resolve(
   'exarchos-linux-x64',
 );
 
+/** The text of the first content block of an MCP tool result. It throws when the result has none. */
+function firstText(result: unknown): string {
+  if (typeof result !== 'object' || result === null || !('content' in result) || !Array.isArray(result.content)) {
+    throw new Error('the tool result carried no content array');
+  }
+  const [block]: unknown[] = result.content;
+  if (typeof block !== 'object' || block === null || !('text' in block) || typeof block.text !== 'string') {
+    throw new Error('the tool result carried no text block');
+  }
+  return block.text;
+}
+
 interface NextActionShape {
   verb: string;
   reason?: string;
@@ -43,7 +56,7 @@ describe('#1208 — task.completed{worktreePath} auto-detours to merge-pending',
    * The workflow has no prepared scope, so the assignment names the project as the worktree of the task.
    * A thrown transport error in the saga fails the test and names the step.
    */
-  it('next_actions surfaces merge_orchestrate after worktree-bearing task.completed', async () => {
+  it('next_actions offers no merge_orchestrate, and a recorded merge.executed row exits merge-pending', async () => {
     await withHermeticEnv(async (env) => {
       await fs.writeFile(
         path.join(env.gitDir, 'package.json'),
@@ -137,13 +150,47 @@ describe('#1208 — task.completed{worktreePath} auto-detours to merge-pending',
 
         const [block] = view.content as Array<{ text: string }>;
         if (!block) throw new Error('the view envelope carried no content block');
-        const content = JSON.parse(block.text) as { next_actions?: NextActionShape[] };
+        const content: {
+          next_actions?: NextActionShape[];
+          data?: { workflowState?: { phase?: string } };
+        } = JSON.parse(block.text);
 
-        expect(content.next_actions).toEqual(
-          expect.arrayContaining([
-            expect.objectContaining({ verb: 'merge_orchestrate' }),
-          ]),
-        );
+        expect(content.data?.workflowState?.phase).toBe('merge-pending');
+        expect((content.next_actions ?? []).map((a) => a.verb)).not.toContain('merge_orchestrate');
+
+        const landed = await driveSaga(mcp, [
+          {
+            tool: 'exarchos_event',
+            arguments: {
+              action: 'append',
+              stream: 'p2-detour',
+              idempotencyKey: `001:${'a'.repeat(40)}`,
+              event: {
+                type: 'merge.executed',
+                data: {
+                  taskId: '001',
+                  sourceBranch: 'feature/p2-detour-001',
+                  targetBranch: 'main',
+                  mergeSha: 'a'.repeat(40),
+                  rollbackSha: 'b'.repeat(40),
+                },
+              },
+            },
+          },
+        ]);
+        expect(landed.steps.map((step) => step.kind)).toEqual(['success']);
+        for (const step of landed.steps) {
+          if (step.kind !== 'success') continue;
+          const text = firstText(step.result);
+          expect(JSON.parse(text), `${step.call.tool} ${text}`).toMatchObject({ success: true });
+        }
+
+        const after = await mcp.client.callTool({
+          name: 'exarchos_workflow',
+          arguments: { action: 'rehydrate', featureId: 'p2-detour' },
+        });
+        const afterContent: { data?: { workflowState?: { phase?: string } } } = JSON.parse(firstText(after));
+        expect(afterContent.data?.workflowState?.phase).toBe('delegate');
       } finally {
         await mcp.terminate();
       }

@@ -1,27 +1,21 @@
-// Recovery tests for the crash and concurrency paths of the liveness and merge surface.
-// A crashed merge leaves an unpaired `worktree.merge_requested`.
-// When its holder is provably dead, recovery frees the slot with exactly one terminal event.
-// Two production paths free it: the inline dead-holder reclaim in `serialize_merge`, and the `reconcileMerges` pass in `reconcile_worktrees`.
-// An exhausted index.lock retry reaches the caller as `IndexLockContentionError`, and the lease is released.
-//
-// The serializer runs no `git reset --hard` and passes a `recoveryError` from `merge_orchestrate` through unchanged.
-// The tests use a real SQLite EventStore, because its stream-version check inside the transaction is the cross-process guard.
+/**
+ * Recovery tests for the crash paths of the liveness and merge surface.
+ * A crashed merge of an old log leaves an unpaired `worktree.merge_requested`.
+ * When its holder is provably dead, the `reconcileMerges` pass in `reconcile_worktrees` frees the slot with exactly one terminal event.
+ * The reservation reclaim of the manager fails closed on an unsupported process table, and one failed append does not stop the pass.
+ * The tests use a real SQLite EventStore, because its stream-version check inside the transaction is the cross-process guard.
+ */
 
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import { mkdtemp } from 'node:fs/promises';
-import { readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
-import { fileURLToPath } from 'node:url';
 
 import { EventStore } from '../../../../src/events/store.js';
 import type { DispatchContext } from '../../../../src/dispatch/core/dispatch.js';
-import type { ToolResult } from '../../../../src/format.js';
 import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
 
-import { serializeMerge } from '../../../../src/verbs/worktree/merge-serializer.js';
-import { handleReconcileWorktrees, handleSerializeMerge } from '../../../../src/verbs/worktree/handlers.js';
-import { handleView } from '../../../../src/projections/views/composite.js';
+import { handleReconcileWorktrees } from '../../../../src/verbs/worktree/handlers.js';
 import {
   WorktreeManager,
   WORKTREES_STREAM,
@@ -29,8 +23,6 @@ import {
 } from '../../../../src/verbs/worktree/manager.js';
 import type { WorktreesProjection } from '../../../../src/verbs/worktree/projections/worktrees.js';
 import type { ProcessTableSource, ProcessRecord } from '../../../../src/verbs/worktree/pure/probe.js';
-import type { ProcessSource, StartTimeProbe } from '../../../../src/verbs/worktree/pure/process-identity.js';
-import { IndexLockContentionError, type SleepFn } from '../../../../src/verbs/worktree/git-retry.js';
 
 interface Arm {
   readonly stateDir: string;
@@ -85,17 +77,6 @@ const UNSUPPORTED_TABLE: ProcessTableSource = {
   isSupported: () => false,
 };
 
-/** A per-PID create-time source backed by a map (absent pid ⇒ exited). */
-function startTimeSource(table: Record<number, string>): ProcessSource {
-  return {
-    getStartTime(pid: number): StartTimeProbe {
-      return Object.prototype.hasOwnProperty.call(table, pid)
-        ? { status: 'present', startedAt: table[pid] }
-        : { status: 'absent' };
-    },
-  };
-}
-
 /** Directly seed a held lease (CLAIM) on the worktrees stream. */
 async function seedHolder(
   arm: Arm,
@@ -128,56 +109,9 @@ function executedFor(events: ReadonlyArray<{ type: string; data?: Record<string,
   );
 }
 
-describe('DR-12 — crash-mid-merge recovery via the production serialize_merge path', () => {
-  /**
-   * A crash leaves an unpaired claim, and holder 4242 is absent from the supported table, so it is provably dead.
-   * The test calls the registered `handleSerializeMerge` with `dryRun: false`, because the action defaults to a dry run.
-   * Live claimant 111 merges into the same ref.
-   * The inline reclaim in `waitForFreeSlot` frees the dead slot on the first fold, and `sleep` throws to prove it.
-   * The stranded lease gets exactly one terminal under its original `operationId`, the next merge runs, and the slot ends clear.
-   */
-  it('Recovery_MergeRequestedNoExecuted_ResumeEmitsSingleExecuted', async () => {
-    const arm = await createArm();
-    const integrationRef = 'integration/resume';
-    const crashedOpId = 'crashed-op';
-    await seedHolder(arm, {
-      integrationRef,
-      operationId: crashedOpId,
-      sourceBranch: 'feat/crashed',
-      holderPid: 4242,
-      holderStartedAt: 'gone-4242',
-    });
-
-    const merged: string[] = [];
-    const result = await handleSerializeMerge(
-      { featureId: 'F', integrationRef, sourceBranch: 'feat/next', strategy: 'merge', timeoutMs: 30_000, dryRun: false },
-      arm.ctx,
-      {
-        selfPid: 111,
-        selfStartedAt: 'self-111',
-        processTableSource: liveTable([{ pid: 111, startTime: 'self-111' }]),
-        sleep: async () => {
-          throw new Error('crash recovery must not wait out the budget');
-        },
-        mergeOrchestrate: async (input) => {
-          merged.push(input.featureId);
-          return { success: true, data: { phase: 'completed' } };
-        },
-        readIntegrationHead: () => null,
-      },
-    );
-
-    expect(result.success).toBe(true);
-    const events = await arm.eventStore.query(WORKTREES_STREAM);
-    expect(executedFor(events, crashedOpId)).toHaveLength(1);
-    expect(merged).toEqual(['F']);
-    expect((await foldWorktrees(arm)).inFlightMerges[integrationRef]).toBeUndefined();
-  });
-});
-
 describe('DR-3 — crash-mid-merge reconciled from the reconcile_worktrees production entry', () => {
   /**
-   * Holder 4242 is absent from the supported table, and no later `serialize_merge` runs on the ref, so the inline reclaim never fires.
+   * Holder 4242 is absent from the supported table.
    * The `reconcileMerges` pass in `handleReconcileWorktrees` must free the lease with exactly one terminal under its original `operationId`.
    * The response reports the in-flight column after the reconcile, so the freed slot is not also in-flight.
    */
@@ -250,148 +184,6 @@ describe('DR-3 — crash-mid-merge reconciled from the reconcile_worktrees produ
     const events = await arm.eventStore.query(WORKTREES_STREAM);
     expect(executedFor(events, 'live-op')).toHaveLength(0);
     expect((await foldWorktrees(arm)).inFlightMerges[integrationRef]?.operationId).toBe('live-op');
-  });
-});
-
-describe('DR-12 — stale dead-holder reclamation', () => {
-  /**
-   * Holder 9090 is absent from the empty table, so it is provably dead.
-   * `sleep` throws and the clock never moves, so the reclaim happens inline and spends none of the budget.
-   * The dead holder gets its terminal under its own `operationId`, and the slot ends clear.
-   */
-  it('Recovery_StaleLeaseDeadHolder_WaitLoopReclaimsInlineNoFullTimeout', async () => {
-    const arm = await createArm();
-    const integrationRef = 'integration/dead-inline';
-    await seedHolder(arm, {
-      integrationRef,
-      operationId: 'dead-op',
-      sourceBranch: 'feat/dead',
-      holderPid: 9090,
-      holderStartedAt: 'gone-9090',
-    });
-
-    let clock = 0;
-    const sleep: SleepFn = async () => {
-      throw new Error('dead-holder reclaim must not wait out the budget');
-    };
-    const merged: string[] = [];
-    const result = await serializeMerge(
-      { featureId: 'F', integrationRef, sourceBranch: 'feat/live', strategy: 'merge', timeoutMs: 30_000 },
-      arm.ctx,
-      {
-        now: () => clock,
-        sleep,
-        processTableSource: EMPTY_TABLE,
-        selfPid: 111,
-        selfStartedAt: 'self-111',
-        mergeOrchestrate: async (input) => {
-          merged.push(input.featureId);
-          return { success: true, data: { phase: 'completed' } };
-        },
-        readIntegrationHead: () => null,
-      },
-    );
-
-    expect(result.success).toBe(true);
-    expect(merged).toEqual(['F']);
-    expect(clock).toBe(0);
-
-    const events = await arm.eventStore.query(WORKTREES_STREAM);
-    expect(executedFor(events, 'dead-op')).toHaveLength(1);
-    expect((await foldWorktrees(arm)).inFlightMerges[integrationRef]).toBeUndefined();
-  });
-});
-
-describe('DR-12 — exhausted index.lock retry', () => {
-  /**
-   * The index.lock retry kernel sits in `defaultGitExec` and has its own tests, so this test does not run it.
-   * It injects a terminal `IndexLockContentionError` through `mergeOrchestrate`.
-   * The serializer must pass the error to the caller unchanged and still release the lease in `finally`, so no half-merge stays.
-   */
-  it('Recovery_ExhaustedIndexLockRetry_SurfacesStructuredErrorNoHalfMerge', async () => {
-    const arm = await createArm();
-    const integrationRef = 'integration/locked';
-
-    const lockErr = new IndexLockContentionError(
-      { lockPath: '/repo/.git/index.lock', attempts: 4, maxRetries: 3, delaysMs: [200, 400, 800] },
-      new Error("fatal: Unable to create '/repo/.git/index.lock': File exists."),
-    );
-
-    let caught: unknown;
-    try {
-      await serializeMerge(
-        { featureId: 'F', integrationRef, sourceBranch: 'feat/x', strategy: 'merge', timeoutMs: 10_000 },
-        arm.ctx,
-        {
-          selfPid: 555,
-          selfStartedAt: 'self-555',
-          mergeOrchestrate: async () => {
-            throw lockErr;
-          },
-          readIntegrationHead: () => null,
-        },
-      );
-    } catch (err) {
-      caught = err;
-    }
-
-    expect(caught).toBe(lockErr);
-    expect(caught).toBeInstanceOf(IndexLockContentionError);
-    expect((caught as IndexLockContentionError).code).toBe('INDEX_LOCK_CONTENTION');
-
-    expect((await foldWorktrees(arm)).inFlightMerges[integrationRef]).toBeUndefined();
-    const events = await arm.eventStore.query(WORKTREES_STREAM);
-    const claims = events.filter((e) => e.type === 'worktree.merge_requested');
-    const releases = events.filter((e) => e.type === 'worktree.merge_executed');
-    expect(claims).toHaveLength(1);
-    expect(releases).toHaveLength(1);
-  });
-});
-
-describe('DR-12 — no reset --hard, INV-14 pass-through', () => {
-  /**
-   * The serializer source holds no `reset` or `--hard`. The test removes comments first, so a comment that names `--hard` cannot fail the check.
-   * The line-comment pattern keeps `://` in URLs.
-   * When `merge_orchestrate` reverses a merge and returns a `recoveryError`, the serializer passes the result through unchanged and releases the lease.
-   */
-  it('Recovery_SerializerIntroducesNoResetHard_SurfacesRecoveryErrorFromMergeOrchestrate', async () => {
-    const sourcePath = fileURLToPath(new URL('../../../../src/verbs/worktree/merge-serializer.ts', import.meta.url));
-    const source = readFileSync(sourcePath, 'utf-8');
-    const code = source
-      .replace(/\/\*[\s\S]*?\*\//g, '')
-      .replace(/(^|[^:])\/\/.*$/gm, '$1');
-    expect(code).not.toMatch(/--hard/i);
-    expect(code).not.toMatch(/\breset\b/i);
-
-    const arm = await createArm();
-    const integrationRef = 'integration/reversed';
-    const rolledBack: ToolResult = {
-      success: false,
-      error: { code: 'MERGE_ROLLED_BACK', message: 'merge reversed' },
-      data: {
-        phase: 'rolled-back',
-        recoveryError: 'reset-keep-blocked',
-        recoveryErrorDetail: 'git reset --keep refused to discard local work',
-      },
-    };
-
-    const result = await serializeMerge(
-      { featureId: 'F', integrationRef, sourceBranch: 'feat/x', strategy: 'merge', timeoutMs: 10_000 },
-      arm.ctx,
-      {
-        selfPid: 666,
-        selfStartedAt: 'self-666',
-        mergeOrchestrate: async () => rolledBack,
-        readIntegrationHead: () => null,
-      },
-    );
-
-    expect(result.success).toBe(false);
-    const data = result.data as Record<string, unknown>;
-    expect(data.phase).toBe('rolled-back');
-    expect(data.recoveryError).toBe('reset-keep-blocked');
-    expect(data.recoveryErrorDetail).toBe('git reset --keep refused to discard local work');
-    expect((await foldWorktrees(arm)).inFlightMerges[integrationRef]).toBeUndefined();
   });
 });
 

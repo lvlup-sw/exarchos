@@ -7,7 +7,7 @@
  * that resolves.
  *
  * The registry tests assert breadth through `actionAcceptsInferredValue`, and they call no
- * handler. Actions such as `merge_orchestrate` and `serialize_merge` have side effects that a
+ * handler. Actions such as `cutover_decide` and `reconcile_worktrees` have side effects that a
  * guard must not cause.
  */
 

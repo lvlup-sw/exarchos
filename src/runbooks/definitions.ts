@@ -736,24 +736,26 @@ export const PHASE_COMPRESSION: RunbookDefinition = {
 export const MERGE_ORCHESTRATION: RunbookDefinition = {
   id: 'merge-orchestration',
   phase: 'merge-pending',
-  description: 'Land a subagent worktree branch onto integration with preflight + recorded rollback.',
+  description: 'Land the accepted head of a worktree task through the harness, then record the landing with a merge.executed row.',
   steps: [
-    { tool: 'exarchos_orchestrate', action: 'merge_orchestrate',
-      params: { dryRun: true }, onFail: 'stop',
-      note: 'Preflight: ancestry, target-worktree-availability (post-#1356), current-branch, drift.' },
-    { tool: 'exarchos_orchestrate', action: 'merge_orchestrate',
-      onFail: 'continue',
-      note: 'Real merge. preflight-fail → aborted (no executor). merge-fail → rolled-back (post-#1356: structured target-worktree-busy categorization).' },
+    { tool: 'native:bash', action: 'git_is_ancestor', onFail: 'stop',
+      note: 'git merge-base --is-ancestor <accepted head> <targetBranch>. Exit 0: the head landed already, so skip the landing. Exit 1: land it. Any other exit: stop and report.' },
+    { tool: 'native:bash', action: 'git_merge', onFail: 'stop',
+      note: 'From the clean integration worktree, capture the integration tip as rollbackSha, then git merge --ff-only <accepted head>, or git merge --no-ff <accepted head> when the integration branch advanced. Never rebase or squash an accepted head.' },
+    { tool: 'exarchos_event', action: 'append', onFail: 'stop',
+      params: { type: 'merge.executed' },
+      note: 'Record the landing: taskId, sourceBranch, targetBranch, mergeSha (integration tip after), rollbackSha (integration tip before), idempotencyKey <taskId>:<mergeSha>.' },
     { tool: 'exarchos_workflow', action: 'transition',
       params: { target: 'delegate' }, onFail: 'continue',
-      note: 'HSM exits merge-pending back to delegate regardless of merge outcome.' },
+      note: 'The merge.executed row admits the exit from merge-pending back to delegate.' },
   ],
-  templateVars: ['featureId', 'taskId', 'sourceBranch', 'targetBranch', 'strategy', 'repoRoot'],
+  /** `stream` and `event` cover the required fields of the `event.append` step. */
+  templateVars: ['featureId', 'taskId', 'sourceBranch', 'targetBranch', 'stream', 'event'],
   /**
-   * Recovery emits only `merge.recovered`. Readers accept the old `merge.rollback`,
-   * but no path emits it.
+   * The `merge.executed` row comes from the `params.type` of an `event.append` step, not from the
+   * `autoEmits` of an action, so this list does not name it.
    */
-  autoEmits: ['merge.preflight', 'merge.executed', 'merge.recovered', 'workflow.transition'],
+  autoEmits: ['workflow.transition'],
 };
 
 export const ALL_RUNBOOKS: readonly RunbookDefinition[] = [
