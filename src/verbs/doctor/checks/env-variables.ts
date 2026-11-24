@@ -36,7 +36,6 @@ const KNOWN: ReadonlySet<string> = new Set([
   'EXARCHOS_SIDECAR_DRAIN_INTERVAL_MS',
   'EXARCHOS_SNAPSHOT_INTERVAL',
   'EXARCHOS_TELEMETRY',
-  'EXARCHOS_VCS_PROVIDER',
 ]);
 
 export async function envVariables(
