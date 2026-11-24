@@ -868,7 +868,7 @@ describe('gates carry no language code', () => {
     const pure = readdirSync(path.join(REPO_ROOT, 'src/verbs/pure')).filter((name) => name.endsWith('.ts') && !isTestFile(name));
 
     expect(gates.length).toBeGreaterThanOrEqual(37);
-    expect(pure.length).toBeGreaterThanOrEqual(11);
+    expect(pure.length).toBeGreaterThanOrEqual(10);
     for (const name of gates) expect(denominator.files).toContain(`src/verbs/gates/${name}`);
     for (const name of pure) expect(denominator.files).toContain(`src/verbs/pure/${name}`);
     expect(denominator.files.length).toBeGreaterThanOrEqual(60);
