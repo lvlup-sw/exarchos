@@ -1019,7 +1019,6 @@ const HAND_AUTHORED_EXCLUSIONS: readonly ExcludedEmitter[] = [
   },
   { actionId: 'exarchos_orchestrate.acquire_worktree', reason: WORKTREE_EXCLUSION },
   { actionId: 'exarchos_orchestrate.release_worktree', reason: WORKTREE_EXCLUSION },
-  { actionId: 'exarchos_orchestrate.prune_worktrees', reason: WORKTREE_EXCLUSION },
   { actionId: 'exarchos_orchestrate.reconcile_worktrees', reason: WORKTREE_EXCLUSION },
 ];
 

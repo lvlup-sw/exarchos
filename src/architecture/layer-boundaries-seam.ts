@@ -404,8 +404,8 @@ export const LAYER_ALLOWED_IMPORTS: readonly LayerAllowance[] = Object.freeze([
   ),
   allowance(
     'vcs',
-    ['config', 'dispatch', 'events', 'utils', 'workflow'],
-    'VCS providers reach config, the dispatch core and the workflow primitives.',
+    ['config', 'dispatch', 'events', 'utils'],
+    'VCS providers reach config, the dispatch core and the event store.',
   ),
   allowance(
     'lifecycle',
