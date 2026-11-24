@@ -11,6 +11,9 @@
  *
  * Process effects go only through {@link spawnCommandSync}, and persistence only through the
  * injected {@link EventStore}. The module imports neither `node:child_process` nor `node:fs`.
+ *
+ * RESERVED(issue: #1928, owner: exarchos, expires: 2027-02-28). The removal of the local merge
+ * modules took its last production importer. The module-intent gate fails at expiry if no caller adopts it.
  */
 
 import {
