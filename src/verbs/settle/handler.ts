@@ -53,7 +53,8 @@ import {
 import type { ToolResult } from '../../format.js';
 import { orchestrateLogger } from '../../logger.js';
 import { rowStatusByTask, foldGuardInput, foldWorkflowState } from '../../projections/guard-input/fold.js';
-import { canonicalPath, observeClaimedTree, observeImmutableClaimedTree, processObservationalGitPath } from '../../utils/git-tree.js';
+import { canonicalPath, processObservationalGitPath } from '../../utils/git-tree.js';
+import { observeConstrainedClaimedTree } from './claimed-tree.js';
 import { evidenceArtifactResolver } from '../../workflow/admission/evidence-artifact.js';
 import { decide, type EdgeVerdict } from '../../workflow/decide/decide.js';
 import { compileDecideDefinition, type DecideDefinition, type DecideEdge } from '../../workflow/decide/edges.js';
@@ -1118,8 +1119,9 @@ function readDecisions(raw: unknown): SettlementDecision[] | string {
 
 /**
  * Observes the claimed worktree of each completed claim, once per call and before the first attempt.
- * The observer is the seam of the dispatch context, and `observeClaimedTree` by default. It gets the repository of the scope,
- * so it reads no status in a tree of another repository.
+ * The observer is the seam of the dispatch context. The default is the constrained claimed-tree observation, with the immutable policy
+ * for a compiler that pins immutable trees. It gets the repository of the scope, so it reads no listing in a tree of another repository.
+ *
  * A claim is observed when the capsule pins a scope, its task terms hold a base commit, and its fields hold a `worktreePath` text.
  * A claim with no such path is neither observed nor judged, so the compile of its segment refuses it as before.
  * The observations are not stream reads, so the commit judges the claims again with the same observations.
@@ -1133,8 +1135,9 @@ async function observeClaimedTrees(
   const { scope } = capsule.settlementContract;
   if (scope === undefined) return observed;
   const terms = capsule.settlementContract.taskVerification ?? {};
-  const observe = ctx.treeObserver ?? (compilerPolicy(capsule.provenance.compilerVersion).immutable
-    ? observeImmutableClaimedTree : observeClaimedTree);
+  const policy = compilerPolicy(capsule.provenance.compilerVersion).immutable ? 'immutable' : 'mutable';
+  const observe = ctx.treeObserver ?? ((dir: string, base: string, repository?: string) =>
+    observeConstrainedClaimedTree(dir, base, repository, policy));
   for (const claim of claims) {
     const { worktreePath, branch } = claim.fields;
     const baseCommit = terms[claim.taskId]?.baseCommit;

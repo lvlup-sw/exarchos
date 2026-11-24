@@ -145,7 +145,7 @@ export interface DispatchContext {
   readonly taskStore?: EventSourcedTaskStore;
   /**
    * The observer of a claimed worktree. `settle` observes each claimed worktree with it before any gate runs.
-   * The composition root sets no observer, so git observes the tree through `observeClaimedTree`.
+   * The composition root sets no observer, so the constrained reader observes the tree through `observeConstrainedClaimedTree`.
    * A caller over MCP or the CLI cannot set the field.
    */
   readonly treeObserver?: TreeObserver;

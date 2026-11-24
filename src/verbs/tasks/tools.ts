@@ -21,13 +21,13 @@ import { getFullRegistry } from '../../registry.js';
 import { getDispatchContext } from '../../dispatch/dispatch-context.js';
 import {
   canonicalPath,
-  isAncestor,
   normalizedPath,
-  observeTree,
-  observeImmutableClaimedTree,
+  observationalReader,
+  type ConstrainedGitReads,
   type TreeObservation,
   type TreeObserver,
 } from '../../utils/git-tree.js';
+import { constrainedAncestry, observeConstrainedClaimedTree, observeConstrainedTree } from '../settle/claimed-tree.js';
 import type { DispatchContext } from '../../dispatch/core/dispatch.js';
 import { ladderRequirementId, readGateEvidenceRecords, selectSubject, treeStampOf } from '../gates/durable-gate-producer.js';
 import { gateRunnerObservationSource, gateSignalIdempotencyKey, type GateRunTree } from '../gates/gate-runner.js';
@@ -1198,8 +1198,11 @@ const NO_BASE_COMMIT = 'HEAD';
 /**
  * The first scope rule that the named tree fails, or undefined when it fails none.
  * With the observer seam, the seam observes the tree once, also for a task with no base commit. The seam gets the repository
- * of the scope, so it reads no status in a tree of another repository. Else the rules read
- * `named`, the git observation of the tree rule, and git answers once whether HEAD holds the base commit.
+ * of the scope, so it reads no listing in a tree of another repository.
+ *
+ * Else the rules read `named`, the constrained observation of the tree rule.
+ * The constrained reader answers once whether the named head holds the base commit.
+ * A named tree with no head cannot hold the base commit, so it is unobserved.
  * A task with no base commit gets no rule 7. The completion-row half of rule 9 runs last.
  */
 async function scopeBreachOf(
@@ -1210,6 +1213,7 @@ async function scopeBreachOf(
   terms: WorktreeTerms,
   completedTrees: ReadonlyMap<string, string>,
   observer: TreeObserver | undefined,
+  reader: () => Promise<ConstrainedGitReads>,
 ): Promise<ScopeBreach | undefined> {
   const claimed = canonicalPath(raw);
   const { baseRef, baseCommit } = terms;
@@ -1226,7 +1230,8 @@ async function scopeBreachOf(
   const breach = worktreeBreach(claimed, branch, named, terms);
   if (breach !== undefined) return breach;
   if (baseCommit !== undefined) {
-    const ancestry = await isAncestor(raw, baseCommit, 'HEAD');
+    if (named.head === undefined) return unobservedBreach({ kind: 'unobservable', cause: 'The named tree has no commit' });
+    const ancestry = await constrainedAncestry(raw, baseCommit, named.head, reader);
     if (ancestry.kind === 'unobservable') return unobservedBreach(ancestry);
     const notHeld = baseBreach(ancestry.kind === 'ancestor', baseCommit, baseRef);
     if (notHeld !== undefined) return notHeld;
@@ -1248,6 +1253,7 @@ async function scopeRefusal(
   completions: readonly WorkflowEvent[],
   store: EventStore,
   observer: TreeObserver | undefined,
+  reader: () => Promise<ConstrainedGitReads>,
 ): Promise<ToolResult | undefined> {
   const capsule = await referenceCapsule(reference.record, store);
   const scope = capsule?.settlementContract.scope;
@@ -1266,6 +1272,7 @@ async function scopeRefusal(
     terms,
     completedTreesOf(completions),
     observer,
+    reader,
   );
   if (breach === undefined) return undefined;
   return gateNotPassed(
@@ -1319,19 +1326,21 @@ async function treeRefusal(
       : { kind: 'held', named: undefined };
   }
   const coordinate = args.authority?.coordinate;
-  const selected = coordinate === undefined ? undefined : await observeImmutableClaimedTree(raw, coordinate.diffBaseCommit, coordinate.repository);
+  const reader = observationalReader();
+  const selected = coordinate === undefined ? undefined
+    : await observeConstrainedClaimedTree(raw, coordinate.diffBaseCommit, coordinate.repository, 'immutable', reader);
   if (coordinate !== undefined && (selected?.kind !== 'tree' || selected.repository !== coordinate.repository
     || selected.head !== coordinate.observedHeadCommit || !selected.holdsBase || selected.dirtyPaths.length !== 0)) {
     return { kind: 'refused', result: { success: false, error: { code: 'TASK_COORDINATE_REFUSED', message: 'Completion requires the selected clean checkout.' } } };
   }
-  const observed = selected ?? await observeTree(raw);
+  const observed = selected ?? await observeConstrainedTree(raw, reader);
   const selectedHead = selected?.kind === 'tree' ? selected.head : undefined;
   const selectedObserver: TreeObserver | undefined = selected?.kind !== 'tree' || selectedHead === undefined ? observer : async (_path, base) => {
-    const ancestry = await isAncestor(raw, base, selectedHead);
+    const ancestry = await constrainedAncestry(raw, base, selectedHead, reader);
     return { ...selected, holdsBase: ancestry.kind === 'ancestor' };
   };
   if (standing.reference !== undefined) {
-    const refusal = await scopeRefusal(args, raw, observed, standing.reference, standing.completions, store, selectedObserver);
+    const refusal = await scopeRefusal(args, raw, observed, standing.reference, standing.completions, store, selectedObserver, reader);
     if (refusal !== undefined) return { kind: 'refused', result: refusal };
   }
   const named = namedTreeOf(raw, observed);
