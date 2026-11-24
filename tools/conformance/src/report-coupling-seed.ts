@@ -50,6 +50,12 @@ export const REPORT_COUPLING_SEED: Readonly<Record<string, ReportCouplingSeedEnt
   {
     'comment.posted': { owner: 'workflow:feature', expires: '2027-02-28' },
     'comment.resolved': { owner: 'workflow:feature', expires: '2027-02-28' },
+    /**
+     * The harness landing row. The coordinator appends one `merge.executed` row after the harness
+     * lands a worktree task, because no local merge handler appends it now. #1927 removes this
+     * entry with the merge-pending phase.
+     */
+    'merge.executed': { owner: 'workflow:feature', expires: '2027-02-28' },
     'merge.requested': { owner: 'workflow:feature', expires: '2027-02-28' },
     'remediation.attempted': { owner: 'gate:review-verdict', expires: '2027-02-28' },
     'remediation.succeeded': { owner: 'gate:review-verdict', expires: '2027-02-28' },

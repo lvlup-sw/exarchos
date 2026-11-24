@@ -13,11 +13,13 @@
 // addition, and the retirement of the ratchet deletes this file. Thus no edit of the digest is legal.
 
 /**
- * The sha256 key-set digest of the 25 event types that `censusReportCoupling().reportCoupled` gave on 2026-08-07.
- * Each audit recomputes it in `report-coupling-census.ts` from the seed ids and the retired ids.
+ * The sha256 key-set digest of 26 event types. 25 came from `censusReportCoupling().reportCoupled` on 2026-08-07.
+ * The owner approved one addition on 2026-11-23: `merge.executed`, the harness landing row.
+ * `reportCouplingSeedDigest` in `report-coupling-census.ts` computes it from the seed ids and the retired ids.
+ * Each audit recomputes it the same way.
  */
 export const REPORT_COUPLING_SEED_KEY_SET_DIGEST =
-  '079ab2f02b6344b352b6fbc3af8807322f139627e01597e8ff1637c6382a101d';
+  '8f37b7d86dee84b968de76e3248cf6e07a16b49e7427b11ccb6671a14f708154';
 
 /** The hash algorithm of the digest, so a change of hash is an explicit edit to this line. */
 export const REPORT_COUPLING_SEED_DIGEST_ALGORITHM = 'sha256';
