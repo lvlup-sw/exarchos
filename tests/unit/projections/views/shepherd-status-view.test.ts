@@ -1,3 +1,11 @@
+/**
+ * These tests check the shepherd-status view and the replay of a stored log that holds the retired shepherd types.
+ * The view cases compare the fold with literal states that this file writes by hand.
+ * The replay case writes the stored rows by hand and folds them through the workflow-state projection.
+ * It then compares that fold with a fold of the same log without the retired rows.
+ *
+ * @oracle-sources: ../../../../src/projections/views/workflow-state-projection.ts, the stored rows and expected states written in this file
+ */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as path from 'node:path';
 import { mkdtemp } from 'node:fs/promises';
