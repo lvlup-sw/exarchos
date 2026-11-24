@@ -149,13 +149,10 @@ const WORKTREE_MUTATION_RE = /\[\s*['"]worktree['"]\s*,\s*['"](?:add|remove|prun
  */
 const WIRED_IDIOM_REQUIREMENTS = new Map();
 /**
- * The files that can hold a worktree-mutating literal. `git-retry.ts` defines
- * the idioms, so it has no idiom requirement.
+ * The files that can hold a worktree-mutating literal. The index-lock retry
+ * module left with the local merge, so only the wired files remain.
  */
-const WIRED_ALLOWLIST = new Set([
-  ...WIRED_IDIOM_REQUIREMENTS.keys(),
-  'verbs/worktree/git-retry.ts',
-]);
+const WIRED_ALLOWLIST = new Set([...WIRED_IDIOM_REQUIREMENTS.keys()]);
 
 /** The scope pin of rule 1: the wired files. */
 const EXPECTED_SRC_SCOPE_FILES = [...WIRED_ALLOWLIST];

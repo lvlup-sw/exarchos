@@ -4,10 +4,10 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1436,
-    "parsedFiles": 1392,
+    "testFiles": 1434,
+    "parsedFiles": 1390,
     "shellFiles": 44,
-    "cases": 16106,
+    "cases": 16076,
     "dynamicTitles": 321,
     "unparseableFiles": 0
   },
@@ -19471,7 +19471,7 @@
         },
         {
           "suite": "DR-12 live tree — the widened census is green and load-bearing",
-          "name": "the widened detector actually SEES merge + branch.create on the live tree",
+          "name": "the widened detector SEES branch.create on the live tree and finds no local merge",
           "dynamic": false
         },
         {
@@ -62330,102 +62330,6 @@
         }
       ]
     },
-    "tests/unit/verbs/pure/execute-merge.test.ts": {
-      "file": "tests/unit/verbs/pure/execute-merge.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "recordRecoveryPoint",
-          "name": "recordRecoveryPoint_HappyPath_ReturnsHeadSha",
-          "dynamic": false
-        },
-        {
-          "suite": "recordRecoveryPoint",
-          "name": "recordRecoveryPoint_GitFails_ReturnsStructuredError",
-          "dynamic": false
-        },
-        {
-          "suite": "recordRecoveryPoint",
-          "name": "recordRecoveryPoint_GitThrows_ReturnsStructuredError_DoesNotThrow",
-          "dynamic": false
-        },
-        {
-          "suite": "recordRecoveryPoint",
-          "name": "recordRecoveryPoint_EmptyStdout_ReturnsStructuredError",
-          "dynamic": false
-        },
-        {
-          "suite": "executeMerge",
-          "name": "executeMerge_MergeSucceeds_ReturnsMergeShaAndPhaseCompleted",
-          "dynamic": false
-        },
-        {
-          "suite": "executeMerge",
-          "name": "executeMerge_RecordsRollbackShaBeforeMergeCall_OrderingPreserved",
-          "dynamic": false
-        },
-        {
-          "suite": "executeMerge",
-          "name": "executeMerge_VcsMergeRejects_ResetsToRollbackShaWithReasonMergeFailed",
-          "dynamic": false
-        },
-        {
-          "suite": "executeMerge",
-          "name": "executeMerge_VerificationFails_ReasonVerificationFailed",
-          "dynamic": false
-        },
-        {
-          "suite": "executeMerge",
-          "name": "executeMerge_GitTimeout_ReasonTimeout",
-          "dynamic": false
-        },
-        {
-          "suite": "executeMerge",
-          "name": "executeMerge_RollbackPath_AfterReset_PhaseRolledBack",
-          "dynamic": false
-        },
-        {
-          "suite": "executeMerge",
-          "name": "executeMerge_ResetKeepExitsNonZero_SurfacesResetKeepBlocked",
-          "dynamic": false
-        },
-        {
-          "suite": "executeMerge",
-          "name": "executeMerge_ResetKeepThrows_SurfacesResetFailed",
-          "dynamic": false
-        },
-        {
-          "suite": "executeMerge",
-          "name": "executeMerge_RecoveryLeavesDrift_SurfacesUnexpectedMidMergeDrift",
-          "dynamic": false
-        },
-        {
-          "suite": "executeMerge",
-          "name": "ExecuteMerge_TimeoutOnceThenSuccess_EmitsOneRetryThenExecuted",
-          "dynamic": false
-        },
-        {
-          "suite": "executeMerge",
-          "name": "ExecuteMerge_NonTimeoutFailure_DoesNotRetry_RecoversImmediately",
-          "dynamic": false
-        },
-        {
-          "suite": "executeMerge",
-          "name": "ExecuteMerge_VerificationFailed_NoRetry",
-          "dynamic": false
-        },
-        {
-          "suite": "executeMerge",
-          "name": "ExecuteMerge_TimeoutExhaustsRetries_RecoversWithTimeoutReason",
-          "dynamic": false
-        },
-        {
-          "suite": "executeMerge",
-          "name": "ExecuteMerge_JitterApplied_WidensDelayWithinBand",
-          "dynamic": false
-        }
-      ]
-    },
     "tests/unit/verbs/pure/gate-preflight.test.ts": {
       "file": "tests/unit/verbs/pure/gate-preflight.test.ts",
       "runner": "vitest:root",
@@ -68771,72 +68675,6 @@
         {
           "suite": "worktree surface conformance (registry-driven, DR-1)",
           "name": "WorktreeSurface_EveryMarkedAction_HasTypedSchemaAndParity",
-          "dynamic": false
-        }
-      ]
-    },
-    "tests/unit/verbs/worktree/git-retry.test.ts": {
-      "file": "tests/unit/verbs/worktree/git-retry.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "git-retry — index.lock contention resilience (DR-8)",
-          "name": "GitRetry_TransientIndexLock_RetriesWithBackoffAndSucceeds",
-          "dynamic": false
-        },
-        {
-          "suite": "git-retry — index.lock contention resilience (DR-8)",
-          "name": "GitRetry_InjectedSeam_AssertsDeterministicRetrySequence",
-          "dynamic": false
-        },
-        {
-          "suite": "git-retry — index.lock contention resilience (DR-8)",
-          "name": "GitRetry_BurstCreationJitter_AssertedDeterministically",
-          "dynamic": false
-        },
-        {
-          "suite": "git-retry — index.lock contention resilience (DR-8)",
-          "name": "GitRetry_ExhaustedRetries_ReturnsStructuredErrorNotSilentNoOp",
-          "dynamic": false
-        },
-        {
-          "suite": "git-retry — index.lock contention resilience (DR-8)",
-          "name": "GitRetry_NonLockError_RethrowsImmediatelyWithoutRetry",
-          "dynamic": false
-        },
-        {
-          "suite": "git-retry — index.lock contention resilience (DR-8)",
-          "name": "extractLockPath / isIndexLockError recognize the git signature",
-          "dynamic": false
-        },
-        {
-          "suite": "git-retry — result-aware predicate (DR-1)",
-          "name": "isIndexLockResult / extractLockPathFromResult gate on exitCode !== 0",
-          "dynamic": false
-        },
-        {
-          "suite": "git-retry — withIndexLockRetrySync (DR-1)",
-          "name": "WithIndexLockRetrySync_ContentionResult_RetriesWithBackoffThenSucceeds",
-          "dynamic": false
-        },
-        {
-          "suite": "git-retry — withIndexLockRetrySync (DR-1)",
-          "name": "WithIndexLockRetrySync_PersistentContention_ReturnsStructuredResultNotThrow",
-          "dynamic": false
-        },
-        {
-          "suite": "git-retry — withIndexLockRetrySync (DR-1)",
-          "name": "WithIndexLockRetrySync_NonLockFailure_ReturnsImmediatelyWithoutRetry",
-          "dynamic": false
-        },
-        {
-          "suite": "git-retry — withIndexLockRetryResult (DR-1)",
-          "name": "WithIndexLockRetryResult_ContentionResult_RetriesThenSucceeds",
-          "dynamic": false
-        },
-        {
-          "suite": "git-retry — withIndexLockRetryResult (DR-1)",
-          "name": "WithIndexLockRetryResult_PersistentContention_ReturnsStructuredResultNotThrow",
           "dynamic": false
         }
       ]

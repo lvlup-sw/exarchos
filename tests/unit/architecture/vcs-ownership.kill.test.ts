@@ -79,7 +79,7 @@ describe('DR-12 kill — widened census sees merge and branch-create', () => {
     const root = await plant({
       [OWNER_MODULE]: OWNER_SOURCE,
       'verbs/rogue-merge.ts': `
-        import type { GitExec } from './pure/execute-merge.js';
+        import type { GitExec } from './gates/gate-utils.js';
         export function landBranch(gitExec: GitExec, repoRoot: string, target: string): void {
           gitExec(repoRoot, ['merge', '--no-ff', target]);
         }
@@ -275,17 +275,18 @@ describe('DR-12 live tree — the widened census is green and load-bearing', () 
 
   /**
    * Without this test the census can be green because the rules match nothing.
-   * The detector must see the `git merge --abort` in `verbs/pure/execute-merge.ts`.
+   * The detector must see the branch and worktree mutations of `vcs/mutation-owner.ts`.
+   * The harness lands each merge, so the live tree holds no merge site. The planted merge above proves that the detector sees one.
    */
-  it('the widened detector actually SEES merge + branch.create on the live tree', async () => {
+  it('the widened detector SEES branch.create on the live tree and finds no local merge', async () => {
     const { scanVcsMutationSites } = await import('../../../tools/conformance/src/vcs-ownership.js');
     const sites = await scanVcsMutationSites(SRC_ROOT, lexModule);
     const kinds = new Set(sites.map((s) => s.mutation));
-    expect(kinds.has('merge')).toBe(true);
     expect(kinds.has('branch.create')).toBe(true);
     expect(
-      sites.some((s) => s.module === 'verbs/pure/execute-merge.ts' && s.mutation === 'merge'),
+      sites.some((s) => s.module === 'vcs/mutation-owner.ts' && s.mutation === 'branch.create'),
     ).toBe(true);
+    expect(sites.filter((s) => s.mutation === 'merge')).toEqual([]);
   });
 
   it('every declared owner still claims a live site (STALE_VCS_OWNER ratchet intact)', async () => {
@@ -297,9 +298,9 @@ describe('DR-12 live tree — the widened census is green and load-bearing', () 
     }
   });
 
-  /** The merge owner is load-bearing: without it, the live tree fails with a direct bypass. */
+  /** The canonical owner is load-bearing: without it, the live tree fails with a direct bypass. */
   it('dropping a DR-12 owner turns the live census RED (the new owners are load-bearing)', async () => {
-    for (const dropped of ['verbs/pure/execute-merge.ts']) {
+    for (const dropped of ['vcs/mutation-owner.ts']) {
       const owners = VCS_MUTATION_OWNERS.filter((o) => o !== dropped);
       const result = await auditVcsOwnership(SRC_ROOT, lexModule, owners);
       expect(result.ok, `${dropped} should be load-bearing`).toBe(false);

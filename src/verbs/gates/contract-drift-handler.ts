@@ -35,7 +35,7 @@ import {
 import type { VerificationProfile } from '../../workflow/verification/profile.js';
 import type { RiskTier } from '../../workflow/verification-policy.js';
 import type { ResolvedProjectConfig } from '../../config/resolve.js';
-import type { GitExec } from '../pure/execute-merge.js';
+import type { GitExec } from './gate-utils.js';
 import {
   runContractDrift,
   type CommandRunFn,

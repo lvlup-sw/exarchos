@@ -223,6 +223,8 @@ const RETIRED_TEST_FILES: ReadonlyArray<{ path: string; subject: string }> = [
   { path: 'tests/unit/verbs/vcs/git-exec-default.test.ts', subject: 'src/verbs/vcs/git-exec-default.ts' },
   { path: 'tests/unit/verbs/worktree/merge-serializer.test.ts', subject: 'src/verbs/worktree/merge-serializer.ts' },
   { path: 'tests/unit/verbs/worktree/serialize-dryrun.test.ts', subject: 'src/verbs/worktree/merge-serializer.ts' },
+  { path: 'tests/unit/verbs/pure/execute-merge.test.ts', subject: 'src/verbs/pure/execute-merge.ts' },
+  { path: 'tests/unit/verbs/worktree/git-retry.test.ts', subject: 'src/verbs/worktree/git-retry.ts' },
 ];
 
 describe('test inventory', () => {

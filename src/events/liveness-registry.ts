@@ -126,9 +126,9 @@ export function livenessStartedAt(event: { readonly timestamp?: string }): strin
 
 /**
  * One entry per liveness surface. Each `instanceKeyOf` matches the keys that the
- * real emitters write: `verbs/pure/execute-merge.ts`, `runtime/launcher/liveness.ts`
- * and `verbs/worktree/manager.ts`. The retired mutation gate wrote the mutation keys.
- * Its entry stays, so stored mutation rows still pair.
+ * emitters write: `runtime/launcher/liveness.ts` and `verbs/worktree/manager.ts`.
+ * The retired local merge wrote the merge keys, and the retired mutation gate wrote
+ * the mutation keys. Their entries stay, so stored rows still pair.
  */
 export const LIVENESS_REGISTRY: Readonly<Record<LivenessSurface, LivenessDescriptor>> = {
   merge: {

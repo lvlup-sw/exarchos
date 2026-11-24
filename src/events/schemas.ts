@@ -1721,10 +1721,10 @@ export const MergeRollbackData = z.object({
   reason: z.enum(['merge-failed', 'verification-failed', 'timeout']),
   rollbackError: z.string().min(1).optional(),
   /**
-   * The recovery outcome. `pure/execute-merge.ts` runs `git merge --abort`, then
-   * `git reset --keep <rollbackSha>`. It emits `reset-keep-blocked` when `reset --keep` refuses to
-   * discard local work, `reset-failed` when the reset fails, and `unexpected-mid-merge-drift` when
-   * HEAD is not the anchor after recovery.
+   * The recovery outcome of the retired local merge. It ran `git merge --abort`, then
+   * `git reset --keep <rollbackSha>`. It wrote `reset-keep-blocked` when `reset --keep` refused to
+   * discard local work, `reset-failed` when the reset failed, and `unexpected-mid-merge-drift` when
+   * HEAD was not the anchor after recovery. Stored rows keep these values.
    */
   recoveryError: z
     .enum(['reset-keep-blocked', 'reset-failed', 'unexpected-mid-merge-drift'])

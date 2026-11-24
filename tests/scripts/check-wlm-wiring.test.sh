@@ -35,14 +35,12 @@ set -e
 check "WiringGate_NakedWorktreeMutation_Fails" 1 "$naked_exit"
 grep -q "rule1-naked-worktree-mutation" /tmp/wlm-naked.out || { echo "  FAIL: missing rule1-naked-worktree-mutation tag"; fail=$((fail + 1)); }
 
-# ── WiringGate_WrappedIdioms_Pass ───────────────────────────────────────────
-# The fixture holds the wired file that defines the retry idioms, and a
-# ledger-only compensation module with no worktree mutation. The gate must
-# pass. The paths match the allowlist and the walked scope of the gate.
+# ── WiringGate_LedgerOnlyTree_Pass ──────────────────────────────────────────
+# The fixture holds a ledger-only compensation module and a worktree verb
+# that only reads. Neither holds a worktree mutation, so the gate must pass.
 mkdir -p "$TMP/wrapped/verbs/worktree" "$TMP/wrapped/workflow"
-cat > "$TMP/wrapped/verbs/worktree/git-retry.ts" <<'EOF'
-export async function withIndexLockRetry(op: () => Promise<unknown>) { return op(); }
-export function withIndexLockRetrySync<T>(op: () => T): T { return op(); }
+cat > "$TMP/wrapped/verbs/worktree/list.ts" <<'EOF'
+export const LIST_ARGS = ['worktree', 'list', '--porcelain'] as const;
 EOF
 cat > "$TMP/wrapped/workflow/compensation.ts" <<'EOF'
 export function recordWorktree(worktreePath: string) {
@@ -53,18 +51,17 @@ set +e
 node "$GATE" --src-root "$TMP/wrapped" >/tmp/wlm-wrapped.out 2>&1
 wrapped_exit=$?
 set -e
-check "WiringGate_WrappedIdioms_Pass" 0 "$wrapped_exit"
+check "WiringGate_LedgerOnlyTree_Pass" 0 "$wrapped_exit"
 [[ "$wrapped_exit" == "0" ]] || cat /tmp/wlm-wrapped.out
 
 # ── WiringGate_CompensationWorktreeMutation_Fails ───────────────────────────
 # The cancel compensation is ledger-only and is not a wired file. A worktree
-# removal in it, even inside the retry idiom, must fail.
+# removal in it must fail.
 mkdir -p "$TMP/compensation/workflow"
 cat > "$TMP/compensation/workflow/compensation.ts" <<'EOF'
-import { withIndexLockRetry } from '../verbs/worktree/git-retry.js';
 async function runCommand(cmd: string, args: readonly string[]) { return { status: 0 }; }
 export async function cleanupWorktree(worktreePath: string) {
-  return withIndexLockRetry(() => runCommand('git', ['worktree', 'remove', worktreePath, '--force']));
+  return runCommand('git', ['worktree', 'remove', worktreePath, '--force']);
 }
 EOF
 set +e

@@ -36,7 +36,6 @@ import {
   defaultProcessTableSource,
   type ProcessTableSource,
 } from './pure/probe.js';
-import { defaultSleep, type SleepFn } from './git-retry.js';
 import { reservationLiveness, selectDeadReservations } from './pure/ownership.js';
 import type {
   WorktreeEntry,
@@ -57,6 +56,16 @@ export const DEFAULT_WAIT_TIMEOUT_MS = 30_000;
 
 /** Default poll interval (ms) between bounded-wait re-folds. */
 export const DEFAULT_WAIT_POLL_INTERVAL_MS = 200;
+
+/**
+ * The injected delay function of the bounded waits, called with a delay in ms.
+ * Tests replace it to skip the real wait.
+ */
+export type SleepFn = (ms: number) => Promise<void>;
+
+/** The real sleep over `setTimeout`. */
+export const defaultSleep: SleepFn = (ms) =>
+  new Promise<void>((resolve) => setTimeout(resolve, ms));
 
 /** One on-disk worktree, as reported by `git worktree list --porcelain`. */
 export interface OnDiskWorktree {

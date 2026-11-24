@@ -12,6 +12,7 @@ import {
   DEFAULT_WAIT_TIMEOUT_MS,
   type WorktreeManagerDeps,
   type ReserveInput,
+  type SleepFn,
 } from './manager.js';
 import {
   defaultProcessSource,
@@ -20,7 +21,6 @@ import {
 } from './pure/process-identity.js';
 import { canonicalWorktreeId, defaultRealpath } from './pure/path-containment.js';
 import { reconcileMerges } from './merge-lease-reconciler.js';
-import type { SleepFn } from './git-retry.js';
 import type { InFlightMerge, InFlightPrune } from './projections/worktrees.js';
 import { reconcileLaunches } from '../../runtime/launcher/launch-reconcile.js';
 import {
@@ -322,7 +322,7 @@ export async function handleViewWorktrees(
 export interface WorktreeViewDeps extends InjectableDeps {
   /** Probe self-PID whose FULL ancestry is excluded from occupancy. Defaults to `process.pid`. */
   readonly selfPid?: number;
-  /** Bounded-wait sleep seam (shared with `git-retry.ts`). Defaults to the real `setTimeout` sleep. */
+  /** Bounded-wait sleep seam of the manager. Defaults to the real `setTimeout` sleep. */
   readonly sleep?: SleepFn;
   /** Monotone clock for the wait deadline. Defaults to `Date.now`. */
   readonly now?: () => number;

@@ -1,4 +1,17 @@
-import { burstStaggerDelayMs } from '../../../src/verbs/worktree/git-retry.js';
+/**
+ * A sample TestGen binding over a pure stagger delay in a band of 100 to 500 ms.
+ * A jitter value in `[-1, 1]` gives a delay that is clamped to the band.
+ * The worktree burst stagger that first owned this function left the governor with worktree provisioning.
+ */
+
+/** Maps a jitter value to a delay in the 100 to 500 ms band. A jitter of 0 gives the 300 ms midpoint. */
+function burstStaggerDelayMs(jitter: () => number): number {
+  const minMs = 100;
+  const maxMs = 500;
+  const mid = (minMs + maxMs) / 2;
+  const halfBand = (maxMs - minMs) / 2;
+  return Math.max(minMs, Math.min(maxMs, Math.round(mid + halfBand * jitter())));
+}
 
 export function isValid(input: readonly bigint[]): boolean {
   const [jitter] = input;

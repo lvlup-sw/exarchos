@@ -911,6 +911,16 @@ decisions:
       The measured floors of the primary-owner population, the emission denominator, the emitter closure, the provider areas and the cast census fall with the deleted appends, and the stale-cover eligible pin moves from 27 to 26.
     status: "Committed on codex/1928-s5-worktrees-merges-cancel."
 
+  - date: "2026-11-23"
+    source: "#1928 revision 26, slice S5 step T-38, the conception of 2026-11-23 (the harness lands task branches)."
+    decision: >-
+      No governor module runs a local merge, a merge rollback or an index-lock retry. T-36 already deleted the merge orchestrator, the merge executor, local-git-merge.ts, merge-keys.ts, git-exec-default.ts, merge-preflight.ts and merge-serializer.ts. T-38 deletes verbs/pure/execute-merge.ts and verbs/worktree/git-retry.ts with their suites.
+      The GitExec type moved into verbs/gates/gate-utils.ts, next to defaultGitExec, so the gate modules keep it. The retired-test roster names the deleted module as the subject of each deleted suite, and that check needs the subject file to be gone. The bounded-wait sleep seam moved into manager.ts.
+    known: >-
+      vcs-ownership names only vcs/mutation-owner.ts, and the live tree holds no merge site. The WLM wiring gate allowlists no file. The TestGen burst-stagger binding holds its own delay function, because the burst stagger had no production caller after T-35.
+      vcs/mutation-owner.ts still has no production importer, so check-module-intent reports it. T-39 or a decision of Reed owns it. The cast census baseline falls from 1549 to 1546 with the three deleted casts.
+    status: "Committed on codex/1928-s5-worktrees-merges-cancel."
+
 build_order:
   original: "kernel -> capsule contract -> prepare/settle -> one runtime adapter -> divergence loop -> #1249 laws -> second adapter"
   legs:

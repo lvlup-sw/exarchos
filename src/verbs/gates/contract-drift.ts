@@ -10,7 +10,7 @@
  * the gate runs it and names the other leg with its reason.
  */
 
-import type { GitExec } from '../pure/execute-merge.js';
+import type { GitExec } from './gate-utils.js';
 import { PROFILE_UNRESOLVED, type VerificationProfile } from '../../workflow/verification/profile.js';
 
 /** Result of running a single contract leg (codegen / typecheck / diff). */
