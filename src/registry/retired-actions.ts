@@ -14,7 +14,7 @@ export interface RetiredAction {
   readonly message: string;
 }
 
-/** The one code of a retired provider write. */
+/** The one closed code of a retired write that the harness now owns. Provider writes and worktree provisioning share it. */
 const PROVIDER_WRITE_RETIRED = 'PROVIDER_WRITE_RETIRED';
 
 /** The one message of a retired provider write. It names the harness as the owner of the write. */
@@ -27,6 +27,10 @@ const PROVIDER_READ_RETIRED = 'PROVIDER_READ_RETIRED';
 /** The one message of a retired provider read. It names the harness as the owner of the read. */
 const PROVIDER_READ_MESSAGE =
   'Exarchos retires pull request, CI and review comment reads. The harness reads pull requests, CI checks and review comments with its own tools.';
+
+/** The one message of a retired worktree provisioning action. It names the harness as the owner of worktree setup and removal. */
+const WORKTREE_PROVISIONING_MESSAGE =
+  'Exarchos retires worktree provisioning. The harness creates task worktrees and removes them from disk with its own tools.';
 
 /** The closed table. Each row names one pair of tool and action, and no registered action is in it. */
 export const RETIRED_ACTIONS: readonly RetiredAction[] = Object.freeze([
@@ -56,6 +60,12 @@ export const RETIRED_ACTIONS: readonly RetiredAction[] = Object.freeze([
     action,
     code: PROVIDER_READ_RETIRED,
     message: PROVIDER_READ_MESSAGE,
+  })),
+  ...['setup_worktree', 'prune_worktrees'].map((action) => Object.freeze({
+    tool: 'exarchos_orchestrate',
+    action,
+    code: PROVIDER_WRITE_RETIRED,
+    message: WORKTREE_PROVISIONING_MESSAGE,
   })),
 ]);
 

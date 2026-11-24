@@ -106,7 +106,7 @@ describe('shared-mutating posture gate — removed (INV-11)', () => {
   });
 
   /** The absent posture gate must not widen state authority, so the read-only gate still rejects this call. */
-  it('ReadOnlyCaller_PruneWorktrees_IsStillRejected_ByTheReadonlyGate', async () => {
+  it('ReadOnlyCaller_AcquireWorktree_IsStillRejected_ByTheReadonlyGate', async () => {
     const resolver = createInMemoryResolver(readOnlyCaps);
     expect(resolver.has('mcp:exarchos:readonly')).toBe(true);
     expect(resolver.has('fs:write')).toBe(false);
@@ -119,7 +119,7 @@ describe('shared-mutating posture gate — removed (INV-11)', () => {
     try {
       const result = await dispatch(
         'exarchos_orchestrate',
-        { action: 'prune_worktrees', repoRoot: '/tmp/repo' },
+        { action: 'acquire_worktree', repoRoot: '/tmp/repo', worktreeId: '/tmp/repo-wt' },
         readOnlyCtx,
       );
 

@@ -61,6 +61,21 @@ const PROVIDER_READS: readonly { readonly action: string; readonly cli: readonly
   { action: 'assess_stack', cli: ['--feature-id', 'retired-stack', '--pr-numbers', '1,2'], mcp: { featureId: 'retired-stack', prNumbers: [1, 2] } },
 ];
 
+/** The refusal of a retired worktree provisioning action. It keeps the closed code of the provider writers, and its message names the harness. */
+const WORKTREE_PROVISIONING_REFUSAL = {
+  success: false,
+  error: {
+    code: 'PROVIDER_WRITE_RETIRED',
+    message: 'Exarchos retires worktree provisioning. The harness creates task worktrees and removes them from disk with its own tools.',
+  },
+};
+
+/** Each retired worktree provisioning action with arguments that its old schema accepted. */
+const WORKTREE_PROVISIONERS: readonly { readonly action: string; readonly cli: readonly string[]; readonly mcp: Record<string, unknown> }[] = [
+  { action: 'setup_worktree', cli: ['--repo-root', '.', '--task-id', 'T1', '--task-name', 'retired'], mcp: { repoRoot: '.', taskId: 'T1', taskName: 'retired' } },
+  { action: 'prune_worktrees', cli: ['--repo-root', '.', '--dry-run', 'false'], mcp: { repoRoot: '.', dryRun: false } },
+];
+
 /** Resolve one executable from the PATH of the test process, before any shim directory goes first. */
 async function onPath(name: string): Promise<string> {
   for (const directory of (process.env.PATH ?? '').split(delimiter)) {
@@ -141,6 +156,18 @@ it.runIf(process.platform === 'linux')('RetiredAction_PackagedCli_RefusesBeforeS
       expect(bare.stdout).toBe('');
       expect(bare.stderr).toContain(`Error [PROVIDER_READ_RETIRED]: ${PROVIDER_READ_REFUSAL.error.message}`);
     }
+    for (const provisioner of WORKTREE_PROVISIONERS) {
+      for (const group of ['orch', 'orchestrate']) {
+        const refused = await f.cli([group, provisioner.action, ...provisioner.cli, '--json']);
+        expect(refused.exitCode, `${provisioner.action} ${refused.stderr}`).toBe(2);
+        expect(JSON.parse(refused.stdout)).toMatchObject(WORKTREE_PROVISIONING_REFUSAL);
+        expect(refused.stderr).not.toContain('executable-configuration-retired');
+      }
+      const bare = await f.cli(['orch', provisioner.action, '--unknown-flag']);
+      expect(bare.exitCode, provisioner.action).toBe(2);
+      expect(bare.stdout).toBe('');
+      expect(bare.stderr).toContain(`Error [PROVIDER_WRITE_RETIRED]: ${WORKTREE_PROVISIONING_REFUSAL.error.message}`);
+    }
     expect(await readdir(f.stateDir)).toEqual([]);
     expect(await f.gitCalls()).toEqual([]);
     expect(await exists(f.marker('config'))).toBe(false);
@@ -179,6 +206,17 @@ it.runIf(process.platform === 'linux')('RetiredAction_PackagedMcp_RefusesBeforeS
         }, { timeout: 35_000 })));
         expect(readRefused).toMatchObject(PROVIDER_READ_REFUSAL);
       }
+      for (const name of ['acquire_worktree', 'release_worktree', 'reconcile_worktrees']) {
+        expect(JSON.stringify(listed)).toContain(name);
+      }
+      for (const provisioner of WORKTREE_PROVISIONERS) {
+        expect(JSON.stringify(listed)).not.toContain(provisioner.action);
+        const provisionRefused = record(extractEnvelope(await client.client.callTool({
+          name: 'exarchos_orchestrate',
+          arguments: { action: provisioner.action, ...provisioner.mcp, featureId: 'retired-mutation', notARegisteredField: true },
+        }, { timeout: 35_000 })));
+        expect(provisionRefused).toMatchObject(WORKTREE_PROVISIONING_REFUSAL);
+      }
       const refused = record(extractEnvelope(await client.client.callTool({
         name: 'exarchos_orchestrate',
         arguments: { action: 'mutation-adequacy', featureId: 'retired-mutation', base: 'main', notARegisteredField: true },
@@ -198,6 +236,8 @@ it.runIf(process.platform === 'linux')('RetiredAction_PackagedMcp_RefusesBeforeS
     expect(record(JSON.parse(queried.stdout))).toMatchObject({ success: true, data: { events: [], page: { total: 0 } } });
     const journal = await f.cli(['event', 'query', '--stream', 'vcs', '--json']);
     expect(record(JSON.parse(journal.stdout))).toMatchObject({ success: true, data: { events: [], page: { total: 0 } } });
+    const worktrees = await f.cli(['event', 'query', '--stream', 'worktrees', '--json']);
+    expect(record(JSON.parse(worktrees.stdout))).toMatchObject({ success: true, data: { events: [], page: { total: 0 } } });
     expect(await f.gitCalls()).toEqual([]);
     expect(await exists(f.marker('mutation'))).toBe(false);
   } finally {

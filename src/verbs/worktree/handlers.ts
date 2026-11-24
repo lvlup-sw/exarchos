@@ -271,34 +271,6 @@ export async function handleReleaseWorktree(
 }
 
 /**
- * The fail-closed worktree GC. It is a dry run unless `dryRun` is `false`, and a dry run deletes
- * nothing. Orphan deletion also needs `pruneOrphans` and `yes`. The dry-run default lives here, not
- * on the schema, because the MCP registration flattener forbids different defaults on a shared
- * field.
- */
-export async function handlePruneWorktrees(
-  args: Record<string, unknown>,
-  ctx: DispatchContext,
-  deps?: InjectableDeps,
-): Promise<ToolResult> {
-  const repoRoot = optionalString(args.repoRoot);
-  if (!repoRoot) {
-    return invalidInput('prune_worktrees requires repoRoot: string', {
-      repoRoot: 'string',
-    });
-  }
-  const apply = optionalBoolean(args.dryRun) === false;
-  const manager = buildManager(ctx, deps);
-  const result = await manager.prune({
-    repoRoot,
-    apply,
-    pruneOrphans: optionalBoolean(args.pruneOrphans),
-    yes: optionalBoolean(args.yes),
-  });
-  return { success: true, data: result };
-}
-
-/**
  * Returns the governed worktrees from the `worktrees@v1` projection, with no adopt, git probe or
  * append. Without `limit`, it caps the items at `DEFAULT_VIEW_ITEM_CAP`. When the capped payload
  * exceeds `qualityHints.outputTokenThreshold`, it returns counts by state and a first page. An
@@ -356,8 +328,9 @@ export async function handleViewWorktrees(
  * Serializes an integration-branch merge behind a lease per `integrationRef`, then runs
  * `merge_orchestrate`. The lease is a `worktree.merge_requested` and `worktree.merge_executed`
  * pair on the `worktrees` stream. It is a dry run unless `dryRun` is `false`, and a dry run claims
- * no lease and runs no merge. The default lives here for the reason in
- * {@link handlePruneWorktrees}. Direct callers of `serializeMerge` pass their own `dryRun`.
+ * no lease and runs no merge. The default lives here and not on the schema, because the MCP
+ * registration flattener forbids different defaults on a shared field. Direct callers of
+ * `serializeMerge` pass their own `dryRun`.
  */
 export async function handleSerializeMerge(
   args: Record<string, unknown>,
@@ -549,7 +522,7 @@ function idleTimeout(
  * `wait`: polls the `worktrees@v1` projection until a condition holds or `timeoutMs` passes. It
  * appends nothing, starts no background timer, and returns a structured result on timeout.
  * `until: 'merge'`, the default, waits for `worktree.merge_executed` on `integrationRef`, which it
- * requires. `until: 'idle'` waits until no `prune_worktrees` pass is in flight.
+ * requires. `until: 'idle'` waits until no recorded prune pass is in flight.
  */
 export async function handleViewWait(
   args: Record<string, unknown>,

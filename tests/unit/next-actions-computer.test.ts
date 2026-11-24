@@ -347,9 +347,9 @@ describe('computeNextActions — deep-rung affordances (DR-7, task 018)', () => 
 });
 
 /**
- * `prune_worktrees` is a registry action, so `computeNextActions` does not publish it as a control
- * verb. These tests pin its absence in `synthesize` for the four workflow types that hold that
- * phase, and in the other feature phases.
+ * `prune_worktrees` is retired, and the harness removes worktrees. `computeNextActions` does not
+ * publish it as a control verb. These tests pin its absence in `synthesize` for the four workflow
+ * types that hold that phase, and in the other feature phases.
  */
 describe('computeNextActions — post-synthesize prune cadence (DR-2, task 008, INV-12)', () => {
   it('NextActions_PostSynthesize_SuggestsPruneWorktreesDryRun', () => {

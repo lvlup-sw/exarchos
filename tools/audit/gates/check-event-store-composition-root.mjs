@@ -40,8 +40,6 @@ const ALLOWLIST = new Set([
   path.join('lifecycle', 'subagent-stop.ts'),
   /** Builds a throwaway `mkdtemp` store for a durability probe. It is not the app store. */
   path.join('verbs', 'gates', 'gate-ownership-census.ts'),
-  /** Opens the VCS-mutation ledger at `<repoRoot>/.git/exarchos/vcs-mutations`, not the app store. */
-  path.join('vcs', 'worktree-provisioner.ts'),
 ]);
 
 /**

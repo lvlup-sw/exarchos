@@ -2,16 +2,14 @@
 // A crashed merge leaves an unpaired `worktree.merge_requested`.
 // When its holder is provably dead, recovery frees the slot with exactly one terminal event.
 // Two production paths free it: the inline dead-holder reclaim in `serialize_merge`, and the `reconcileMerges` pass in `reconcile_worktrees`.
-// Prune skips a worktree whose integration branch holds an in-flight merge lease.
 // An exhausted index.lock retry reaches the caller as `IndexLockContentionError`, and the lease is released.
 //
 // The serializer runs no `git reset --hard` and passes a `recoveryError` from `merge_orchestrate` through unchanged.
 // The tests use a real SQLite EventStore, because its stream-version check inside the transaction is the cross-process guard.
-// The prune test also uses a real git repo.
 
 import { describe, it, expect, afterEach, vi } from 'vitest';
-import { mkdtemp, mkdir, writeFile } from 'node:fs/promises';
-import { readFileSync, realpathSync } from 'node:fs';
+import { mkdtemp } from 'node:fs/promises';
+import { readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -19,8 +17,7 @@ import { fileURLToPath } from 'node:url';
 import { EventStore } from '../../../../src/events/store.js';
 import type { DispatchContext } from '../../../../src/dispatch/core/dispatch.js';
 import type { ToolResult } from '../../../../src/format.js';
-import { rmrfAsync, rmrf } from '../../../../tools/test-helpers/temp-dir.js';
-import { execFileAsync } from '../../../../tools/test-helpers/spawn.js';
+import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
 
 import { serializeMerge } from '../../../../src/verbs/worktree/merge-serializer.js';
 import { handleReconcileWorktrees, handleSerializeMerge } from '../../../../src/verbs/worktree/handlers.js';
@@ -34,7 +31,6 @@ import type { WorktreesProjection } from '../../../../src/verbs/worktree/project
 import type { ProcessTableSource, ProcessRecord } from '../../../../src/verbs/worktree/pure/probe.js';
 import type { ProcessSource, StartTimeProbe } from '../../../../src/verbs/worktree/pure/process-identity.js';
 import { IndexLockContentionError, type SleepFn } from '../../../../src/verbs/worktree/git-retry.js';
-import { canonicalWorktreeId } from '../../../../src/verbs/worktree/pure/path-containment.js';
 
 interface Arm {
   readonly stateDir: string;
@@ -43,7 +39,6 @@ interface Arm {
 }
 
 const arms: Arm[] = [];
-const repoDirs: string[] = [];
 
 async function createArm(): Promise<Arm> {
   const stateDir = await mkdtemp(path.join(tmpdir(), 'wlm-recovery-'));
@@ -63,10 +58,6 @@ afterEach(async () => {
       arm.eventStore.close();
       await rmrfAsync(arm.stateDir);
     }
-  }
-  while (repoDirs.length > 0) {
-    const dir = repoDirs.pop();
-    if (dir) rmrf(dir);
   }
 });
 
@@ -308,88 +299,6 @@ describe('DR-12 — stale dead-holder reclamation', () => {
     const events = await arm.eventStore.query(WORKTREES_STREAM);
     expect(executedFor(events, 'dead-op')).toHaveLength(1);
     expect((await foldWorktrees(arm)).inFlightMerges[integrationRef]).toBeUndefined();
-  });
-});
-
-/**
- * Skipped on win32. This suite uses the default process table, and its win32 enumeration is nondeterministic on the shared CI runner (#1641).
- * The other suites in this file inject fixed tables and run on win32.
- */
-describe.skipIf(process.platform === 'win32')('DR-12 — concurrent prune + merge', () => {
-  async function git(cwd: string, args: readonly string[]): Promise<string> {
-    return (await execFileAsync('git', args, { cwd })).trim();
-  }
-
-  async function initRepoWithOrigin(workdir: string, name: string): Promise<string> {
-    const origin = path.join(workdir, `${name}-origin.git`);
-    await git(workdir, ['init', '-q', '--bare', origin]);
-    const repo = path.join(workdir, name);
-    await mkdir(repo, { recursive: true });
-    await git(repo, ['init', '-q', '-b', 'work']);
-    await git(repo, ['config', 'user.email', 'wlm@example.com']);
-    await git(repo, ['config', 'user.name', 'WLM Test']);
-    await git(repo, ['config', 'commit.gpgsign', 'false']);
-    await writeFile(path.join(repo, 'README.md'), '# wlm recovery prune\n');
-    await git(repo, ['add', '.']);
-    await git(repo, ['commit', '-q', '-m', 'init']);
-    const real = realpathSync(repo);
-    await git(real, ['remote', 'add', 'origin', origin]);
-    await git(real, ['push', '-q', 'origin', 'work']);
-    return real;
-  }
-
-  /**
-   * The released worktree is clean, merged, and has a reachable origin, so it is otherwise delete-eligible.
-   * A live merge holds the lease on the same integration branch with no `worktreeId`, as the serializer writes it.
-   * The integration-ref match must catch it. Prune skips it as `in-flight-merge` and writes no `worktree.remove.requested` for it.
-   */
-  it('Recovery_ConcurrentPruneAndMerge_PruneSkipsBranchWithInFlightLease', async () => {
-    const arm = await createArm();
-    const workdir = await mkdtemp(path.join(tmpdir(), 'wlm-recovery-work-'));
-    repoDirs.push(workdir);
-
-    const repo = await initRepoWithOrigin(workdir, 'repo');
-    const integrationRef = 'feat/integ';
-    await git(repo, ['branch', integrationRef]);
-    const wtPath = path.join(workdir, 'wt-merging');
-    await git(repo, ['worktree', 'add', '-q', wtPath, '-b', 'wbranch']);
-    const wtId = canonicalWorktreeId(wtPath);
-
-    await arm.eventStore.append('feat-merge', {
-      type: 'state.patched',
-      data: { patch: { 'synthesis.integrationBranch': integrationRef } },
-    });
-
-    const manager = new WorktreeManager({ eventStore: arm.eventStore });
-    await manager.reserve({
-      worktreeId: wtId,
-      path: wtPath,
-      featureId: 'feat-merge',
-      ownerPid: 4242,
-      ownerStartedAt: 'boot-4242',
-    });
-    await manager.release(wtId);
-
-    await seedHolder(arm, {
-      integrationRef,
-      operationId: 'merge-in-flight',
-      sourceBranch: 'wbranch',
-      holderPid: 7777,
-      holderStartedAt: 'alive-7777',
-    });
-
-    const result = await manager.prune({ repoRoot: repo, apply: true });
-
-    const report = result.candidates.find((c) => c.worktreeId === wtId);
-    expect(report?.classification).toEqual({ action: 'skip', reason: 'in-flight-merge' });
-    expect(result.deleted).not.toContain(wtId);
-    expect(result.skipsByReason['in-flight-merge']).toContain(wtId);
-    const removeReqs = (await arm.eventStore.query(WORKTREES_STREAM)).filter(
-      (e) => e.type === 'worktree.remove.requested' &&
-        (e.data as { worktreeId?: unknown }).worktreeId === wtId,
-    );
-    expect(removeReqs).toHaveLength(0);
-    expect((await foldWorktrees(arm)).worktrees[wtId]?.state).toBe('released');
   });
 });
 

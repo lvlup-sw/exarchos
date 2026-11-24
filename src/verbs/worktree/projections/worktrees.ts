@@ -88,7 +88,7 @@ export interface InFlightMerge {
 }
 
 /**
- * An in-flight `prune_worktrees` pass: the claim of the
+ * An in-flight pass of the retired `prune_worktrees` action: the claim of the
  * `prune.executing_started` and `prune.executed` pair. The key is the
  * `operationId` of the pass. `ps` and `wait` can see a long pass until its
  * terminal event clears the claim.
@@ -113,7 +113,7 @@ export interface WorktreesProjection {
   readonly worktrees: Readonly<Record<string, WorktreeEntry>>;
   /** Live serialized merges keyed by `integrationRef`. */
   readonly inFlightMerges: Readonly<Record<string, InFlightMerge>>;
-  /** Live `prune_worktrees` passes keyed by `operationId`. */
+  /** Open passes of the retired `prune_worktrees` action, keyed by `operationId`. */
   readonly inFlightPrunes: Readonly<Record<string, InFlightPrune>>;
 }
 

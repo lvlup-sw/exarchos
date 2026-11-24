@@ -357,6 +357,7 @@ export const EVENT_ANNOTATIONS: Readonly<Record<string, EventRegistration>> = Ob
     tier: 'substrate',
     rationale: 'operation-record',
   },
+  /** The cancel compensator of `exarchos_workflow.cancel` appends it before it removes a worktree. */
   'worktree.remove.requested': {
     lifecycle: 'active',
     tier: 'substrate',
@@ -577,10 +578,14 @@ export const EVENT_ANNOTATIONS: Readonly<Record<string, EventRegistration>> = Ob
     provider: 'exarchos_orchestrate',
     consumedBy: ['merge-orchestrator@v1', 'rehydration@v1', 'workflow-state@v1'],
   },
+  /**
+   * The cancel compensator of `exarchos_workflow.cancel` appends it after a worktree removal. The
+   * retired `prune_worktrees` action also wrote it, and old rows of both writers fold the same.
+   */
   'worktree.remove.executed': {
     lifecycle: 'active',
     tier: 'capability',
-    provider: 'exarchos_orchestrate',
+    provider: 'exarchos_workflow',
     consumedBy: ['worktrees@v1'],
   },
   'worktree.adopted': {
@@ -631,14 +636,16 @@ export const EVENT_ANNOTATIONS: Readonly<Record<string, EventRegistration>> = Ob
     provider: 'exarchos_orchestrate',
     consumedBy: ['worktrees@v1'],
   },
+  /** Retired with `prune_worktrees`. The schema, the readers and the projection stay so that old logs replay the same, but no code writes this event. */
   'prune.executing_started': {
-    lifecycle: 'active',
+    lifecycle: 'retired',
     tier: 'capability',
     provider: 'exarchos_orchestrate',
     consumedBy: ['worktrees@v1'],
   },
+  /** Retired with `prune_worktrees`. The schema, the readers and the projection stay so that old logs replay the same, but no code writes this event. */
   'prune.executed': {
-    lifecycle: 'active',
+    lifecycle: 'retired',
     tier: 'capability',
     provider: 'exarchos_orchestrate',
     consumedBy: ['worktrees@v1'],

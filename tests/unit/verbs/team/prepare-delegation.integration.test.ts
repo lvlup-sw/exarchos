@@ -9,10 +9,8 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
-import { toPosix } from '../../../../src/utils/paths.js';
 import * as os from 'node:os';
 import { handlePrepareDelegation, persistWorkflowRiskTier } from '../../../../src/verbs/team/prepare-delegation.js';
-import { handleSetupWorktree } from '../../../../src/verbs/team/setup-worktree.js';
 import { handleOrchestrate } from '../../../../src/verbs/composite.js';
 import {
   resetMaterializerCache,
@@ -24,7 +22,6 @@ import { getRequiredReviews } from '../../../../src/workflow/review-contract.js'
 import { EventStore } from '../../../../src/events/store.js';
 import type { DispatchContext } from '../../../../src/dispatch/core/dispatch.js';
 import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
-import { execFileAsync } from '../../../../tools/test-helpers/spawn.js';
 
 vi.mock('../../../../src/verbs/team/dispatch-guard.js', () => ({
   observeDispatchCheckout: vi.fn().mockResolvedValue({ kind: 'absent' }),
@@ -177,89 +174,6 @@ describe('handlePrepareDelegation — event persistence (integration)', () => {
     expect(events).toHaveLength(1);
   });
 });
-
-/**
- * Characterizes whether a worktree edit by an implementer agent can leak into the
- * main worktree through server code. The server decides only the worktree path from
- * `handleSetupWorktree`, so each agent write root must be inside `<repoRoot>/.worktrees/`.
- * Agent file writes happen in the harness, outside this repository.
- */
-describe('ImplementerDispatch_WorktreeEdit_DoesNotAppearInMainWorktree (characterization, #1301)', () => {
-  let repoRoot: string;
-
-  function git(cwd: string, args: readonly string[]): Promise<string> {
-    return execFileAsync('git', ['-C', cwd, ...args]);
-  }
-
-  /** Commits `src.txt`, so the agent worktree has a counterpart file in the main worktree. */
-  beforeEach(async () => {
-    repoRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'rootcause-1301-'));
-    await git(repoRoot, ['init', '-b', 'main']);
-    await git(repoRoot, ['config', 'user.email', 'test@example.com']);
-    await git(repoRoot, ['config', 'user.name', 'Test']);
-    await fs.writeFile(path.join(repoRoot, 'src.txt'), 'baseline\n');
-    await git(repoRoot, ['add', '.']);
-    await git(repoRoot, ['commit', '-m', 'baseline']);
-  });
-
-  afterEach(async () => {
-    await rmrfAsync(repoRoot);
-  });
-
-  /** `handleSetupWorktree` returns a POSIX path, so the test builds the `.worktrees/` prefix with `toPosix`. */
-  it('resolves the agent write-root strictly inside <repoRoot>/.worktrees/, never the main worktree', async () => {
-    const result = await handleSetupWorktree({
-      repoRoot,
-      taskId: 'T-99',
-      taskName: 'leak-probe',
-      skipTests: true,
-    });
-
-    expect(result.success).toBe(true);
-    const data = result.data as { worktreePath: string; passed: boolean };
-
-    const worktreesRoot = toPosix(path.join(repoRoot, '.worktrees')) + '/';
-    expect(data.worktreePath.startsWith(worktreesRoot)).toBe(true);
-    expect(path.resolve(data.worktreePath)).not.toBe(path.resolve(repoRoot));
-    expect(await existsSafe(data.worktreePath)).toBe(true);
-  });
-
-  /**
-   * The test writes `src.txt` at the worktree path that the server returns. The main
-   * worktree must show no change to `src.txt`. The check ignores other paths, because
-   * `handleSetupWorktree` writes `.gitignore` into the main worktree by design.
-   */
-  it('an agent-side write into its worktree does NOT mirror into the main worktree', async () => {
-    const setup = await handleSetupWorktree({
-      repoRoot,
-      taskId: 'T-99',
-      taskName: 'leak-probe',
-      skipTests: true,
-    });
-    const { worktreePath } = setup.data as { worktreePath: string };
-
-    const agentFile = path.join(worktreePath, 'src.txt');
-    await execFileAsync('node', ['-e', `require('fs').writeFileSync(${JSON.stringify(agentFile)}, 'agent-edit\\n')`]);
-
-    const mainStatus = await git(repoRoot, ['status', '--porcelain']);
-    const leakedPaths = mainStatus
-      .split('\n')
-      .map(l => l.slice(2).trim())
-      .filter(p => p === 'src.txt');
-    expect(leakedPaths).toEqual([]);
-    const mainContent = await execFileAsync('cat', [path.join(repoRoot, 'src.txt')]);
-    expect(mainContent).toBe('baseline\n');
-  });
-});
-
-async function existsSafe(p: string): Promise<boolean> {
-  try {
-    await execFileAsync('git', ['-C', p, 'rev-parse', '--git-dir']);
-    return true;
-  } catch {
-    return false;
-  }
-}
 
 /**
  * Dispatches `prepare_delegation` through `handleOrchestrate`, because a registered

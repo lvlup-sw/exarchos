@@ -97,11 +97,6 @@ const SYNC_SPAWN_EXEMPTIONS: ReadonlyArray<{ readonly file: string; readonly cal
     calls: 1,
     forcedBy: 'buildLocalGitMergeAdapter (src/verbs/merge/local-git-merge.ts) and executeMerge take a synchronous GitExec',
   },
-  {
-    file: 'tests/unit/verbs/team/setup-worktree.integration.test.ts',
-    calls: 1,
-    forcedBy: 'buildLocalGitMergeAdapter (src/verbs/merge/local-git-merge.ts) takes a synchronous GitExec',
-  },
 ];
 
 interface Scan {

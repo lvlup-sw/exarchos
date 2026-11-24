@@ -18,7 +18,6 @@ import { envelopeDataSchemaIsTyped } from '../../../../src/verbs/worktree/schema
 import {
   handleAcquireWorktree,
   handleReleaseWorktree,
-  handlePruneWorktrees,
   handleViewWorktrees,
   handleViewPs,
   handleViewWait,
@@ -68,11 +67,11 @@ async function createArm(): Promise<Arm> {
 }
 
 describe('worktree surface — typed outputSchema registration (DR-1)', () => {
-  /** The roster pins the eight marked actions, so a lost marker fails the test. */
+  /** The roster pins the seven marked actions, so a lost marker fails the test. */
   it('WorktreeSurface_EveryMarkedAction_RegistersTypedOutputSchema', () => {
     const actions = surfaceActions();
     expect(actions.map((a) => a.name).sort()).toEqual(
-      ['acquire_worktree', 'prune_worktrees', 'ps', 'reconcile_worktrees', 'release_worktree', 'serialize_merge', 'wait', 'worktrees'],
+      ['acquire_worktree', 'ps', 'reconcile_worktrees', 'release_worktree', 'serialize_merge', 'wait', 'worktrees'],
     );
     for (const action of actions) {
       expect(
@@ -83,7 +82,7 @@ describe('worktree surface — typed outputSchema registration (DR-1)', () => {
   });
 
   it('WorktreeActions_SixActions_CarryDoNotUseForGuidance', () => {
-    const six = ['acquire_worktree', 'release_worktree', 'prune_worktrees', 'ps', 'wait', 'worktrees'];
+    const six = ['acquire_worktree', 'release_worktree', 'reconcile_worktrees', 'ps', 'wait', 'worktrees'];
     for (const name of six) {
       const action = findSurfaceAction(name);
       expect(action.description, `${name} must carry "Use for:"`).toContain('Use for:');
@@ -130,10 +129,6 @@ describe('worktree surface — real handler output validates against schema (DR-
           arm.ctx,
           DETERMINISTIC_DEPS,
         ),
-      },
-      {
-        name: 'prune_worktrees',
-        result: await handlePruneWorktrees({ repoRoot }, arm.ctx, DETERMINISTIC_DEPS),
       },
       {
         name: 'worktrees',
@@ -240,7 +235,6 @@ describe('worktree surface — real handler output validates against schema (DR-
     const cases: ReadonlyArray<{ name: string; result: ToolResult }> = [
       { name: 'acquire_worktree', result: await handleAcquireWorktree({}, arm.ctx, DETERMINISTIC_DEPS) },
       { name: 'release_worktree', result: await handleReleaseWorktree({}, arm.ctx, DETERMINISTIC_DEPS) },
-      { name: 'prune_worktrees', result: await handlePruneWorktrees({}, arm.ctx, DETERMINISTIC_DEPS) },
       { name: 'serialize_merge', result: await handleSerializeMerge({}, arm.ctx) },
       { name: 'wait', result: await handleViewWait({ until: 'merge' }, arm.ctx, DETERMINISTIC_DEPS) },
     ];

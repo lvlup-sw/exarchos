@@ -1,7 +1,7 @@
 {
-  "capturedAt": "2026-11-25",
-  "tree": "8e9162353a9289222a1c1cc3ac868e6fb3832a72",
-  "count": 115,
+  "capturedAt": "2026-11-26",
+  "tree": "5206ebce6c17defa5bb9ceab0d5f372998930b9b",
+  "count": 113,
   "actionIds": [
     "exarchos_event.append",
     "exarchos_event.batch_append",
@@ -56,7 +56,6 @@
     "exarchos_orchestrate.prepare_review",
     "exarchos_orchestrate.prepare_synthesis",
     "exarchos_orchestrate.prune_stale_workflows",
-    "exarchos_orchestrate.prune_worktrees",
     "exarchos_orchestrate.read_prepared_capsule",
     "exarchos_orchestrate.reconcile_state",
     "exarchos_orchestrate.reconcile_worktrees",
@@ -68,7 +67,6 @@
     "exarchos_orchestrate.select_debug_track",
     "exarchos_orchestrate.serialize_merge",
     "exarchos_orchestrate.settle",
-    "exarchos_orchestrate.setup_worktree",
     "exarchos_orchestrate.spec_coverage_check",
     "exarchos_orchestrate.stack_place",
     "exarchos_orchestrate.task_claim",

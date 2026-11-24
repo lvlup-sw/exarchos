@@ -19,7 +19,7 @@ check() { # <description> <expected-exit> <actual-exit>
 }
 
 # ── WiringGate_NakedWorktreeMutation_Fails ──────────────────────────────────
-# A file under orchestrate/ that is not one of the 5 wired files holds a naked
+# A file under orchestrate/ that is not one of the 3 wired files holds a naked
 # worktree-mutating git spawn. The gate must fail.
 mkdir -p "$TMP/naked/orchestrate"
 cat > "$TMP/naked/orchestrate/reap-worktree.ts" <<'EOF'
@@ -36,10 +36,10 @@ check "WiringGate_NakedWorktreeMutation_Fails" 1 "$naked_exit"
 grep -q "rule1-naked-worktree-mutation" /tmp/wlm-naked.out || { echo "  FAIL: missing rule1-naked-worktree-mutation tag"; fail=$((fail + 1)); }
 
 # ── WiringGate_WrappedIdioms_Pass ───────────────────────────────────────────
-# The fixture holds the 5 wired files with their retry idioms, and the merge
+# The fixture holds the 3 wired files with their retry idioms, and the merge
 # seam. The seam calls the wrapped executor and has no raw spawn. The gate must
 # pass. The paths match the allowlist of the gate.
-mkdir -p "$TMP/wrapped/verbs/vcs" "$TMP/wrapped/verbs/team" \
+mkdir -p "$TMP/wrapped/verbs/vcs" \
   "$TMP/wrapped/verbs/worktree" "$TMP/wrapped/verbs/merge" "$TMP/wrapped/workflow"
 cat > "$TMP/wrapped/verbs/vcs/git-exec-default.ts" <<'EOF'
 import { execFileSync } from 'node:child_process';
@@ -51,30 +51,9 @@ export function defaultGitExec(repoRoot: string, args: readonly string[]) {
   return withIndexLockRetrySync(() => runGitOnce(repoRoot, args));
 }
 EOF
-cat > "$TMP/wrapped/verbs/team/setup-worktree.ts" <<'EOF'
-import { execFileSync } from 'node:child_process';
-import { burstStagger } from '../worktree/git-retry.js';
-function gitExec(repoRoot: string, args: readonly string[]) {
-  return execFileSync('git', ['-C', repoRoot, ...args]);
-}
-export async function handleSetupWorktree(repoRoot: string, worktreePath: string, branch: string) {
-  await burstStagger({});
-  gitExec(repoRoot, ['worktree', 'add', worktreePath, branch]);
-}
-EOF
 cat > "$TMP/wrapped/verbs/worktree/git-retry.ts" <<'EOF'
 export async function withIndexLockRetry(op: () => Promise<unknown>) { return op(); }
 export function withIndexLockRetrySync<T>(op: () => T): T { return op(); }
-export async function burstStagger(_opts: Record<string, unknown>) { return 0; }
-EOF
-cat > "$TMP/wrapped/verbs/worktree/manager.ts" <<'EOF'
-import { withIndexLockRetry } from './git-retry.js';
-export class WorktreeManager {
-  constructor(private gitRunner: { run(args: readonly string[], cwd: string): { status: number } }) {}
-  async removeWorktreeIfRegistered(repoRoot: string, worktreePath: string) {
-    return withIndexLockRetry(() => this.gitRunner.run(['worktree', 'remove', '--force', worktreePath], repoRoot));
-  }
-}
 EOF
 cat > "$TMP/wrapped/verbs/merge/merge-orchestrate.ts" <<'EOF'
 import { defaultGitExec } from '../vcs/git-exec-default.js';
@@ -137,7 +116,7 @@ check "skills fixture with serialize_merge caveat passes" 0 "$goodskill_exit"
 # ── WiringGate_MergeSeamOutsideWorktreeDir_StillInScope ─────────────────────
 # A naked worktree-mutating git spawn sits directly under orchestrate/, not
 # under orchestrate/worktree/. The gate must walk the file and fail. The path
-# orchestrate/merge-orchestrate.ts is not one of the 5 wired files, so no
+# orchestrate/merge-orchestrate.ts is not one of the 3 wired files, so no
 # allowlist entry covers it.
 mkdir -p "$TMP/seam/orchestrate"
 cat > "$TMP/seam/orchestrate/merge-orchestrate.ts" <<'EOF'

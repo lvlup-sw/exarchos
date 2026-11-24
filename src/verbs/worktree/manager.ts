@@ -6,7 +6,7 @@
  *
  * Adoption keys off the event stream and `git worktree list --porcelain`, not a
  * harness callback, so it works for any harness and for a hand-made worktree.
- * A released worktree can be pruned, but it is never recycled.
+ * A released worktree is never recycled. The harness removes worktrees from disk.
  *
  * Each write goes through the shared `EventStore`, so the per-stream lock of the
  * appender serializes the writes. The side-effect import of
@@ -14,20 +14,15 @@
  */
 
 import { randomUUID } from 'node:crypto';
-import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { realpath } from 'node:fs/promises';
-import * as path from 'node:path';
 import {
   decideRelation, exitedWithOne, listObservedWorktrees, locateObservational, ownWorktreeConfigNeutral, type ObservationalCheckout,
 } from '../../utils/git-observer.js';
 import { constrainedCommitId, observationalReader, type ConstrainedGitReads } from '../../utils/git-tree.js';
 import type { EventStore } from '../../events/store.js';
-import type { EventInput, DecideResult } from '../../events/atomic-appender.js';
-import type { WorkflowEvent } from '../../events/schemas.js';
+import type { EventInput } from '../../events/atomic-appender.js';
 import { spawnCommandSync } from '../../utils/process.js';
-import { removeWorktreeForce } from '../../vcs/mutation-owner.js';
 import { withStateRetry } from '../../workflow/state-retry.js';
-import { resolveWorkflowState } from '../resolve-state.js';
 import {
   defaultProcessSource,
   type ProcessSource,
@@ -42,22 +37,8 @@ import {
   defaultProcessTableSource,
   type ProcessTableSource,
 } from './pure/probe.js';
-import {
-  defaultSleep,
-  defaultJitter,
-  withIndexLockRetry,
-  isIndexLockError,
-  MAX_INDEX_LOCK_RETRIES,
-  type SleepFn,
-  type JitterFn,
-} from './git-retry.js';
+import { defaultSleep, type SleepFn } from './git-retry.js';
 import { reservationLiveness, selectDeadReservations } from './pure/ownership.js';
-import {
-  classifyPruneCandidate,
-  type PruneCandidate,
-  type PruneClassification,
-  type PruneSkipReason,
-} from './pure/prune-ladder.js';
 import type {
   WorktreeEntry,
   WorktreesProjection,
@@ -145,64 +126,6 @@ export type FeatureIdResolver = (worktree: OnDiskWorktree) => string | null;
 
 /** Default resolver: no harness assumption — every worktree is unattached. */
 export const unattachedFeatureIdResolver: FeatureIdResolver = () => null;
-
-/**
- * Parse `git worktree list --porcelain` into {@link OnDiskWorktree} records.
- *
- * Blank lines separate records. Each record starts with `worktree <path>`, then
- * attribute lines: `HEAD <sha>`, `branch refs/heads/<name>`, `detached`, and
- * `bare`. Other lines, such as `locked` and `prunable`, are ignored. The parser
- * is pure and accepts CRLF.
- */
-export function parseWorktreeListPorcelain(stdout: string): OnDiskWorktree[] {
-  const out: OnDiskWorktree[] = [];
-  let cur:
-    | {
-        path: string;
-        head: string | null;
-        branch: string | null;
-        detached: boolean;
-        bare: boolean;
-      }
-    | null = null;
-  const flush = (): void => {
-    if (cur !== null) out.push({ ...cur });
-    cur = null;
-  };
-  for (const rawLine of stdout.split('\n')) {
-    const line = rawLine.replace(/\r$/, '');
-    if (line === '') {
-      flush();
-      continue;
-    }
-    if (line.startsWith('worktree ')) {
-      flush();
-      cur = {
-        path: line.slice('worktree '.length),
-        head: null,
-        branch: null,
-        detached: false,
-        bare: false,
-      };
-    } else if (cur === null) {
-      continue;
-    } else if (line.startsWith('HEAD ')) {
-      const sha = line.slice('HEAD '.length).trim();
-      cur.head = sha.length > 0 ? sha : null;
-    } else if (line.startsWith('branch ')) {
-      const ref = line.slice('branch '.length).trim();
-      cur.branch = ref.startsWith('refs/heads/')
-        ? ref.slice('refs/heads/'.length)
-        : ref;
-    } else if (line === 'detached') {
-      cur.detached = true;
-    } else if (line === 'bare') {
-      cur.bare = true;
-    }
-  }
-  flush();
-  return out;
-}
 
 /**
  * Run `git <args>` from `cwd` through {@link spawnCommandSync}, not through
@@ -344,10 +267,10 @@ export function createGitWorktreeProbe(): GitWorktreeProbe {
 }
 
 /**
- * An injectable seam over `git`. Each prune git operation, including the
- * `git worktree remove` deletion, goes through this runner. A test can record
- * the argument vectors and assert that no path runs `git reset --hard`. It does
- * not throw: a failure is a non-zero `status`.
+ * An injectable seam over `git`. The cancel teardown probe in
+ * `workflow/compensation.ts` runs its dirty check through this runner. A test
+ * can record the argument vectors. It does not throw: a failure is a non-zero
+ * `status`.
  */
 export interface GitRunner {
   run(
@@ -388,144 +311,9 @@ export interface AdoptResult {
   readonly adopted: readonly string[];
   /**
    * True when a checkout holds `repoRoot` but its worktree listing cannot be read. The pass then appends no event and reports no worktree.
-   * `acquire_worktree` refuses such a pass. The prune pass and the launcher treat it as an empty pass.
+   * `acquire_worktree` refuses such a pass.
    */
   readonly listingUnreadable?: true;
-}
-
-/** Arguments for {@link WorktreeManager.prune}. */
-export interface PruneOptions {
-  /** Repo root the on-disk worktree set is enumerated from (adopt-gate + probe). */
-  readonly repoRoot: string;
-  /**
-   * Delete the eligible candidates. When omitted or `false`, the pass is a dry
-   * run: it reports, deletes nothing, and runs no crash recovery.
-   */
-  readonly apply?: boolean;
-  /**
-   * Opt in to deleting `orphan-unverifiable` candidates, whose backing repo is
-   * gone. It takes effect only with {@link yes} on an `apply` run.
-   */
-  readonly pruneOrphans?: boolean | undefined;
-  /** Explicit confirmation required alongside {@link pruneOrphans} for orphans. */
-  readonly yes?: boolean | undefined;
-}
-
-/** Per-candidate line of a {@link PruneResult}. */
-export interface PruneCandidateReport {
-  /** Canonical (symlink-resolved) worktree path — the projection key. */
-  readonly worktreeId: string;
-  /** Absolute worktree path. */
-  readonly path: string;
-  /** Owning feature id, or `null` when unattached. */
-  readonly featureId: string | null;
-  /** Folded `worktrees@v1` lifecycle state at classification time. */
-  readonly state: WorktreeEntry['state'];
-  /** The ladder verdict for this candidate. */
-  readonly classification: PruneClassification;
-  /** Best-effort on-disk bytes reclaimable IF deleted (0 when not reclaimable). */
-  readonly reclaimableBytes: number;
-  /** True when this pass committed the delete intent for the worktree. Always false on a dry run. */
-  readonly deleted: boolean;
-}
-
-/** Outcome of a {@link WorktreeManager.prune} pass. */
-export interface PruneResult {
-  /** True when nothing was deleted because no explicit `apply` flag was passed. */
-  readonly dryRun: boolean;
-  /** Every governed worktree, with its ladder verdict and reclaimable bytes. */
-  readonly candidates: readonly PruneCandidateReport[];
-  /** The `worktreeId`s actually deleted this pass (empty on dry-run). */
-  readonly deleted: readonly string[];
-  /** Total reclaimable bytes across the delete-eligible and orphan candidates. */
-  readonly reclaimableBytes: number;
-  /** Skip {@link PruneSkipReason} → the `worktreeId`s skipped for it (scannable). */
-  readonly skipsByReason: Readonly<Partial<Record<PruneSkipReason, readonly string[]>>>;
-}
-
-/**
- * Whether the backing gitdir of the worktree resolves. A `.git` directory means
- * present. A `.git` file means present when its `gitdir:` target exists.
- * Anything else means that the backing is gone. It does not throw.
- */
-function probeBackingGitdir(worktreePath: string): boolean {
-  const dotGit = path.join(worktreePath, '.git');
-  let st;
-  try {
-    st = statSync(dotGit);
-  } catch {
-    return false;
-  }
-  if (st.isDirectory()) return true;
-  if (!st.isFile()) return false;
-  let content: string;
-  try {
-    content = readFileSync(dotGit, 'utf8');
-  } catch {
-    return false;
-  }
-  const match = content.match(/^gitdir:\s*(.+)$/m);
-  if (!match || match[1] === undefined) return false;
-  const target = match[1].trim();
-  const resolved = path.isAbsolute(target)
-    ? target
-    : path.resolve(worktreePath, target);
-  try {
-    statSync(resolved);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-/** Best-effort recursive byte size of `dir`. Unreadable entries and symlinks count as 0. */
-function dirSizeBytes(dir: string): number {
-  let total = 0;
-  let entries: import('node:fs').Dirent[];
-  try {
-    entries = readdirSync(dir, { withFileTypes: true });
-  } catch {
-    return 0;
-  }
-  for (const entry of entries) {
-    const full = path.join(dir, entry.name);
-    try {
-      if (entry.isDirectory()) {
-        total += dirSizeBytes(full);
-      } else if (entry.isFile()) {
-        total += statSync(full).size;
-      }
-    } catch {
-    }
-  }
-  return total;
-}
-
-/** Read a string field off an event payload (`null` when absent / non-string). */
-function eventStringField(event: WorkflowEvent, key: string): string | null {
-  const value = event.data?.[key];
-  return typeof value === 'string' ? value : null;
-}
-
-/**
- * Whether an unpaired in-flight merge lease covers a prune candidate. The
- * planning pass and the re-verify inside `executeDeletion` both call it.
- *
- * A lease covers the candidate when its `worktreeId` matches, or when its
- * `integrationRef` matches the integration ref of the candidate. The serializer
- * leaves `worktreeId` null, so the ref match catches a `serialize_merge` that
- * races the prune. A held lease keeps the worktree.
- */
-function mergeLeaseHeld(
-  worktreeId: string,
-  integrationRef: string | null,
-  inFlightMerges: Readonly<Record<string, InFlightMerge>>,
-): boolean {
-  for (const merge of Object.values(inFlightMerges)) {
-    if (merge.worktreeId !== null && merge.worktreeId === worktreeId) return true;
-    if (integrationRef !== null && merge.integrationRef === integrationRef) return true;
-  }
-  return false;
 }
 
 /** Constructor dependencies for {@link WorktreeManager}. */
@@ -547,8 +335,6 @@ export interface WorktreeManagerDeps {
    * both agree on the key.
    */
   readonly realpath?: RealpathResolver;
-  /** Git runner for each prune probe and the deletion. Defaults to {@link defaultGitRunner}. */
-  readonly gitRunner?: GitRunner;
   /**
    * Full process-table source for {@link WorktreeManager.probeAndReclaim}, used
    * for cwd occupancy. Defaults to {@link defaultProcessTableSource}, which reads
@@ -556,18 +342,6 @@ export interface WorktreeManagerDeps {
    * probe releases nothing.
    */
   readonly processTableSource?: ProcessTableSource;
-  /**
-   * Sleep seam for the `index.lock` retry backoff on the prune remove path.
-   * Defaults to {@link defaultSleep}.
-   */
-  readonly sleep?: SleepFn;
-  /** Signed-jitter source in `[-1, 1]` for the retry backoff. Defaults to {@link defaultJitter}. */
-  readonly jitter?: JitterFn;
-  /**
-   * Retries after the first attempt for the `index.lock` retry around the prune
-   * `git worktree remove`. Defaults to {@link MAX_INDEX_LOCK_RETRIES}.
-   */
-  readonly maxIndexLockRetries?: number;
 }
 
 /** Arguments for {@link WorktreeManager.reserve}. */
@@ -664,11 +438,7 @@ export class WorktreeManager {
   private readonly gitProbe: GitWorktreeProbe;
   private readonly featureIdResolver: FeatureIdResolver;
   private readonly realpath: RealpathResolver;
-  private readonly gitRunner: GitRunner;
   private readonly processTableSource: ProcessTableSource;
-  private readonly sleep: SleepFn;
-  private readonly jitter: JitterFn;
-  private readonly maxIndexLockRetries: number;
 
   constructor(deps: WorktreeManagerDeps) {
     this.eventStore = deps.eventStore;
@@ -676,11 +446,7 @@ export class WorktreeManager {
     this.gitProbe = deps.gitProbe ?? createGitWorktreeProbe();
     this.featureIdResolver = deps.featureIdResolver ?? unattachedFeatureIdResolver;
     this.realpath = deps.realpath ?? defaultRealpath;
-    this.gitRunner = deps.gitRunner ?? defaultGitRunner;
     this.processTableSource = deps.processTableSource ?? defaultProcessTableSource;
-    this.sleep = deps.sleep ?? defaultSleep;
-    this.jitter = deps.jitter ?? defaultJitter;
-    this.maxIndexLockRetries = deps.maxIndexLockRetries ?? MAX_INDEX_LOCK_RETRIES;
   }
 
   /**
@@ -936,166 +702,6 @@ export class WorktreeManager {
   }
 
   /**
-   * Prune governed worktrees inside a liveness pair. It appends
-   * `prune.executing_started` before {@link runPruneLadder}, and
-   * `prune.executed` in a `finally`, so a throw still closes the pair. On a
-   * throw, the terminal reports zero deletions. The projection folds the pair
-   * into `inFlightPrunes`.
-   */
-  async prune(options: PruneOptions): Promise<PruneResult> {
-    const operationId = randomUUID();
-    await this.appendPruneStarted(operationId, options.repoRoot);
-    let result: PruneResult | undefined;
-    try {
-      result = await this.runPruneLadder(options);
-      return result;
-    } finally {
-      await this.appendPruneExecuted(operationId, result?.deleted.length ?? 0);
-    }
-  }
-
-  /**
-   * Append `prune.executing_started` with this process as the holder, so a long
-   * prune pass is visible as in flight. `holderStartedAt` is `null`, never `''`,
-   * when the platform cannot resolve the create-time. The `instanceId` is the
-   * per-pass `operationId`.
-   */
-  private async appendPruneStarted(
-    operationId: string,
-    repoRoot: string,
-  ): Promise<void> {
-    const holderPid = process.pid;
-    const probe = this.processSource.getStartTime(holderPid);
-    const holderStartedAt =
-      probe.status === 'present' && probe.startedAt.length > 0
-        ? probe.startedAt
-        : null;
-    await withStateRetry(() =>
-      this.eventStore.append(
-        WORKTREES_STREAM,
-        {
-          type: 'prune.executing_started',
-          data: { operationId, repoRoot, holderPid, holderStartedAt, instanceId: operationId },
-        },
-        { idempotencyKey: `prune.executing_started:${operationId}` },
-      ),
-    );
-  }
-
-  /**
-   * Append the paired terminal `prune.executed`, which clears the in-flight
-   * prune marker. {@link prune} calls it from a `finally`.
-   */
-  private async appendPruneExecuted(
-    operationId: string,
-    deletedCount: number,
-  ): Promise<void> {
-    await withStateRetry(() =>
-      this.eventStore.append(
-        WORKTREES_STREAM,
-        {
-          type: 'prune.executed',
-          data: { operationId, deletedCount, instanceId: operationId },
-        },
-        { idempotencyKey: `prune.executed:${operationId}` },
-      ),
-    );
-  }
-
-  /**
-   * Prune governed worktrees through the fail-closed safety ladder:
-   *
-   * 1. Adopt first, so each on-disk worktree has a state before classification.
-   * 2. On `apply` only, finish each crashed deletion. Recovery appends events, so a
-   *    dry run skips it.
-   * 3. Classify each candidate with {@link classifyPruneCandidate}. A held
-   *    merge lease turns an eligible candidate into an `in-flight-merge` skip.
-   * 4. On `apply`, delete each eligible candidate with {@link executeDeletion}.
-   *    An orphan needs both `pruneOrphans` and `yes`.
-   */
-  private async runPruneLadder(options: PruneOptions): Promise<PruneResult> {
-    const { repoRoot } = options;
-    const apply = options.apply === true;
-    const orphansOptedIn = options.pruneOrphans === true && options.yes === true;
-
-    await this.adopt(repoRoot);
-
-    if (apply) {
-      await this.recoverOrphanedRemovals(repoRoot);
-    }
-
-    const projection = await this.loadProjection();
-    const candidates = Object.values(projection.worktrees);
-    const branchCache = new Map<string, string | null>();
-
-    const reports: PruneCandidateReport[] = [];
-    for (const entry of candidates) {
-      const facts = await this.gatherFacts(entry, branchCache);
-      let classification = classifyPruneCandidate(facts);
-      if (
-        (classification.action === 'delete-eligible' ||
-          classification.action === 'orphan-unverifiable') &&
-        mergeLeaseHeld(entry.worktreeId, facts.integrationRef, projection.inFlightMerges)
-      ) {
-        classification = { action: 'skip', reason: 'in-flight-merge' };
-      }
-      const reclaimable =
-        classification.action === 'delete-eligible' ||
-        classification.action === 'orphan-unverifiable'
-          ? dirSizeBytes(entry.path)
-          : 0;
-      reports.push({
-        worktreeId: entry.worktreeId,
-        path: entry.path,
-        featureId: entry.featureId,
-        state: entry.state,
-        classification,
-        reclaimableBytes: reclaimable,
-        deleted: false,
-      });
-    }
-
-    const deleted: string[] = [];
-    if (apply) {
-      for (let i = 0; i < reports.length; i += 1) {
-        const report = reports[i];
-        if (report === undefined) continue;
-        const eligible =
-          report.classification.action === 'delete-eligible' ||
-          (report.classification.action === 'orphan-unverifiable' && orphansOptedIn);
-        if (!eligible) continue;
-        const { attempted } = await this.executeDeletion(
-          repoRoot,
-          report.worktreeId,
-          report.path,
-          orphansOptedIn,
-          branchCache,
-        );
-        if (attempted) {
-          reports[i] = { ...report, deleted: true };
-          deleted.push(report.worktreeId);
-        }
-      }
-    }
-
-    const skipsByReason: Partial<Record<PruneSkipReason, string[]>> = {};
-    for (const report of reports) {
-      if (report.classification.action === 'skip') {
-        const reason = report.classification.reason;
-        (skipsByReason[reason] ??= []).push(report.worktreeId);
-      }
-    }
-
-    return {
-      dryRun: !apply,
-      candidates: reports,
-      deleted,
-      reclaimableBytes: reports.reduce((sum, r) => sum + r.reclaimableBytes, 0),
-      skipsByReason,
-    };
-  }
-
-  /**
    * The governed worktree set, folded from the `worktrees` stream. It is a pure
    * read with no git or process probe. The order is the projection insertion
    * order, which is stable for one stream.
@@ -1277,324 +883,6 @@ export class WorktreeManager {
       }
       await sleep(pollIntervalMs);
     }
-  }
-
-  /**
-   * Gather the facts that the pure ladder classifies, for one entry. An owner
-   * that is alive or unknown counts as in use, so a probe failure never lets the
-   * ladder reclaim it. Backing presence comes first, because {@link isDirty}
-   * fails closed only when the backing repo exists.
-   */
-  private async gatherFacts(
-    entry: WorktreeEntry,
-    branchCache: Map<string, string | null>,
-  ): Promise<PruneCandidate> {
-    const inUse = reservationLiveness(entry, this.processSource) !== 'dead';
-    const backingGitdirPresent = probeBackingGitdir(entry.path);
-    const dirty = this.isDirty(entry.path, backingGitdirPresent);
-    const integrationRef = await this.resolveIntegrationRef(
-      entry,
-      backingGitdirPresent,
-      branchCache,
-    );
-    const headAncestorOfIntegration =
-      integrationRef !== null
-        ? this.headAncestorOf(entry.path, integrationRef)
-        : null;
-    const originReachable = this.originReachable(entry.path);
-    return {
-      state: entry.state,
-      inUse,
-      dirty,
-      integrationRef,
-      headAncestorOfIntegration,
-      backingGitdirPresent,
-      originReachable,
-    };
-  }
-
-  /**
-   * Resolve the integration ref for the merge check: the
-   * `synthesis.integrationBranch` of the workflow of the entry. It returns `null`
-   * for an unattached worktree, a workflow without a branch, or a branch that
-   * does not resolve in a present backing repo. The ladder then fails closed.
-   * With no backing repo, the branch passes through unchecked, so the candidate
-   * reaches the orphan rung.
-   */
-  private async resolveIntegrationRef(
-    entry: WorktreeEntry,
-    backingGitdirPresent: boolean,
-    branchCache: Map<string, string | null>,
-  ): Promise<string | null> {
-    if (entry.featureId === null) return null;
-    let branch = branchCache.get(entry.featureId);
-    if (branch === undefined) {
-      branch = await this.lookupIntegrationBranch(entry.featureId);
-      branchCache.set(entry.featureId, branch);
-    }
-    if (branch === null || branch.length === 0) return null;
-    if (!backingGitdirPresent) return branch;
-    return this.refResolvable(entry.path, branch) ? branch : null;
-  }
-
-  /**
-   * Load a workflow's `synthesis.integrationBranch` from the event store (the
-   * SQLite source of truth, via {@link resolveWorkflowState}). Returns `null`
-   * when the workflow is unknown, errors, or has no integration branch set.
-   */
-  private async lookupIntegrationBranch(featureId: string): Promise<string | null> {
-    const resolved = await resolveWorkflowState({
-      featureId,
-      eventStore: this.eventStore,
-    });
-    if ('error' in resolved) return null;
-    const synthesis = (
-      resolved.state as { synthesis?: { integrationBranch?: unknown } }
-    ).synthesis;
-    const branch = synthesis?.integrationBranch;
-    return typeof branch === 'string' && branch.length > 0 ? branch : null;
-  }
-
-  /**
-   * Whether `git status --porcelain --untracked-files=all` shows changes.
-   *
-   * When the probe fails and the backing repo exists, it returns `true`,
-   * because cleanliness is not proven. A failure read as clean lets the ladder
-   * delete uncommitted work. When the backing repo is gone, it returns `false`,
-   * so the candidate reaches the orphan rung.
-   */
-  private isDirty(worktreePath: string, backingPresent: boolean): boolean {
-    const { status, stdout } = this.gitRunner.run(
-      ['status', '--porcelain', '--untracked-files=all'],
-      worktreePath,
-    );
-    if (status !== 0) {
-      return backingPresent;
-    }
-    return stdout.trim().length > 0;
-  }
-
-  /** Whether `ref` resolves to a commit in the worktree (`git rev-parse --verify`). */
-  private refResolvable(worktreePath: string, ref: string): boolean {
-    return (
-      this.gitRunner.run(['rev-parse', '--verify', '--quiet', ref], worktreePath)
-        .status === 0
-    );
-  }
-
-  /**
-   * `git merge-base --is-ancestor HEAD <ref>`: `true` on exit 0, `false` on exit
-   * 1, and `null` on any other exit, for example an orphan with no backing repo.
-   */
-  private headAncestorOf(worktreePath: string, ref: string): boolean | null {
-    const { status } = this.gitRunner.run(
-      ['merge-base', '--is-ancestor', 'HEAD', ref],
-      worktreePath,
-    );
-    if (status === 0) return true;
-    if (status === 1) return false;
-    return null;
-  }
-
-  /** Whether `origin` is reachable from the worktree (`git ls-remote origin`). */
-  private originReachable(worktreePath: string): boolean {
-    return this.gitRunner.run(['ls-remote', 'origin'], worktreePath).status === 0;
-  }
-
-  /** Whether `worktreePath` is still registered in `git worktree list` (canonical compare). */
-  private isWorktreeRegistered(repoRoot: string, worktreePath: string): boolean {
-    const { status, stdout } = this.gitRunner.run(
-      ['worktree', 'list', '--porcelain'],
-      repoRoot,
-    );
-    if (status !== 0) return false;
-    const targetId = this.canonicalId(worktreePath);
-    return parseWorktreeListPorcelain(stdout).some(
-      (wt) => this.canonicalId(wt.path) === targetId,
-    );
-  }
-
-  /**
-   * Delete one eligible worktree through a two-event split. The only mutating
-   * git command is `git worktree remove`, never `git reset --hard`.
-   *
-   * 1. A `decide` folds the current state and runs the full ladder again on
-   *    fresh facts. It emits `worktree.remove.requested` only when the entry is
-   *    still eligible and no merge lease covers it.
-   * 2. Outside the lock, remove the worktree if it is still registered.
-   * 3. Append `worktree.remove.executed`, which drops the entry from the projection.
-   *
-   * Returns `attempted: false` only when the re-verify aborts.
-   */
-  private async executeDeletion(
-    repoRoot: string,
-    worktreeId: string,
-    worktreePath: string,
-    orphansOptedIn: boolean,
-    branchCache: Map<string, string | null>,
-  ): Promise<{ attempted: boolean; removed: boolean }> {
-    const appender = this.eventStore.getAppender();
-    const operationId = randomUUID();
-
-    let kind: DecideResult['kind'] = 'no-op';
-    await withStateRetry(async () => {
-      const result = await appender.decide<WorktreesProjection>(
-        WORKTREES_STREAM,
-        WORKTREES_REDUCER,
-        async (state) => {
-          const entry = state.worktrees[worktreeId];
-          if (entry === undefined) return [];
-          if (entry.state !== 'released' && entry.state !== 'orphan') return [];
-          const facts = await this.gatherFacts(entry, branchCache);
-          if (mergeLeaseHeld(worktreeId, facts.integrationRef, state.inFlightMerges)) {
-            return [];
-          }
-          const classification = classifyPruneCandidate(facts);
-          const stillEligible =
-            classification.action === 'delete-eligible' ||
-            (classification.action === 'orphan-unverifiable' && orphansOptedIn);
-          if (!stillEligible) return [];
-          return [
-            {
-              type: 'worktree.remove.requested',
-              data: { operationId, worktreePath, worktreeId },
-            },
-          ];
-        },
-        { operationId, alwaysEnforceConsistency: false },
-      );
-      kind = result.kind;
-    });
-    if (kind === 'no-op') return { attempted: false, removed: false };
-
-    const removed = await this.removeWorktreeIfRegistered(repoRoot, worktreePath);
-
-    await this.appendRemoveExecuted(operationId, worktreePath, removed, worktreeId);
-    return { attempted: true, removed };
-  }
-
-  /**
-   * Finish each crashed deletion: a `worktree.remove.requested` with no paired
-   * `worktree.remove.executed`. It runs the same idempotent remove, then appends
-   * the missing terminal under the original `operationId` and `worktreeId`.
-   */
-  private async recoverOrphanedRemovals(repoRoot: string): Promise<void> {
-    const orphaned = await this.listOrphanedRemovals();
-    const handled = new Set<string>();
-    for (const { operationId, worktreePath, worktreeId } of orphaned) {
-      if (handled.has(operationId)) continue;
-      handled.add(operationId);
-      const removed = await this.removeWorktreeIfRegistered(repoRoot, worktreePath);
-      await this.appendRemoveExecuted(
-        operationId,
-        worktreePath,
-        removed,
-        worktreeId ?? undefined,
-      );
-    }
-  }
-
-  /**
-   * Run `git worktree remove --force` when the worktree is still registered.
-   * Returns `true` when this call removed it, and `false` when it is already
-   * absent. Throws when the remove fails and the worktree is still registered.
-   *
-   * Under burst dispatch, two processes can race for `.git/index.lock`.
-   * {@link withIndexLockRetry} retries that contention with backoff and jitter.
-   * The runner does not throw, so the callback throws a lock-shaped error for
-   * the wrapper.
-   */
-  private async removeWorktreeIfRegistered(
-    repoRoot: string,
-    worktreePath: string,
-  ): Promise<boolean> {
-    if (!this.isWorktreeRegistered(repoRoot, worktreePath)) return false;
-    const ok = await withIndexLockRetry(
-      () => {
-        const result = removeWorktreeForce(
-          (argv) => this.gitRunner.run(argv, repoRoot),
-          worktreePath,
-        );
-        if (result.status !== 0 && isIndexLockError(result)) {
-          throw new Error(
-            result.stderr && result.stderr.length > 0
-              ? result.stderr
-              : result.stdout,
-          );
-        }
-        return result.status === 0;
-      },
-      {
-        sleep: this.sleep,
-        jitter: this.jitter,
-        maxRetries: this.maxIndexLockRetries,
-      },
-    );
-    if (ok) return true;
-    if (this.isWorktreeRegistered(repoRoot, worktreePath)) {
-      throw new Error(
-        `git worktree remove failed for ${worktreePath} (still registered)`,
-      );
-    }
-    return false;
-  }
-
-  /**
-   * Append `worktree.remove.executed`, keyed on `operationId`. It stamps the
-   * canonical `worktreeId` when known, so the reducer drops the entry by the
-   * stored key without a realpath call at fold time. A recovered deletion from
-   * an older requested event can lack the id.
-   */
-  private async appendRemoveExecuted(
-    operationId: string,
-    worktreePath: string,
-    removed: boolean,
-    worktreeId?: string,
-  ): Promise<void> {
-    const data: Record<string, unknown> = { operationId, worktreePath, removed };
-    if (worktreeId !== undefined) data.worktreeId = worktreeId;
-    await withStateRetry(() =>
-      this.eventStore.append(
-        WORKTREES_STREAM,
-        {
-          type: 'worktree.remove.executed',
-          data,
-        },
-        { idempotencyKey: `worktree.remove.executed:${operationId}` },
-      ),
-    );
-  }
-
-  /**
-   * The crashed deletions to resume, in stream order: each
-   * `worktree.remove.requested` with no `worktree.remove.executed` for its
-   * `operationId`. An older requested event can lack `worktreeId`.
-   */
-  private async listOrphanedRemovals(): Promise<
-    Array<{ operationId: string; worktreePath: string; worktreeId: string | null }>
-  > {
-    const events = await this.eventStore.query(WORKTREES_STREAM);
-    const executedOps = new Set<string>();
-    for (const event of events) {
-      if (event.type !== 'worktree.remove.executed') continue;
-      const op = eventStringField(event, 'operationId');
-      if (op !== null) executedOps.add(op);
-    }
-    const orphaned: Array<{
-      operationId: string;
-      worktreePath: string;
-      worktreeId: string | null;
-    }> = [];
-    for (const event of events) {
-      if (event.type !== 'worktree.remove.requested') continue;
-      const operationId = eventStringField(event, 'operationId');
-      const worktreePath = eventStringField(event, 'worktreePath');
-      if (operationId === null || worktreePath === null) continue;
-      if (executedOps.has(operationId)) continue;
-      const worktreeId = eventStringField(event, 'worktreeId');
-      orphaned.push({ operationId, worktreePath, worktreeId });
-    }
-    return orphaned;
   }
 
   /** Read-only fold of the `worktrees` stream through `worktrees@v1`. */

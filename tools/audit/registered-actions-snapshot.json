@@ -4,7 +4,7 @@
   "counts": {
     "tools": 5,
     "visibleTools": 4,
-    "actions": 115,
+    "actions": 113,
     "eventTypes": 186
   },
   "tools": [
@@ -71,7 +71,6 @@
         "prepare_review",
         "prepare_synthesis",
         "prune_stale_workflows",
-        "prune_worktrees",
         "read_prepared_capsule",
         "reconcile_state",
         "reconcile_worktrees",
@@ -83,7 +82,6 @@
         "select_debug_track",
         "serialize_merge",
         "settle",
-        "setup_worktree",
         "spec_coverage_check",
         "stack_place",
         "task_claim",
@@ -704,12 +702,12 @@
     },
     {
       "type": "prune.executed",
-      "lifecycle": "active",
+      "lifecycle": "retired",
       "tier": "capability"
     },
     {
       "type": "prune.executing_started",
-      "lifecycle": "active",
+      "lifecycle": "retired",
       "tier": "capability"
     },
     {

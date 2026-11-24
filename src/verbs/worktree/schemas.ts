@@ -43,33 +43,13 @@ const InFlightMergeSchema = z
   })
   .passthrough();
 
-/** One in-flight `prune_worktrees` GC pass (mirrors `InFlightPrune`). */
+/** One in-flight prune pass of the retired GC, read from history (mirrors `InFlightPrune`). */
 const InFlightPruneSchema = z
   .object({
     operationId: z.string(),
     repoRoot: z.string(),
     holderPid: z.number().nullable(),
     holderStartedAt: z.string().nullable(),
-  })
-  .passthrough();
-
-/** One prune-candidate ladder verdict (mirrors `PruneClassification`). */
-const PruneClassificationSchema = z.union([
-  z.object({ action: z.literal('skip'), reason: z.string() }).passthrough(),
-  z.object({ action: z.literal('orphan-unverifiable') }).passthrough(),
-  z.object({ action: z.literal('delete-eligible') }).passthrough(),
-]);
-
-/** One prune-candidate report line (mirrors `PruneCandidateReport`). */
-const PruneCandidateReportSchema = z
-  .object({
-    worktreeId: z.string(),
-    path: z.string(),
-    featureId: z.string().nullable(),
-    state: z.enum(['adopted', 'reserved', 'released', 'orphan']),
-    classification: PruneClassificationSchema,
-    reclaimableBytes: z.number(),
-    deleted: z.boolean(),
   })
   .passthrough();
 
@@ -89,17 +69,6 @@ const ReleaseWorktreeData = z
   .object({
     worktreeId: z.string(),
     released: z.boolean(),
-  })
-  .passthrough();
-
-/** `prune_worktrees` success — the GC ladder report (`PruneResult`). */
-const PruneWorktreesData = z
-  .object({
-    dryRun: z.boolean(),
-    candidates: z.array(PruneCandidateReportSchema),
-    deleted: z.array(z.string()),
-    reclaimableBytes: z.number(),
-    skipsByReason: z.record(z.string(), z.array(z.string())),
   })
   .passthrough();
 
@@ -235,7 +204,6 @@ const WorktreesData = z
 
 export const AcquireWorktreeOutputSchema = EnvelopeSchema(AcquireWorktreeData);
 export const ReleaseWorktreeOutputSchema = EnvelopeSchema(ReleaseWorktreeData);
-export const PruneWorktreesOutputSchema = EnvelopeSchema(PruneWorktreesData);
 export const SerializeMergeOutputSchema = EnvelopeSchema(SerializeMergeData);
 export const PsOutputSchema = EnvelopeSchema(PsData);
 export const ReconcileWorktreesOutputSchema = EnvelopeSchema(ReconcileWorktreesData);

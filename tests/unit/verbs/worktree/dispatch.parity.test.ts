@@ -33,7 +33,6 @@ import { handleView } from '../../../../src/projections/views/composite.js';
 import {
   handleAcquireWorktree,
   handleReleaseWorktree,
-  handlePruneWorktrees,
   handleReconcileWorktrees,
   handleViewWorktrees,
   handleViewPs,
@@ -46,7 +45,7 @@ import type { GitWorktreeProbe } from '../../../../src/verbs/worktree/manager.js
 import type { ProcessSource } from '../../../../src/verbs/worktree/pure/process-identity.js';
 import type { SerializeMergeDeps } from '../../../../src/verbs/worktree/merge-serializer.js';
 
-/** Empty probe — `adopt`/`prune` observe zero on-disk worktrees, no git. */
+/** Empty probe — `adopt` observes zero on-disk worktrees, no git. */
 const EMPTY_PROBE: GitWorktreeProbe = {
   listWorktrees: () => [],
   verifyHead: () => ({ head: null, upstream: null, mutable: false, reason: 'head-unresolved' }),
@@ -70,7 +69,6 @@ const SERIALIZE_DEPS: SerializeMergeDeps = { readIntegrationHead: () => null, pr
 const FIXTURE_ARGS: Readonly<Record<string, Record<string, unknown>>> = {
   acquire_worktree: { repoRoot: '/tmp/wlm-parity-repo', worktreeId: '/tmp/wlm-parity-wt' },
   release_worktree: { worktreeId: '/tmp/wlm-parity-wt' },
-  prune_worktrees: { repoRoot: '/tmp/wlm-parity-repo' },
   /** `dryRun` defaults to true, so the result is a planned effect with no lease and no git side effects. */
   serialize_merge: { featureId: 'F', integrationRef: 'main', sourceBranch: 'feat', strategy: 'squash' },
   worktrees: {},
@@ -110,8 +108,6 @@ const orchestrateStub: CompositeHandler = async (args, ctx): Promise<ToolResult>
       return handleAcquireWorktree(rest, ctx, DETERMINISTIC_DEPS);
     case 'release_worktree':
       return handleReleaseWorktree(rest, ctx, DETERMINISTIC_DEPS);
-    case 'prune_worktrees':
-      return handlePruneWorktrees(rest, ctx, DETERMINISTIC_DEPS);
     case 'serialize_merge':
       return handleSerializeMerge(rest, ctx, SERIALIZE_DEPS);
     case 'reconcile_worktrees':
@@ -184,10 +180,10 @@ describe('worktree dispatch routing (WLM foundation, task 008)', () => {
     expect(release.error?.code).not.toBe('UNKNOWN_ACTION');
     expect(release.success).toBe(true);
 
-    const prune = await handleOrchestrate({ action: 'prune_worktrees', repoRoot }, arm.ctx);
-    expect(prune.error?.code).not.toBe('UNKNOWN_ACTION');
-    expect(prune.success).toBe(true);
-    expect(((prune.data as { dryRun?: boolean }) ?? {}).dryRun).toBe(true);
+    const reconcile = await handleOrchestrate({ action: 'reconcile_worktrees' }, arm.ctx);
+    expect(reconcile.error?.code).not.toBe('UNKNOWN_ACTION');
+    expect(reconcile.success).toBe(true);
+    expect(((reconcile.data as { count?: number }) ?? {}).count).toBe(0);
   });
 
   it('Dispatch_WorktreesAction_RouteThroughHandleView_NotUnknownAction', async () => {
@@ -218,7 +214,6 @@ describe('worktree surface conformance (registry-driven, DR-1)', () => {
     ]);
     expect(surfaceActions().map((a) => a.name).sort()).toEqual([
       'acquire_worktree',
-      'prune_worktrees',
       'ps',
       'reconcile_worktrees',
       'release_worktree',

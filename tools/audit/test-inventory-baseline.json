@@ -4,10 +4,10 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1460,
-    "parsedFiles": 1416,
+    "testFiles": 1455,
+    "parsedFiles": 1411,
     "shellFiles": 44,
-    "cases": 16340,
+    "cases": 16257,
     "dynamicTitles": 321,
     "unparseableFiles": 0
   },
@@ -28458,7 +28458,7 @@
       "cases": [
         {
           "suite": "DR-2 liveness emitters",
-          "name": "ThreeLiveEmittersAndTheStoredMutationPair_CarryCanonicalInstanceIdAdditively",
+          "name": "TwoLiveEmittersAndTheStoredMutationAndPrunePairs_CarryCanonicalInstanceIdAdditively",
           "dynamic": false
         }
       ]
@@ -53992,32 +53992,6 @@
         }
       ]
     },
-    "tests/unit/vcs/worktree-provisioner.test.ts": {
-      "file": "tests/unit/vcs/worktree-provisioner.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "mapWorktreeOutcome",
-          "name": "maps a fresh-create success to ok with both created flags true",
-          "dynamic": false
-        },
-        {
-          "suite": "mapWorktreeOutcome",
-          "name": "maps an idempotent no-op success (already existed) to ok with created flags false",
-          "dynamic": false
-        },
-        {
-          "suite": "mapWorktreeOutcome",
-          "name": "maps an error carrier to not-ok, surfacing the failure message",
-          "dynamic": false
-        },
-        {
-          "suite": "mapWorktreeOutcome",
-          "name": "maps a dry-run carrier to a typed not-ok non-provision (capability degrade)",
-          "dynamic": false
-        }
-      ]
-    },
     "tests/unit/verbs/composite.onboard-dispatch.test.ts": {
       "file": "tests/unit/verbs/composite.onboard-dispatch.test.ts",
       "runner": "vitest:root",
@@ -67391,16 +67365,6 @@
           "dynamic": false
         },
         {
-          "suite": "ImplementerDispatch_WorktreeEdit_DoesNotAppearInMainWorktree (characterization, #1301)",
-          "name": "resolves the agent write-root strictly inside <repoRoot>/.worktrees/, never the main worktree",
-          "dynamic": false
-        },
-        {
-          "suite": "ImplementerDispatch_WorktreeEdit_DoesNotAppearInMainWorktree (characterization, #1301)",
-          "name": "an agent-side write into its worktree does NOT mirror into the main worktree",
-          "dynamic": false
-        },
-        {
           "suite": "HandleOrchestrate_PrepareDelegation_StampsRiskTierBoundaryAndVerificationSequence",
           "name": "stamps riskTier, boundaryTouching, and an ordered verificationSequence per task",
           "dynamic": false
@@ -68784,233 +68748,6 @@
         }
       ]
     },
-    "tests/unit/verbs/team/setup-worktree.integration.test.ts": {
-      "file": "tests/unit/verbs/team/setup-worktree.integration.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "setup_worktree / merge production-path exit proofs (P04-05)",
-          "name": "(a) a duplicate setup_worktree request creates exactly ONE worktree",
-          "dynamic": false
-        },
-        {
-          "suite": "setup_worktree / merge production-path exit proofs (P04-05)",
-          "name": "(b) an interrupted setup_worktree leaves a durable intent (no event-less orphan) and converges on retry",
-          "dynamic": false
-        },
-        {
-          "suite": "setup_worktree / merge production-path exit proofs (P04-05)",
-          "name": "(c) a duplicate merge request runs the local-git merge adapter exactly ONCE",
-          "dynamic": false
-        },
-        {
-          "suite": "setup_worktree / merge production-path exit proofs (P04-05)",
-          "name": "the default owner-backed provisioner provisions a real worktree end-to-end",
-          "dynamic": false
-        }
-      ]
-    },
-    "tests/unit/verbs/team/setup-worktree.test.ts": {
-      "file": "tests/unit/verbs/team/setup-worktree.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "handleSetupWorktree",
-          "name": "DerivedPaths_AreCorrect",
-          "dynamic": false
-        },
-        {
-          "suite": "handleSetupWorktree",
-          "name": "FullSetup_AllStepsPass",
-          "dynamic": false
-        },
-        {
-          "suite": "handleSetupWorktree",
-          "name": "BranchExists_SkipsCreation_StepPasses",
-          "dynamic": false
-        },
-        {
-          "suite": "handleSetupWorktree",
-          "name": "WorktreeExists_SkipsCreation_StepPasses",
-          "dynamic": false
-        },
-        {
-          "suite": "handleSetupWorktree",
-          "name": "WorktreesNotGitignored_AddsToGitignore",
-          "dynamic": false
-        },
-        {
-          "suite": "handleSetupWorktree",
-          "name": "WorktreesNotGitignored_ExistingGitignoreNoTrailingNewline_PrependsNewline",
-          "dynamic": false
-        },
-        {
-          "suite": "handleSetupWorktree",
-          "name": "NpmInstallFails_Step4Fails",
-          "dynamic": false
-        },
-        {
-          "suite": "handleSetupWorktree",
-          "name": "SkipTests_Step5Skipped",
-          "dynamic": false
-        },
-        {
-          "suite": "handleSetupWorktree",
-          "name": "TestsFail_Step5Fails_OverallFails",
-          "dynamic": false
-        },
-        {
-          "suite": "handleSetupWorktree",
-          "name": "MissingRepoRoot_ReturnsError",
-          "dynamic": false
-        },
-        {
-          "suite": "handleSetupWorktree",
-          "name": "MissingTaskId_ReturnsError",
-          "dynamic": false
-        },
-        {
-          "suite": "handleSetupWorktree",
-          "name": "MissingTaskName_ReturnsError",
-          "dynamic": false
-        },
-        {
-          "suite": "handleSetupWorktree",
-          "name": "runInstallStep_NoPackageJson_SkipsWithReason",
-          "dynamic": false
-        },
-        {
-          "suite": "handleSetupWorktree",
-          "name": "runInstallStep_NpmProject_RunsNpmInstall",
-          "dynamic": false
-        },
-        {
-          "suite": "handleSetupWorktree",
-          "name": "runInstallStep_PnpmLockfilePresent_DoesNotRunNpmInstall_RunsPnpmInstall",
-          "dynamic": false
-        },
-        {
-          "suite": "handleSetupWorktree",
-          "name": "runInstallStep_YarnClassicLockfilePresent_RunsYarnInstallFrozen",
-          "dynamic": false
-        },
-        {
-          "suite": "handleSetupWorktree",
-          "name": "runInstallStep_YarnBerryViaYarnrcYml_RunsYarnInstallImmutable",
-          "dynamic": false
-        },
-        {
-          "suite": "handleSetupWorktree",
-          "name": "runInstallStep_BunLockfilePresent_RunsBunInstall",
-          "dynamic": false
-        },
-        {
-          "suite": "handleSetupWorktree",
-          "name": "runBaselineTests_PnpmProject_RunsPnpmTest",
-          "dynamic": false
-        },
-        {
-          "suite": "handleSetupWorktree",
-          "name": "runBaselineTests_BunProjectWithTestRunScript_RunsBunRunTestRun",
-          "dynamic": false
-        },
-        {
-          "suite": "handleSetupWorktree",
-          "name": "runBaselineTests_BunProjectWithoutTestRunScript_FallsBackToBunTest",
-          "dynamic": false
-        },
-        {
-          "suite": "handleSetupWorktree",
-          "name": "runBaselineTests_NpmMissingTestRunScript_SkipsWithRemediation",
-          "dynamic": false
-        },
-        {
-          "suite": "handleSetupWorktree",
-          "name": "runBaselineTests_PythonProject_RunsPytest",
-          "dynamic": false
-        },
-        {
-          "suite": "handleSetupWorktree",
-          "name": "runBaselineTests_NoMarkers_SkipsWithRemediation",
-          "dynamic": false
-        },
-        {
-          "suite": "handleSetupWorktree",
-          "name": "runInstallStep_BunPriorityOverPnpm_BunWins",
-          "dynamic": false
-        },
-        {
-          "suite": "handleSetupWorktree > ensureGitignored direct-read behavior",
-          "name": "ensureGitignored_AlreadyPresent_ReportsAlreadyPresent",
-          "dynamic": false
-        },
-        {
-          "suite": "handleSetupWorktree > ensureGitignored direct-read behavior",
-          "name": "ensureGitignored_NotPresent_AppendsAndReportsAdded",
-          "dynamic": false
-        },
-        {
-          "suite": "handleSetupWorktree > ensureGitignored direct-read behavior",
-          "name": "ensureGitignored_FileMissing_CreatesWithEntry",
-          "dynamic": false
-        },
-        {
-          "suite": "handleSetupWorktree > ensureGitignored direct-read behavior",
-          "name": "ensureGitignored_GlobalIgnoreOnlyMatch_StillReportsHonestlyAndUpdatesRepoGitignore",
-          "dynamic": false
-        },
-        {
-          "suite": "handleSetupWorktree > ensureGitignored direct-read behavior",
-          "name": "ensureGitignored_AppendThrows_ReportsFail",
-          "dynamic": false
-        },
-        {
-          "suite": "handleSetupWorktree > branch-override resolution (DR-3)",
-          "name": "setupWorktree_WorkflowTasksHasBranch_UsesItOverDefault",
-          "dynamic": false
-        },
-        {
-          "suite": "handleSetupWorktree > branch-override resolution (DR-3)",
-          "name": "setupWorktree_ArgBranchOverridesWorkflowState",
-          "dynamic": false
-        },
-        {
-          "suite": "handleSetupWorktree > branch-override resolution (DR-3)",
-          "name": "setupWorktree_NoBranchAnywhere_UsesLegacyDefault",
-          "dynamic": false
-        },
-        {
-          "suite": "handleSetupWorktree > base-branch resolution (#1509/#1501)",
-          "name": "BaseBranch_ExplicitArg_Wins",
-          "dynamic": false
-        },
-        {
-          "suite": "handleSetupWorktree > base-branch resolution (#1509/#1501)",
-          "name": "BaseBranch_SynthesisIntegrationBranch_WhenNoArg",
-          "dynamic": false
-        },
-        {
-          "suite": "handleSetupWorktree > base-branch resolution (#1509/#1501)",
-          "name": "BaseBranch_CurrentHead_WhenNoArgOrSynthesis",
-          "dynamic": false
-        },
-        {
-          "suite": "handleSetupWorktree > base-branch resolution (#1509/#1501)",
-          "name": "BaseBranch_FallsBackToMain_WhenHeadUnresolvable",
-          "dynamic": false
-        },
-        {
-          "suite": "handleSetupWorktree > DR-1 burst-creation stagger",
-          "name": "SetupWorktree_BurstCreation_StaggersWithinConfiguredJitterWindow",
-          "dynamic": false
-        },
-        {
-          "suite": "handleSetupWorktree > DR-1 burst-creation stagger",
-          "name": "SetupWorktree_SingleCreation_NoStaggerDelay",
-          "dynamic": false
-        }
-      ]
-    },
     "tests/unit/verbs/team/verify-delegation-saga.test.ts": {
       "file": "tests/unit/verbs/team/verify-delegation-saga.test.ts",
       "runner": "vitest:root",
@@ -69863,117 +69600,6 @@
         }
       ]
     },
-    "tests/unit/verbs/worktree/manager.prune.test.ts": {
-      "file": "tests/unit/verbs/worktree/manager.prune.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "WorktreeManager.prune (real git + real event store)",
-          "name": "Prune_DefaultInvocation_DeletesNothing_ReportsCandidatesAndBytes",
-          "dynamic": false
-        },
-        {
-          "suite": "WorktreeManager.prune (real git + real event store)",
-          "name": "Prune_AdoptGate_ReconcilesUnadoptedWorktreesBeforeLadder",
-          "dynamic": false
-        },
-        {
-          "suite": "WorktreeManager.prune (real git + real event store)",
-          "name": "Prune_OnlyReleasedOrOrphanState_IsDeletionEligible",
-          "dynamic": false
-        },
-        {
-          "suite": "WorktreeManager.prune (real git + real event store)",
-          "name": "Prune_UnadoptedCleanWorktree_NotDeleted_ReproducesAndBlocks55724",
-          "dynamic": false
-        },
-        {
-          "suite": "WorktreeManager.prune (real git + real event store)",
-          "name": "Prune_LongRunningUnreleasedWorktree_StaleMtime_NotDeleted",
-          "dynamic": false
-        },
-        {
-          "suite": "WorktreeManager.prune (real git + real event store)",
-          "name": "Prune_ResolvesIntegrationRefPerWorktreeFromFeatureId",
-          "dynamic": false
-        },
-        {
-          "suite": "WorktreeManager.prune (real git + real event store)",
-          "name": "Prune_NullFeatureIdOrUnresolvableBranch_FailsClosed",
-          "dynamic": false
-        },
-        {
-          "suite": "WorktreeManager.prune (real git + real event store)",
-          "name": "Prune_UncommittedOrUntracked_NeverDeleted",
-          "dynamic": false
-        },
-        {
-          "suite": "WorktreeManager.prune (real git + real event store)",
-          "name": "Prune_Orphan_OnlyDeletedWithExplicitPruneOrphansYes",
-          "dynamic": false
-        },
-        {
-          "suite": "WorktreeManager.prune (real git + real event store)",
-          "name": "Prune_OriginUnreachable_FailsClosed",
-          "dynamic": false
-        },
-        {
-          "suite": "WorktreeManager.prune (real git + real event store)",
-          "name": "Prune_Deletion_EmitsRemoveRequestedThenExecuted",
-          "dynamic": false
-        },
-        {
-          "suite": "WorktreeManager.prune (real git + real event store)",
-          "name": "PruneWorktrees_Run_EmitsStartedAndTerminalExactlyOnce",
-          "dynamic": false
-        },
-        {
-          "suite": "WorktreeManager.prune (real git + real event store)",
-          "name": "PruneWorktrees_DryRun_AlsoEmitsLivenessPairSoPsSeesIt",
-          "dynamic": false
-        },
-        {
-          "suite": "WorktreeManager.prune (real git + real event store)",
-          "name": "PruneWorktrees_LadderThrows_StillEmitsTerminal_PairStays1To1",
-          "dynamic": false
-        },
-        {
-          "suite": "WorktreeManager.prune (real git + real event store)",
-          "name": "Prune_CrashBetweenRequestedAndDelete_ResumesIdempotently_SingleExecuted",
-          "dynamic": false
-        },
-        {
-          "suite": "WorktreeManager.prune (real git + real event store)",
-          "name": "Prune_ConcurrentWithReconcile_ReverifiesUnderLock_NoDoubleFree",
-          "dynamic": false
-        },
-        {
-          "suite": "WorktreeManager.prune (real git + real event store)",
-          "name": "Prune_DirtyProbeFails_BackingPresent_FailsClosed_NotDeleted",
-          "dynamic": false
-        },
-        {
-          "suite": "WorktreeManager.prune (real git + real event store)",
-          "name": "Prune_GoesDirtyBetweenPlanAndCommit_NotDeleted",
-          "dynamic": false
-        },
-        {
-          "suite": "WorktreeManager.prune (real git + real event store)",
-          "name": "Prune_RecoveryPath_NeverUsesResetHard",
-          "dynamic": false
-        },
-        {
-          "suite": "WorktreeManager.prune (real git + real event store)",
-          "name": "PruneExecutor_TransientIndexLock_RetriesWithBackoffThenRemoves",
-          "dynamic": false
-        },
-        {
-          "suite": "WorktreeManager.prune (real git + real event store)",
-          "name": "PruneExecutor_ExhaustedIndexLockRetry_PropagatesStructuredErrorNoDelete",
-          "dynamic": false
-        }
-      ]
-    },
     "tests/unit/verbs/worktree/manager.reconcile.test.ts": {
       "file": "tests/unit/verbs/worktree/manager.reconcile.test.ts",
       "runner": "vitest:root",
@@ -70496,72 +70122,6 @@
         }
       ]
     },
-    "tests/unit/verbs/worktree/pure/prune-ladder.test.ts": {
-      "file": "tests/unit/verbs/worktree/pure/prune-ladder.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "classifyPruneCandidate",
-          "name": "PruneLadder_ReservedLiveOwner_SkippedInUse",
-          "dynamic": false
-        },
-        {
-          "suite": "classifyPruneCandidate",
-          "name": "PruneLadder_UntrackedOnlyChanges_SkippedDirty",
-          "dynamic": false
-        },
-        {
-          "suite": "classifyPruneCandidate",
-          "name": "PruneLadder_HeadNotAncestorOfInjectedIntegrationRef_SkippedUnmerged",
-          "dynamic": false
-        },
-        {
-          "suite": "classifyPruneCandidate",
-          "name": "PruneLadder_NullIntegrationRef_TreatedUnverifiable_FailClosed",
-          "dynamic": false
-        },
-        {
-          "suite": "classifyPruneCandidate",
-          "name": "PruneLadder_NoAdoptionRecord_ClassifiedUnverifiable_NotDeletable",
-          "dynamic": false
-        },
-        {
-          "suite": "classifyPruneCandidate",
-          "name": "PruneLadder_BackingGitdirMissing_ClassifiedOrphan",
-          "dynamic": false
-        },
-        {
-          "suite": "classifyPruneCandidate",
-          "name": "PruneLadder_NullHeadAncestorWithBacking_FailsClosed",
-          "dynamic": false
-        },
-        {
-          "suite": "classifyPruneCandidate",
-          "name": "PruneLadder_OriginUnreachable_LeftUntouchedFailClosed",
-          "dynamic": false
-        },
-        {
-          "suite": "classifyPruneCandidate",
-          "name": "PruneLadder_ReleasedCleanMergedReachable_DeleteEligible",
-          "dynamic": false
-        },
-        {
-          "suite": "classifyPruneCandidate",
-          "name": "PruneLadder_AdoptedNeverReleased_SkippedActive_NotMtimeBased",
-          "dynamic": false
-        },
-        {
-          "suite": "classifyPruneCandidate",
-          "name": "PruneLadder_ReservedDeadOwnerNotYetReconciled_SkippedActive",
-          "dynamic": false
-        },
-        {
-          "suite": "classifyPruneCandidate",
-          "name": "PruneLadder_InUseTakesPrecedenceOverDirtyAndUnmerged",
-          "dynamic": false
-        }
-      ]
-    },
     "tests/unit/verbs/worktree/recovery.test.ts": {
       "file": "tests/unit/verbs/worktree/recovery.test.ts",
       "runner": "vitest:root",
@@ -70584,11 +70144,6 @@
         {
           "suite": "DR-12 — stale dead-holder reclamation",
           "name": "Recovery_StaleLeaseDeadHolder_WaitLoopReclaimsInlineNoFullTimeout",
-          "dynamic": false
-        },
-        {
-          "suite": "DR-12 — concurrent prune + merge",
-          "name": "Recovery_ConcurrentPruneAndMerge_PruneSkipsBranchWithInFlightLease",
           "dynamic": false
         },
         {
@@ -74146,7 +73701,7 @@
         },
         {
           "suite": "shared-mutating posture gate — removed (INV-11)",
-          "name": "ReadOnlyCaller_PruneWorktrees_IsStillRejected_ByTheReadonlyGate",
+          "name": "ReadOnlyCaller_AcquireWorktree_IsStillRejected_ByTheReadonlyGate",
           "dynamic": false
         }
       ]

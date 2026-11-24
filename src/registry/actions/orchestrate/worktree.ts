@@ -1,5 +1,5 @@
 import { withCappedShape } from '../../../output-schema-declaration.js';
-import { AcquireWorktreeOutputSchema, PruneWorktreesOutputSchema, ReconcileWorktreesOutputSchema, ReleaseWorktreeOutputSchema, SerializeMergeOutputSchema } from '../../../verbs/worktree/schemas.js';
+import { AcquireWorktreeOutputSchema, ReconcileWorktreesOutputSchema, ReleaseWorktreeOutputSchema, SerializeMergeOutputSchema } from '../../../verbs/worktree/schemas.js';
 import { z } from 'zod';
 import { declared, none, withActionContract } from '../../action-contract.js';
 import { COMPENSABLE_REMOTE, LOCAL_MUTATION_IDEMPOTENT } from '../../annotations.js';
@@ -9,19 +9,6 @@ import type { BuiltinActionDraft, BuiltinToolAction } from '../../types.js';
 function contracted(action: BuiltinActionDraft, contract: unknown): BuiltinToolAction {
   return withActionContract(action, contract, { annotations: action.annotations });
 }
-
-/**
- * The annotations of `prune_worktrees`. The prune is compensable and destructive, because the
- * two-event delete is the recovery seam. It is idempotent, because a re-run deletes only what is
- * still eligible. No preset has this tuple.
- */
-const PRUNE_ANNOTATIONS = {
-  safety: 'compensable',
-  readOnly: false,
-  destructive: true,
-  idempotent: true,
-  openWorld: false,
-} as const;
 
 export const worktreeActions: readonly BuiltinToolAction[] = [
   /**
@@ -90,7 +77,7 @@ export const worktreeActions: readonly BuiltinToolAction[] = [
       name: 'release_worktree',
       surface: 'worktree',
       description:
-        "Release the caller's worktree reservation. Appends worktree.released for worktreeId; a no-op when nothing is held (idempotent). Auto-emits worktree.released. Use for: freeing a worktree the current process reserved once its isolated work is done. Do NOT use for: freeing another live owner's claim (refused — reaping a dead owner is reconcile_worktrees's job); deleting the worktree from disk (use prune_worktrees).",
+        "Release the caller's worktree reservation. Appends worktree.released for worktreeId; a no-op when nothing is held (idempotent). Auto-emits worktree.released. Use for: freeing a worktree the current process reserved once its isolated work is done. Do NOT use for: freeing another live owner's claim (refused — reaping a dead owner is reconcile_worktrees's job); deleting the worktree from disk (the harness removes worktrees with its own tools).",
       schema: z.object({
         worktreeId: z.string().min(1),
       }),
@@ -112,79 +99,6 @@ export const worktreeActions: readonly BuiltinToolAction[] = [
       emissions: declared({ event: 'worktree.released', condition: 'always', owner: 'orchestrate', role: 'primary' }),
     }
   ),
-  contracted(
-    {
-      name: 'prune_worktrees',
-      surface: 'worktree',
-      description:
-        'Garbage-collect governed worktrees through the fail-closed safety ladder. Defaults to dry-run (report candidates + reclaimable bytes + grouped skip reasons, delete nothing); pass dryRun:false to apply. Orphan deletion needs pruneOrphans:true + yes:true on an apply run. Auto-emits worktree.remove.requested then worktree.remove.executed per deleted worktree. Use for: reclaiming released/orphan governed worktrees + their branches from the main worktree. Do NOT use for: freeing a live reservation (use release_worktree); listing the governed set (use worktrees).',
-      schema: z.object({
-        repoRoot: z.string().min(1),
-        /**
-         * Dry-run is the safe default, and only `dryRun: false` applies. The handler applies the
-         * default, not a Zod `.default()`, because the MCP flattener rejects different defaults
-         * for the shared `dryRun` field.
-         */
-        dryRun: z.boolean().optional(),
-        pruneOrphans: z.boolean().optional(),
-        yes: z.boolean().optional(),
-      }),
-      phases: ALL_PHASES,
-      roles: ROLE_LEAD,
-      /**
-       * The prune deletes shared worktrees and branches from the main worktree, so it has the
-       * strictest mutating posture. The resolver gate rejects a task-isolated or read-only caller
-       * before the prune runs.
-       */
-      posture: 'shared-mutating',
-      outputSchema: withCappedShape(PruneWorktreesOutputSchema),
-      annotations: PRUNE_ANNOTATIONS,
-    },
-    {
-      requires: none('prune has no admission gate; dry-run is the handler default'),
-      ensures: declared({ source: 'event-append', when: 'always', event: 'prune.executed' }),
-      needs: declared('fs:write', 'shell:exec'),
-      touches: {
-        frame: 'single-machine',
-        resources: declared(
-          { kind: 'worktree', selector: 'governed' },
-          { kind: 'path', selector: 'repoRoot' },
-        ),
-      },
-      executionAuthority: { kind: 'local' },
-      replay: { kind: 'safe-repeat' },
-      emissions: declared(
-        {
-          event: 'worktree.remove.requested',
-          condition: 'conditional',
-          owner: 'orchestrate',
-          role: 'primary',
-          description: 'Per delete-eligible candidate on an apply run',
-        },
-        {
-          event: 'worktree.remove.executed',
-          condition: 'conditional',
-          owner: 'orchestrate',
-          role: 'primary',
-          description: 'After each git worktree remove succeeds',
-        },
-        {
-          event: 'prune.executing_started',
-          condition: 'conditional',
-          owner: 'orchestrate',
-          role: 'primary',
-          description: 'Once per prune pass, before the safety ladder',
-        },
-        {
-          event: 'prune.executed',
-          condition: 'conditional',
-          owner: 'orchestrate',
-          role: 'primary',
-          description: 'Closes the pass exactly once, including on a throw',
-        },
-      ),
-    }
-  ),
   /**
    * The ground-truth reconcilers. They append events, so they are an action and not part of a
    * read verb. Thus the surface that emits `launch.executed` and `worktree.orphan_detected` also declares them.
@@ -194,7 +108,7 @@ export const worktreeActions: readonly BuiltinToolAction[] = [
       name: 'reconcile_worktrees',
       surface: 'worktree',
       description:
-        'Reconcile governed worktrees and in-flight operations against the ground-truth process table, healing what a dead holder left behind. Three fail-closed passes: reservation reclaim (a worktree whose owner is provably dead is released, or flagged an orphan when a live foreign process still holds the path); phantom-launch heal (an in-flight launch whose supervisor died uncatchably is closed with its terminal); crash-mid-merge heal (a stranded merge lease whose holder is provably dead is freed). A live or unprovable holder is ALWAYS left in flight. Returns each pass\'s findings plus the POST-reconcile in-flight columns. Idempotent: a second pass heals nothing and emits nothing. Auto-emits worktree.released / worktree.orphan_detected / launch.executed / worktree.merge_executed per healed entry. Use for: clearing liveness phantoms ps reports after a crash. Do NOT use for: reading in-flight state (use ps — read-only, heals nothing); releasing your OWN reservation (use release_worktree); deleting worktrees from disk (use prune_worktrees).',
+        'Reconcile governed worktrees and in-flight operations against the ground-truth process table, healing what a dead holder left behind. Three fail-closed passes: reservation reclaim (a worktree whose owner is provably dead is released, or flagged an orphan when a live foreign process still holds the path); phantom-launch heal (an in-flight launch whose supervisor died uncatchably is closed with its terminal); crash-mid-merge heal (a stranded merge lease whose holder is provably dead is freed). A live or unprovable holder is ALWAYS left in flight. Returns each pass\'s findings plus the POST-reconcile in-flight columns. Idempotent: a second pass heals nothing and emits nothing. Auto-emits worktree.released / worktree.orphan_detected / launch.executed / worktree.merge_executed per healed entry. Use for: clearing liveness phantoms ps reports after a crash. Do NOT use for: reading in-flight state (use ps — read-only, heals nothing); releasing your OWN reservation (use release_worktree); deleting worktrees from disk (the harness removes worktrees with its own tools).',
       /**
        * No parameters. The passes cover the singleton `worktrees` stream and the process table.
        * Each heal needs a holder that is provably dead, so a dry-run default protects nothing.

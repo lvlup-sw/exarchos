@@ -436,6 +436,20 @@ export const ACTION_APPEND_OWNERSHIP: readonly ActionAppendOwnership[] = Object.
     wiring: 'cancel is the sole caller of the compensation saga, whose branch compensator journals the result',
   },
   {
+    action: 'cancel',
+    declaringTool: 'exarchos_workflow',
+    module: 'workflow/compensation.ts',
+    event: 'worktree.remove.requested',
+    wiring: 'cancel is the sole caller of the compensation saga, whose worktree compensator journals intent',
+  },
+  {
+    action: 'cancel',
+    declaringTool: 'exarchos_workflow',
+    module: 'workflow/compensation.ts',
+    event: 'worktree.remove.executed',
+    wiring: 'cancel is the sole caller of the compensation saga, whose worktree compensator journals the result',
+  },
+  {
     action: 'prepare_review',
     declaringTool: 'exarchos_orchestrate',
     module: 'verbs/team/prepare-review.ts',

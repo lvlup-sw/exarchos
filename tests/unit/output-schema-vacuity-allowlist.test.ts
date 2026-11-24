@@ -304,6 +304,7 @@ describe('DR-4: outputSchema vacuity is unconstructible', () => {
       'exarchos_orchestrate.list_prs',
       'exarchos_orchestrate.merge_pr',
       'exarchos_orchestrate.mutation-adequacy',
+      'exarchos_orchestrate.setup_worktree',
       'exarchos_orchestrate.validate_pr_stack',
       'exarchos_sync.now',
       'exarchos_view.stack_place',
@@ -347,6 +348,7 @@ describe('DR-4: outputSchema vacuity is unconstructible', () => {
       'exarchos_orchestrate.list_prs',
       'exarchos_orchestrate.merge_pr',
       'exarchos_orchestrate.mutation-adequacy',
+      'exarchos_orchestrate.setup_worktree',
       'exarchos_orchestrate.validate_pr_stack',
     ]);
 

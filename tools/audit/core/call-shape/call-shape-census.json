@@ -2541,7 +2541,7 @@
   ],
   "pins": {
     "contractAuthority": {
-      "actionIdRegistryDigest": "sha256:a0f8c04aae03eb90e02d16d35d6c01532e54f83982fde8a726a73a4a3aa8e520",
+      "actionIdRegistryDigest": "sha256:40ce58b4a36308166be1e8ec48b6fc494b0e8052acf42cc064f69124273c258c",
       "file": "src/contract/contract-authority.lock.json"
     },
     "inputs": [
@@ -2567,8 +2567,8 @@
       }
     ],
     "registry": {
-      "actionIdsSha256": "a0f8c04aae03eb90e02d16d35d6c01532e54f83982fde8a726a73a4a3aa8e520",
-      "actions": 115,
+      "actionIdsSha256": "40ce58b4a36308166be1e8ec48b6fc494b0e8052acf42cc064f69124273c258c",
+      "actions": 113,
       "file": "tools/audit/registered-actions-snapshot.json",
       "tools": 5,
       "visibleTools": 4

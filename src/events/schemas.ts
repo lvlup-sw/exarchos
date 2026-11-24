@@ -454,9 +454,9 @@ export const EventTypes = [
   'feedback.recorded',
   /**
    * Prune-run liveness on the singleton `worktrees` stream. `worktrees@v1` folds the pair into
-   * `inFlightPrunes`, keyed by `operationId`. `prune.executing_started` records the process that runs
-   * the `prune_worktrees` pass. `prune.executed` clears the in-flight marker. The WorktreeManager owns
-   * both appends.
+   * `inFlightPrunes`, keyed by `operationId`. `prune.executing_started` recorded the process that ran
+   * a pass of the retired `prune_worktrees` action. `prune.executed` clears the in-flight marker. No code
+   * appends either event now, but old logs replay the same.
    */
   'prune.executing_started',
   'prune.executed',
@@ -683,8 +683,7 @@ export const TaskAssignedData = z.object({
   taskId: z.string().describe('Unique identifier for the task'),
   title: z.string().describe('Human-readable task title'),
   /**
-   * The planned branch of the task. `setup_worktree` takes the first branch that is set: `args.branch`,
-   * then `workflow.tasks[id].branch`, then the default.
+   * The planned branch of the task. The harness creates the task worktree on this branch.
    */
   branch: z.string().optional().describe('Git branch for this task (planned). Optional.'),
   worktree: z.string().optional().describe('Path to the git worktree for isolation'),
@@ -2471,7 +2470,7 @@ export const FeedbackRecordedData = z.object({
   upstreamDelivered: z.boolean().optional(),
 });
 
-/** Emitted at the start of a `prune_worktrees` pass. */
+/** Emitted at the start of a pass of the retired `prune_worktrees` action. Old logs still hold it. */
 export const PruneExecutingStartedData = z.object({
   /** Correlation key + `inFlightPrunes` map key — one per prune pass. */
   operationId: z.string().min(1),
@@ -2504,7 +2503,7 @@ export const PruneDiagnosticsData = z.object({
   advisory: z.string().optional(),
 });
 
-/** The paired terminal: the `prune_worktrees` pass completed. */
+/** The paired terminal of a pass of the retired `prune_worktrees` action. Old logs still hold it. */
 export const PruneExecutedData = z.object({
   operationId: z.string().min(1),
   /** How many worktrees the pass deleted (0 on a dry-run or a no-op pass). */

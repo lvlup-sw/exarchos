@@ -147,8 +147,6 @@ const WORKTREE_MUTATION_RE = /\[\s*['"]worktree['"]\s*,\s*['"](?:add|remove|prun
  */
 const WIRED_IDIOM_REQUIREMENTS = new Map([
   ['verbs/vcs/git-exec-default.ts', /\bwithIndexLockRetrySync\s*\(/],
-  ['verbs/team/setup-worktree.ts', /\bburstStagger\s*\(/],
-  ['verbs/worktree/manager.ts', /\bwithIndexLockRetry\s*\(/],
   ['workflow/compensation.ts', /\bwithIndexLockRetry\s*\(/],
 ]);
 /**

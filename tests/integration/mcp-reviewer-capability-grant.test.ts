@@ -402,7 +402,6 @@ describe('reviewer MCP session cannot use the operator grant', () => {
  * The other rows need a prepared workflow, a worktree lease, or a long host command.
  */
 export const UNTESTED_SHARED_OPERATIONS: readonly string[] = [
-  'exarchos_orchestrate.setup_worktree',
   'exarchos_orchestrate.serialize_merge',
   'exarchos_orchestrate.execute_intent',
   'exarchos_orchestrate.settle',

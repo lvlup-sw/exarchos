@@ -996,7 +996,7 @@ describe('handlePrepareDelegation', () => {
     expect(data.isolation).toBe('native');
   });
 
-  /** Without native isolation, `setup_worktree` sets the worktree base, so the base-ref guard does not run. */
+  /** Without native isolation, the harness sets the worktree base, so the base-ref guard does not run. */
   it('PrepareDelegation_NonNativeIsolation_DoesNotRunBaseRefGuard', async () => {
     const state = readyWorkflowState();
     setupMaterializer(state, undefined, readyDelegationReadiness());

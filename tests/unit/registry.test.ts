@@ -675,7 +675,7 @@ describe('TOOL_REGISTRY', () => {
     it('should have 71 actions for task management, review triage, gate checks, validation handlers, runbooks, agent spec, oneshot/pruning, onboard (DR-2 task 011), doctor, VCS, classify_review_items (#1159), merge_orchestrate (DR-MO-1), check_integration_suite (#1329), check_invariant_conformance (DR-3), invariants_scaffold/invariants_add (invariants-catalog-wizard P2), check_contract_drift + check_mock_boundary (verification-ladder slice 1), and composite actions', () => {
       const composite = findComposite('exarchos_orchestrate');
       expect(composite).toBeDefined();
-      expect(composite!.actions).toHaveLength(73);
+      expect(composite!.actions).toHaveLength(71);
 
       const actionNames = composite!.actions.map((a) => a.name);
       expect(actionNames).toEqual(
@@ -714,7 +714,6 @@ describe('TOOL_REGISTRY', () => {
           'generate_traceability',
           'spec_coverage_check',
           'verify_worktree_baseline',
-          'setup_worktree',
           'verify_delegation_saga',
           'post_delegation_check',
           'reconcile_state',
@@ -735,7 +734,6 @@ describe('TOOL_REGISTRY', () => {
           'invariants_add',
           'acquire_worktree',
           'release_worktree',
-          'prune_worktrees',
           'serialize_merge',
           'check_exploration_depth',
         ]),
@@ -2713,7 +2711,6 @@ const EXPECTED_EFFECTIVE_BUDGETS: Readonly<Record<string, number>> = {
   'exarchos_orchestrate.generate_traceability': 2000,
   'exarchos_orchestrate.spec_coverage_check': 2000,
   'exarchos_orchestrate.verify_worktree_baseline': 2000,
-  'exarchos_orchestrate.setup_worktree': 2000,
   'exarchos_orchestrate.verify_delegation_saga': 2000,
   'exarchos_orchestrate.post_delegation_check': 2000,
   'exarchos_orchestrate.reconcile_state': 2000,
@@ -2741,7 +2738,6 @@ const EXPECTED_EFFECTIVE_BUDGETS: Readonly<Record<string, number>> = {
   'exarchos_orchestrate.invariants_amend': 2000,
   'exarchos_orchestrate.acquire_worktree': 2000,
   'exarchos_orchestrate.release_worktree': 2000,
-  'exarchos_orchestrate.prune_worktrees': 2000,
   'exarchos_orchestrate.serialize_merge': 2000,
   'exarchos_orchestrate.cutover_readiness': 2000,
   'exarchos_orchestrate.cutover_decide': 2000,
@@ -3040,9 +3036,6 @@ describe('Task 022 — registry schema batch (DR-1/DR-3/DR-8)', () => {
       worktreeId: 'wt', path: '/tmp/wt', featureId: null, reserved: true, adopted: true,
     },
     'exarchos_orchestrate.release_worktree': { worktreeId: 'wt', released: true },
-    'exarchos_orchestrate.prune_worktrees': {
-      dryRun: true, candidates: [], deleted: [], reclaimableBytes: 0, skipsByReason: {},
-    },
     'exarchos_orchestrate.serialize_merge': {
       dryRun: true, integrationRef: 'main', sourceBranch: 'feat/x', strategy: 'squash',
       featureId: 'f', integrationHead: null,
@@ -3295,7 +3288,7 @@ describe('Task 022 — registry schema batch (DR-1/DR-3/DR-8)', () => {
      */
     it('every typed-output action validates a {summary,counts,firstPage} capped envelope', () => {
       const actions = typedOutputActions();
-      expect(actions.length).toBe(36);
+      expect(actions.length).toBe(35);
       for (const { tool, action } of actions) {
         const parsed = action.outputSchema.safeParse(cappedEnvelope());
         expect(
@@ -3790,8 +3783,15 @@ describe('the closed retired-action table', () => {
       'exarchos_orchestrate.check_coderabbit',
       'exarchos_orchestrate.validate_pr_stack',
       'exarchos_orchestrate.assess_stack',
+      'exarchos_orchestrate.setup_worktree',
+      'exarchos_orchestrate.prune_worktrees',
     ]);
     expect(new Set(RETIRED_ACTIONS.filter((entry) => entry.action !== 'mutation-adequacy' && entry.action !== 'check_test_adequacy').map((entry) => entry.code))).toEqual(new Set(['PROVIDER_WRITE_RETIRED', 'PROVIDER_READ_RETIRED']));
+    expect(RETIRED_ACTIONS.filter((entry) => entry.code === 'PROVIDER_WRITE_RETIRED').map((entry) => entry.action)).toEqual(['create_pr', 'merge_pr', 'add_pr_comment', 'create_issue', 'setup_worktree', 'prune_worktrees']);
+    expect(RETIRED_ACTIONS.filter((entry) => entry.action === 'setup_worktree' || entry.action === 'prune_worktrees').map((entry) => entry.message)).toEqual([
+      'Exarchos retires worktree provisioning. The harness creates task worktrees and removes them from disk with its own tools.',
+      'Exarchos retires worktree provisioning. The harness creates task worktrees and removes them from disk with its own tools.',
+    ]);
     expect(RETIRED_ACTIONS.filter((entry) => entry.code === 'PROVIDER_READ_RETIRED').map((entry) => entry.action)).toEqual(['check_ci', 'list_prs', 'get_pr_comments', 'check_pr_comments', 'check_coderabbit', 'validate_pr_stack', 'assess_stack']);
     for (const entry of RETIRED_ACTIONS) {
       const tool = TOOL_REGISTRY.find((candidate) => candidate.name === entry.tool);

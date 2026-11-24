@@ -200,6 +200,11 @@ const RETIRED_TEST_FILES: ReadonlyArray<{ path: string; subject: string }> = [
   { path: 'tests/unit/verbs/vcs/merge-pr.test.ts', subject: 'src/verbs/vcs/merge-pr.ts' },
   { path: 'tests/unit/verbs/vcs/validate-pr-stack.test.ts', subject: 'src/verbs/vcs/validate-pr-stack.ts' },
   { path: 'tests/unit/vcs/require-github.test.ts', subject: 'src/vcs/require-github.ts' },
+  { path: 'tests/unit/verbs/team/setup-worktree.test.ts', subject: 'src/verbs/team/setup-worktree.ts' },
+  { path: 'tests/unit/verbs/team/setup-worktree.integration.test.ts', subject: 'src/verbs/team/setup-worktree.ts' },
+  { path: 'tests/unit/vcs/worktree-provisioner.test.ts', subject: 'src/vcs/worktree-provisioner.ts' },
+  { path: 'tests/unit/verbs/worktree/pure/prune-ladder.test.ts', subject: 'src/verbs/worktree/pure/prune-ladder.ts' },
+  { path: 'tests/unit/verbs/worktree/manager.prune.test.ts', subject: 'src/verbs/worktree/pure/prune-ladder.ts' },
 ];
 
 describe('test inventory', () => {

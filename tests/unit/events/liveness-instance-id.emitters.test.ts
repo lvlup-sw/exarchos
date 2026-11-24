@@ -1,20 +1,18 @@
-// Characterization of the three live liveness emitters at the emission boundary: merge, launch
-// and prune. Each one runs through its real emission path into a real `EventStore`.
+// Characterization of the two live liveness emitters at the emission boundary: merge and launch.
+// Each one runs through its real emission path into a real `EventStore`.
 // The tests parse the start and terminal payloads with the exported Zod schemas, because
 // `EventStore.append` validates only the envelope. Each payload must carry the canonical
 // `instanceId`:
 //   - merge: `taskId`, or `${sourceBranch}→${targetBranch}` with no `taskId`
 //   - launch: `worktreeId`
-//   - prune: the `operationId` of the pass
 //
-// The mutation gate is retired, so no code emits the mutation pair. A stored mutation pair
-// still parses and still pairs by its `operationId`.
+// The mutation gate and the prune action are retired, so no code emits the mutation pair or the
+// prune pair. A stored pair of each still parses and still pairs by its `operationId`.
 // The import of `projections/merge-orchestrator/index.js` registers `merge-orchestrator@v1`, so
 // the `decide` closure of the merge executor can resolve the reducer against a real `EventStore`.
 
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { mkdtemp, mkdir, writeFile } from 'node:fs/promises';
-import { realpathSync } from 'node:fs';
+import { mkdtemp, mkdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 
@@ -30,7 +28,6 @@ import {
   PruneExecutedData,
   type WorkflowEvent,
 } from '../../../src/events/schemas.js';
-import { execFileAsync } from '../../../tools/test-helpers/spawn.js';
 import { rmrfAsync } from '../../../tools/test-helpers/temp-dir.js';
 import type { DispatchContext } from '../../../src/dispatch/core/dispatch.js';
 import { handleExecuteMerge } from '../../../src/verbs/merge/execute-merge.js';
@@ -39,7 +36,7 @@ import {
   emitLaunchExecutingStarted,
   emitLaunchExecuted,
 } from '../../../src/runtime/launcher/liveness.js';
-import { WorktreeManager, WORKTREES_STREAM } from '../../../src/verbs/worktree/manager.js';
+import { WORKTREES_STREAM } from '../../../src/verbs/worktree/manager.js';
 import { getLivenessDescriptor } from '../../../src/events/liveness-registry.js';
 
 const scratchDirs: string[] = [];
@@ -51,23 +48,6 @@ async function makeStore(prefix: string): Promise<{ store: EventStore; stateDir:
   const store = new EventStore(stateDir);
   await store.initialize();
   return { store, stateDir };
-}
-
-/** Init a real git repo (one commit, no linked worktrees) — prune's ground truth. */
-async function initRepo(prefix: string): Promise<string> {
-  const dir = await mkdtemp(path.join(tmpdir(), prefix));
-  scratchDirs.push(dir);
-  const git = async (args: readonly string[]): Promise<void> => {
-    await execFileAsync('git', args, { cwd: dir });
-  };
-  await git(['init', '-q', '-b', 'work']);
-  await git(['config', 'user.email', 'dr2@example.com']);
-  await git(['config', 'user.name', 'DR2 Test']);
-  await git(['config', 'commit.gpgsign', 'false']);
-  await writeFile(path.join(dir, 'README.md'), '# dr2 liveness instanceId test\n');
-  await git(['add', '.']);
-  await git(['commit', '-q', '-m', 'init']);
-  return realpathSync(dir);
 }
 
 function makeCtx(eventStore: EventStore, stateDir: string): DispatchContext {
@@ -88,6 +68,10 @@ function makeGitExec(recoverySha: string) {
 const STORED_MUTATION_START = { command: 'npx stryker run', repoRoot: '/repo', operationId: 'op-mutation-run', instanceId: 'op-mutation-run' };
 const STORED_MUTATION_TERMINAL = { ...STORED_MUTATION_START, passed: true, exitCode: 0 };
 
+/** The data of a prune pair that the retired `prune_worktrees` action stored before its retirement. */
+const STORED_PRUNE_START = { operationId: 'op-prune-pass', repoRoot: '/repo', holderPid: 4242, holderStartedAt: 'boot-4242', instanceId: 'op-prune-pass' };
+const STORED_PRUNE_TERMINAL = { operationId: 'op-prune-pass', deletedCount: 0, instanceId: 'op-prune-pass' };
+
 afterEach(async () => {
   while (scratchDirs.length > 0) {
     const dir = scratchDirs.pop();
@@ -104,13 +88,10 @@ function findByType(events: readonly WorkflowEvent[], type: string): WorkflowEve
 describe('DR-2 liveness emitters', () => {
   /**
    * Merge: with a `taskId`, the `instanceId` is the `taskId`. With none, it is `<source>→<target>`.
-   * Mutation: a stored pair parses with its schemas, and the registry pairs it by its `instanceId`.
-   *
-   * Prune: a repository with no released or orphan worktree is a no-op pass, and the liveness pair
-   * still brackets it. The `catch` lets the test read the pair when the enumeration fails.
+   * Mutation and prune: a stored pair parses with its schemas, and the registry pairs it by its `instanceId`.
    * Prune uses its `operationId` as the instance key, so start and terminal hold the same value.
    */
-  it('ThreeLiveEmittersAndTheStoredMutationPair_CarryCanonicalInstanceIdAdditively', async () => {
+  it('TwoLiveEmittersAndTheStoredMutationAndPrunePairs_CarryCanonicalInstanceIdAdditively', async () => {
     {
       const { store, stateDir } = await makeStore('dr2-merge-');
       const recoverySha = 'b'.repeat(40);
@@ -193,22 +174,13 @@ describe('DR-2 liveness emitters', () => {
     }
 
     {
-      const { store } = await makeStore('dr2-prune-store-');
-      const repoRoot = await initRepo('dr2-prune-repo-');
-      const manager = new WorktreeManager({ eventStore: store });
-      try {
-        await manager.prune({ repoRoot });
-      } catch {
-      }
-
-      const events = await store.query(WORKTREES_STREAM);
-      const started = PruneExecutingStartedData.parse(
-        findByType(events, 'prune.executing_started').data,
-      );
-      const terminal = PruneExecutedData.parse(findByType(events, 'prune.executed').data);
+      const started = PruneExecutingStartedData.parse(STORED_PRUNE_START);
+      const terminal = PruneExecutedData.parse(STORED_PRUNE_TERMINAL);
+      const { instanceKeyOf } = getLivenessDescriptor('prune');
       expect(started.instanceId).toBe(started.operationId);
-      expect(terminal.instanceId).toBe(started.operationId);
       expect(terminal.instanceId).toBe(terminal.operationId);
+      expect(instanceKeyOf(started)).toBe('op-prune-pass');
+      expect(instanceKeyOf(terminal)).toBe('op-prune-pass');
     }
   });
 });

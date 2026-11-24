@@ -26,13 +26,12 @@ const SOURCE_ROOT = join(process.cwd(), 'src');
  * The definite faults. Each append is inside the area of a provider that the annotation does not
  * name, so one of the two claims is false.
  *
- * The list must only shrink. Both events are worktree lifecycle events with the provider
- * `exarchos_orchestrate` (`verbs/`). The saga compensation path in `workflow/` appends them, and
+ * The list must only shrink. The event is a worktree lifecycle event with the provider
+ * `exarchos_orchestrate` (`verbs/`). The saga compensation path in `workflow/` appends it, and
  * `exarchos_workflow` owns that area.
  */
 const MEASURED_CONTRADICTIONS: readonly string[] = Object.freeze([
   'worktree.adopted -> workflow/compensation.ts (owned by exarchos_workflow)',
-  'worktree.remove.executed -> workflow/compensation.ts (owned by exarchos_workflow)',
 ]);
 
 /**
