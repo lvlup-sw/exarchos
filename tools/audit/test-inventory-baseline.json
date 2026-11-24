@@ -7,7 +7,7 @@
     "testFiles": 1407,
     "parsedFiles": 1363,
     "shellFiles": 44,
-    "cases": 15736,
+    "cases": 15746,
     "dynamicTitles": 325,
     "unparseableFiles": 0
   },
@@ -34891,6 +34891,46 @@
         },
         {
           "suite": "installSkills error handling (task 021)",
+          "name": "InstallSkills_LocalSourceOnlyWithNoLocalSkills_RefusesAndSpawnsNothing",
+          "dynamic": false
+        },
+        {
+          "suite": "installSkills error handling (task 021)",
+          "name": "InstallSkills_NoVersionOption_PinsTheTagOfThisBuild",
+          "dynamic": false
+        },
+        {
+          "suite": "installSkills error handling (task 021)",
+          "name": "InstallSkills_NoVersionOptionInTheCompiledBinary_PinsTheBuildTimeVersion",
+          "dynamic": false
+        },
+        {
+          "suite": "installSkills error handling (task 021)",
+          "name": "InstallSkills_CompiledBinaryThatIsNotAReleaseBuild_InstallsTheDefaultBranchAndSaysSo",
+          "dynamic": false
+        },
+        {
+          "suite": "installSkills error handling (task 021)",
+          "name": "InstallSkills_VersionWithNoReleaseTag_InstallsTheDefaultBranchAndSaysSo",
+          "dynamic": false
+        },
+        {
+          "suite": "installSkills error handling (task 021)",
+          "name": "SkillsInstallSource_EachVersionForm_GivesTheTagOrTheDefaultBranch",
+          "dynamic": false
+        },
+        {
+          "suite": "installSkills error handling (task 021)",
+          "name": "SkillsInstallSource_EachBuildKind_PinsOnlyAReleaseBuildOrASourceRun",
+          "dynamic": false
+        },
+        {
+          "suite": "installSkills error handling (task 021)",
+          "name": "InstallSkills_EachBuildKind_RunsThePinnedOrTheDefaultBranchCommand",
+          "dynamic": false
+        },
+        {
+          "suite": "installSkills error handling (task 021)",
           "name": "InstallSkills_AmbiguousDetection_InteractivePrompt",
           "dynamic": false
         },
@@ -59425,17 +59465,17 @@
       "runner": "vitest:root",
       "cases": [
         {
-          "suite": "installStep (DR-2/DR-6 — skills + deps install)",
-          "name": "Install_LocalCopyFastPath_ThenNpxFallback",
+          "suite": "installStep (local skills copy)",
+          "name": "Install_LocalCopyFastPath_MissingSourceRefusesWithNoProcess",
           "dynamic": false
         },
         {
-          "suite": "installStep (DR-2/DR-6 — skills + deps install)",
+          "suite": "installStep (local skills copy)",
           "name": "Install_DoesNotRegisterMcp_SingleRegistrationInGenerate",
           "dynamic": false
         },
         {
-          "suite": "installStep (DR-2/DR-6 — skills + deps install)",
+          "suite": "installStep (local skills copy)",
           "name": "Install_WiredIntoDefaultOnboardDeps_CliSurface",
           "dynamic": false
         },
@@ -59494,6 +59534,16 @@
           "suite": "editor MCP launch written by generate",
           "name": "DoctorFix_FreshRepo_DoesNotPublishFloatingRegistryLaunch",
           "dynamic": false
+        },
+        {
+          "suite": "editor MCP upgrade adds the read-only server",
+          "name": "Onboard_OrchestratorOnlyEditorConfigs_AddsReadOnlyServer",
+          "dynamic": false
+        },
+        {
+          "suite": "editor MCP upgrade adds the read-only server",
+          "name": "DoctorFix_OrchestratorOnlyEditorConfigs_AddsReadOnlyServer",
+          "dynamic": false
         }
       ]
     },
@@ -59549,7 +59599,7 @@
       "cases": [
         {
           "suite": "onboard failure modes (DR-10, task 019)",
-          "name": "Install_OfflineNpxFailure_ExitsNonZeroForwardOnly",
+          "name": "Install_MissingSkillsSource_ExitsNonZeroForwardOnly",
           "dynamic": false
         },
         {

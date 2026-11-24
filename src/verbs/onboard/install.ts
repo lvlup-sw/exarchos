@@ -1,14 +1,13 @@
 /**
- * The skills and dependencies install hook behind {@link ApplyCtx.installStep}.
+ * The skills install hook behind {@link ApplyCtx.installStep}.
  * The reconciler calls it only on the CLI surface, and converts the step to an {@link Advisory} elsewhere. So this hook has no surface guard.
  *
  * It first removes stale skill directories from a skill rename, when provenance proves that Exarchos installed them.
- * Then it installs the skills bundle through `installSkills`, with a local-copy fast path and an `npx skills add` fallback.
- * Then it runs the project install command from `resolveTestRuntime(repoRoot).install`. A `null` command means no known toolchain, and the step does nothing.
- * All I/O is injected, so tests need no network `npx`.
+ * Then it copies the skills bundle from a local source through `installSkills`.
+ * It starts no process and makes no network call. It does not install the dependencies of the project.
+ * When no local source has skills for the runtime, the step fails with a refusal that names the plugin and `exarchos skills get`.
  */
 
-import { spawn as nodeSpawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import * as fs from 'node:fs';
 import { homedir } from 'node:os';
@@ -19,10 +18,6 @@ import { atomicCopyTreeSync } from '../../install/atomic-promotion.js';
 
 import type { ApplyCtx } from '../../dispatch/core/onboarding/reconcile.js';
 import type { PlanStep } from '../../dispatch/core/onboarding/types.js';
-import {
-  resolveTestRuntime,
-  type ResolvedRuntime,
-} from '../../config/test-runtime-resolver.js';
 
 /**
  * The injected side effects for {@link makeInstallStep}. Production uses {@link installStep}, with all defaults.
@@ -31,7 +26,7 @@ import {
 export interface InstallStepDeps {
   /**
    * Resolves the skills source tree, the parent of `<runtime>/<skill>/SKILL.md`.
-   * A value selects the local-copy fast path, and `undefined` selects `npx skills add`. When absent, the bridge uses `findSkillsSourceDir()`.
+   * `undefined` makes the step fail with the missing-source refusal. When absent, the bridge uses `findSkillsSourceDir()`.
    */
   readonly resolveSkillsSource?: () => string | undefined;
   /** Resolves the `command-aliases/` source tree, so opencode aliases install with the skills. When absent, the bridge uses `findCommandAliasesSourceDir()`. */
@@ -46,12 +41,6 @@ export interface InstallStepDeps {
   readonly copyDir?: (src: string, dest: string) => void;
   /** Single-file copy (command aliases). Default `fs.copyFileSync`. */
   readonly copyFile?: (src: string, dest: string) => void;
-  /** Spawn for the `npx skills add` fallback. Tests inject a recorder, so the fallback never uses the network. */
-  readonly spawn?: (
-    cmd: string,
-    args: string[],
-    opts?: { env?: NodeJS.ProcessEnv },
-  ) => Promise<{ code: number; stderr: string }>;
   /** Registers the Exarchos MCP server in `~/.claude.json`. Default is a no-op. */
   readonly registerMcp?: (home: string) => void;
   /** Information log sink. */
@@ -69,10 +58,6 @@ export interface InstallStepDeps {
   readonly platform?: NodeJS.Platform;
   /** Exarchos version for the provenance manifest. */
   readonly version?: string;
-  /** Resolves the project install command. Default `resolveTestRuntime(repoRoot).install`. It returns `null` when no known toolchain is present. */
-  readonly resolveInstallCommand?: (repoRoot: string) => string | null;
-  /** Runs the install command in `cwd`. Default spawns it through a shell. */
-  readonly runCommand?: (command: string, cwd: string) => Promise<void>;
   /** Replaces the bridge call. Default is a dynamic import of `lifecycle/install-skills-bridge.js`. */
   readonly runSkillsInstall?: (opts: SkillsInstallOpts) => Promise<void>;
   /** The rename migration. It runs before the skills install, so old and new names never exist together. Default {@link defaultRunMigrate}. */
@@ -95,11 +80,6 @@ export interface SkillsInstallOpts {
   readonly homeDir?: () => string;
   readonly copyDir?: (src: string, dest: string) => void;
   readonly copyFile?: (src: string, dest: string) => void;
-  readonly spawn?: (
-    cmd: string,
-    args: string[],
-    opts?: { env?: NodeJS.ProcessEnv },
-  ) => Promise<{ code: number; stderr: string }>;
   readonly registerMcp?: (home: string) => void;
   readonly log?: (msg: string) => void;
   readonly errLog?: (msg: string) => void;
@@ -111,32 +91,8 @@ export interface SkillsInstallOpts {
   readonly platform?: NodeJS.Platform;
   /** Exarchos version recorded in the provenance manifest. */
   readonly version?: string;
-}
-
-/** Returns the install command from the layered resolver `resolveTestRuntime`, or `null` when no known toolchain is present. */
-function defaultResolveInstallCommand(repoRoot: string): string | null {
-  const resolved: ResolvedRuntime = resolveTestRuntime(repoRoot);
-  return resolved.install;
-}
-
-/**
- * Spawns the install command in `cwd` through a shell, so a command with arguments runs as written. The operator sees the output.
- * It rejects on a non-zero exit or a spawn error, and the onboard pipeline then leaves the step residual.
- */
-function defaultRunCommand(command: string, cwd: string): Promise<void> {
-  return new Promise<void>((resolve, reject) => {
-    const child = nodeSpawn(command, {
-      cwd,
-      shell: true,
-      stdio: 'inherit',
-      env: { ...process.env, CI: 'true' },
-    });
-    child.on('error', (err) => reject(err));
-    child.on('close', (code) => {
-      if ((code ?? 0) === 0) resolve();
-      else reject(new Error(`install command exited ${code}: ${command}`));
-    });
-  });
+  /** Always true from the onboard step, so `installSkills` refuses and never runs `npx skills add`. */
+  readonly localSourceOnly: true;
 }
 
 /**
@@ -161,7 +117,6 @@ async function defaultRunSkillsInstall(opts: SkillsInstallOpts): Promise<void> {
     ...(opts.homeDir ? { homeDir: opts.homeDir } : {}),
     ...(opts.copyDir ? { copyDir: opts.copyDir } : {}),
     ...(opts.copyFile ? { copyFile: opts.copyFile } : {}),
-    ...(opts.spawn ? { spawn: opts.spawn } : {}),
     ...(opts.registerMcp ? { registerMcp: opts.registerMcp } : {}),
     ...(opts.log ? { log: opts.log } : {}),
     ...(opts.errLog ? { errLog: opts.errLog } : {}),
@@ -169,6 +124,7 @@ async function defaultRunSkillsInstall(opts: SkillsInstallOpts): Promise<void> {
     ...(opts.projectRoot ? { projectRoot: opts.projectRoot } : {}),
     ...(opts.platform ? { platform: opts.platform } : {}),
     ...(opts.version ? { version: opts.version } : {}),
+    localSourceOnly: opts.localSourceOnly,
   };
 
   await bridge.runInstallSkills(
@@ -619,7 +575,7 @@ function defaultRunMigrate(deps: InstallStepDeps): (ctx: ApplyCtx) => void {
 
 /**
  * Builds the {@link ApplyCtx.installStep} hook over the injected {@link InstallStepDeps}.
- * The returned function runs the migration, the skills install and the project install. It does not read `step`.
+ * The returned function runs the migration and the local skills copy. It does not read `step`.
  * The skills copy defaults to `atomicCopyTreeSync`, which stages the tree and swaps it in with a rename.
  * An interrupted copy then leaves no half-populated skill directory, and a second onboard run converges.
  * The install scope defaults to `'project'` under `ctx.repoRoot`.
@@ -629,8 +585,6 @@ export function makeInstallStep(
 ): (step: PlanStep, ctx: ApplyCtx) => Promise<void> {
   return async (_step: PlanStep, ctx: ApplyCtx): Promise<void> => {
     const runSkillsInstall = deps.runSkillsInstall ?? defaultRunSkillsInstall;
-    const resolveInstallCommand = deps.resolveInstallCommand ?? defaultResolveInstallCommand;
-    const runCommand = deps.runCommand ?? defaultRunCommand;
     const homeDir = deps.homeDir ?? (() => homedir());
     const runMigrate = deps.runMigrate ?? defaultRunMigrate(deps);
     const registerMcp = deps.registerMcp ?? NOOP_REGISTER_MCP;
@@ -652,7 +606,6 @@ export function makeInstallStep(
       homeDir,
       copyDir: deps.copyDir ?? atomicCopyTreeSync,
       ...(deps.copyFile ? { copyFile: deps.copyFile } : {}),
-      ...(deps.spawn ? { spawn: deps.spawn } : {}),
       registerMcp,
       ...(deps.log ? { log: deps.log } : {}),
       ...(deps.errLog ? { errLog: deps.errLog } : {}),
@@ -660,12 +613,8 @@ export function makeInstallStep(
       projectRoot: deps.projectRoot ?? ctx.repoRoot,
       ...(deps.platform ? { platform: deps.platform } : {}),
       ...(deps.version ? { version: deps.version } : {}),
+      localSourceOnly: true,
     });
-
-    const installCommand = resolveInstallCommand(ctx.repoRoot);
-    if (installCommand !== null) {
-      await runCommand(installCommand, ctx.repoRoot);
-    }
   };
 }
 

@@ -29,6 +29,7 @@ import {
   childExitErrorMessage,
   childExitRetryHeader,
   missingGenericFallbackMessage,
+  missingLocalSkillsSourceMessage,
   noAgentDetectedFallbackMessage,
   unknownRuntimeMessage,
   unpinnedSkillsSourceMessage,
@@ -103,6 +104,12 @@ export interface InstallSkillsOpts {
    * The install-skills bridge passes `findSkillsSourceDir()`. Without it, the `npx skills add` path runs.
    */
   skillsSource?: string;
+  /**
+   * When true, `installSkills()` copies from `skillsSource` only and never runs `npx skills add`.
+   * A missing source, or a source with no skills for the runtime, then throws an `InstallSkillsError`.
+   * The onboard step sets it, so the onboard step starts no process and makes no network call.
+   */
+  localSourceOnly?: boolean;
   /**
    * Recursive directory copy for the local-copy path (see `skillsSource`).
    * The default wraps `fs.cpSync(src, dest, { recursive: true })`.
@@ -1096,8 +1103,8 @@ export function readDefaultExarchosVersion(): string {
  *      use `generic`. If detection is ambiguous, prompt, or throw in non-interactive mode.
  *   2. If `opts.skillsSource` has skills for the runtime, copy them to the native dir,
  *      place the canonical layout, and write the provenance manifest.
- *   3. If not, log and spawn `npx skills add` from {@link skillsInstallSource}, with `FORCE_COLOR=0` and `CI=true`.
- *      `--copy` writes real files, because symlinks into the npm cache break when the cache is cleaned.
+ *   3. If not, `opts.localSourceOnly` throws a refusal. Otherwise spawn `npx skills add --copy` from
+ *      {@link skillsInstallSource}, because symlinks into the npm cache break when the cache is cleaned.
  *      A non-zero exit throws an `InstallSkillsError` with `exitCode`.
  *   4. Install the command aliases. For `claude`, register the MCP server. A registration
  *      failure is logged and does not fail the install. Then print the summary.
@@ -1208,6 +1215,13 @@ export async function installSkills(opts: InstallSkillsOpts): Promise<void> {
       printInstallSummary(log, nativeDir, commandsDest, runtime.name);
       return;
     }
+  }
+
+  if (opts.localSourceOnly === true) {
+    const refusal: InstallSkillsError = new Error(
+      missingLocalSkillsSourceMessage(runtime.name, skillsSource),
+    );
+    throw refusal;
   }
 
   const home = homeDirFn();

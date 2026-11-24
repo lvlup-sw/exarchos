@@ -69,6 +69,23 @@ export function unpinnedSkillsSourceMessage(version: string, cause: UnpinnedSkil
   return why + `Installing skills from the default branch, which can differ from this build.`;
 }
 
+/**
+ * The message of the refusal when the caller allows only a local copy and no local source has skills for the runtime.
+ * The onboard step uses it. It names the two ways to get the skills without a download by the installer.
+ */
+export function missingLocalSkillsSourceMessage(runtimeName: string, skillsSource: string | undefined): string {
+  const where =
+    skillsSource === undefined
+      ? 'No local skills source was found'
+      : `The local skills source ${skillsSource} has no skills`;
+  return (
+    `install-skills: ${where} for runtime "${runtimeName}". ` +
+    `Onboard copies the skills from a local source only, and it downloads nothing. ` +
+    `Install the Exarchos plugin, which carries the skills, ` +
+    `or run \`exarchos skills get\` in a release that has that command.`
+  );
+}
+
 /** Question passed to the interactive prompt. */
 export const AMBIGUOUS_INTERACTIVE_QUESTION =
   'Multiple agents detected. Which one should we install skills for?';

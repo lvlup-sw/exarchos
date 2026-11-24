@@ -702,7 +702,6 @@ describe('DR-13 live tree — the widened census is green and load-bearing', () 
       'utils/process.ts',
       'verbs/doctor/probes.ts',
       'verbs/gates/gate-utils.ts',
-      'verbs/onboard/install.ts',
       'verbs/reconcile-state.ts',
       'verbs/tasks/extract-intent.ts',
     ]);

@@ -682,13 +682,6 @@ function registerLedger(): readonly EffectOwnershipRule[] {
     ),
     rule(
       'process',
-      'verbs/onboard/install.ts',
-      'onboard-install-step-owner',
-      'converges: the onboard step runs the resolved project install command and the skills installer on the CLI surface only',
-      'none: a failed install leaves the step residual, and the next onboard run retries it',
-    ),
-    rule(
-      'process',
       'verbs/reconcile-state.ts',
       'reconcile-git-read-owner',
       'idempotent: git rev-parse --verify of a branch ref and git worktree list --porcelain are reads',

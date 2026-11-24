@@ -3,7 +3,7 @@
  * DETECT, CONFIG, GENERATE, INSTALL, and VERIFY.
  *
  * For every step except INSTALL, the CLI and MCP arms must give the same
- * `ToolResult` for the same context and args. INSTALL runs `npx` and writes to
+ * `ToolResult` for the same context and args. INSTALL copies skills into
  * `~/.claude/`, so it is CLI-only. On a surface other than `'cli'`, the core
  * `apply` turns that step into a structured {@link Advisory} with
  * `surface: 'cli-only'`. The step never runs on the server and is never a
@@ -312,7 +312,7 @@ describe('exarchos onboard CLI/MCP parity (DR-6)', () => {
   });
 
   /**
-   * The `installStep` hook runs `npx` and writes to `~/.claude/`, so it must never run on the MCP surface.
+   * The `installStep` hook copies skills into `~/.claude/`, so it must never run on the MCP surface.
    * The advisory is present even when the install step stays residual.
    */
   it('Parity_McpArm_NeverWritesClaudeHome', async () => {

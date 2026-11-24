@@ -60,17 +60,17 @@ export function shouldLoadFromDisk(env = process.env) {
  * @property {(opts: import('../install/install-skills.js').InstallSkillsOpts) => Promise<void>} [installer]
  *   Installer override (test injection). Defaults to `installSkills`.
  * @property {Partial<import('../install/install-skills.js').InstallSkillsOpts>} [installSkillsOpts]
- *   Extra `installSkills` opts merged into the default-installer call. The
- *   onboard `installStep` threads its injectable I/O hooks — spawn, copyDir,
- *   homeDir, registerMcp, source overrides — through here so it never imports
- *   `installSkills` directly. Ignored when a custom `installer` is supplied.
- *   Source-tree fields here take precedence over the bridge's own resolution.
+ *   Extra `installSkills` options for the default installer. The onboard
+ *   `installStep` passes its I/O hooks, its source overrides and
+ *   `localSourceOnly` here, so it does not import `installSkills`. A custom
+ *   `installer` ignores them. A source field here wins over the resolution of the bridge.
  */
 
 /**
  * Runs the installer with the selected runtimes and the detected source trees. An injected
  * `skillsSource` or `aliasesSource` wins over detection. If no skills source is found,
- * `installSkills` runs `npx skills add`. If no alias source is found, it skips the alias copy.
+ * `installSkills` refuses when `localSourceOnly` is set, and otherwise runs `npx skills add`.
+ * If no alias source is found, it skips the alias copy.
  *
  * @param {{ agent?: string }} opts
  * @param {RunInstallSkillsDeps} [deps]
