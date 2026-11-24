@@ -1,14 +1,8 @@
 # Shepherd Event Schemas
 
-Event data schemas for the five shepherd lifecycle events. You append each event with `exarchos_event append` to the workflow's stream. No Exarchos action appends them for you.
+Event data schemas for the shepherd events. You append `shepherd.iteration` with `exarchos_event append` to the workflow's stream. No Exarchos action appends it for you.
 
-## shepherd.started
-
-Append once, on the first iteration of the loop.
-
-| Field | Type | Description |
-|-------|------|-------------|
-| featureId | string | Workflow feature ID |
+`shepherd.iteration` is the only shepherd event that you append. The other four types are retired as emissions. Their rows from earlier loops stay in old logs, and the `shepherd_status` view still reads them. The section [Retired shepherd events](#retired-shepherd-events) gives their form.
 
 ## shepherd.iteration
 
@@ -38,17 +32,23 @@ mcp__plugin_exarchos_exarchos__exarchos_event({
 })
 ```
 
-## shepherd.approval_requested
+## Retired shepherd events
 
-Emitted when all checks pass and approval is requested.
+Append none of these events. Old logs hold rows of these forms.
+
+### shepherd.started
+
+| Field | Type | Description |
+|-------|------|-------------|
+| featureId | string | Workflow feature ID |
+
+### shepherd.approval_requested
 
 | Field | Type | Description |
 |-------|------|-------------|
 | prUrl | string | URL of the PR ready for approval |
 
-## shepherd.escalated
-
-Append when an escalation trigger stops the loop, such as the iteration limit.
+### shepherd.escalated
 
 | Field | Type | Description |
 |-------|------|-------------|
@@ -58,9 +58,7 @@ Append when an escalation trigger stops the loop, such as the iteration limit.
 | maxIterations | number (int, >0) | The iteration limit |
 | reason | string | Human-readable escalation reason |
 
-## shepherd.completed
-
-Append when your own read shows that the PR is merged.
+### shepherd.completed
 
 | Field | Type | Description |
 |-------|------|-------------|

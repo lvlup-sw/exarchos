@@ -7,7 +7,7 @@
     "testFiles": 1459,
     "parsedFiles": 1415,
     "shellFiles": 44,
-    "cases": 16343,
+    "cases": 16344,
     "dynamicTitles": 321,
     "unparseableFiles": 0
   },
@@ -36965,7 +36965,7 @@
         },
         {
           "suite": "skill-migration — harness-owned VCS writes and agent-owned VCS reads",
-          "name": "AgentReads_Shepherd_AppendsEachShepherdEvent",
+          "name": "AgentReads_Shepherd_AppendsOnlyShepherdIteration",
           "dynamic": false
         },
         {
@@ -44264,6 +44264,11 @@
         {
           "suite": "ShepherdStatusView",
           "name": "ShepherdStatusView_Completed_RecordsOutcome",
+          "dynamic": false
+        },
+        {
+          "suite": "ShepherdStatusView_RetiredShepherdEvents_StoredLogReplay",
+          "name": "a stored log with the four retired shepherd types replays with its original read results",
           "dynamic": false
         }
       ]

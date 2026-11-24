@@ -871,17 +871,20 @@ export const EVENT_ANNOTATIONS: Readonly<Record<string, EventRegistration>> = Ob
   'team.teammate.dispatched': { lifecycle: 'active', tier: 'workflow-local', workflow: 'feature' },
   'shepherd.iteration': { lifecycle: 'active', tier: 'workflow-local', workflow: 'feature' },
   /**
-   * The shepherd skill appends these four events with `exarchos_event`, because `assess_stack` is retired.
-   * The `shepherd-status` view still folds them, and its telemetry dependence declares the paths that they set.
+   * Retired with `assess_stack`. The shepherd skill appends only `shepherd.iteration`, so no code and no skill writes this event.
+   * The schema, the `shepherd-status` view and the workflow-state readers stay, so old logs replay the same.
    */
-  'shepherd.started': { lifecycle: 'active', tier: 'workflow-local', workflow: 'feature' },
+  'shepherd.started': { lifecycle: 'retired', tier: 'workflow-local', workflow: 'feature' },
+  /** Retired with `assess_stack`. The schema and the readers stay so that old logs replay the same, but nothing writes this event. */
   'shepherd.approval_requested': {
-    lifecycle: 'active',
+    lifecycle: 'retired',
     tier: 'workflow-local',
     workflow: 'feature',
   },
-  'shepherd.escalated': { lifecycle: 'active', tier: 'workflow-local', workflow: 'feature' },
-  'shepherd.completed': { lifecycle: 'active', tier: 'workflow-local', workflow: 'feature' },
+  /** Retired with `assess_stack`. The schema and the readers stay so that old logs replay the same, but nothing writes this event. */
+  'shepherd.escalated': { lifecycle: 'retired', tier: 'workflow-local', workflow: 'feature' },
+  /** Retired with `assess_stack`. The schema and the readers stay so that old logs replay the same, but nothing writes this event. */
+  'shepherd.completed': { lifecycle: 'retired', tier: 'workflow-local', workflow: 'feature' },
   'session.tagged': { lifecycle: 'active', tier: 'workflow-local', workflow: 'feature' },
   'worktree.created': { lifecycle: 'active', tier: 'workflow-local', workflow: 'feature' },
   'worktree.baseline': { lifecycle: 'active', tier: 'workflow-local', workflow: 'feature' },

@@ -370,14 +370,21 @@ describe('skill-migration — harness-owned VCS writes and agent-owned VCS reads
     expect(content).toContain('Check CI status with your own tools: `gh pr checks <number>`');
   });
 
-  /** The shepherd skill appends each shepherd lifecycle event itself with `exarchos_event`, because no Exarchos action reads a PR for it. */
-  it('AgentReads_Shepherd_AppendsEachShepherdEvent', () => {
-    const content = readFileSync(resolveSkillPath('shepherd'), 'utf8');
-    const appended = ['shepherd.started', 'shepherd.iteration', 'shepherd.approval_requested', 'shepherd.completed'];
+  /**
+   * The shepherd skill and its references append `shepherd.iteration` and no other `shepherd.*` event.
+   * The other four shepherd types are retired as emissions, so no example appends them.
+   */
+  it('AgentReads_Shepherd_AppendsOnlyShepherdIteration', () => {
+    const texts = [
+      readFileSync(resolveSkillPath('shepherd'), 'utf8'),
+      readFileSync(resolveSkillReference('shepherd', 'escalation-criteria.md'), 'utf8'),
+      readFileSync(resolveSkillReference('shepherd', 'shepherd-event-schemas.md'), 'utf8'),
+    ];
+    const appended = new Set(texts.flatMap((text) => [...text.matchAll(/type: "(shepherd\.[a-z_]+)"/g)].map((m) => m[1])));
 
-    expect(appended.filter((type) => !content.includes(`type: "${type}"`))).toEqual([]);
-    expect(content).toContain('`shepherd.escalated`');
-    expect(content).toContain('No Exarchos action reads a PR or appends a `shepherd.*` event for you.');
+    expect([...appended]).toEqual(['shepherd.iteration']);
+    expect(texts[0]).toContain('No Exarchos action reads a PR or appends a `shepherd.*` event for you.');
+    expect(texts[0]).toContain('`shepherd.iteration` is the only `shepherd.*` event that you append.');
   });
 
   /**

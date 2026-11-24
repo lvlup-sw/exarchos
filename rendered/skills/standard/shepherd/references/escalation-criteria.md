@@ -13,18 +13,7 @@ When to stop the shepherd loop and escalate to the user.
 | Access failure | GitHub MCP or `gh` CLI returns auth errors | Report — credentials may need refresh |
 | Read failure | A PR, CI or review read fails or stops early | Report — a partial read is never "no items" |
 
-On each automatic trigger, append `shepherd.escalated` before the report:
-```typescript
-exarchos:exarchos_event({
-  action: "append",
-  stream: "<featureId>",
-  event: {
-    type: "shepherd.escalated",
-    data: { featureId: "<featureId>", prNumbers: [123, 124], iterationCount: 5, maxIterations: 5, reason: "<trigger>" }
-  },
-  idempotencyKey: "<featureId>:shepherd.escalated:<iterationCount>"
-})
-```
+On each automatic trigger, stop the loop and give the report below. Append no `shepherd.escalated` event: that type is retired as an emission. The escalation policy counts the `shepherd.iteration` events of the stream.
 
 ## Escalation Report Format
 

@@ -1,6 +1,6 @@
 ---
 name: shepherd
-description: "Shepherd PRs through CI and reviews to merge readiness. Operates as an iteration loop within the synthesize phase (not a separate HSM phase). Reads PR, CI and review state with the agent's own tools, fixes failures, records shepherd events, and requests approval. Triggers: 'shepherd', 'tend PRs', 'check CI', or /shepherd."
+description: "Shepherd PRs through CI and reviews to merge readiness. Operates as an iteration loop within the synthesize phase (not a separate HSM phase). Reads PR, CI and review state with the agent's own tools, fixes failures, records each iteration, and requests approval. Triggers: 'shepherd', 'tend PRs', 'check CI', or /shepherd."
 metadata:
   author: exarchos
   version: 2.0.0
@@ -20,9 +20,9 @@ If your tools cannot do a read or the harness cannot do a write, stop and report
 
 > A PR merge in this skill is a remote operation that the coordinator runs through its harness. It is distinct from the integration merge. During delegation the coordinator lands each accepted head on the integration branch through its harness (`@skills/delegate/SKILL.md`). A stream parked in `merge-pending` follows `@skills/merge-orchestrator/SKILL.md`. This skill lands no integration commit.
 
-Iterative loop that shepherds published PRs through CI checks and code reviews to merge readiness. You read the state of each PR with your own tools, fix failures, address feedback, and record each step as a `shepherd.*` event, until the stack is green.
+Iterative loop that shepherds published PRs through CI checks and code reviews to merge readiness. You read the state of each PR with your own tools, fix failures, address feedback, and record each iteration as a `shepherd.iteration` event, until the stack is green.
 
-> **Note:** Shepherd is not a separate HSM phase. It operates as a loop within the `synthesize` phase. The workflow phase remains `synthesize` throughout the shepherd iteration cycle. The `shepherd.*` events that you append and the `shepherd_status` view track loop progress without requiring a phase transition.
+> **Note:** Shepherd is not a separate HSM phase. It operates as a loop within the `synthesize` phase. The workflow phase remains `synthesize` throughout the shepherd iteration cycle. The `shepherd.iteration` events that you append and the `shepherd_status` view track loop progress without requiring a phase transition.
 
 **Position in workflow:**
 ```text
@@ -78,16 +78,6 @@ exarchos:exarchos_view({ action: "code_quality", workflowId: "<featureId>" })
 This step ensures the agent acts on accumulated quality intelligence before polling individual PRs.
 
 ### Step 1 — Assess
-
-On the first iteration, append `shepherd.started` once:
-```typescript
-exarchos:exarchos_event({
-  action: "append",
-  stream: "<featureId>",
-  event: { type: "shepherd.started", data: { featureId: "<featureId>" } },
-  idempotencyKey: "<featureId>:shepherd.started"
-})
-```
 
 Read each PR in the stack with your own tools. For GitHub with `gh`:
 ```bash
@@ -212,7 +202,7 @@ exarchos:exarchos_event({
 })
 ```
 
-Return to Step 1 for the next iteration. Track iteration count against the limit (default 5). If the limit is reached before every PR is ready for approval, append `shepherd.escalated` and escalate per `references/escalation-criteria.md`.
+Return to Step 1 for the next iteration. Track iteration count against the limit (default 5). If the limit is reached before every PR is ready for approval, escalate per `references/escalation-criteria.md`.
 
 ### Step 4 — Request Approval
 
@@ -240,17 +230,7 @@ When the reads of Step 1 show every check green and every comment addressed:
    ```
    Fallback (if MCP token lacks write scope): `gh pr edit <number> --add-reviewer <approver>`
 
-2. Append `shepherd.approval_requested` for each PR:
-   ```typescript
-   exarchos:exarchos_event({
-     action: "append",
-     stream: "<featureId>",
-     event: { type: "shepherd.approval_requested", data: { prUrl: "<url>" } },
-     idempotencyKey: "<featureId>:shepherd.approval_requested:<url>"
-   })
-   ```
-
-3. Report to user:
+2. Report to user:
    ```markdown
    ## Ready for Approval
 
@@ -297,26 +277,24 @@ The shepherd skill operates within the `synthesize` phase and does not drive pha
 Use `exarchos_workflow({ action: "describe", actions: ["update", "init"] })` for
 parameter schemas and `exarchos_workflow({ action: "describe", playbook: "feature" })`
 for phase transitions, guards, and playbook guidance. Use
-`exarchos_event({ action: "describe", eventTypes: ["shepherd.iteration", "shepherd.completed", "remediation.attempted"] })`
+`exarchos_event({ action: "describe", eventTypes: ["shepherd.iteration", "remediation.attempted", "remediation.succeeded"] })`
 for event data schemas before emitting events.
 
 ## Event Emission
 
-Before emitting any shepherd events, consult `references/shepherd-event-schemas.md` for full Zod schemas, type constraints, and example payloads. Use `exarchos_event({ action: "describe", eventTypes: ["shepherd.started", "shepherd.iteration", "shepherd.completed"] })` to discover required fields at runtime.
+Before emitting any shepherd events, consult `references/shepherd-event-schemas.md` for full Zod schemas, type constraints, and example payloads. Use `exarchos_event({ action: "describe", eventTypes: ["shepherd.iteration"] })` to discover required fields at runtime.
 
-You append every event in this table with `exarchos_event append`. No Exarchos action reads a PR or appends a `shepherd.*` event for you.
+You append every event in this table with `exarchos_event append`. No Exarchos action reads a PR or appends a `shepherd.*` event for you. `shepherd.iteration` is the only `shepherd.*` event that you append.
 
 | Event | When | Purpose |
 |-------|------|---------|
-| `shepherd.started` | Once, on the first iteration | Audit trail |
 | `shepherd.iteration` | After each assess cycle | Track progress |
 | `remediation.attempted` | Before applying a fix | selfCorrectionRate metric |
 | `remediation.succeeded` | After fix confirmed | avgRemediationAttempts metric |
-| `shepherd.approval_requested` | On requesting review | Audit trail |
-| `shepherd.escalated` | When the iteration limit is reached | ShepherdStatusView -- terminal escalation |
-| `shepherd.completed` | When your read shows the PR merged | Audit trail |
 
 Append no `ci.status` or `ci.check_observed` event. Those types hold CI history from the earlier assessment action, and the views still read the rows that exist.
+
+Append no `shepherd.started`, `shepherd.approval_requested`, `shepherd.escalated` or `shepherd.completed` event. These four types are retired as emissions. The `shepherd_status` view still reads the rows that exist, so old logs replay the same.
 
 ## Domain Knowledge
 
@@ -325,7 +303,7 @@ Consult these references for detailed guidance:
 - `references/escalation-criteria.md` — When to stop iterating and escalate to the user
 - `references/assess-checklist.md` — The read for each PR dimension, with your own tools
 - `references/gate-event-emission.md` — The historical `ci.check_observed` rows, and why you append none
-- `references/shepherd-event-schemas.md` — Full Zod-aligned schemas for the five shepherd lifecycle events
+- `references/shepherd-event-schemas.md` — The schema of `shepherd.iteration`, and the four retired shepherd events
 
 ### Decision Runbooks
 
@@ -351,14 +329,4 @@ This runbook provides structured criteria for deciding whether to keep iterating
 
 ## Transition
 
-After approval is granted and PRs merge, append `shepherd.completed` for each PR with `outcome: "merged"`:
-```typescript
-exarchos:exarchos_event({
-  action: "append",
-  stream: "<featureId>",
-  event: { type: "shepherd.completed", data: { prUrl: "<url>", outcome: "merged" } },
-  idempotencyKey: "<featureId>:shepherd.completed:<url>"
-})
-```
-
-Then run `cleanup` to resolve the workflow to completed state.
+After approval is granted and PRs merge, run `cleanup` to resolve the workflow to completed state.

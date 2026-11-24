@@ -773,17 +773,17 @@
     },
     {
       "type": "shepherd.approval_requested",
-      "lifecycle": "active",
+      "lifecycle": "retired",
       "tier": "workflow-local"
     },
     {
       "type": "shepherd.completed",
-      "lifecycle": "active",
+      "lifecycle": "retired",
       "tier": "workflow-local"
     },
     {
       "type": "shepherd.escalated",
-      "lifecycle": "active",
+      "lifecycle": "retired",
       "tier": "workflow-local"
     },
     {
@@ -793,7 +793,7 @@
     },
     {
       "type": "shepherd.started",
-      "lifecycle": "active",
+      "lifecycle": "retired",
       "tier": "workflow-local"
     },
     {

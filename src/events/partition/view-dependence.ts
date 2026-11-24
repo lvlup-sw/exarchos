@@ -116,9 +116,9 @@ export const VIEW_TELEMETRY_DEPENDENCE: Readonly<
       '`computeOverallStatus` reads `state.prs` through `hasBlockedPr`, `hasFailingCi` and ' +
       '`isAllHealthy`, and the per-PR counters it tests are fed by `review.finding`, ' +
       '`review.escalated`, `comment.posted` and `comment.resolved`. Dropping them reports a ' +
-      'stack healthy that is not. The shepherd skill appends `shepherd.started`, ' +
-      '`shepherd.approval_requested`, `shepherd.escalated` and `shepherd.completed` since ' +
-      '`assess_stack` retired, so they are model-sourced too. `shepherd.escalated` sets the ' +
+      'stack healthy that is not. `shepherd.started`, `shepherd.approval_requested`, ' +
+      '`shepherd.escalated` and `shepherd.completed` are retired as emissions with ' +
+      '`assess_stack`, but the view still folds their old rows. `shepherd.escalated` sets the ' +
       'escalation and the escalated `overallStatus`, and the other three set the timestamps and outcome.',
   },
 });

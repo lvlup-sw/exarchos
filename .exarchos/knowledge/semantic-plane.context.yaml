@@ -846,8 +846,9 @@ decisions:
       assess_stack leaves the registry, and its handler and its two suites are deleted. The closed retired-action table refuses it with PROVIDER_READ_RETIRED before any claim, configuration read, event append or process start.
       ci.status, ci.check_observed, provider.parse-error and provider.unknown-tier are retired as emissions and keep their schemas, readers and tiers. The shepherd-iteration runbook reads PR state with gh and auto-emits nothing.
     known: >-
-      The shepherd skill appends shepherd.started, shepherd.approval_requested, shepherd.escalated and shepherd.completed, so they move from the capability tier to workflow-local. Without the move, each is an active capability weld that no edge names, which the boot check refuses.
-      The four are now model-sourced telemetry, and the shepherd-status verdict declares the paths they set. No runtime reader uses the partition, so the view, the projections and old rows read the same. The review registry carries a RESERVED header until the provider layer goes.
+      shepherd.started, shepherd.approval_requested, shepherd.escalated and shepherd.completed move from the capability tier to workflow-local, because no action edge names them now. Without the move, each is an active capability weld that no edge names, which the boot check refuses.
+      The coordinator decided on 2026-11-23 (option B of the report-coupling census, which Reed can reverse) that the four are also retired as emissions. The shepherd skill appends only shepherd.iteration with exarchos_event. The four keep their schemas, the shepherd-status view and every workflow-state reader, and a replay case of a stored log with all four proves the same read results. The report-coupling census reads 24 against seed 24, with no seed change.
+      The shepherd-status verdict still declares the paths the four set. No runtime reader uses the partition, so the view, the projections and old rows read the same. The review registry carries a RESERVED header until the provider layer goes.
     status: "Committed on codex/1928-s4-remote-integrations. The contract authority lock waits for Reed to re-approve it."
 
   - date: "2026-11-23"
