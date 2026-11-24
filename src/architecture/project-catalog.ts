@@ -10,7 +10,7 @@
  *   a touched file.
  */
 import type { InvariantEntry } from './invariants-loader.js';
-import { globToRegExp } from './glob-to-regexp.js';
+import { linearGlobTest } from './check-pattern.js';
 
 /** The SDLC context of a projection. */
 export interface ProjectCatalogKey {
@@ -65,21 +65,21 @@ export function projectCatalog(
  * dependency, because `minimatch` is not a declared dependency of this package.
  */
 function appliesToIntersects(appliesTo: string[], touchedFiles: string[]): boolean {
-  return appliesTo.some((pattern) =>
-    touchedFiles.some((file) => matchesPattern(pattern, file)),
-  );
+  return appliesTo.some((pattern) => {
+    const matches = patternMatcher(pattern);
+    return touchedFiles.some(matches);
+  });
 }
 
 /**
- * Matches one glob pattern against one forward-slash path. A trailing `/**` or `/` matches the
- * directory and all paths below it, so the directory path itself also matches.
+ * Compiles one glob pattern to a test of one forward-slash path. A trailing `/**` or `/` matches
+ * the directory and all paths below it, so the directory path itself also matches. The catalog
+ * supplies the glob and the caller supplies the path, so the test uses the linear-time engine.
  */
-function matchesPattern(pattern: string, filePath: string): boolean {
+function patternMatcher(pattern: string): (filePath: string) => boolean {
   let normalized = pattern;
   if (normalized.endsWith('/')) normalized = `${normalized}**`;
-  if (normalized.endsWith('/**')) {
-    const prefix = normalized.slice(0, -'/**'.length);
-    if (filePath === prefix) return true;
-  }
-  return globToRegExp(normalized).test(filePath);
+  const prefix = normalized.endsWith('/**') ? normalized.slice(0, -'/**'.length) : undefined;
+  const test = linearGlobTest(normalized);
+  return (filePath) => filePath === prefix || test(filePath);
 }

@@ -19,8 +19,10 @@ import type {
   ReplyResult,
   GetPrCommentsOptions,
   PrCommentsPage,
+  CheckCiOptions,
+  PrRepository,
 } from './provider.js';
-import { windowPrComments, computeOverallCiStatus } from './provider.js';
+import { windowPrComments, computeOverallCiStatus, requireNumericId, requireRepository } from './provider.js';
 import { exec } from './shell.js';
 
 /**
@@ -119,6 +121,15 @@ function mapState(state: string): CiCheck['status'] {
   }
 }
 
+/** The `[HOST/]OWNER/REPO` form of `gh --repo`. */
+function repositoryRef(repository: PrRepository): string {
+  const { host, path } = requireRepository(repository);
+  return `${host}/${path}`;
+}
+
+/** The merge strategies of `gh pr merge`. The strategy becomes a flag, so `gh` must get no other value. */
+const MERGE_STRATEGIES: ReadonlySet<string> = new Set(['squash', 'rebase', 'merge']);
+
 function mapReviewState(ghState: string): ReviewerStatus['state'] {
   switch (ghState) {
     case 'APPROVED':
@@ -189,18 +200,23 @@ export class GitHubProvider implements VcsProvider {
       return { url, number };
     }
 
-    const viewOutput = await exec('gh', ['pr', 'view', url, '--json', 'number,url']);
+    const viewOutput = await exec('gh', ['pr', 'view', '--json', 'number,url', '--', url]);
     const parsed = JSON.parse(viewOutput) as { url: string; number: number };
     return { url: parsed.url, number: parsed.number };
   }
 
-  async checkCi(prId: string): Promise<CiStatus> {
+  /** With `options.repository`, `gh` queries `HOST/OWNER/REPO` and not the repository of the current checkout. */
+  async checkCi(prId: string, options: CheckCiOptions = {}): Promise<CiStatus> {
+    const pr = requireNumericId(prId, 'prId');
+    const repoArgs = options.repository === undefined ? [] : [`--repo=${repositoryRef(options.repository)}`];
     const output = await exec('gh', [
       'pr',
       'checks',
-      prId,
       '--json',
       'name,state,link',
+      ...repoArgs,
+      '--',
+      pr,
     ]);
 
     const entries = JSON.parse(output) as readonly GhCheckEntry[];
@@ -219,21 +235,26 @@ export class GitHubProvider implements VcsProvider {
   /**
    * Merges with `gh pr merge`, which prints text, not JSON. Then it reads the
    * merge commit SHA with `gh pr view`. If that read fails, the result is
-   * `merged: true` without a SHA.
+   * `merged: true` without a SHA. A bad id or strategy throws before `gh` runs.
    */
   async mergePr(prId: string, strategy: string): Promise<MergeResult> {
+    const pr = requireNumericId(prId, 'prId');
+    if (!MERGE_STRATEGIES.has(strategy)) {
+      throw new Error(`strategy must be squash, rebase, or merge, got ${JSON.stringify(strategy)}`);
+    }
     const strategyFlag = `--${strategy}`;
 
     try {
-      await exec('gh', ['pr', 'merge', prId, strategyFlag]);
+      await exec('gh', ['pr', 'merge', strategyFlag, '--', pr]);
 
       try {
         const viewOutput = await exec('gh', [
           'pr',
           'view',
-          prId,
           '--json',
           'mergeCommit',
+          '--',
+          pr,
         ]);
         const parsed = JSON.parse(viewOutput) as { mergeCommit?: { oid?: string } };
         const sha = parsed.mergeCommit?.oid;
@@ -248,7 +269,8 @@ export class GitHubProvider implements VcsProvider {
   }
 
   async addComment(prId: string, body: string): Promise<void> {
-    await exec('gh', ['pr', 'comment', prId, '--body', body]);
+    const pr = requireNumericId(prId, 'prId');
+    await exec('gh', ['pr', 'comment', '--body', body, '--', pr]);
   }
 
   /**
@@ -259,11 +281,13 @@ export class GitHubProvider implements VcsProvider {
    * find the reply again.
    */
   async addReply(prId: string, threadId: string, body: string): Promise<ReplyResult> {
+    const pr = requireNumericId(prId, 'prId');
+    const thread = requireNumericId(threadId, 'threadId');
     const output = await exec('gh', [
       'api',
       '--method',
       'POST',
-      `repos/{owner}/{repo}/pulls/${prId}/comments/${threadId}/replies`,
+      `repos/{owner}/{repo}/pulls/${pr}/comments/${thread}/replies`,
       '-f',
       `body=${body}`,
     ]);
@@ -272,12 +296,14 @@ export class GitHubProvider implements VcsProvider {
   }
 
   async getReviewStatus(prId: string): Promise<ReviewStatus> {
+    const pr = requireNumericId(prId, 'prId');
     const output = await exec('gh', [
       'pr',
       'view',
-      prId,
       '--json',
       'reviews,reviewDecision',
+      '--',
+      pr,
     ]);
 
     const parsed = JSON.parse(output) as GhReviewResponse;
@@ -329,10 +355,11 @@ export class GitHubProvider implements VcsProvider {
    *   `getReviewStatus` reports a review without a body.
    */
   async getPrComments(prId: string): Promise<PrComment[]> {
+    const pr = requireNumericId(prId, 'prId');
     const [issueOut, inlineOut, reviewOut] = await Promise.all([
-      exec('gh', ['api', `repos/{owner}/{repo}/issues/${prId}/comments`, '--paginate']),
-      exec('gh', ['api', `repos/{owner}/{repo}/pulls/${prId}/comments`, '--paginate']),
-      exec('gh', ['api', `repos/{owner}/{repo}/pulls/${prId}/reviews`, '--paginate']),
+      exec('gh', ['api', `repos/{owner}/{repo}/issues/${pr}/comments`, '--paginate']),
+      exec('gh', ['api', `repos/{owner}/{repo}/pulls/${pr}/comments`, '--paginate']),
+      exec('gh', ['api', `repos/{owner}/{repo}/pulls/${pr}/reviews`, '--paginate']),
     ]);
 
     const issueEntries = JSON.parse(issueOut) as readonly GhIssueCommentEntry[];
@@ -376,7 +403,7 @@ export class GitHubProvider implements VcsProvider {
       });
     }
 
-    return this.enrichResolvedStatus(prId, comments);
+    return this.enrichResolvedStatus(pr, comments);
   }
 
   /**
@@ -482,7 +509,8 @@ export class GitHubProvider implements VcsProvider {
   }
 
   async getPrDiff(prId: string): Promise<string> {
-    return exec('gh', ['pr', 'diff', prId]);
+    const pr = requireNumericId(prId, 'prId');
+    return exec('gh', ['pr', 'diff', '--', pr]);
   }
 
   async createIssue(opts: CreateIssueOpts): Promise<IssueResult> {

@@ -105,7 +105,7 @@ const PLUGIN_MANIFEST = path.resolve(import.meta.dirname, '../../../../../.claud
 const EXPECTED_ENTRY = {
   type: 'stdio',
   command: 'exarchos',
-  args: ['mcp'],
+  args: ['mcp', '--operator'],
   env: { WORKFLOW_STATE_DIR: '/home/user/.claude/workflow-state' },
 };
 
@@ -422,6 +422,64 @@ describe('claudeCodeWriter', () => {
     const content = stagedJson(fs.written, '/home/user/.claude.json.tmp');
     expect(exarchosEntryOf(content)).toEqual(EXPECTED_ENTRY);
     expect(content).toMatchObject({ mcpServers: { other } });
+  });
+
+  /**
+   * An older writer registered `exarchos mcp` with no `--operator`. That server now grants each session only reads.
+   * The writer replaces that entry without `forceOverwrite`, so the orchestrator keeps its write grant.
+   */
+  it('ClaudeCodeWriter_ReadOnlyLegacyEntry_IsRewrittenWithoutForce', async () => {
+    const existingConfig = JSON.stringify({
+      mcpServers: {
+        exarchos: {
+          type: 'stdio',
+          command: 'exarchos',
+          args: ['mcp'],
+          env: { WORKFLOW_STATE_DIR: '/home/user/.claude/workflow-state' },
+        },
+      },
+    });
+    const fs = makeMemFs({
+      '/home/user/.claude.json': existingConfig,
+    });
+    const deps = makeStubWriterDeps({
+      fs,
+      home: () => '/home/user',
+      cwd: () => '/project',
+    });
+
+    const result = await claudeCodeWriter.write(deps, defaultOptions());
+
+    expect(result.status).toBe('written');
+    const content = stagedJson(fs.written, '/home/user/.claude.json.tmp');
+    expect(exarchosEntryOf(content)).toEqual(EXPECTED_ENTRY);
+  });
+
+  /**
+   * The upgrade of a read-only legacy entry changes only the launch arguments.
+   * A custom `WORKFLOW_STATE_DIR` stays, so the restarted orchestrator opens the same store.
+   */
+  it('ClaudeCodeWriter_ReadOnlyLegacyEntry_KeepsCustomStateDir', async () => {
+    const legacy = {
+      type: 'stdio',
+      command: 'exarchos',
+      args: ['mcp'],
+      env: { WORKFLOW_STATE_DIR: '/srv/exarchos-state', EXTRA: '1' },
+    };
+    const fs = makeMemFs({
+      '/home/user/.claude.json': JSON.stringify({ mcpServers: { exarchos: legacy } }),
+    });
+    const deps = makeStubWriterDeps({
+      fs,
+      home: () => '/home/user',
+      cwd: () => '/project',
+    });
+
+    const result = await claudeCodeWriter.write(deps, defaultOptions());
+
+    expect(result.status).toBe('written');
+    const content = stagedJson(fs.written, '/home/user/.claude.json.tmp');
+    expect(exarchosEntryOf(content)).toEqual({ ...legacy, args: ['mcp', '--operator'] });
   });
 
   /**

@@ -4,9 +4,9 @@
  * YAML frontmatter. The Copilot loader reads only the `.agent.md` extension.
  * The file is at project scope, because the repo versions agent definitions.
  *
- * Copilot declares the allowed tools as an array of names. Both `mcp:exarchos`
- * and `mcp:exarchos:readonly` map to `mcp__exarchos`, because the array has no
- * per-action grant. The readonly gate in dispatch enforces the readonly tier.
+ * Copilot declares the allowed tools as an array of names. `mcp:exarchos` maps to
+ * `mcp__exarchos`. `mcp:exarchos:readonly` maps to `mcp__exarchos-readonly`, the
+ * server whose sessions hold no write grant. The readonly gate in dispatch limits it per action.
  * Format reference:
  * https://docs.github.com/en/copilot/how-tos/copilot-cli/customize-copilot/create-custom-agents-for-cli
  */
@@ -17,6 +17,10 @@ import type { Capability } from '../capabilities.js';
 import type { RuntimeAdapter, ValidationResult } from './types.js';
 import { buildSupportMap } from './support-levels.js';
 import { resolveCapabilities } from '../../../workflow/capabilities/posture-mapping.js';
+import {
+  ORCHESTRATOR_MCP_SERVER_NAME,
+  READONLY_MCP_SERVER_NAME,
+} from '../mcp-server-binding.js';
 
 /**
  * Copilot supports fs, shell, subagent spawn and MCP natively. Worktree
@@ -38,8 +42,8 @@ const CAPABILITY_TO_TOOL: Record<Capability, string | null> = {
   'fs:write': 'write',
   'shell:exec': 'shell',
   'subagent:spawn': 'task',
-  'mcp:exarchos': 'mcp__exarchos',
-  'mcp:exarchos:readonly': 'mcp__exarchos',
+  'mcp:exarchos': `mcp__${ORCHESTRATOR_MCP_SERVER_NAME}`,
+  'mcp:exarchos:readonly': `mcp__${READONLY_MCP_SERVER_NAME}`,
   'isolation:worktree': null,
   'subagent:start-signal': null,
   'subagent:completion-signal': null,

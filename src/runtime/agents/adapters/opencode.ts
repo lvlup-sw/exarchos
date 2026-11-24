@@ -17,6 +17,7 @@ import type { AgentSpec } from '../types.js';
 import type { RuntimeAdapter, ValidationResult } from './types.js';
 import { buildSupportMap } from './support-levels.js';
 import { resolveCapabilities } from '../../../workflow/capabilities/posture-mapping.js';
+import { exarchosMcpServerFor } from '../mcp-server-binding.js';
 
 /**
  * OpenCode support levels. `isolation:worktree` and `session:resume` are advisory,
@@ -83,8 +84,8 @@ interface OpenCodeFrontmatter {
 }
 
 /**
- * Build the frontmatter for `spec`. `mcp:exarchos` and `mcp:exarchos:readonly` give the
- * same MCP entry, because the server enforces the read-only tier.
+ * Build the frontmatter for `spec`. The full tier names the `exarchos` server, and the readonly
+ * tier names only the `exarchos-readonly` server, whose sessions hold no write grant.
  * The model `inherit` has no OpenCode token, so the field is omitted and OpenCode uses its default.
  */
 function buildFrontmatter(spec: AgentSpec): OpenCodeFrontmatter {
@@ -94,11 +95,9 @@ function buildFrontmatter(spec: AgentSpec): OpenCodeFrontmatter {
     description: spec.description,
     tools: capabilitiesToTools(resolved),
   };
-  if (
-    resolved.has('mcp:exarchos') ||
-    resolved.has('mcp:exarchos:readonly')
-  ) {
-    fm.mcp = { exarchos: true };
+  const mcpServer = exarchosMcpServerFor(resolved);
+  if (mcpServer !== undefined) {
+    fm.mcp = { [mcpServer]: true };
   }
   if (spec.model && spec.model !== 'inherit') {
     fm.model = spec.model;

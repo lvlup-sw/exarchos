@@ -4,7 +4,8 @@
  * either check fails.
  */
 
-import type { VcsProvider, CiStatus, CiCheck as VcsCiCheck } from '../../vcs/provider.js';
+import type { VcsProvider, CiStatus, CiCheck as VcsCiCheck, PrRepository } from '../../vcs/provider.js';
+import { requireRepository } from '../../vcs/provider.js';
 import { createVcsProvider } from '../../vcs/factory.js';
 import { runCommandSync } from '../../utils/process.js';
 import { resolveRunnableCommand } from '../../config/test-runtime-resolver.js';
@@ -64,6 +65,43 @@ function defaultCommandRunner(
 
 const PASSING_STATUSES: ReadonlySet<VcsCiCheck['status']> = new Set(['pass', 'skipped']);
 
+/** The pull request that `prUrl` names: its number and, for a GitHub or GitLab URL, its repository. */
+interface PrTarget {
+  readonly number: string;
+  readonly repository?: PrRepository | undefined;
+}
+
+/**
+ * Reads the pull request from a bare number, or from the path of a pull request URL.
+ * A GitHub `/OWNER/REPO/pull/N` path and a GitLab `/GROUP/PROJECT/-/merge_requests/N` path also give the repository.
+ * Then the CI query reads that repository and not the current checkout.
+ * An Azure DevOps `/pullrequest/N` path gives only the number.
+ * The result is `undefined` when the number or the repository does not have a safe form.
+ */
+function prTargetOf(prUrl: string): PrTarget | undefined {
+  if (/^[1-9]\d*$/.test(prUrl)) return { number: prUrl };
+  let url: URL;
+  try {
+    url = new URL(prUrl);
+  } catch {
+    return undefined;
+  }
+  const github = /^\/([^/]+\/[^/]+)\/pull\/([1-9]\d*)\/?$/.exec(url.pathname);
+  const gitlab = /^\/(.+?)(?:\/-)?\/merge_requests\/([1-9]\d*)\/?$/.exec(url.pathname);
+  const [, repoPath, repoNumber] = github ?? gitlab ?? [];
+  if (repoPath !== undefined && repoNumber !== undefined) {
+    const repository: PrRepository = { host: url.host, path: repoPath };
+    try {
+      requireRepository(repository);
+    } catch {
+      return undefined;
+    }
+    return { number: repoNumber, repository };
+  }
+  const azureNumber = /\/pullrequest\/([1-9]\d*)\/?$/.exec(url.pathname)?.[1];
+  return azureNumber === undefined ? undefined : { number: azureNumber };
+}
+
 /** Runs the CI check and the test suite, and builds the report. A PR with no CI checks passes the CI check. */
 export async function checkPostMerge(options: PostMergeOptions): Promise<PostMergeResult> {
   const { prUrl, mergeSha, repoRoot } = options;
@@ -90,9 +128,19 @@ export async function checkPostMerge(options: PostMergeOptions): Promise<PostMer
   }
 
   async function checkCiStatus(): Promise<void> {
+    const target = prTargetOf(prUrl);
+    if (target === undefined) {
+      const evidence = 'prUrl names no pull request number';
+      findings.push(
+        `FINDING [D4] [HIGH] criterion="ci-green" evidence="${evidence}"`
+      );
+      checkFail('CI green', evidence);
+      return;
+    }
+
     let ciStatus: CiStatus;
     try {
-      ciStatus = await vcs.checkCi(prUrl);
+      ciStatus = await vcs.checkCi(target.number, { repository: target.repository });
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
       const evidence = message.includes('command not found')

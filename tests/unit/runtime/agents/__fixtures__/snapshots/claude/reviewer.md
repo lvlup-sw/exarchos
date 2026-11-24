@@ -23,7 +23,13 @@ disallowedTools:
   - Agent
   - Bash
 mcpServers:
-  - exarchos
+  - exarchos-readonly:
+      type: stdio
+      command: exarchos
+      args:
+        - mcp
+      env:
+        WORKFLOW_STATE_DIR: ~/.claude/workflow-state
 ---
 
 You are a code reviewer agent. You analyze code for quality, correctness, and design compliance.

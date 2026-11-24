@@ -88,17 +88,15 @@ describe('OpenCodeAdapter', () => {
   });
 
   /**
-   * The readonly tier must still enable the `exarchos` server in the `mcp` map.
-   * The dispatch layer limits the tier to the read-only actions.
+   * The readonly tier must enable only the `exarchos-readonly` server in the `mcp` map.
+   * The `exarchos` server holds the operator grant. The dispatch layer limits the read-only server per action.
    */
-  it('OpenCodeAdapter_LowerSpec_Readonly_GrantsExarchosTool', () => {
+  it('OpenCodeAdapter_LowerSpec_Readonly_GrantsReadonlyServerOnly', () => {
     forceCapabilities(['fs:read', 'mcp:exarchos:readonly']);
     const { contents } = OpenCodeAdapter.lowerSpec(IMPLEMENTER);
     const { data } = splitFrontmatter(contents);
 
-    const mcp = data.mcp as Record<string, true> | undefined;
-    expect(mcp).toBeDefined();
-    expect(mcp?.exarchos).toBe(true);
+    expect(data.mcp).toEqual({ 'exarchos-readonly': true });
   });
 
   /**

@@ -662,7 +662,7 @@ describe('registerExarchosInClaudeJson (#1217)', () => {
           exarchos: {
             type: 'stdio',
             command: 'exarchos',
-            args: ['mcp'],
+            args: ['mcp', '--operator'],
             env: {
               WORKFLOW_STATE_DIR: path.join(home, '.claude', 'workflow-state'),
             },

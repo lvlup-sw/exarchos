@@ -71,13 +71,23 @@ describe('CursorWriter', () => {
     expect(written).toBeDefined();
     const parsed = JSON.parse(written!);
     expect(parsed.mcpServers.exarchos).toBeDefined();
-    expect(parsed.mcpServers.exarchos.command).toBe('npx');
-    expect(parsed.mcpServers.exarchos.args).toEqual([
-      '-y',
-      '@anthropic-ai/claude-code',
-      '--mcp-server-name=exarchos',
-    ]);
+    expect(parsed.mcpServers.exarchos.command).toBe('exarchos');
+    expect(parsed.mcpServers.exarchos.args).toEqual(['mcp', '--operator']);
     expect(parsed.mcpServers.exarchos.type).toBe('stdio');
+  });
+
+  /**
+   * The reviewer agent file names `exarchos-readonly`, so the writer registers that server next to the orchestrator entry.
+   * The read-only entry starts `exarchos mcp` without `--operator`.
+   */
+  it('CursorWriter_Write_RegistersOrchestratorAndReadOnlyServers', async () => {
+    fs.dirs.add('/project/.cursor');
+
+    await new CursorWriter({ fs }).write(stubDeps, defaultOptions);
+
+    const parsed = JSON.parse(fs.files.get('/project/.cursor/mcp.json') ?? '{}');
+    expect(parsed.mcpServers.exarchos).toEqual({ command: 'exarchos', args: ['mcp', '--operator'], type: 'stdio' });
+    expect(parsed.mcpServers['exarchos-readonly']).toEqual({ command: 'exarchos', args: ['mcp'], type: 'stdio' });
   });
 
   it('CursorWriter_Write_PreservesExistingServers', async () => {
@@ -110,6 +120,6 @@ describe('CursorWriter', () => {
     expect(parsed.mcpServers['other-tool'].command).toBe('python');
 
     expect(parsed.mcpServers.exarchos).toBeDefined();
-    expect(parsed.mcpServers.exarchos.command).toBe('npx');
+    expect(parsed.mcpServers.exarchos.command).toBe('exarchos');
   });
 });

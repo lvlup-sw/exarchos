@@ -187,9 +187,10 @@ describe('GitHubProvider', () => {
     expect(mockExec).toHaveBeenCalledWith('gh', [
       'pr',
       'checks',
-      '42',
       '--json',
       'name,state,link',
+      '--',
+      '42',
     ]);
 
     expect(result.checks).toHaveLength(5);
@@ -200,6 +201,31 @@ describe('GitHubProvider', () => {
     });
     expect(result.checks.find((c) => c.name === 'Windows Unit (Root)')?.status).toBe('skipped');
     expect(result.status).toBe('pass');
+  });
+
+  /** A repository option binds `gh` to `HOST/OWNER/REPO`, so the number does not resolve against the current checkout. */
+  it('checkCi_WithRepository_PassesRepoFlag', async () => {
+    mockExec.mockResolvedValue(RECORDED_PASS_SKIP);
+
+    await provider.checkCi('42', { repository: { host: 'github.com', path: 'org/repo' } });
+
+    expect(mockExec).toHaveBeenCalledWith('gh', [
+      'pr',
+      'checks',
+      '--json',
+      'name,state,link',
+      '--repo=github.com/org/repo',
+      '--',
+      '42',
+    ]);
+  });
+
+  /** A repository with a path traversal segment or a single segment throws before `gh` runs. */
+  it.each(['org/..', 'repo'])('checkCi_UnsafeRepository_%s_ThrowsBeforeExec', async (path) => {
+    await expect(provider.checkCi('42', { repository: { host: 'github.com', path } })).rejects.toThrow(
+      'repository must be',
+    );
+    expect(mockExec).not.toHaveBeenCalled();
   });
 
   /**
@@ -330,7 +356,7 @@ describe('GitHubProvider', () => {
     expect(result.sha).toBe('sha-from-view');
 
     expect(mockExec).toHaveBeenNthCalledWith(2, 'gh', [
-      'pr', 'view', '42', '--json', 'mergeCommit',
+      'pr', 'view', '--json', 'mergeCommit', '--', '42',
     ]);
   });
 
@@ -935,7 +961,7 @@ index abc123..def456 100644
 
     const result = await provider.getPrDiff('42');
 
-    expect(mockExec).toHaveBeenCalledWith('gh', ['pr', 'diff', '42']);
+    expect(mockExec).toHaveBeenCalledWith('gh', ['pr', 'diff', '--', '42']);
     expect(result).toBe(diffOutput);
   });
 

@@ -631,7 +631,7 @@ describe('Cancellation resource authority', () => {
     }
     expect(selected!._events).toEqual(before._events);
     expect(calls.filter((call) => call.includes('-D') || call.includes('close') || call.includes('remove'))).toEqual([
-      ['gh', 'pr', 'close', 'https://example.invalid/pull/17', '--comment', 'Cancelled via compensation'],
+      ['gh', 'pr', 'close', '--comment', 'Cancelled via compensation', '--', 'https://example.invalid/pull/17'],
       ['git', 'branch', '-D', 'integrate/ledger'],
       ['git', 'worktree', 'remove', '/absent-cancel-ledger/worktree', '--force'],
       ['git', 'branch', '-D', 'task/ledger'],

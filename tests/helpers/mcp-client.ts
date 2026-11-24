@@ -17,7 +17,8 @@ export interface SpawnMcpClientOpts {
    */
   command?: string;
   /**
-   * Arguments for the child. With the default `command`, the child gets `['mcp', ...args]`.
+   * Arguments for the child. With the default `command`, the child gets `['mcp', '--operator', ...args]`.
+   * The process tests drive the orchestrator surface, so the default server holds the operator grant.
    * With an explicit `command`, the child gets `args` unchanged.
    */
   args?: string[];
@@ -83,7 +84,7 @@ export async function spawnMcpClient(
   } = opts;
   const usingDefaultCommand = opts.command === undefined;
   const args = usingDefaultCommand
-    ? [DEFAULT_SUBCOMMAND, ...callerArgs]
+    ? [DEFAULT_SUBCOMMAND, '--operator', ...callerArgs]
     : callerArgs;
 
   const env: Record<string, string> = { ...(extraEnv ?? {}) };

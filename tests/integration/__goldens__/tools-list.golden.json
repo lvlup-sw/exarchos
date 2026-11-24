@@ -1755,7 +1755,7 @@
             "type": "integer"
           },
           "prId": {
-            "minLength": 1,
+            "pattern": "^[1-9]\\d*$",
             "type": "string"
           },
           "prNumbers": {
@@ -1988,7 +1988,7 @@
             "type": "string"
           },
           "threadId": {
-            "minLength": 1,
+            "pattern": "^[1-9]\\d*$",
             "type": "string"
           },
           "threshold": {

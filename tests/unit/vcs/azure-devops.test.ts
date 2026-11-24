@@ -945,4 +945,19 @@ describe('AzureDevOpsProvider', () => {
       expect(isResolvedKnown(c)).toBe(false);
     }
   });
+
+  /** A pull request id that is not a positive integer can change an az argument or route parameter. The provider starts no call for it. */
+  it.each(['--admin', '-1', '0', '42abc', '1/../../user', 'https://example.invalid/pull/1'])(
+    'AzureDevOps_PrId_RejectsNonNumeric_%s',
+    async (prId) => {
+      mockExec.mockClear();
+      mockExec.mockResolvedValue('{}');
+      await expect(provider.mergePr(prId, 'squash')).rejects.toThrow('prId must be a positive integer');
+      await expect(provider.checkCi(prId)).rejects.toThrow('prId must be a positive integer');
+      await expect(provider.addComment(prId, 'note')).rejects.toThrow('prId must be a positive integer');
+      await expect(provider.getReviewStatus(prId)).rejects.toThrow('prId must be a positive integer');
+      await expect(provider.getPrComments(prId)).rejects.toThrow('prId must be a positive integer');
+      expect(mockExec).not.toHaveBeenCalled();
+    },
+  );
 });

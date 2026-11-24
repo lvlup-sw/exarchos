@@ -119,6 +119,22 @@ describe('EnforcementSchema', () => {
   });
 });
 
+describe('CheckNodeSchema pattern safety', () => {
+  /**
+   * RE2 has no backreference. A named backreference outside a character class must fail at load
+   * time and must not compile as the literal text `k<name>`. Inside a class, `\k` is the literal `k`.
+   */
+  it('CheckNodeSchema_NamedBackreference_FailsAtLoad', () => {
+    for (const pattern of ['(?<x>a)\\k<x>', '\\k<x>', '[]\\k<x>]']) {
+      const parsed = CheckNodeSchema.safeParse({ kind: 'grep', pattern });
+      expect(parsed.success, pattern).toBe(false);
+      expect(JSON.stringify(parsed.error?.issues), pattern).toContain('named backreference');
+    }
+    expect(CheckNodeSchema.safeParse({ kind: 'grep', pattern: '[\\k<>]x' }).success).toBe(true);
+    expect(CheckNodeSchema.safeParse({ kind: 'grep', pattern: '\\\\k<x>' }).success).toBe(true);
+  });
+});
+
 describe('CheckNodeSchema fail-closed', () => {
   /** An unknown leaf `kind` throws `UnknownCheckKindError` at parse time, before the evaluator can run. */
   it('EvaluateTree_UnknownKind_ThrowsAtLoadNotEval', () => {

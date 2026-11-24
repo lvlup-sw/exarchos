@@ -42,7 +42,7 @@ describe('parity: exarchos workflow describe — CLI ↔ MCP', () => {
       const featureId = `parity-describe-${env.testId.slice(0, 8)}`;
       const mcp = await spawnMcpClient({
         command: WORKTREE_BINARY,
-        args: ['mcp'],
+        args: ['mcp', '--operator'],
         stateDir: env.stateDir,
       });
       try {

@@ -31,7 +31,8 @@
       "type": "stdio",
       "command": "exarchos",
       "args": [
-        "mcp"
+        "mcp",
+        "--operator"
       ],
       "env": {
         "WORKFLOW_STATE_DIR": "~/.claude/workflow-state",

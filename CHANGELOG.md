@@ -6,6 +6,15 @@ All notable changes to Exarchos are documented in this file. Organized by semver
 
 ### Operator notes
 
+- **An MCP session is read-only unless its server starts with `exarchos mcp --operator`.** This is a change of behavior (#2249).
+  - The plugin manifest, `~/.claude.json` registration, the Claude writer and the Cursor and Copilot project writers start the orchestrator entry with `--operator`.
+  - Read-only agents, such as the reviewer, name a separate `exarchos-readonly` server. On Claude it is inline in the agent file.
+  - A hand-registered `exarchos mcp` entry for the orchestrator needs `--operator`. An older binary rejects the flag, so set `minBinaryVersion` to the first release that has it.
+  - The Cursor and Copilot project writers also register `exarchos-readonly` as `exarchos mcp`. An onboarded project file that has `exarchos` and no `exarchos-readonly` makes `doctor` warn, and a re-run of onboard or `doctor --fix` adds the entry. Onboard writes no MCP config for Codex or OpenCode, so a reviewer there that needs Exarchos reads must register `exarchos-readonly` by hand.
+- **Pull request ids must be positive decimal integers.** `merge_pr`, `check_ci`, `get_pr_comments` and `add_pr_comment` refuse any other `prId` or `threadId` before a `gh`, `glab` or `az` call. Each positional id goes after `--` (#2246).
+- **Invariant check patterns compile with RE2.** A catalog pattern that uses lookaround or a backreference fails at load time. A pattern has at most 1,000 characters and 1,000 instructions. A check that the match budget stops counts as violated at the severity of its invariant (#2248).
+- **Onboard writes `exarchos mcp --operator` as the `exarchos` entry of `.cursor/mcp.json` and `.vscode/mcp.json`.** Earlier versions wrote an unpinned `npx -y` launch. A re-run of onboard replaces that entry (#2242).
+
 - Ledger-backed updates validate the full projected state after the raw patch. Combined moves recheck inside their transaction. Standalone patches guard the validated stream tail and retry on conflict. Held claims replay without applying a patch twice. Empty updates retain document validation and schema refusals retain their existing error text.
 - Ledger-backed transition, settlement, cancellation and cleanup paths synchronize complete current ledger effects into the state document. Retries preserve newer moves and operational fields. Combined updates validate before the phase transaction. File writers serialize version checks with publication and allocate each successor from the committed readable object. A stale unconditional writer cannot reuse a saved reader token. Missing or corrupt targets retain the declared fallback. This file guarantee is within one process.
 - Ledger-backed built-in cancellation refuses unreadable or completed ledgers before compensation. Final cancellation and cleanup validate their source inside the append transaction. Cleanup preserves folded evidence and uses precise backfill paths. A completed cleanup still requires explicit transition recovery for a lagging document.

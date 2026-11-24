@@ -85,15 +85,14 @@ describe('CursorAdapter', () => {
   });
 
   /**
-   * A spec with only `mcp:exarchos:readonly` must still enable the `exarchos` MCP server in the Cursor agent file.
-   * The dispatch layer blocks the mutating actions. The adapter does not.
+   * A spec with only `mcp:exarchos:readonly` must enable only the `exarchos-readonly` MCP server.
+   * The `exarchos` server holds the operator grant. The dispatch layer limits the read-only server per action.
    */
-  it('CursorAdapter_LowerSpec_Readonly_GrantsExarchosTool', () => {
+  it('CursorAdapter_LowerSpec_Readonly_GrantsReadonlyServerOnly', () => {
     forceCapabilities(['fs:read', 'mcp:exarchos:readonly']);
     const { contents } = CursorAdapter.lowerSpec(IMPLEMENTER);
     const { data } = splitFrontmatter(contents);
-    expect(data.mcp).toBeDefined();
-    expect((data.mcp as Record<string, unknown>).exarchos).toBe(true);
+    expect(data.mcp).toEqual({ 'exarchos-readonly': true });
   });
 
   it('CursorAdapter_LowerSpec_Full_GrantsExarchosTool', () => {

@@ -20,6 +20,10 @@ import { fsyncDir, publishTempFile } from '../../../utils/atomic-write.js';
 import type { PromotionIo } from '../../../install/atomic-promotion.js';
 import { isStaleBundleEntry, probeExarchosPluginInstall } from '../../../runtime/agent-environment-detector.js';
 import {
+  OPERATOR_MCP_ARGS,
+  READONLY_MCP_ARGS,
+} from '../../../runtime/agents/mcp-server-binding.js';
+import {
   promoteConfigFile,
   recoverInterruptedConfigPromotions,
   type ConfigPromotionFs,
@@ -139,17 +143,40 @@ async function readExistingConfig(
 
 /**
  * The user-scope entry. Its command and arguments are the same as `mcpServers.exarchos` in `.claude-plugin/plugin.json`.
- * The entry starts the `exarchos` binary on PATH with the `mcp` subcommand.
+ * The entry starts the `exarchos` binary on PATH as the orchestrator server, with the operator grant.
  */
 function buildExarchosEntry(home: string): McpServerEntry {
   return {
     type: 'stdio',
     command: 'exarchos',
-    args: ['mcp'],
+    args: [...OPERATOR_MCP_ARGS],
     env: {
       WORKFLOW_STATE_DIR: toPosix(join(home, '.claude', 'workflow-state')),
     },
   };
+}
+
+/**
+ * True when the entry is the one that earlier versions wrote: `exarchos` with the arguments `['mcp']` only.
+ * That server now gives each session a read-only grant, so the orchestrator entry must be replaced.
+ */
+function isReadOnlyLegacyEntry(entry: unknown): boolean {
+  if (typeof entry !== 'object' || entry === null) return false;
+  if (!('command' in entry) || !('args' in entry)) return false;
+  const { command, args } = entry;
+  return command === 'exarchos'
+    && Array.isArray(args)
+    && args.length === READONLY_MCP_ARGS.length
+    && args.every((arg, index) => arg === READONLY_MCP_ARGS[index]);
+}
+
+/**
+ * Returns a read-only legacy entry with the orchestrator arguments. The other fields stay, so a custom
+ * `env.WORKFLOW_STATE_DIR` still points the restarted server at the same store.
+ */
+function upgradedLegacyEntry(entry: unknown): McpServerEntry {
+  const fields = typeof entry === 'object' && entry !== null ? entry : {};
+  return { type: 'stdio', ...fields, command: 'exarchos', args: [...OPERATOR_MCP_ARGS] };
 }
 
 /** Check if a directory exists at the given path. */
@@ -213,7 +240,9 @@ interface McpDeployResult {
  * When an enabled exarchos plugin serves the project and wires the server, the phase adds no entry, because a second server is a duplicate.
  * In that case it removes a stale bundle entry ({@link isStaleBundleEntry}) and keeps each other entry, also with `forceOverwrite`.
  * It also writes nothing when it cannot read the config, because the plugin already starts the server.
- * Without that plugin, the phase replaces a stale bundle entry. Any other existing entry stays unless `forceOverwrite` is set.
+ *
+ * Without that plugin, the phase replaces a stale bundle entry. It sets the orchestrator arguments on a read-only legacy entry and keeps the other fields of that entry.
+ * Any other existing entry stays unless `forceOverwrite` is set.
  *
  * `stagePath` pins the staged copy at `<target>.tmp`, because `claude-code.test.ts` asserts that path.
  * The verify comes before the publish. So a concurrent writer that clobbers the staged copy makes the verify refuse.
@@ -241,6 +270,7 @@ async function deployMcpConfig(
     : {};
   const alreadyRegistered = 'exarchos' in existingServers;
   const stale = alreadyRegistered && isStaleBundleEntry(existingServers.exarchos, home);
+  const legacyReadOnly = alreadyRegistered && isReadOnlyLegacyEntry(existingServers.exarchos);
 
   if (pluginServes) {
     if (!stale) return { wrote: false, skipped: 'plugin' };
@@ -249,15 +279,18 @@ async function deployMcpConfig(
     return { wrote: true, removedStaleEntry: true };
   }
 
-  if (alreadyRegistered && !stale && !options.forceOverwrite) {
+  if (alreadyRegistered && !stale && !legacyReadOnly && !options.forceOverwrite) {
     return { wrote: false, skipped: 'registered' };
   }
 
+  const entry = legacyReadOnly && !options.forceOverwrite
+    ? upgradedLegacyEntry(existingServers.exarchos)
+    : buildExarchosEntry(home);
   const mergedConfig: ClaudeConfig = {
     ...config,
     mcpServers: {
       ...existingServers,
-      exarchos: buildExarchosEntry(home),
+      exarchos: entry,
     },
   };
 

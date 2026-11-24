@@ -204,6 +204,8 @@ export const INERT_DEPENDENCIES: ReadonlySet<string> = new Set([
   'gray-matter',
   /** Structured logger that writes to an injected stream. */
   'pino',
+  /** Linear-time regular-expression engine over in-memory strings. It has no imports and does no I/O. */
+  're2js',
   /** Test DSL that the shipped `projections/gwt.ts` imports. */
   'vitest',
   /** YAML codec. */

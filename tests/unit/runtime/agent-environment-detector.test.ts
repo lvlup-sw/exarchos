@@ -421,7 +421,7 @@ describe('detectAgentEnvironments — cursor/codex/copilot/opencode', () => {
     const cwd = '/tmp/proj-cursor';
     const mcpJson = `${cwd}/.cursor/mcp.json`;
     const body = JSON.stringify({
-      mcpServers: { exarchos: { command: 'node' } },
+      mcpServers: { exarchos: { command: 'node' }, 'exarchos-readonly': { command: 'node' } },
     });
 
     const result = await detectAgentEnvironments({
@@ -434,6 +434,126 @@ describe('detectAgentEnvironments — cursor/codex/copilot/opencode', () => {
     expect(cursor.configPresent).toBe(true);
     expect(cursor.configValid).toBe(true);
     expect(cursor.mcpRegistered).toBe(true);
+  });
+
+  /**
+   * An older onboard wrote an `npx` launch of a registry package as the cursor entry.
+   * The detector reports it as not registered, so the doctor check warns and onboard writes the `exarchos mcp` entry.
+   */
+  it('DetectAgentEnvironments_CursorRegistryPackageEntry_ReturnsMcpRegisteredFalse', async () => {
+    const cwd = '/tmp/proj-cursor-registry';
+    const legacy = { command: 'npx', args: ['-y', '@anthropic-ai/claude-code', '--mcp-server-name=exarchos'], type: 'stdio' };
+    const versioned = { command: 'npx', args: ['@anthropic-ai/claude-code@1.0.0'], type: 'stdio' };
+
+    for (const exarchos of [legacy, versioned]) {
+      const result = await detectAgentEnvironments({
+        fs: mapFs({ [`${cwd}/.cursor/mcp.json`]: JSON.stringify({ mcpServers: { exarchos } }) }),
+        home: () => '/tmp/home',
+        cwd: () => cwd,
+      });
+
+      const cursor = result.find((r) => r.name === 'cursor')!;
+      expect(cursor.configPresent).toBe(true);
+      expect(cursor.configValid).toBe(true);
+      expect(cursor.mcpRegistered).toBe(false);
+    }
+  });
+
+  /** The rule matches only the legacy registry package. An `npx` entry for another package is a hand edit, and it counts as registered. */
+  it('DetectAgentEnvironments_CursorNpxEntryForAnotherPackage_ReturnsMcpRegisteredTrue', async () => {
+    const cwd = '/tmp/proj-cursor-hand-edit';
+    const body = JSON.stringify({
+      mcpServers: {
+        exarchos: { command: 'npx', args: ['my-exarchos-wrapper@2.0.0'] },
+        'exarchos-readonly': { command: 'exarchos', args: ['mcp'] },
+      },
+    });
+
+    const result = await detectAgentEnvironments({
+      fs: mapFs({ [`${cwd}/.cursor/mcp.json`]: body }),
+      home: () => '/tmp/home',
+      cwd: () => cwd,
+    });
+
+    expect(result.find((r) => r.name === 'cursor')!.mcpRegistered).toBe(true);
+  });
+
+  /** A `.vscode/mcp.json` with the legacy registry package entry makes copilot present and not registered, also without an instruction file. */
+  it('DetectAgentEnvironments_VscodeMcpJsonRegistryPackageEntry_ReturnsCopilotPresentAndNotRegistered', async () => {
+    const cwd = '/tmp/proj-vscode-registry';
+    const vscodeMcp = `${cwd}/.vscode/mcp.json`;
+    const body = JSON.stringify({
+      mcpServers: { exarchos: { command: 'npx', args: ['-y', '@anthropic-ai/claude-code', '--mcp-server-name=exarchos'] } },
+    });
+
+    const result = await detectAgentEnvironments({
+      fs: mapFs({ [vscodeMcp]: body }),
+      home: () => '/tmp/home',
+      cwd: () => cwd,
+    });
+
+    const copilot = result.find((r) => r.name === 'copilot')!;
+    expect(copilot.configPath).toBe(vscodeMcp);
+    expect(copilot.configPresent).toBe(true);
+    expect(copilot.configValid).toBe(true);
+    expect(copilot.mcpRegistered).toBe(false);
+  });
+
+  /** A `.vscode/mcp.json` with both local `exarchos mcp` entries does not make copilot present. Only the instruction files do. */
+  it('DetectAgentEnvironments_VscodeMcpJsonLocalBinaryEntry_LeavesCopilotAbsent', async () => {
+    const cwd = '/tmp/proj-vscode-local';
+    const body = JSON.stringify({
+      mcpServers: {
+        exarchos: { command: 'exarchos', args: ['mcp', '--operator'], type: 'stdio' },
+        'exarchos-readonly': { command: 'exarchos', args: ['mcp'], type: 'stdio' },
+      },
+    });
+
+    const result = await detectAgentEnvironments({
+      fs: mapFs({ [`${cwd}/.vscode/mcp.json`]: body }),
+      home: () => '/tmp/home',
+      cwd: () => cwd,
+    });
+
+    expect(result.find((r) => r.name === 'copilot')!.configPresent).toBe(false);
+  });
+
+  /**
+   * An older onboard wrote only the `exarchos` entry. The reviewer names `exarchos-readonly`, so the
+   * file needs the writer. Cursor reports not registered, and the doctor check warns.
+   */
+  it('DetectAgentEnvironments_CursorWithoutReadOnlyEntry_ReturnsMcpRegisteredFalse', async () => {
+    const cwd = '/tmp/proj-cursor-no-readonly';
+    const body = JSON.stringify({ mcpServers: { exarchos: { command: 'exarchos', args: ['mcp', '--operator'], type: 'stdio' } } });
+
+    const result = await detectAgentEnvironments({
+      fs: mapFs({ [`${cwd}/.cursor/mcp.json`]: body }),
+      home: () => '/tmp/home',
+      cwd: () => cwd,
+    });
+
+    const cursor = result.find((r) => r.name === 'cursor');
+    expect(cursor?.configPresent).toBe(true);
+    expect(cursor?.mcpRegistered).toBe(false);
+  });
+
+  /** A `.vscode/mcp.json` with only the `exarchos` entry makes copilot present and not registered, also without an instruction file. */
+  it('DetectAgentEnvironments_VscodeMcpJsonWithoutReadOnlyEntry_ReturnsCopilotPresentAndNotRegistered', async () => {
+    const cwd = '/tmp/proj-vscode-no-readonly';
+    const vscodeMcp = `${cwd}/.vscode/mcp.json`;
+    const body = JSON.stringify({ mcpServers: { exarchos: { command: 'exarchos', args: ['mcp', '--operator'], type: 'stdio' } } });
+
+    const result = await detectAgentEnvironments({
+      fs: mapFs({ [vscodeMcp]: body }),
+      home: () => '/tmp/home',
+      cwd: () => cwd,
+    });
+
+    const copilot = result.find((r) => r.name === 'copilot');
+    expect(copilot?.configPath).toBe(vscodeMcp);
+    expect(copilot?.configPresent).toBe(true);
+    expect(copilot?.configValid).toBe(true);
+    expect(copilot?.mcpRegistered).toBe(false);
   });
 
   /** The codex probe checks only that `.codex/` exists, so `configValid` equals `configPresent`. */
