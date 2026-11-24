@@ -967,6 +967,18 @@ decisions:
       Items 2 and 3 of #2007 left with manager.prune and git-retry.ts. An old prune.diagnostics record has no mark, so the guard refuses it. The guard fails closed: a store with no query, or a query that throws, gives DRY_RUN_REQUIRED. The window runs on the real clock of the handler deps, never on the now arg, and the guard reads only the records of that one-hour window.
     status: "Committed on codex/1928-s5-worktrees-merges-cancel."
 
+  - date: "2026-11-23"
+    source: "#1928 revision 26, slice S6 step T-40, the conception of 2026-11-23 (one local CLI with no remote integration)."
+    decision: >-
+      The effect ledger owns no network effect, the network adapter has no owner and no narrow port grants network, so any network client fails the census. A new operand rule catches fetch after ??, ||, &&, =>, ?, : or return, and a planted ?? fetch tree proves it.
+      Feedback writes only the local event store. The upstream POST is gone, and the feedback key of .exarchos.yml is retired like the mutation key: the schema accepts it, the parse removes it and the loader reports RETIRED_FEEDBACK_UPSTREAM. The output keeps upstreamConfigured false, configuredEndpoint null and upstreamDelivered false.
+      Process rules name exact measured modules in two classes. The governor owners are utils/process.ts, utils/git-tree.ts, verbs/doctor/probes.ts, verbs/gates/gate-utils.ts, verbs/onboard/install.ts, verbs/reconcile-state.ts and verbs/tasks/extract-intent.ts. The install probes are the second allowed class, with the install-probe: owner prefix: install/advisory-kill-probes.ts, install/hooks-guard.ts, install/runtimes/detect.ts, install/skills-guard.ts and install/wizard/prerequisites.ts. They stay in place.
+      task_complete and the settle fallback observe the claimed tree through the constrained reader (verbs/settle/claimed-tree.ts): storage checks with no process, the worktree listing for head and branch, and the closed listings for dirty paths, with no status. version-check.ts and push-with-lease.ts are deleted with their suites.
+    known: >-
+      tests/process/1928-governor-boundary.test.ts runs prepare, a harness landing, settle and feedback through the packaged binary with recording shims for git, gh, glab, az and node. It shows Git reads and the approved checks only, no merge and no connection to the retired upstream or the proxy variables. Where user namespaces work, a private network namespace trap sees no packet. The MCP tool list stays the four composite tools.
+      Plain git status and constrained listings differ for global excludes and checkout filters. A stray .git entry in an ancestor directory makes the constrained climb unreadable. verbs/onboard/install.ts can still start npx skills add on the CLI onboard step. The cast census baseline falls from 1495 to 1494.
+    status: "Committed on codex/1928-s6-boundary-proof."
+
 build_order:
   original: "kernel -> capsule contract -> prepare/settle -> one runtime adapter -> divergence loop -> #1249 laws -> second adapter"
   legs:
