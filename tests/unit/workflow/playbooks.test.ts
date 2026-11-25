@@ -6,6 +6,7 @@ import {
   listPlaybookWorkflowTypes,
   oneshotPlaybook,
   workflowPlaybooks,
+  PR_RECORDED_PREREQUISITE,
 } from '../../../src/workflow/playbooks.js';
 import type { SerializedPlaybooks, SerializedPhasePlaybook } from '../../../src/workflow/playbooks.js';
 import { phaseRuntimeEmissions } from '../../../src/workflow/topology/phase-events.js';
@@ -886,5 +887,27 @@ describe('DR-11: gate selection is resolver/SoT-derived, not hardcoded in playbo
         );
       }
     }
+  });
+});
+
+/**
+ * The synthesis boundary is local, and the harness owns the pull request.
+ * Each playbook prerequisite that names the recorded pull request marks it as caller-asserted, so no reader takes it for an observation by Exarchos.
+ */
+describe('the recorded pull request is a caller-asserted prerequisite', () => {
+  it('SynthesizePlaybooks_PrPrerequisite_IsMarkedCallerAsserted', () => {
+    const naming = [...workflowPlaybooks.values()]
+      .flat()
+      .filter((playbook) => playbook.guardPrerequisites.includes('artifacts.pr'));
+    const names = naming.map((playbook) => `${playbook.workflowType}:${playbook.phase}`);
+    expect(names).toHaveLength(4);
+    for (const expected of ['debug:synthesize', 'feature:synthesize', 'oneshot:synthesize', 'refactor:synthesize']) {
+      expect(names).toContain(expected);
+    }
+    for (const playbook of naming) {
+      expect(playbook.guardPrerequisites, `${playbook.workflowType}:${playbook.phase}`).toContain(PR_RECORDED_PREREQUISITE);
+    }
+    expect(PR_RECORDED_PREREQUISITE).toContain('caller-asserted');
+    expect(PR_RECORDED_PREREQUISITE).toContain('does not observe');
   });
 });

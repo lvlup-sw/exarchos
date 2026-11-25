@@ -7,7 +7,7 @@
     "testFiles": 1460,
     "parsedFiles": 1416,
     "shellFiles": 44,
-    "cases": 16339,
+    "cases": 16340,
     "dynamicTitles": 321,
     "unparseableFiles": 0
   },
@@ -78426,6 +78426,11 @@
         {
           "suite": "DR-11: gate selection is resolver/SoT-derived, not hardcoded in playbooks",
           "name": "PlanReviewSynthesisPlaybooks_ValidationScripts_CarryNoPhaseKindGateNames",
+          "dynamic": false
+        },
+        {
+          "suite": "the recorded pull request is a caller-asserted prerequisite",
+          "name": "SynthesizePlaybooks_PrPrerequisite_IsMarkedCallerAsserted",
           "dynamic": false
         }
       ]

@@ -862,6 +862,17 @@ decisions:
       A forced prune now records skippedSafeguards active-branch only. Older workflow.pruned events that name open-pr read the same, because the schema takes any string. Stored check_post_merge receipts replay their original results.
     status: "Committed on codex/1928-s4-remote-integrations."
 
+  - date: "2026-11-25"
+    source: "#1928 slice S4 close-out, the conception of 2026-11-23 (Exarchos reads no PR). It supersedes D5 of the #1927 slice plan (2026-11-05)."
+    decision: >-
+      The synthesis boundary is local. A workflow reaches it when every accepted task head is an ancestor of the integration tip, and the settle integration suite is green at that tip.
+      The pull request is a harness concern. Exarchos does not open, merge or observe it, so #1928 observes no pull request. D5 said that the boundary is an open pull request that #1928 observes, and this entry replaces that clause. The merge stays outside Exarchos, as D5 said.
+      #1927 S8 'the critic and the synthesis boundary' owns the local predicate. Until S8 lands, the synthesize playbooks name the prerequisite artifacts.pr exists as caller-asserted, through PR_RECORDED_PREREQUISITE in src/workflow/playbooks.ts, and the guard pr-url-exists reads only the field that the caller wrote.
+    known: >-
+      No guard computes the local predicate yet. tests/unit/workflow/playbooks.test.ts asserts that each playbook prerequisite that names artifacts.pr is marked caller-asserted.
+      The note to #1927 that cross-references S8 waits for Reed to post it.
+    status: "Committed on codex/1928-s4-remote-integrations."
+
 build_order:
   original: "kernel -> capsule contract -> prepare/settle -> one runtime adapter -> divergence loop -> #1249 laws -> second adapter"
   legs:

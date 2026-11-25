@@ -58,6 +58,13 @@ export interface PhasePlaybook {
   readonly compactGuidance: string;
 }
 
+/**
+ * The synthesize prerequisite on the recorded pull request. The caller asserts it: the harness opens the pull request and records its URL.
+ * Exarchos does not observe the pull request. The local synthesis boundary is an integration-tip predicate that the capsule work defines.
+ */
+export const PR_RECORDED_PREREQUISITE =
+  'artifacts.pr exists (caller-asserted: the harness opens the PR and records its URL, and Exarchos does not observe the PR)';
+
 const registry = new Map<string, PhasePlaybook>();
 
 function register(playbook: PhasePlaybook): void {
@@ -327,7 +334,7 @@ register({
   events: phaseEventInstructions('synthesize'),
   autoEmittedEvents: phaseRuntimeEmissions('synthesize'),
   transitionCriteria: 'PR created and enqueued → completed',
-  guardPrerequisites: 'artifacts.pr exists',
+  guardPrerequisites: PR_RECORDED_PREREQUISITE,
   validationScripts: [
     'pre_synthesis_check',
   ],
@@ -600,7 +607,7 @@ register({
   events: phaseEventInstructions('synthesize'),
   autoEmittedEvents: phaseRuntimeEmissions('synthesize'),
   transitionCriteria: 'PR URL exists → completed',
-  guardPrerequisites: 'artifacts.pr exists',
+  guardPrerequisites: PR_RECORDED_PREREQUISITE,
   validationScripts: [],
   humanCheckpoint: true,
   compactGuidance:
@@ -917,7 +924,7 @@ register({
   events: phaseEventInstructions('synthesize'),
   autoEmittedEvents: phaseRuntimeEmissions('synthesize'),
   transitionCriteria: 'PR URL exists → completed',
-  guardPrerequisites: 'artifacts.pr exists',
+  guardPrerequisites: PR_RECORDED_PREREQUISITE,
   validationScripts: [
     'pre_synthesis_check',
   ],
@@ -1049,7 +1056,7 @@ export const oneshotPlaybook: readonly PhasePlaybook[] = [
     autoEmittedEvents: phaseRuntimeEmissions('synthesize'),
     transitionCriteria: 'PR merged → completed',
     guardPrerequisites:
-      'artifacts.pr exists AND cleanup.mergeVerified is true (the harness reads the merge state with its own tools)',
+      `${PR_RECORDED_PREREQUISITE} AND cleanup.mergeVerified is true (the harness reads the merge state with its own tools)`,
     validationScripts: ['pre_synthesis_check'],
     humanCheckpoint: true,
     compactGuidance:
