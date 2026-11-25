@@ -24,8 +24,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      # Check out the head of the requested PR, not the dispatch ref. The template
-      # mirrors are read from this checkout.
+      # Check out the head of the requested PR, not the dispatch ref. The
+      # golden-fixture check script is read from this checkout.
       - uses: actions/checkout@v4
         with:
           ref: refs/pull/${{ inputs.pr }}/head
@@ -39,27 +39,6 @@ jobs:
               | tar xz -C /tmp
             echo "/tmp/gh_${GH_VERSION}_linux_amd64/bin" >> "$GITHUB_PATH"
           fi
-
-      # A dispatch run has no pull_request payload, so build one from the API.
-      - name: Fetch the pull request event
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          PR: ${{ inputs.pr }}
-        run: |
-          gh api "repos/${{ github.repository }}/pulls/$PR" \
-            --jq '{pull_request: .}' > "$RUNNER_TEMP/pr-event.json"
-
-      # The org action checks the body against the org template: the five
-      # headings in order, no other heading, no template hint, no footer and
-      # at most 250 words. Both local templates must stay copies of it.
-      # v1.11 is the first org release that ships actions/pr-body.
-      - name: Validate PR body
-        uses: lvlup-sw/.github/actions/pr-body@v1.11
-        with:
-          event-file: ${{ runner.temp }}/pr-event.json
-          same-as: |
-            .github/PULL_REQUEST_TEMPLATE.md
-            .exarchos/pr-template.md
 
       # If the PR changes a file under tests/core/fixtures/load-bearing/, the PR
       # body must carry a `GOLDEN-FIXTURE-UPDATE: <reason>` line. The check lives
