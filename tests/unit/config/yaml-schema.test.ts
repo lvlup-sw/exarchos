@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parse as parseYaml } from 'yaml';
+import { RETIRED_VERIFICATION_GATE_NAMES } from '../../../src/workflow/verification-policy.js';
 import { ProjectConfigSchema, FullExarchosConfigSchema } from '../../../src/config/yaml-schema.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -327,6 +328,28 @@ describe('ProjectConfigSchema', () => {
   });
 
   describe('verification section', () => {
+    /**
+     * A cell can still name a retired gate, so an existing `.exarchos.yml` keeps loading. The parse
+     * removes each retired name and keeps the order of the other names.
+     */
+    it('ProjectConfigSchema_VerificationRetiredGateName_RemovedFromParsedCell', () => {
+      expect(RETIRED_VERIFICATION_GATE_NAMES).toContain('check_test_adequacy');
+      const result = ProjectConfigSchema.safeParse({
+        verification: {
+          policy: {
+            medium: ['check_static_analysis', 'check_test_adequacy'],
+            high: ['check_test_adequacy'],
+            boundary: { low: ['check_test_adequacy', 'check_contract_drift', 'check_static_analysis'] },
+          },
+        },
+      });
+      expect(result.success).toBe(true);
+      if (!result.success) return;
+      expect(result.data.verification?.policy?.medium).toEqual(['check_static_analysis']);
+      expect(result.data.verification?.policy?.high).toEqual([]);
+      expect(result.data.verification?.policy?.boundary?.low).toEqual(['check_contract_drift', 'check_static_analysis']);
+    });
+
     /** All six cells, three base and three boundary, accept an ordered list of gate names. */
     it('ProjectConfigSchema_VerificationPolicyValidCells_Parses', () => {
       const result = ProjectConfigSchema.safeParse({
