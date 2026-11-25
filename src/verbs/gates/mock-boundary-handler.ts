@@ -34,6 +34,7 @@ import { DEFAULT_FIRST_PARTY_GLOBS } from '../../config/exarchos-config-schema.j
 import { loadExarchosConfigOutcome, type ExarchosConfigOutcome } from '../../config/load-exarchos-config.js';
 import { PROFILE_UNRESOLVED, type VerificationProfile } from '../../workflow/verification/profile.js';
 import type { GitExec } from '../pure/execute-merge.js';
+import { END_OF_OPTIONS, isSafeRevision } from '../../utils/git-revision.js';
 import {
   detectMockFindings,
   type FileDiff,
@@ -300,6 +301,16 @@ export async function handleMockBoundary(
         };
       }
 
+      if (args.coordinate === undefined && baseRef !== undefined && !isSafeRevision(baseRef)) {
+        return {
+          success: false,
+          error: {
+            code: 'INVALID_INPUT',
+            message: 'baseBranch must be a git revision: not empty, no leading dash, no whitespace',
+          },
+        };
+      }
+
       const gitExec = args.gitExec ?? defaultGitExec;
       const { profile, severityConfig, configLoadError } = readTerms(args, repoRoot);
       const globTerm = profile?.tests.globs;
@@ -310,7 +321,7 @@ export async function handleMockBoundary(
       const severity = resolveGateSeverity('mock-boundary', 'D1', severityConfig);
 
       const diffResult = args.coordinate === undefined
-        ? gitExec(repoRoot, ['diff', '--no-ext-diff', `${baseRef}...HEAD`])
+        ? gitExec(repoRoot, ['diff', '--no-ext-diff', END_OF_OPTIONS, `${baseRef}...HEAD`])
         : gitExec(repoRoot, ['diff', '--no-ext-diff', args.coordinate.diffBaseCommit, args.coordinate.observedHeadCommit, '--']);
       if (args.coordinate !== undefined && diffResult.exitCode !== 0) {
         return { success: false, error: { code: 'TASK_COORDINATE_REFUSED', message: 'The immutable mock-boundary diff could not be read.' } };

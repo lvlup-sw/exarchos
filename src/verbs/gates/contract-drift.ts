@@ -11,6 +11,7 @@
  */
 
 import type { GitExec } from '../pure/execute-merge.js';
+import { isSafeRevision } from '../../utils/git-revision.js';
 import { PROFILE_UNRESOLVED, type VerificationProfile } from '../../workflow/verification/profile.js';
 
 /** Result of running a single contract leg (codegen / typecheck / diff). */
@@ -86,10 +87,11 @@ function extractBreaking(stdout: string): string[] {
 }
 
 /**
- * Computes `git merge-base <baseRef> HEAD`. It returns null when git fails,
- * and the report then says that the gate cannot compute the baseline.
+ * Computes `git merge-base <baseRef> HEAD`. It returns null when git fails or the base is not a
+ * safe revision. The report then says that the gate cannot compute the baseline.
  */
 function computeMergeBase(gitExec: GitExec, repoRoot: string, baseRef: string): string | null {
+  if (!isSafeRevision(baseRef)) return null;
   const result = gitExec(repoRoot, ['merge-base', baseRef, 'HEAD']);
   if (result.exitCode !== 0) return null;
   const sha = result.stdout.trim();

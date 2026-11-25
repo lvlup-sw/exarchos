@@ -173,7 +173,7 @@ describe('Check Polish Scope', () => {
 
     expect(mockedExecFileSync).toHaveBeenCalledWith(
       'git',
-      ['diff', '--name-only', 'main...HEAD'],
+      ['diff', '--name-only', '--end-of-options', 'main...HEAD'],
       expect.objectContaining({ cwd: '/repo' }),
     );
   });

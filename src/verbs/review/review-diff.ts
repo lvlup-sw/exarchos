@@ -7,6 +7,7 @@
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import type { ToolResult } from '../../format.js';
+import { END_OF_OPTIONS, isSafeRevision } from '../../utils/git-revision.js';
 
 /** Caps on the embedded diff. The first cap that the diff reaches stops it. */
 export const REVIEW_DIFF_CAPS = {
@@ -90,9 +91,9 @@ function gitDiffWithFallback(
   cwd: string,
 ): string {
   try {
-    return git(['diff', `${base}...HEAD`, ...extraArgs], cwd);
+    return git(['diff', ...extraArgs, END_OF_OPTIONS, `${base}...HEAD`], cwd);
   } catch {
-    return git(['diff', `${base}..HEAD`, ...extraArgs], cwd);
+    return git(['diff', ...extraArgs, END_OF_OPTIONS, `${base}..HEAD`], cwd);
   }
 }
 
@@ -106,6 +107,15 @@ export async function handleReviewDiff(
 ): Promise<ToolResult> {
   const worktreePath = args.worktreePath ?? process.cwd();
   const baseBranch = args.baseBranch ?? 'main';
+  if (!isSafeRevision(baseBranch)) {
+    return {
+      success: false,
+      error: {
+        code: 'INVALID_INPUT',
+        message: 'baseBranch must be a git revision: not empty, no leading dash, no whitespace',
+      },
+    };
+  }
 
   try {
     if (!fs.statSync(worktreePath).isDirectory()) {
