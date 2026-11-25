@@ -10530,7 +10530,7 @@
         },
         {
           "suite": "converted reads of the lifecycle and team routes",
-          "name": "StandaloneListings_ProcessGitPath_DirtyAndUnreadableRefuseBeforeAnyRun",
+          "name": "StandaloneHost_ProcessGitPath_RunsInADirtyTreeAndRefusesANonRootDirectory",
           "dynamic": false
         },
         {
@@ -11733,7 +11733,7 @@
         },
         {
           "suite": "",
-          "name": "DataOnly_ProvisionedVerifier_RunTestsRunsLocallyWithTheChildCodeAndRefusesADirtyTree",
+          "name": "DataOnly_ProvisionedVerifier_RunTestsRunsLocallyWithTheChildCodeAlsoInADirtyTree",
           "dynamic": false
         },
         {
@@ -11942,7 +11942,7 @@
         },
         {
           "suite": "",
-          "name": "LocalLifecycle_DirtyTreeWrongDirectoryAndProgramInsideTheCheckout_RefuseWithNoRun",
+          "name": "LocalLifecycle_DirtyTreeRefusesOnlyTheLifecycleCheck_WrongDirectoryAndProgramInsideTheCheckoutRefuseWithNoRun",
           "dynamic": false
         },
         {
