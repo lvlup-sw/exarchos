@@ -1,4 +1,4 @@
-// RESERVED(issue: #1928, owner: exarchos, expires: 2027-02-28) — data-only startup removed the last production importer, the executable configuration loader. The v3.0 migration deletes this schema.
+// RESERVED(issue: #2220, owner: exarchos, expires: 2027-02-28) — data-only startup removed the last production importer, the executable configuration loader. The deletion inventory lists this schema for removal.
 import { z } from 'zod';
 import { BUILT_IN_WORKFLOW_TYPES } from '../workflow/admission/built-in-workflow-ir.js';
 

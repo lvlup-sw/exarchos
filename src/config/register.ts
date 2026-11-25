@@ -1,4 +1,4 @@
-// RESERVED(issue: #1928, owner: exarchos, expires: 2027-02-28) — data-only startup removed the last production importer. The v3.0 migration deletes this registry.
+// RESERVED(issue: #2220, owner: exarchos, expires: 2027-02-28) — data-only startup removed the last production importer. The deletion inventory lists this registry for removal.
 /** Registers custom workflow and event data. It imports no checkout module and stores no guard command. */
 import { registerWorkflowType, unregisterWorkflowType } from '../workflow/state-machine.js';
 import { extendWorkflowTypeEnum, unextendWorkflowTypeEnum } from '../workflow/schemas.js';

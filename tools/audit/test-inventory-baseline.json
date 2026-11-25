@@ -4,10 +4,10 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1510,
-    "parsedFiles": 1466,
+    "testFiles": 1511,
+    "parsedFiles": 1467,
     "shellFiles": 44,
-    "cases": 16831,
+    "cases": 16834,
     "dynamicTitles": 339,
     "unparseableFiles": 0
   },
@@ -7173,6 +7173,27 @@
         {
           "suite": "repo-local skills",
           "name": "RepoLocalSkills_EveryRuleThatThePolicyCites_IsInTheVendoredSkill",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/architecture/reserved-module-importers.test.ts": {
+      "file": "tests/architecture/reserved-module-importers.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "reserved module headers",
+          "name": "ReservedModules_AreFound_TheScanIsNotEmpty",
+          "dynamic": false
+        },
+        {
+          "suite": "reserved module headers",
+          "name": "ReservedModule_HasNoImporterOutsideTheReservedSet",
+          "dynamic": false
+        },
+        {
+          "suite": "reserved module headers",
+          "name": "SeededHeaderOnALiveModule_IsReported",
           "dynamic": false
         }
       ]

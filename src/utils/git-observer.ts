@@ -1,5 +1,4 @@
-// RESERVED(issue: #1928, owner: exarchos, expires: 2027-02-28) — staged reader for the planned observation cutover.
-/** Staged structural Git observations. Cleanliness remains an external harness obligation. */
+/** Structural Git observations. Cleanliness remains an external harness obligation. */
 import { lstat, open, realpath } from 'node:fs/promises';
 import { constants } from 'node:fs';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
