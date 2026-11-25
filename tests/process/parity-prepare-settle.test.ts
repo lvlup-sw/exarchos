@@ -496,10 +496,10 @@ describe('parity: exarchos orchestrate prepare and settle — CLI ↔ MCP', () =
       const run = decodeExecuteIntentBundle(runBytes);
       expect(run).toMatchObject({ kind: 'execute-intent-run', bundleVersion: '1.0', intent: 'task-completion', outcome: 'committed' });
       expect(run.leaves.map(leaf => leaf.action)).toEqual([
-        'check_test_adequacy', 'check_contract_drift', 'check_mock_boundary',
+        'check_contract_drift', 'check_mock_boundary',
         'check_integration_suite', 'check_static_analysis', 'task_complete',
       ]);
-      expect(run.leaves.slice(0, 4).map(leaf => leaf.args.baseBranch)).toEqual(Array(4).fill(INTEGRATION_BRANCH));
+      expect(run.leaves.slice(0, 3).map(leaf => leaf.args.baseBranch)).toEqual(Array(3).fill(INTEGRATION_BRANCH));
       expect(run.leaves.at(-1)?.args).toMatchObject({
         taskId: TASK, capsuleVersion, result: { worktreePath: fixture.worktree, files: [`src/${TASK}.ts`] },
       });

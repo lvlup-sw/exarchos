@@ -101,13 +101,13 @@ async function gitOnPath() {
 }
 
 /**
- * Holds the first constrained read of the barrier tree after a real pair or prior segment has committed.
+ * Holds the first constrained read of the barrier tree after a prior segment has committed.
  * The packaged binary finds the wrapper with its one PATH search. The constrained reader passes a closed environment with no PATH and no fixture value.
  * So the wrapper names the absolute Node executable and carries its barrier settings in its own text.
- * The facts exist only after real probes, and in standing mode after a full prior segment with its integration run.
+ * The facts exist only after a full prior segment with its integration run.
  * Under suite load this takes more than ten seconds, so the budget matches the hold time of the driver.
  */
-export async function barrierFor(f: S7Fixture, taskId: string, mode: 'adequacy' | 'standing') {
+export async function barrierFor(f: S7Fixture, taskId: string, mode: 'standing') {
   const realGit = await gitOnPath();
   const barrier = await makeBarrier(f.controls, `${mode}-barrier`, READY_WITHIN_MS);
   const bin = path.join(f.controls, 'bin'); await mkdir(bin);

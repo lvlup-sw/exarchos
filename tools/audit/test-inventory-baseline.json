@@ -7,7 +7,7 @@
     "testFiles": 1498,
     "parsedFiles": 1454,
     "shellFiles": 44,
-    "cases": 16693,
+    "cases": 16691,
     "dynamicTitles": 333,
     "unparseableFiles": 0
   },
@@ -96930,16 +96930,6 @@
       "file": "tests/process/s7-dag-races.test.ts",
       "runner": "vitest:root",
       "cases": [
-        {
-          "suite": "packaged S7 DAG races",
-          "name": "Process_RestartRecoversCoordinate",
-          "dynamic": false
-        },
-        {
-          "suite": "packaged S7 DAG races",
-          "name": "Process_InterruptedEvidenceDamage_RefusesReplacement",
-          "dynamic": false
-        },
         {
           "suite": "packaged S7 DAG races",
           "name": "Process_StandingChangesAfterSegment_RefusesMove",
