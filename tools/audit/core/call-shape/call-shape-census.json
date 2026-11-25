@@ -3,15 +3,7 @@
   "census": "static-call-shape",
   "evidenceClass": "hypothesis-baseline",
   "findings": {
-    "flagged": [
-      {
-        "flag": "The review recipe for the kill probe carries a single `taskId`, while the pass reviews the integrated diff across every task.",
-        "intent": "review",
-        "line": 62,
-        "source": "content/review/skills/review/SKILL.md",
-        "subject": "exarchos_orchestrate.check_test_adequacy"
-      }
-    ],
+    "flagged": [],
     "runbookDivergence": [
       {
         "fetchedAt": {
@@ -997,16 +989,16 @@
               "perTask": 0
             },
             "exarchos": {
-              "atUnit": 8,
-              "fixed": 8,
-              "formula": "8",
+              "atUnit": 6,
+              "fixed": 6,
+              "formula": "6",
               "perPr": 0,
               "perTask": 0
             },
             "exarchosWithDiscovery": {
-              "atUnit": 10,
-              "fixed": 10,
-              "formula": "10",
+              "atUnit": 8,
+              "fixed": 8,
+              "formula": "8",
               "perPr": 0,
               "perTask": 0
             },
@@ -1051,7 +1043,7 @@
               "via": "site"
             },
             {
-              "call": "exarchos_orchestrate.check_test_adequacy",
+              "call": "exarchos_orchestrate.check_static_analysis",
               "line": null,
               "per": "once",
               "role": "work",
@@ -1059,20 +1051,12 @@
               "via": "runbook:task-fix#2"
             },
             {
-              "call": "exarchos_orchestrate.check_static_analysis",
-              "line": null,
-              "per": "once",
-              "role": "work",
-              "source": "src/runbooks/definitions.ts",
-              "via": "runbook:task-fix#3"
-            },
-            {
               "call": "exarchos_orchestrate.task_complete",
               "line": null,
               "per": "once",
               "role": "work",
               "source": "src/runbooks/definitions.ts",
-              "via": "runbook:task-fix#4"
+              "via": "runbook:task-fix#3"
             }
           ],
           "id": "gate-failure-fix",
@@ -1106,7 +1090,7 @@
             "via": "site"
           },
           {
-            "call": "exarchos_orchestrate.check_test_adequacy",
+            "call": "exarchos_orchestrate.check_contract_drift",
             "line": null,
             "per": "once",
             "role": "work",
@@ -1114,7 +1098,7 @@
             "via": "runbook:task-completion#1"
           },
           {
-            "call": "exarchos_orchestrate.check_contract_drift",
+            "call": "exarchos_orchestrate.check_mock_boundary",
             "line": null,
             "per": "once",
             "role": "work",
@@ -1122,7 +1106,7 @@
             "via": "runbook:task-completion#2"
           },
           {
-            "call": "exarchos_orchestrate.check_mock_boundary",
+            "call": "exarchos_orchestrate.check_integration_suite",
             "line": null,
             "per": "once",
             "role": "work",
@@ -1130,7 +1114,7 @@
             "via": "runbook:task-completion#3"
           },
           {
-            "call": "exarchos_orchestrate.check_integration_suite",
+            "call": "exarchos_orchestrate.check_static_analysis",
             "line": null,
             "per": "once",
             "role": "work",
@@ -1138,20 +1122,12 @@
             "via": "runbook:task-completion#4"
           },
           {
-            "call": "exarchos_orchestrate.check_static_analysis",
-            "line": null,
-            "per": "once",
-            "role": "work",
-            "source": "src/runbooks/definitions.ts",
-            "via": "runbook:task-completion#5"
-          },
-          {
             "call": "exarchos_orchestrate.task_complete",
             "line": null,
             "per": "once",
             "role": "work",
             "source": "src/runbooks/definitions.ts",
-            "via": "runbook:task-completion#6"
+            "via": "runbook:task-completion#5"
           }
         ],
         "counts": {
@@ -1163,16 +1139,16 @@
             "perTask": 0
           },
           "exarchos": {
-            "atUnit": 6,
-            "fixed": 6,
-            "formula": "6",
+            "atUnit": 5,
+            "fixed": 5,
+            "formula": "5",
             "perPr": 0,
             "perTask": 0
           },
           "exarchosWithDiscovery": {
-            "atUnit": 7,
-            "fixed": 7,
-            "formula": "7",
+            "atUnit": 6,
+            "fixed": 6,
+            "formula": "6",
             "perPr": 0,
             "perTask": 0
           },
@@ -1198,21 +1174,13 @@
     {
       "boundary": {
         "label": "transition review -> synthesize",
-        "line": 172,
+        "line": 155,
         "source": "content/review/skills/review/SKILL.md"
       },
       "conditional": [
         {
-          "call": "exarchos_orchestrate.check_test_adequacy",
-          "line": 54,
-          "per": "once",
-          "role": "work",
-          "source": "content/review/skills/review/SKILL.md",
-          "via": "site"
-        },
-        {
           "call": "exarchos_workflow.describe",
-          "line": 189,
+          "line": 172,
           "per": "once",
           "role": "describe",
           "source": "content/review/skills/review/SKILL.md",
@@ -1220,7 +1188,7 @@
         },
         {
           "call": "exarchos_orchestrate.describe",
-          "line": 190,
+          "line": 173,
           "per": "once",
           "role": "describe",
           "source": "content/review/skills/review/SKILL.md",
@@ -1230,7 +1198,7 @@
       "exceptions": [
         {
           "bound": {
-            "line": 120,
+            "line": 103,
             "max": 5,
             "source": "content/review/skills/review/SKILL.md"
           },
@@ -1243,16 +1211,16 @@
               "perTask": 0
             },
             "exarchos": {
-              "atUnit": 9,
-              "fixed": 9,
-              "formula": "9",
+              "atUnit": 8,
+              "fixed": 8,
+              "formula": "8",
               "perPr": 0,
               "perTask": 0
             },
             "exarchosWithDiscovery": {
-              "atUnit": 12,
-              "fixed": 12,
-              "formula": "12",
+              "atUnit": 11,
+              "fixed": 11,
+              "formula": "11",
               "perPr": 0,
               "perTask": 0
             },
@@ -1274,7 +1242,7 @@
           "extraCalls": [
             {
               "call": "exarchos_workflow.update",
-              "line": 166,
+              "line": 149,
               "per": "once",
               "role": "work",
               "source": "content/review/skills/review/SKILL.md",
@@ -1286,7 +1254,7 @@
           "reentersNormalPath": false,
           "through": "exarchos_orchestrate.check_review_verdict",
           "trigger": {
-            "line": 164,
+            "line": 147,
             "source": "content/review/skills/review/SKILL.md"
           }
         }
@@ -1320,16 +1288,8 @@
             "via": "site"
           },
           {
-            "call": "exarchos_event.query",
-            "line": 50,
-            "per": "once",
-            "role": "work",
-            "source": "content/review/skills/review/SKILL.md",
-            "via": "site"
-          },
-          {
             "call": "exarchos_orchestrate.runbook",
-            "line": 70,
+            "line": 53,
             "per": "once",
             "role": "runbook-fetch",
             "source": "content/review/skills/review/SKILL.md",
@@ -1361,7 +1321,7 @@
           },
           {
             "call": "exarchos_orchestrate.prepare_review",
-            "line": 74,
+            "line": 57,
             "per": "once",
             "role": "work",
             "source": "content/review/skills/review/SKILL.md",
@@ -1369,7 +1329,7 @@
           },
           {
             "call": "exarchos_orchestrate.check_invariant_conformance",
-            "line": 82,
+            "line": 65,
             "per": "once",
             "role": "work",
             "source": "content/review/skills/review/SKILL.md",
@@ -1377,7 +1337,7 @@
           },
           {
             "call": "exarchos_orchestrate.runbook",
-            "line": 105,
+            "line": 88,
             "per": "once",
             "role": "runbook-fetch",
             "source": "content/review/skills/review/SKILL.md",
@@ -1385,7 +1345,7 @@
           },
           {
             "call": "exarchos_orchestrate.check_review_verdict",
-            "line": 110,
+            "line": 93,
             "per": "once",
             "role": "work",
             "source": "content/review/skills/review/SKILL.md",
@@ -1393,7 +1353,7 @@
           },
           {
             "call": "exarchos_workflow.update",
-            "line": 157,
+            "line": 140,
             "per": "once",
             "role": "work",
             "source": "content/review/skills/review/SKILL.md",
@@ -1401,7 +1361,7 @@
           },
           {
             "call": "exarchos_workflow.transition",
-            "line": 160,
+            "line": 143,
             "per": "once",
             "role": "work",
             "source": "content/review/skills/review/SKILL.md",
@@ -1417,16 +1377,16 @@
             "perTask": 0
           },
           "exarchos": {
-            "atUnit": 10,
-            "fixed": 10,
-            "formula": "10",
+            "atUnit": 9,
+            "fixed": 9,
+            "formula": "9",
             "perPr": 0,
             "perTask": 0
           },
           "exarchosWithDiscovery": {
-            "atUnit": 13,
-            "fixed": 13,
-            "formula": "13",
+            "atUnit": 12,
+            "fixed": 12,
+            "formula": "12",
             "perPr": 0,
             "perTask": 0
           },
@@ -2311,7 +2271,7 @@
       "flag": null,
       "intent": "review",
       "kind": "boundary",
-      "line": 172,
+      "line": 155,
       "path": "boundary",
       "source": "content/review/skills/review/SKILL.md",
       "subject": "boundary"
@@ -2337,21 +2297,11 @@
       "subject": "native:SPAWN_AGENT_CALL"
     },
     {
-      "decision": "the reviewer reads the kill-probe verdict settlement recorded for each task, in one query",
-      "flag": null,
-      "intent": "review",
-      "kind": "site",
-      "line": 50,
-      "path": "normal",
-      "source": "content/review/skills/review/SKILL.md",
-      "subject": "exarchos_event.query"
-    },
-    {
       "decision": "the runbook gates run first; the invariant pass and the verdict, which the skill spells separately after the check catalog, are counted where the skill places them",
       "flag": null,
       "intent": "review",
       "kind": "runbook",
-      "line": 70,
+      "line": 53,
       "path": "normal",
       "source": "content/review/skills/review/SKILL.md",
       "subject": "runbook:quality-evaluation"
@@ -2361,7 +2311,7 @@
       "flag": null,
       "intent": "review",
       "kind": "mention",
-      "line": 74,
+      "line": 57,
       "path": "normal",
       "source": "content/review/skills/review/SKILL.md",
       "subject": "exarchos_orchestrate.prepare_review"
@@ -2371,7 +2321,7 @@
       "flag": null,
       "intent": "review",
       "kind": "site",
-      "line": 86,
+      "line": 69,
       "path": "normal",
       "source": "content/review/skills/review/SKILL.md",
       "subject": "exarchos_orchestrate.check_invariant_conformance"
@@ -2381,27 +2331,17 @@
       "flag": null,
       "intent": "review",
       "kind": "exception",
-      "line": 164,
+      "line": 147,
       "path": "exception:needs-fixes",
       "source": "content/review/skills/review/SKILL.md",
       "subject": "the verdict is NEEDS_FIXES, so the failure is recorded and fixes are delegated"
-    },
-    {
-      "decision": "run only for a task settlement did not verify; no loop is named, so it counts once",
-      "flag": "The review recipe for the kill probe carries a single `taskId`, while the pass reviews the integrated diff across every task.",
-      "intent": "review",
-      "kind": "site",
-      "line": 62,
-      "path": "conditional",
-      "source": "content/review/skills/review/SKILL.md",
-      "subject": "exarchos_orchestrate.check_test_adequacy"
     },
     {
       "decision": "schema-discovery reference: consulted when a schema is needed, not prescribed on every run",
       "flag": null,
       "intent": "review",
       "kind": "site",
-      "line": 189,
+      "line": 172,
       "path": "conditional",
       "source": "content/review/skills/review/SKILL.md",
       "subject": "exarchos_workflow.describe"
@@ -2411,7 +2351,7 @@
       "flag": null,
       "intent": "review",
       "kind": "site",
-      "line": 190,
+      "line": 173,
       "path": "conditional",
       "source": "content/review/skills/review/SKILL.md",
       "subject": "exarchos_orchestrate.describe"
@@ -2613,13 +2553,13 @@
   ],
   "pins": {
     "contractAuthority": {
-      "actionIdRegistryDigest": "sha256:92506fd6392c994165e6aa97fe047f9ea39d3bfe61bdff7927cbed1c316d6d73",
+      "actionIdRegistryDigest": "sha256:f4dabc9931efc654c31d78ae1aaa9ab46a6c3df2abe60ba2a8cec35c612abeef",
       "file": "src/contract/contract-authority.lock.json"
     },
     "inputs": [
       {
         "file": "content/delivery/skills/delegate/SKILL.md",
-        "sha256": "864d162409b95bdb12c405ef040d72fc8738bf13c70295263fd1ab0b08e70782"
+        "sha256": "0d6c5565ed2f8ce56378d7a7cd649938acd5effc39f55067d6af9fe546ea8c95"
       },
       {
         "file": "content/design/skills/plan/SKILL.md",
@@ -2627,7 +2567,7 @@
       },
       {
         "file": "content/review/skills/review/SKILL.md",
-        "sha256": "68b92dccd4495fedf4b95305e91e8f6caefe06eeb5ff3363ad4bc7ca47dee018"
+        "sha256": "4cd725350933698f5491d7aff5ccc726a36d05f8b4fcf7e289fa83dd3365907c"
       },
       {
         "file": "content/synthesis/skills/synthesize/SKILL.md",
@@ -2635,12 +2575,12 @@
       },
       {
         "file": "src/runbooks/definitions.ts",
-        "sha256": "e873e609e5094e84b506804936bfb45c8cb1e7ecffc69310d587a77e69006d02"
+        "sha256": "908634fb3a4b25880dd322a8350e810452481a049ae3427b0b592ab9afae4557"
       }
     ],
     "registry": {
-      "actionIdsSha256": "92506fd6392c994165e6aa97fe047f9ea39d3bfe61bdff7927cbed1c316d6d73",
-      "actions": 127,
+      "actionIdsSha256": "f4dabc9931efc654c31d78ae1aaa9ab46a6c3df2abe60ba2a8cec35c612abeef",
+      "actions": 126,
       "file": "tools/audit/registered-actions-snapshot.json",
       "tools": 5,
       "visibleTools": 4
@@ -2650,17 +2590,12 @@
     {
       "counts": {
         "decision": 0,
-        "exarchos": 6,
+        "exarchos": 5,
         "native": 0
       },
       "id": "task-completion",
       "phase": "delegate",
       "steps": [
-        {
-          "call": "exarchos_orchestrate.check_test_adequacy",
-          "status": "registered",
-          "surface": "exarchos"
-        },
         {
           "call": "exarchos_orchestrate.check_contract_drift",
           "status": "registered",
@@ -2901,7 +2836,7 @@
     {
       "counts": {
         "decision": 0,
-        "exarchos": 3,
+        "exarchos": 2,
         "native": 1
       },
       "id": "task-fix",
@@ -2911,11 +2846,6 @@
           "call": "native:Task.resume_or_spawn",
           "status": "harness",
           "surface": "native"
-        },
-        {
-          "call": "exarchos_orchestrate.check_test_adequacy",
-          "status": "registered",
-          "surface": "exarchos"
         },
         {
           "call": "exarchos_orchestrate.check_static_analysis",
@@ -3767,34 +3697,12 @@
         "status": "registered"
       },
       {
-        "call": "exarchos_event.query",
-        "dispositions": [
-          "review:normal"
-        ],
-        "endLine": 50,
-        "line": 50,
-        "pattern": "call-expression",
-        "runbookId": null,
-        "status": "registered"
-      },
-      {
-        "call": "exarchos_orchestrate.check_test_adequacy",
-        "dispositions": [
-          "review:conditional"
-        ],
-        "endLine": 64,
-        "line": 54,
-        "pattern": "call-expression",
-        "runbookId": null,
-        "status": "registered"
-      },
-      {
         "call": "exarchos_orchestrate.runbook",
         "dispositions": [
           "review:normal"
         ],
-        "endLine": 70,
-        "line": 70,
+        "endLine": 53,
+        "line": 53,
         "pattern": "call-expression",
         "runbookId": "quality-evaluation",
         "status": "registered"
@@ -3804,8 +3712,8 @@
         "dispositions": [
           "review:normal"
         ],
-        "endLine": 87,
-        "line": 82,
+        "endLine": 70,
+        "line": 65,
         "pattern": "call-expression",
         "runbookId": null,
         "status": "registered"
@@ -3815,8 +3723,8 @@
         "dispositions": [
           "review:normal"
         ],
-        "endLine": 105,
-        "line": 105,
+        "endLine": 88,
+        "line": 88,
         "pattern": "call-expression",
         "runbookId": "review-escalation",
         "status": "registered"
@@ -3826,8 +3734,8 @@
         "dispositions": [
           "review:normal"
         ],
-        "endLine": 117,
-        "line": 110,
+        "endLine": 100,
+        "line": 93,
         "pattern": "call-expression",
         "runbookId": null,
         "status": "registered"
@@ -3837,8 +3745,8 @@
         "dispositions": [
           "review:normal"
         ],
-        "endLine": 159,
-        "line": 157,
+        "endLine": 142,
+        "line": 140,
         "pattern": "call-expression",
         "runbookId": null,
         "status": "registered"
@@ -3848,8 +3756,8 @@
         "dispositions": [
           "review:normal"
         ],
-        "endLine": 160,
-        "line": 160,
+        "endLine": 143,
+        "line": 143,
         "pattern": "call-expression",
         "runbookId": null,
         "status": "registered"
@@ -3859,8 +3767,8 @@
         "dispositions": [
           "review:exception:needs-fixes"
         ],
-        "endLine": 168,
-        "line": 166,
+        "endLine": 151,
+        "line": 149,
         "pattern": "call-expression",
         "runbookId": null,
         "status": "registered"
@@ -3870,8 +3778,8 @@
         "dispositions": [
           "review:conditional"
         ],
-        "endLine": 189,
-        "line": 189,
+        "endLine": 172,
+        "line": 172,
         "pattern": "call-expression",
         "runbookId": null,
         "status": "registered"
@@ -3881,8 +3789,8 @@
         "dispositions": [
           "review:conditional"
         ],
-        "endLine": 190,
-        "line": 190,
+        "endLine": 173,
+        "line": 173,
         "pattern": "call-expression",
         "runbookId": null,
         "status": "registered"
@@ -4148,15 +4056,15 @@
       "endsAt": "task_complete records the task complete",
       "exceptions": [
         {
-          "atUnit": 8,
-          "exarchos": "8",
+          "atUnit": 6,
+          "exarchos": "6",
           "id": "gate-failure-fix"
         }
       ],
       "intent": "task-completion",
       "native": "0",
-      "normalExarchos": "6",
-      "normalExarchosAtUnit": 6,
+      "normalExarchos": "5",
+      "normalExarchosAtUnit": 5,
       "runbookFetch": "1"
     },
     {
@@ -4165,15 +4073,15 @@
       "endsAt": "transition review -> synthesize",
       "exceptions": [
         {
-          "atUnit": 9,
-          "exarchos": "9",
+          "atUnit": 8,
+          "exarchos": "8",
           "id": "needs-fixes"
         }
       ],
       "intent": "review",
       "native": "1",
-      "normalExarchos": "10",
-      "normalExarchosAtUnit": 10,
+      "normalExarchos": "9",
+      "normalExarchosAtUnit": 9,
       "runbookFetch": "3"
     },
     {

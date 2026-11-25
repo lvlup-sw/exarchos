@@ -36,7 +36,6 @@ export const CLI_ACTION_IDS: readonly string[] = [
   'exarchos_orchestrate.check_security_scan',
   'exarchos_orchestrate.check_static_analysis',
   'exarchos_orchestrate.check_task_decomposition',
-  'exarchos_orchestrate.check_test_adequacy',
   'exarchos_orchestrate.check_workflow_determinism',
   'exarchos_orchestrate.classify_review_items',
   'exarchos_orchestrate.create_issue',
