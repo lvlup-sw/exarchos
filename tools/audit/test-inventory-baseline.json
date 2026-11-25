@@ -7,7 +7,7 @@
     "testFiles": 1498,
     "parsedFiles": 1454,
     "shellFiles": 44,
-    "cases": 16691,
+    "cases": 16700,
     "dynamicTitles": 333,
     "unparseableFiles": 0
   },
@@ -91130,6 +91130,51 @@
         {
           "suite": "spec coverage in the local executor",
           "name": "SpecCoverage_TheDeclaredTests_RunOnlyInTheLocalExecutor",
+          "dynamic": false
+        },
+        {
+          "suite": "the outcome of one leg of the probe command",
+          "name": "ProbeRunOutcome_ExitZero_IsGreen",
+          "dynamic": false
+        },
+        {
+          "suite": "the outcome of one leg of the probe command",
+          "name": "ProbeRunOutcome_ARedExitCode_IsRed",
+          "dynamic": false
+        },
+        {
+          "suite": "the outcome of one leg of the probe command",
+          "name": "ProbeRunOutcome_AnUnknownExitCode_GivesNoVerdict",
+          "dynamic": false
+        },
+        {
+          "suite": "the outcome of one leg of the probe command",
+          "name": "ProbeRunOutcome_ATimeout_GivesNoVerdict",
+          "dynamic": false
+        },
+        {
+          "suite": "the outcome of one leg of the probe command",
+          "name": "ProbeRunOutcome_AnOutputLimit_GivesNoVerdictWithTheOverflowCause",
+          "dynamic": false
+        },
+        {
+          "suite": "the outcome of one leg of the probe command",
+          "name": "ProbeRunOutcome_ASignal_GivesNoVerdictAndNamesTheSignal",
+          "dynamic": false
+        },
+        {
+          "suite": "the outcome of one leg of the probe command",
+          "name": "ProbeRunOutcome_ARefusedLeg_DidNotStart",
+          "dynamic": false
+        },
+        {
+          "suite": "the outcome of one leg of the probe command",
+          "name": "ProbeRunOutcome_AnUnavailableLeg_DidNotStart",
+          "dynamic": false
+        },
+        {
+          "suite": "the time limit of one probe run",
+          "name": "RunTimeoutOf_TheNoneForm_GetsTheWholeSuiteLimitAndEachScopedFormTheScopedLimit",
           "dynamic": false
         }
       ]

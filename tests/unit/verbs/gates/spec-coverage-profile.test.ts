@@ -27,11 +27,14 @@ import type { ToolResult } from '../../../../src/format.js';
 import {
   extractTestFiles,
   handleSpecCoverageCheck,
+  probeRunOutcome,
+  runTimeoutOf,
   testPathWellFormednessError,
   type SpecCoverageCheckArgs,
 } from '../../../../src/verbs/gates/spec-coverage-check.js';
 import { rmrf } from '../../../../tools/test-helpers/temp-dir.js';
 import type { RunCommandFn } from '../../../../src/verbs/pure/static-analysis.js';
+import type { LegObservation } from '../../../../src/verbs/verification/check-executor.js';
 import { fakeExecutor } from '../../../helpers/verification/check-executor.js';
 import {
   pinnedTestProfile,
@@ -369,5 +372,90 @@ describe('spec coverage in the local executor', () => {
     const refused = await call({ coveragePhase: 'post-implementation' }, fakeExecutor(execRunner, 'The working directory has uncommitted changes.').executor);
     expect(refused).toMatchObject({ success: false, error: { code: 'LOCAL_CHECK_REFUSED' } });
     expect(runs()).toHaveLength(1);
+  });
+});
+
+/** One closed leg of the probe command with the end `end`. The other fields come from `extra`. */
+function leg(end: LegObservation['end'], extra: Partial<LegObservation> = {}): LegObservation {
+  return { argv: ['npm', 'test'], end, exitCode: null, stdout: '', stderr: '', ...extra };
+}
+
+/** The red exit codes of the probe term in each outcome case. */
+const RED_CODES = [1, 2] as const;
+
+describe('the outcome of one leg of the probe command', () => {
+  /** Exit 0 is a green run. */
+  it('ProbeRunOutcome_ExitZero_IsGreen', () => {
+    expect(probeRunOutcome(leg('exited', { exitCode: 0 }), RED_CODES)).toEqual({ kind: 'ran', result: 'green' });
+  });
+
+  /** Each red exit code of the probe term is a red run. */
+  it('ProbeRunOutcome_ARedExitCode_IsRed', () => {
+    expect(probeRunOutcome(leg('exited', { exitCode: 1 }), RED_CODES)).toEqual({ kind: 'ran', result: 'red' });
+    expect(probeRunOutcome(leg('exited', { exitCode: 2 }), RED_CODES)).toEqual({ kind: 'ran', result: 'red' });
+  });
+
+  /** An exit code outside the red codes, or an exit with no status, gives no verdict and names the red codes. */
+  it('ProbeRunOutcome_AnUnknownExitCode_GivesNoVerdict', () => {
+    expect(probeRunOutcome(leg('exited', { exitCode: 7 }), RED_CODES)).toEqual({
+      kind: 'no-verdict', cause: 'unknown-exit-code',
+      detail: 'the command exited 7, and only exit 1 or 2 reads as a red run',
+    });
+    expect(probeRunOutcome(leg('exited'), RED_CODES)).toMatchObject({
+      kind: 'no-verdict', cause: 'unknown-exit-code', detail: expect.stringContaining('exited with no status'),
+    });
+  });
+
+  /** A run that the executor stops at its time limit gives no verdict. */
+  it('ProbeRunOutcome_ATimeout_GivesNoVerdict', () => {
+    expect(probeRunOutcome(leg('timeout'), RED_CODES)).toEqual({
+      kind: 'no-verdict', cause: 'timeout', detail: 'the executor stopped the run at its time limit',
+    });
+  });
+
+  /** A run that the executor stops at its output limit gives no verdict with the overflow cause. */
+  it('ProbeRunOutcome_AnOutputLimit_GivesNoVerdictWithTheOverflowCause', () => {
+    expect(probeRunOutcome(leg('output-limit'), RED_CODES)).toEqual({
+      kind: 'no-verdict', cause: 'overflow', detail: 'the executor stopped the run at its output limit',
+    });
+  });
+
+  /** A run that a signal stops gives no verdict and names the signal. A leg with no signal name reads as SIGKILL. */
+  it('ProbeRunOutcome_ASignal_GivesNoVerdictAndNamesTheSignal', () => {
+    expect(probeRunOutcome(leg('signal', { signal: 'SIGTERM' }), RED_CODES)).toEqual({
+      kind: 'no-verdict', cause: 'signal', detail: 'the signal SIGTERM stopped the run',
+    });
+    expect(probeRunOutcome(leg('signal'), RED_CODES)).toEqual({
+      kind: 'no-verdict', cause: 'signal', detail: 'the signal SIGKILL stopped the run',
+    });
+  });
+
+  /** A refused leg did not start. Its detail is the detail of the leg, or a fixed text when the leg has none. */
+  it('ProbeRunOutcome_ARefusedLeg_DidNotStart', () => {
+    expect(probeRunOutcome(leg('refused', { detail: 'the argv is not approved' }), RED_CODES)).toEqual({
+      kind: 'no-verdict', cause: 'did-not-start', detail: 'the argv is not approved',
+    });
+    expect(probeRunOutcome(leg('refused'), RED_CODES)).toEqual({
+      kind: 'no-verdict', cause: 'did-not-start', detail: 'the executor refused the test command',
+    });
+  });
+
+  /** An unavailable leg did not start. Its detail is the detail of the leg, or a fixed text when the leg has none. */
+  it('ProbeRunOutcome_AnUnavailableLeg_DidNotStart', () => {
+    expect(probeRunOutcome(leg('unavailable', { detail: 'npm: not found' }), RED_CODES)).toEqual({
+      kind: 'no-verdict', cause: 'did-not-start', detail: 'npm: not found',
+    });
+    expect(probeRunOutcome(leg('unavailable'), RED_CODES)).toEqual({
+      kind: 'no-verdict', cause: 'did-not-start', detail: 'the test command did not start',
+    });
+  });
+});
+
+describe('the time limit of one probe run', () => {
+  /** The `none` form runs a whole suite, so it gets the limit of a whole suite. Each scoped form gets the shorter scoped limit. */
+  it('RunTimeoutOf_TheNoneForm_GetsTheWholeSuiteLimitAndEachScopedFormTheScopedLimit', () => {
+    expect(runTimeoutOf('none')).toBe(600_000);
+    expect(runTimeoutOf('after-separator')).toBe(120_000);
+    expect(runTimeoutOf('as-arguments')).toBe(120_000);
   });
 });
