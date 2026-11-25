@@ -196,9 +196,9 @@ it.runIf(process.platform === 'linux')('DataOnly_UnusableProvisioning_RunTestsIg
 
 /**
  * A usable verifier provisioning does not route the standalone test verb. The command runs in the local executor at the checkout root.
- * The verb exits with the child code, and a dirty tree refuses with exit 77 before any run. These runs use the plain PATH, so Git is real.
+ * The verb exits with the child code, also in a dirty tree, because it stores no record. These runs use the plain PATH, so Git is real.
  */
-it.runIf(process.platform === 'linux')('DataOnly_ProvisionedVerifier_RunTestsRunsLocallyWithTheChildCodeAndRefusesADirtyTree', async () => {
+it.runIf(process.platform === 'linux')('DataOnly_ProvisionedVerifier_RunTestsRunsLocallyWithTheChildCodeAlsoInADirtyTree', async () => {
   const f = await dataOnlyFixture();
   const marker = join(f.root, 'markers', 'local-test');
   const repo = await scopedRepository({ integrationBranch: 'integration', files: {
@@ -223,11 +223,11 @@ it.runIf(process.platform === 'linux')('DataOnly_ProvisionedVerifier_RunTestsRun
 
     await writeFile(join(repo.checkout, 'untracked.txt'), 'dirty\n');
     const dirty = await f.cli(['run-tests'], repo.checkout, { env: plain });
-    expect(dirty.exitCode).toBe(77);
-    expect(dirty.stderr).toContain('Commit them first');
+    expect(dirty.exitCode, dirty.stderr).toBe(3);
+    expect(dirty.stdout).toContain('tests ok');
     await rm(join(repo.checkout, 'untracked.txt'));
 
-    expect((await readFile(marker, 'utf8')).split('\n').filter(Boolean)).toHaveLength(1);
+    expect((await readFile(marker, 'utf8')).split('\n').filter(Boolean)).toHaveLength(2);
     expect(await exists(join(control, 's'))).toBe(false);
   } finally {
     await f.close();

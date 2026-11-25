@@ -88,10 +88,10 @@ describe('handleRunTests', () => {
 
   /** A refused run exits 77, and a run with no verdict exits 75. Each keeps its own message. No outcome exits 78. */
   it('RunTests_LocalHost_RefusalExits77AndNoVerdictExits75WithDistinctMessages', async () => {
-    const refused = hostOf({ kind: 'refused', message: 'The checkout has uncommitted changes. Commit them first, then run the check again.' });
+    const refused = hostOf({ kind: 'refused', message: 'The working directory is not the root of its checkout.' });
     const first = makeDeps(RESOLVED('node test.cjs'), { host: refused.host });
     expect(await handleRunTests([], first.deps)).toBe(77);
-    expect(first.rec.err.join('\n')).toContain('Commit them first');
+    expect(first.rec.err.join('\n')).toContain('not the root of its checkout');
     expect(first.rec.err.join('\n')).toContain('refused');
 
     const unavailable = hostOf({ kind: 'unavailable', message: 'The test run gave no verdict: the executor stopped the run at its time cap.' });

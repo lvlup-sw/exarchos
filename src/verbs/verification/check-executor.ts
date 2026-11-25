@@ -725,19 +725,17 @@ export interface StandaloneCheckRequest {
   readonly legTimeoutMs?: number;
 }
 
-/** The outcome of one standalone check: the value of its body, or a refusal before or after the legs. */
+/** The outcome of one standalone check: the value of its body, or a refusal before the legs. */
 export type StandaloneCheckOutcome<T> = { readonly kind: 'ran'; readonly value: T } | { readonly kind: 'refused'; readonly reason: string };
 
 /**
  * Run one approved check outside a dispatched operation, as the standalone test verb does. It has no store, so it claims, records and replays nothing.
- * The policy of each leg is the policy of {@link runApprovedCheck}. The working directory must be the root of a registered branch checkout with a clean tree.
- * A run that changes the checkout refuses after its legs.
+ * The policy of each leg is the policy of {@link runApprovedCheck}. The working directory must be the root of a registered branch checkout.
+ * No record binds the exact head, so the tree can have uncommitted changes, and a leg that changes the checkout keeps its result.
  */
 export async function runStandaloneCheck<T>(request: StandaloneCheckRequest, body: (session: CheckSession) => Promise<T>): Promise<StandaloneCheckOutcome<T>> {
   const read = await observeWorkingDirectory({ checkout: request.checkout });
   if (read.kind === 'refused') return read;
-  if (!await cleanAt(read)) return { kind: 'refused', reason: 'The working directory has uncommitted changes. Commit them first, then run the check again.' };
-  const terms: AttemptTerms = { plan: request.plan, workspace: 'checkout', ...(request.legTimeoutMs === undefined ? {} : { legTimeoutMs: request.legTimeoutMs }) };
-  const { value, observation } = await runAttempt(terms, read, body);
-  return observation.tree === 'changed' ? { kind: 'refused', reason: CHANGED_TREE_REASON } : { kind: 'ran', value };
+  const legs: LegObservation[] = [];
+  return { kind: 'ran', value: await body(liveSession(request.plan, read.checkout, headOnly(read.checkout), read.checkout, legTimeout(request.legTimeoutMs), {}, legs)) };
 }

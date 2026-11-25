@@ -7,7 +7,7 @@
  *   - Command resolved: the local approved-check executor runs it, and the verb returns the exit code of the child.
  *   - No command resolved: print the remediation to stderr and exit 0.
  *   - Malformed or unreadable `.exarchos.yml`: print the error to stderr and exit 1.
- *   - A refused run exits 77: a dirty tree, a working directory that is not a checkout root, or a program inside the checkout.
+ *   - A refused run exits 77: a working directory that is not a checkout root, or a program inside the checkout. A dirty tree runs.
  *   - A run with no verdict exits 75: a time cap, an output cap, a signal, or a program that does not start.
  *
  * `--dry-run` prints the resolved command and does not run it.

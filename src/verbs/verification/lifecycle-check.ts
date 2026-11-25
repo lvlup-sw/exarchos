@@ -4,7 +4,7 @@
  * The working directory must be a registered worktree of the workflow repository, or the checkout of the capsule scope, with a clean tree.
  *
  * A refusal of the executor is a failed result with the local refusal code. A leg with no verdict throws the pending signal, so no evidence lands.
- * The standalone verb has no store, so its run claims, records and replays nothing.
+ * The standalone verb has no store, so its run claims, records and replays nothing, and it does not need a clean tree.
  */
 import { checkPlanDigest, type CheckPlan } from '../../contract/verification/harness-verification.js';
 import type { EventStore } from '../../events/store.js';
@@ -108,7 +108,7 @@ function testRunOf(outcome: StandaloneCheckOutcome<LegObservation>): LocalTestRu
 
 /**
  * The local host of the standalone test verb. It runs the resolved test command as the one leg of a lifecycle plan in the working directory.
- * The working directory must be the root of a registered branch checkout with a clean tree. A dirty tree, a wrong directory and a refused program refuse.
+ * The working directory must be the root of a registered branch checkout. Uncommitted changes do not refuse. A wrong directory and a refused program refuse.
  * A time cap, an output cap, a signal and a program that does not start give no verdict.
  */
 export function standaloneTestHost(): RunTestsHost {

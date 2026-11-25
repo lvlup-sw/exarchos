@@ -359,31 +359,35 @@ describe('converted reads of the lifecycle and team routes', () => {
   });
 
   /**
-   * The standalone test host reads the clean-tree listings through the closed operations with the process-wide Git path.
-   * A clean tree runs the test leg. A dirty tree and an unreadable index refuse before any run.
+   * The standalone test host stores no record, so it reads no clean-tree listing and runs the test leg in a clean or a dirty tree.
+   * A test leg that changes the checkout still gives its exit code. A directory that is not the root of its checkout refuses before any run.
    */
-  it('StandaloneListings_ProcessGitPath_DirtyAndUnreadableRefuseBeforeAnyRun', async ({ skip }) => {
-    if (process.platform !== 'linux') return skip();
+  it('StandaloneHost_ProcessGitPath_RunsInADirtyTreeAndRefusesANonRootDirectory', async ({ skip }) => {
+    if (process.platform === 'win32') return skip();
     const root = await tempRoot('observational-listing-');
     const { program, marker } = await markerProgram(root);
     const { main } = await repository(root, { 'src/a.ts': 'export {};\n' });
-    const argv = [program, 'test'];
+    const writer = join(root, 'writer.sh');
+    await writeFile(writer, `#!/bin/sh\necho "called $0 $*" >> '${marker}'\necho changed > '${join(main, 'written.txt')}'\nexit 4\n`);
+    await chmod(writer, 0o755);
     const testHost = standaloneTestHost();
     primeObservationalGitPath(GIT);
     const shimCalls = await pathShim(root);
 
-    const clean = await testHost.run(main, argv);
-    expect(clean).toMatchObject({ kind: 'exited', exitCode: 0 });
+    const clean = await testHost.run(main, [program, 'test']);
     await writeFile(join(main, 'untracked.txt'), 'dirty\n');
-    const dirty = await testHost.run(main, argv);
+    await writeFile(join(main, 'src', 'a.ts'), 'export const edited = 1;\n');
+    const dirty = await testHost.run(main, [program, 'test']);
+    const changing = await testHost.run(main, [writer, 'test']);
+    const nested = await testHost.run(join(main, 'src'), [program, 'test']);
+    await git(main, 'checkout', '--', 'src/a.ts');
     await git(main, 'clean', '-fdq');
-    await chmod(join(main, '.git', 'index'), 0o000);
-    const unreadable = await testHost.run(main, argv);
-    await chmod(join(main, '.git', 'index'), 0o644);
 
-    expect(dirty).toMatchObject({ kind: 'refused', message: expect.stringContaining('uncommitted changes') });
-    expect(unreadable).toMatchObject({ kind: 'refused' });
-    expect(await markerRuns(marker)).toBe(1);
+    expect(clean).toMatchObject({ kind: 'exited', exitCode: 0 });
+    expect(dirty).toMatchObject({ kind: 'exited', exitCode: 0 });
+    expect(changing).toMatchObject({ kind: 'exited', exitCode: 4 });
+    expect(nested).toMatchObject({ kind: 'refused', message: expect.stringContaining('not the root of its checkout') });
+    expect(await markerRuns(marker)).toBe(3);
     expect(await shimCalls()).toHaveLength(0);
   });
 });

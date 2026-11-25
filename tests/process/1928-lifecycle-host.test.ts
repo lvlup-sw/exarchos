@@ -207,23 +207,28 @@ it.runIf(process.platform === 'linux')('LocalLifecycle_ARetryOfTheSameOperation_
   } finally { await f.close(); }
 }, 400000);
 
-it.runIf(process.platform === 'linux')('LocalLifecycle_DirtyTreeWrongDirectoryAndProgramInsideTheCheckout_RefuseWithNoRun', async () => {
+/**
+ * A dirty tree refuses the lifecycle check with no run. The standalone verb stores no record, so it runs in an untracked, a modified and a staged tree.
+ * A wrong directory and a program inside the checkout refuse both routes with no run.
+ */
+it.runIf(process.platform === 'linux')('LocalLifecycle_DirtyTreeRefusesOnlyTheLifecycleCheck_WrongDirectoryAndProgramInsideTheCheckoutRefuseWithNoRun', async () => {
   const f = await lifecycleFixture();
   try {
     const tracked = await readFile(join(f.taskA, 'test.cjs'), 'utf8');
     await writeFile(join(f.taskA, 'untracked.txt'), 'dirty\n');
     const dirty = await f.handle('verify_worktree_baseline', { worktreePath: f.taskA });
     expect(dirty).toMatchObject({ success: false, error: { code: 'LOCAL_CHECK_REFUSED', message: expect.stringContaining('uncommitted changes') } });
+    expect(await runsOf(f.marker('a-test'))).toBe(0);
     const dirtyStandalone = await f.runTests(f.taskA);
-    expect(dirtyStandalone.code).toBe(77);
-    expect(dirtyStandalone.err).toContain('Commit them first');
+    expect(dirtyStandalone.code, dirtyStandalone.err).toBe(0);
+    expect(dirtyStandalone.out).toContain('a ok');
     await rm(join(f.taskA, 'untracked.txt'));
     await writeFile(join(f.taskA, 'test.cjs'), `${tracked}\n`);
-    expect((await f.runTests(f.taskA)).code).toBe(77);
+    expect((await f.runTests(f.taskA)).code).toBe(0);
     await execFileAsync('git', ['-C', f.taskA, 'add', 'test.cjs']);
-    expect((await f.runTests(f.taskA)).code).toBe(77);
+    expect((await f.runTests(f.taskA)).code).toBe(0);
     await execFileAsync('git', ['-C', f.taskA, 'reset', '-q', '--hard', 'HEAD']);
-    expect(await runsOf(f.marker('a-test'))).toBe(0);
+    expect(await runsOf(f.marker('a-test'))).toBe(3);
 
     const outside = join(f.root, 'outside');
     await mkdir(outside);
@@ -238,7 +243,7 @@ it.runIf(process.platform === 'linux')('LocalLifecycle_DirtyTreeWrongDirectoryAn
     await execFileAsync('git', ['-C', f.taskA, '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-q', '-m', 'sub']);
     const nested = await f.handle('verify_worktree_baseline', { worktreePath: subdirectory });
     expect(nested).toMatchObject({ success: false, error: { code: 'LOCAL_CHECK_REFUSED', message: expect.stringContaining('not the root of its checkout') } });
-    expect(await runsOf(f.marker('a-test'))).toBe(0);
+    expect(await runsOf(f.marker('a-test'))).toBe(3);
 
     const programInside = await f.runTests(f.inside);
     expect(programInside.code).toBe(77);
