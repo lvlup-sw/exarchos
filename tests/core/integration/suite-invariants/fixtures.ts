@@ -152,9 +152,9 @@ export const FIXTURE_PASSED_TRUE_BY_BINDING = `import { it, expect } from 'vites
 `;
 
 /**
- * NEGATIVE, and the most important one. Two corpus tests have this shape:
- * `tests/unit/verbs/gates/static-analysis.test.ts` and
- * `tests/unit/verbs/gates/test-adequacy.production-path.test.ts`. Each builds
+ * NEGATIVE, and the most important one. A corpus test has this shape:
+ * `tests/unit/verbs/gates/static-analysis.test.ts`. The retired production-path test of the kill probe
+ * had it too. Each builds
  * a carrier of a verdict that did not run, to prove that the system does not
  * read it as a pass. R6 keys on the asserted claim, so it does not flag them.
  */

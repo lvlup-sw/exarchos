@@ -1,3 +1,4 @@
+// @oracle-sources: ../../../../src/config/toolchains.ts, the literal path lists that each case writes by hand
 /**
  * The file-level classification of the mock-boundary gate. `splitHunks` puts each changed file of a task diff in one class:
  * test, test support or source. The mock-boundary gate scans only the files that it classifies as tests.
