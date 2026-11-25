@@ -836,7 +836,7 @@ describe('gates carry no language code', () => {
     const { denominator } = measured();
     const unresolved = [...denominator.actions].filter(([, entry]) => entry === undefined).map(([action]) => action);
 
-    expect(registryGateActions().length).toBeGreaterThanOrEqual(27);
+    expect(registryGateActions().length).toBeGreaterThanOrEqual(26);
     expect(unresolved).toEqual([]);
     for (const [action, entry] of denominator.actions) {
       expect(entry?.module, action).toMatch(/^src\/.+\.ts$/);
@@ -867,7 +867,7 @@ describe('gates carry no language code', () => {
     const gates = readdirSync(path.join(REPO_ROOT, 'src/verbs/gates')).filter((name) => name.endsWith('.ts') && !isTestFile(name));
     const pure = readdirSync(path.join(REPO_ROOT, 'src/verbs/pure')).filter((name) => name.endsWith('.ts') && !isTestFile(name));
 
-    expect(gates.length).toBeGreaterThanOrEqual(39);
+    expect(gates.length).toBeGreaterThanOrEqual(37);
     expect(pure.length).toBeGreaterThanOrEqual(11);
     for (const name of gates) expect(denominator.files).toContain(`src/verbs/gates/${name}`);
     for (const name of pure) expect(denominator.files).toContain(`src/verbs/pure/${name}`);

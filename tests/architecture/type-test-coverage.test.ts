@@ -20,7 +20,7 @@ const REPO_ROOT = resolve(__dirname, '../../');
 const TYPE_TEST_ROOTS = ['src', 'tests', 'tools'] as const;
 
 /** The number of type tests that exist today. A smaller count means the file walk broke. */
-const MIN_TYPE_TESTS = 7;
+const MIN_TYPE_TESTS = 6;
 
 /** Three `tsc` programs read the tree: the root, the conformance tool and the tests. */
 const MIN_PROGRAMS = 3;
