@@ -8,7 +8,7 @@ import {
   safeCommand,
   withoutRetiredMutationCommand,
 } from './exarchos-config-schema.js';
-import { VERIFICATION_GATE_NAMES } from '../workflow/verification-policy.js';
+import { RETIRED_VERIFICATION_GATE_NAMES, VERIFICATION_GATE_NAMES } from '../workflow/verification-policy.js';
 import {
   PROBE_FILE_FORMS,
   SUITE_REPORT_FORMATS,
@@ -178,16 +178,21 @@ const EventsConfig = z
   })
   .strict();
 
+/** The retired gate names as a Set, so a parsed cell can drop them. */
+const RETIRED_GATES: ReadonlySet<string> = new Set(RETIRED_VERIFICATION_GATE_NAMES);
+
 /**
  * Ordered, duplicate-free list of `VERIFICATION_GATE_NAMES` for one policy cell. An empty array
  * means "run nothing for this cell". An omitted cell inherits the base table.
+ * A retired gate name still parses, so an existing `.exarchos.yml` keeps loading, and the parse removes it.
  */
 const VerificationGateSequence = z
-  .array(z.enum(VERIFICATION_GATE_NAMES))
+  .array(z.enum([...VERIFICATION_GATE_NAMES, ...RETIRED_VERIFICATION_GATE_NAMES]))
   .refine(
     (gates) => new Set(gates).size === gates.length,
     { message: 'verification gate sequence must not contain duplicates' },
-  );
+  )
+  .transform((gates) => gates.filter((gate): gate is (typeof VERIFICATION_GATE_NAMES)[number] => !RETIRED_GATES.has(gate)));
 
 /**
  * The boundary-touching sub-policy: per-tier gate sequences applied when a task

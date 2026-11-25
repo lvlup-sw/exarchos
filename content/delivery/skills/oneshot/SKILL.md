@@ -108,7 +108,7 @@ pure functions of `state.oneshot.synthesisPolicy` and the
 | Phase | What happens | Exit criteria |
 |---|---|---|
 | `plan` | Lightweight one-page plan: goal, approach, files to touch, tests to add. No design doc. No subagent dispatch. | `artifacts.plan` set → transition to `implementing` |
-| `implementing` | In-session loop, verification scaled to risk. Defaults to the low tier (static analysis suffices); higher-blast changes add tests covering the changed behavior (test-after) under the `check_test_adequacy` kill-probe. Commit as you go. | Tests pass + typecheck clean + finalize_oneshot called |
+| `implementing` | In-session loop, verification scaled to risk. Defaults to the low tier (static analysis suffices); higher-blast changes add tests covering the changed behavior (test-after) that can actually fail. Commit as you go. | Tests pass + typecheck clean + finalize_oneshot called |
 | `synthesize` | Reached **only** when `synthesisOptedIn` is true. Hands off to the existing synthesis flow — see `@skills/synthesize/SKILL.md`. The coordinator creates and merges the PR through its harness, outside governance. CI gates apply. | PR merged → `completed` |
 | `completed` | Terminal. For direct-commit path, commits are already on the branch — there's nothing more to do. For synthesize path, the PR merge event terminates the workflow. | — |
 
@@ -186,8 +186,8 @@ ladder in `@skills/_shared/references/verification.md`). A oneshot defaults to
 the **low tier** — static analysis suffices for a trivial fix. When the change
 touches a higher-blast surface (schema/type/API/shared contract, or it crosses
 an I/O boundary), it is a higher-tier task: cover the new/changed behavior with
-tests (test-after is fine) and expect the `check_test_adequacy` kill-probe to
-reject tests that cannot actually fail.
+tests (test-after is fine). Each test must be able to fail: a test that still
+passes against a stubbed-out implementation covers nothing.
 
 For each higher-tier behavior in the plan:
 
@@ -207,8 +207,8 @@ to catch bundled changes.
 There is **no subagent dispatch** in oneshot. The main agent does the
 work directly. There is **no separate review phase**. Quality is
 maintained by the tier-scaled verification (static analysis plus, above the
-low tier, the `check_test_adequacy` kill-probe) and (if the user opts in)
-the synthesize PR review.
+low tier, tests that can fail) and (if the user opts in) the synthesize PR
+review.
 
 #### Mid-workflow: opting in to a PR
 
@@ -489,8 +489,8 @@ risk signals say otherwise*. Specifically:
   static analysis to pass; add a focused test only if behavior is non-obvious.
 - If the change touches a higher-blast surface (schema/type/API/shared contract,
   or it crosses an I/O boundary), it is **not** a low-tier task: cover the
-  new/changed behavior with tests (test-after is fine), and expect the
-  `check_test_adequacy` kill-probe to flag tests that cannot actually fail.
+  new/changed behavior with tests (test-after is fine), and check that each
+  test can actually fail.
 - Commits stay atomic — one logical change per commit, regardless of tier.
 
 The temptation in a oneshot is to assume *everything* is "just one line" and skip

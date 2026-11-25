@@ -102,7 +102,7 @@ describe('action-contract algebra', () => {
         kind: 'declared',
         values: [
           { kind: 'corroboration', minimum: 2 },
-          { family: 'ladder', gate: 'check_test_adequacy' },
+          { family: 'ladder', gate: 'check_contract_drift' },
           { kind: 'approvals', minimum: 1 },
           { family: 'ladder', gate: 'check_static_analysis' },
         ],
@@ -244,7 +244,7 @@ describe('action-contract properties', () => {
     selector: fc.stringMatching(/^[A-Za-z0-9][A-Za-z0-9./_-]{0,31}$/),
   });
   const requirementArb = fc.oneof(
-    fc.record({ family: fc.constant('ladder' as const), gate: fc.constantFrom('check_static_analysis', 'check_test_adequacy') }),
+    fc.record({ family: fc.constant('ladder' as const), gate: fc.constantFrom('check_static_analysis', 'check_contract_drift') }),
     fc.record({ kind: fc.constant('approvals' as const), minimum: fc.integer({ min: 1, max: 4 }) }),
     fc.record({ kind: fc.constant('corroboration' as const), minimum: fc.integer({ min: 2, max: 5 }) }),
   );

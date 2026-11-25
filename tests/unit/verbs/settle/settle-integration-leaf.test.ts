@@ -1,8 +1,8 @@
 /**
  * `settle` over the full shipped task-completion runbook, with the integration-suite leaf.
  *
- * The claimed worktree is a real git repository. Its branch changes `src/a.mjs`, and it adds a test that fails on the reverted source.
- * So the real kill probe passes. In the branch that breaks the suite, the task also breaks a test that its scoped probe does not run.
+ * The claimed worktree is a real git repository. Its branch changes `src/a.mjs`, and it adds a test of that change.
+ * In the branch that breaks the suite, the task also breaks another test of the repository.
  * A high-tier task then halts on the suite, and a medium-tier task skips the suite by policy.
  *
  * @oracle-sources: ../../../../src/verbs/settle/handler.ts, the rows a real event store holds after the batch, and the carrier of the real gate
@@ -101,8 +101,8 @@ function testOf(name: string, value: number): string {
 }
 
 /**
- * A task branch that changes `src/a.mjs` and adds the test that kills that change.
- * When `breaksTheSuite` is true, the branch also breaks the test of `src/b.mjs`, which the scoped probe does not run.
+ * A task branch that changes `src/a.mjs` and adds the test of that change.
+ * When `breaksTheSuite` is true, the branch also breaks the test of `src/b.mjs`.
  */
 async function taskWorktree(breaksTheSuite: boolean): Promise<string> {
   const dir = path.join(scratchDir, 'worktree');
@@ -229,7 +229,7 @@ afterEach(async () => {
 });
 
 describe('settle — the integration-suite leaf', () => {
-  /** The scoped probe passes, and the pinned suite exits 1 on the test that the task broke. The killing assertion: with the task reverted, no leaf runs the suite, and the task is accepted. */
+  /** The pinned suite exits 1 on the test that the task broke. The killing assertion: with the task reverted, no leaf runs the suite, and the task is accepted. */
   it('Settle_AHighTierTaskWhoseSuiteFails_IsNotAccepted', async () => {
     await seedPrepared(capsuleOf('high', nodeTestProfile()));
 
@@ -243,14 +243,13 @@ describe('settle — the integration-suite leaf', () => {
     expect(receipt.findings[0]?.message).toContain("leaf 'check_integration_suite' is a blocking gate and its verdict blocked (passed: false)");
     expect(await rowsOf('task.completed')).toEqual([]);
     const gates = await rowsOf('gate.executed');
-    expect(gates.map((row) => row.gateName)).toEqual(['test-adequacy', 'contract-drift', 'mock-boundary', 'integration-suite']);
-    expect(gates[0]?.passed).toBe(true);
+    expect(gates.map((row) => row.gateName)).toEqual(['contract-drift', 'mock-boundary', 'integration-suite']);
     const [suite] = await suiteRows();
     expect(suite).toMatchObject({ passed: false, details: { verdict: 'fail', taskId: TASK } });
   }, CASE_TIMEOUT_MS);
 
   /**
-   * The probe of the task passes, and the suite has no command. The segment halts on the leaf, and the row is `indeterminate`.
+   * The suite has no command. The segment halts on the leaf, and the row is `indeterminate`.
    * The carrier states `profile-unresolved` and has no `skipped` field, because a skip does not halt a segment.
    * The killing assertion: with the task reverted, the segment has no integration leaf, and the task is accepted.
    */
@@ -267,7 +266,7 @@ describe('settle — the integration-suite leaf', () => {
     expect(receipt.findings[0]?.message).toContain("discriminant 'profile-unresolved'");
     expect(await rowsOf('task.completed')).toEqual([]);
     const gates = await rowsOf('gate.executed');
-    expect(gates[0]).toMatchObject({ gateName: 'test-adequacy', passed: true });
+    expect(gates.map((row) => row.gateName)).toEqual(['contract-drift', 'mock-boundary', 'integration-suite']);
     const [suite] = await suiteRows();
     expect(suite).toMatchObject({ passed: false, details: { verdict: 'indeterminate' } });
     expect(suite?.details).not.toHaveProperty('skipped');

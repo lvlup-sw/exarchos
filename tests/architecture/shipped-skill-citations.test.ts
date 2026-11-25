@@ -223,14 +223,14 @@ describe('ShippedSkillCitations — each @skills citation of a shipped file reso
     expect(citationProblems(liveWorld(), REGISTER)).toEqual([]);
   });
 
-  /** The test reference of the kill probe ships in the delegate skill of each runtime, with the `test:files` rule. */
+  /** The probe-command reference of spec coverage ships in the delegate skill of each runtime, with the `test:files` rule. */
   it('ShippedSkillCitations_ProbeTestCommand_ShipsInEachRuntimeTree', () => {
     for (const tree of liveWorld().trees) {
       const reference = tree.files.find((file) => file.source === 'skills/delegate/references/testing-patterns.md');
       expect(reference, `${tree.runtime} ships no delegate testing reference`).toBeDefined();
       expect(reference?.text).toContain('npm run test:files -- <files>');
       expect(reference?.text).toContain('The script comes first, also when `.exarchos.yml` sets `test`.');
-      expect(reference?.text).toContain('make the scoped tests pass on the task source');
+      expect(reference?.text).toContain('`spec_coverage_check` runs each test file that the plan declares with the probe');
     }
   });
 

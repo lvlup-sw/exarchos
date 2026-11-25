@@ -2,11 +2,9 @@ import { describe, it, expect } from 'vitest';
 import { classifyTasksFailClosed } from '../../../src/verbs/team/prepare-delegation.js';
 import type { TaskInput, TaskClassification } from '../../../src/verbs/team/prepare-delegation.js';
 import { resolvePolicySkip } from '../../../src/verbs/gates/gate-utils.js';
-import { runProbe, interpretProbeVerdict } from '../../../src/verbs/gates/test-adequacy.js';
 import type { RunbookDefinition, RunbookStep } from '../../../src/runbooks/types.js';
 import { findActionInRegistry } from '../../../src/registry.js';
 import {
-  KILL_PROBE_STEP_SUMMARY,
   TASK_COMPLETION,
   QUALITY_EVALUATION,
   AGENT_TEAMS_SAGA,
@@ -82,14 +80,13 @@ describe('Runbook definitions', () => {
     }
   });
 
-  it('TaskCompletion_HasSixSteps_TaskCompleteTerminal', () => {
-    expect(TASK_COMPLETION.steps).toHaveLength(6);
-    expect(TASK_COMPLETION.steps[0].action).toBe('check_test_adequacy');
-    expect(TASK_COMPLETION.steps[1].action).toBe('check_contract_drift');
-    expect(TASK_COMPLETION.steps[2].action).toBe('check_mock_boundary');
-    expect(TASK_COMPLETION.steps[3].action).toBe('check_integration_suite');
-    expect(TASK_COMPLETION.steps[4].action).toBe('check_static_analysis');
-    expect(TASK_COMPLETION.steps[5].action).toBe('task_complete');
+  it('TaskCompletion_HasFiveSteps_TaskCompleteTerminal', () => {
+    expect(TASK_COMPLETION.steps).toHaveLength(5);
+    expect(TASK_COMPLETION.steps[0].action).toBe('check_contract_drift');
+    expect(TASK_COMPLETION.steps[1].action).toBe('check_mock_boundary');
+    expect(TASK_COMPLETION.steps[2].action).toBe('check_integration_suite');
+    expect(TASK_COMPLETION.steps[3].action).toBe('check_static_analysis');
+    expect(TASK_COMPLETION.steps[4].action).toBe('task_complete');
     expect(TASK_COMPLETION.phase).toBe('delegate');
   });
 
@@ -133,29 +130,17 @@ describe('Runbook definitions', () => {
   });
 
   /**
-   * The fix chain runs the same kill probe as `TASK_COMPLETION`, so a fixed task
-   * gets the same adequacy check as a first completion. The probe runs before static
-   * analysis, and static analysis before `task_complete`.
+   * The fix chain runs static analysis before `task_complete`. It holds no retired gate:
+   * neither the TDD-compliance gate nor the source-revert kill probe.
    */
-  it('TaskFixRunbook_IncludesAdequacyAndStaticGates_NoRetiredTddGate', () => {
+  it('TaskFixRunbook_RunsStaticAnalysisBeforeCompletion_NoRetiredGate', () => {
     const actions = TASK_FIX.steps.map(s => s.action);
     expect(actions).not.toContain('check_tdd_compliance');
-    const adequacyIndex = actions.indexOf('check_test_adequacy');
+    expect(actions).not.toContain('check_test_adequacy');
     const staticIndex = actions.indexOf('check_static_analysis');
     const completeIndex = actions.indexOf('task_complete');
-    expect(adequacyIndex).toBeGreaterThan(-1);
-    expect(adequacyIndex).toBeLessThan(staticIndex);
+    expect(staticIndex).toBeGreaterThan(-1);
     expect(staticIndex).toBeLessThan(completeIndex);
-  });
-
-  /** The kill probe must run in the agent worktree, so the step binds `repoRoot: 'auto'` and `<worktreePath>`. */
-  it('TaskFixRunbook_AdequacyStepThreadsWorktreePath', () => {
-    expect(TASK_FIX.templateVars).toContain('worktreePath');
-    const adequacyStep = TASK_FIX.steps.find(s => s.action === 'check_test_adequacy');
-    expect(adequacyStep).toBeDefined();
-    const params = adequacyStep?.params as { repoRoot?: unknown; worktreePath?: unknown } | undefined;
-    expect(params?.repoRoot).toBe('auto');
-    expect(params?.worktreePath).toBe('<worktreePath>');
   });
 
   it('TaskFixRunbook_TemplateVarsIncludeAgentId_ForResume', () => {
@@ -340,24 +325,12 @@ describe('Runbook definitions', () => {
     ]);
   });
 
-  /**
-   * The description of `check_test_adequacy` and the note of each kill-probe step hold the step summary, word for word.
-   * The summary names the run on the task source before the revert, so no text describes a probe without that run.
-   */
-  it('KillProbeTexts_DescriptionAndStepNotes_HoldTheStepSummary', () => {
-    const description = findActionInRegistry('exarchos_orchestrate', 'check_test_adequacy')?.description;
+  /** The source-revert kill probe is retired. The registry does not hold it, and no runbook step names it. */
+  it('RetiredKillProbe_IsInNoRunbookAndNotRegistered', () => {
+    expect(findActionInRegistry('exarchos_orchestrate', 'check_test_adequacy')).toBeUndefined();
     const probeSteps = ALL_RUNBOOKS.flatMap((runbook) =>
-      runbook.steps
-        .filter((step) => step.action === 'check_test_adequacy')
-        .map((step) => ({ name: `${runbook.id} note`, text: step.note })),
-    );
-    expect(probeSteps.map((step) => step.name)).toEqual(
-      expect.arrayContaining([`${TASK_COMPLETION.id} note`, `${TASK_FIX.id} note`]),
-    );
-    expect(KILL_PROBE_STEP_SUMMARY).toContain('on the task source first');
-    expect(KILL_PROBE_STEP_SUMMARY).toContain('baseline-red');
-    const texts = [{ name: 'check_test_adequacy description', text: description }, ...probeSteps];
-    expect(texts.filter(({ text }) => !(text ?? '').includes(KILL_PROBE_STEP_SUMMARY)).map(({ name }) => name)).toEqual([]);
+      runbook.steps.filter((step) => step.action === 'check_test_adequacy').map(() => runbook.id));
+    expect(probeSteps).toEqual([]);
   });
 
   /**
@@ -490,155 +463,64 @@ function fillStepParams(
   return filled;
 }
 
-function adequacyStepOf(runbook: RunbookDefinition): RunbookStep {
-  const step = runbook.steps.find((s) => s.action === 'check_test_adequacy');
-  if (!step) throw new Error(`runbook '${runbook.id}' has no check_test_adequacy step`);
-  return step;
-}
-
-/** Returns the params that the gate gets from the adequacy step of a runbook. */
-function dispatchAdequacyParams(
+/** Returns the params that the gate gets from the integration-suite step of a runbook. */
+function dispatchSuiteParams(
   runbook: RunbookDefinition,
   stamp: TaskClassification,
 ): Readonly<Record<string, unknown>> {
-  return fillStepParams(runbook, adequacyStepOf(runbook), dispatchVarsFrom(stamp));
-}
-
-/**
- * The probe returns `no-new-tests` before it changes the tree, so it must not call
- * this seam or `unreachableRunTests`. Each one throws, so a probe that reaches the
- * tree fails the test.
- */
-const unreachableGitExec = (): never => {
-  throw new Error('git must not run — the probe short-circuits before any tree mutation');
-};
-const unreachableRunTests = (): never => {
-  throw new Error('the test command must not run — there are no probe-able tests');
-};
-
-/** A task diff that changes source and adds no test file. */
-const SOURCE_ONLY_DIFF = ['src/api/openapi.yaml'];
-
-/** Runs the probe with the tier from the dispatched params, the object that the runbook step filled from the stamp. */
-async function runGateWithParams(params: Readonly<Record<string, unknown>>) {
-  return runProbe({
-    gitExec: unreachableGitExec,
-    runTests: unreachableRunTests,
-    repoRoot: '/tmp/worktrees/unused',
-    baseRef: 'main',
-    changedFiles: SOURCE_ONLY_DIFF,
-    ...(params['riskTier'] === undefined ? {} : { riskTier: params['riskTier'] as string }),
-  });
+  const step = runbook.steps.find((s) => s.action === 'check_integration_suite');
+  if (!step) throw new Error(`runbook '${runbook.id}' has no check_integration_suite step`);
+  return fillStepParams(runbook, step, dispatchVarsFrom(stamp));
 }
 
 /**
  * `prepare_delegation` freezes `riskTier` and `boundaryTouching` for each task. In
  * these tests the production classifier makes the stamp, the runbook `templateVars`
- * and step `params` carry it, and the production probe reads it. No test gives a
+ * and step `params` carry it, and the production policy reads it. No test gives a
  * tier to the gate by hand: each tier that reaches the gate comes from the stamp.
  */
 describe('DR-3 — delegation stamp threading (prepare_delegation → runbook → gate)', () => {
   /**
-   * Characterizes a gate that gets no tier. The stamp is high, but with an unset tier
-   * a task with no new test gets an advisory skip. The same verdict blocks at the
-   * tier of the stamp. Without `boundaryTouching`, `resolvePolicySkip` returns null.
+   * Without `boundaryTouching`, `resolvePolicySkip` returns null for any tier. The gate then runs and does not skip by policy.
+   * The integration-suite step binds both stamp fields, so a dispatched step never reaches this case.
    */
-  it('DelegationStamp_UndefinedTier_CharacterizesTheVacuousAdvisoryPass', async () => {
-    const stamp = freezeDelegationStamp(HIGH_BOUNDARY_TASK);
-    expect(stamp.riskTier).toBe('high');
-
-    const unstamped = await runGateWithParams({});
-    expect(unstamped.passed).toBe(true);
-    expect(unstamped.skipped).toBe(true);
-    expect(unstamped.disposition).toBe('advisory-skip');
-
-    const atStampedTier = interpretProbeVerdict(unstamped.verdict, stamp.riskTier);
-    expect(atStampedTier.passed).toBe(false);
-
-    expect(
-      resolvePolicySkip({ gateName: 'check_test_adequacy', riskTier: stamp.riskTier }),
-    ).toBeNull();
+  it('DelegationStamp_MissingBoundaryTouching_GivesNoPolicySkip', () => {
+    const stamp = freezeDelegationStamp(LOW_TASK);
+    expect(resolvePolicySkip({ gateName: 'check_integration_suite', riskTier: stamp.riskTier })).toBeNull();
+    expect(resolvePolicySkip({ gateName: 'check_integration_suite', riskTier: stamp.riskTier, boundaryTouching: stamp.boundaryTouching }))
+      .not.toBeNull();
   });
 
   /**
-   * The gate gets the frozen tier through the runbook step. If the runbook drops the
-   * param, the tier is `undefined`. With no new test, the high-tier task blocks and
-   * the low-tier task gets an advisory skip. Both dispatches use the same step and
-   * the same fill, so only the stamp can cause the different verdicts.
+   * The gate gets the frozen tier through the runbook step. The high-tier task keeps the integration suite, and the
+   * low-tier task skips it by policy. Both dispatches use the same step and the same fill, so only the stamp can cause
+   * the different routes.
    */
-  it('TaskCompletion_DelegationStamp_DeliversRiskTierToGate', async () => {
+  it('TaskCompletion_DelegationStamp_DeliversRiskTierToGate', () => {
     const highStamp = freezeDelegationStamp(HIGH_BOUNDARY_TASK);
-    const highParams = dispatchAdequacyParams(TASK_COMPLETION, highStamp);
-
+    const highParams = dispatchSuiteParams(TASK_COMPLETION, highStamp);
+    expect(highStamp.riskTier).toBe('high');
     expect(highParams['riskTier']).toBe(highStamp.riskTier);
     expect(highParams['boundaryTouching']).toBe(highStamp.boundaryTouching);
-
-    const highResult = await runGateWithParams(highParams);
-    expect(highResult.passed).toBe(false);
-    expect(highResult.skipped).toBeUndefined();
-    expect(highResult.disposition).toBe('blocked');
-    expect(highResult.report).toContain(highStamp.riskTier);
+    expect(resolvePolicySkip({
+      gateName: 'check_integration_suite',
+      riskTier: highParams['riskTier'] as 'low' | 'medium' | 'high',
+      boundaryTouching: highParams['boundaryTouching'] as boolean,
+    })).toBeNull();
 
     const lowStamp = freezeDelegationStamp(LOW_TASK);
-    const lowParams = dispatchAdequacyParams(TASK_COMPLETION, lowStamp);
+    const lowParams = dispatchSuiteParams(TASK_COMPLETION, lowStamp);
     expect(lowParams['riskTier']).toBe(lowStamp.riskTier);
     expect(lowStamp.riskTier).not.toBe(highStamp.riskTier);
-
-    const lowResult = await runGateWithParams(lowParams);
-    expect(lowResult.passed).toBe(true);
-    expect(lowResult.skipped).toBe(true);
-    expect(lowResult.disposition).toBe('advisory-skip');
-
-    expect(Object.keys(highParams).sort()).toEqual(Object.keys(lowParams).sort());
-    expect(highParams['repoRoot']).toBe(lowParams['repoRoot']);
-    expect(highParams['riskTier']).not.toBe(lowParams['riskTier']);
-  });
-
-  /**
-   * `TASK_FIX` carries the same stamp, so a fix gets the same adequacy check as a
-   * first completion. `resolvePolicySkip` needs both stamp fields. With both, the
-   * low-tier profile skips `check_test_adequacy` by policy, and the high-tier
-   * boundary profile keeps it. With `boundaryTouching` absent, `resolvePolicySkip`
-   * returns null. The probe then blocks the high-tier fix that has no new test.
-   */
-  it('TaskFix_DelegationStamp_DeliversBoundaryTouchingToGate', async () => {
-    const lowStamp = freezeDelegationStamp(LOW_TASK);
-    const lowParams = dispatchAdequacyParams(TASK_FIX, lowStamp);
-
-    expect(typeof lowStamp.boundaryTouching).toBe('boolean');
-    expect(lowParams['boundaryTouching']).toBe(lowStamp.boundaryTouching);
-    expect(lowParams['riskTier']).toBe(lowStamp.riskTier);
-
     const routed = resolvePolicySkip({
-      gateName: 'check_test_adequacy',
+      gateName: 'check_integration_suite',
       riskTier: lowParams['riskTier'] as 'low' | 'medium' | 'high',
       boundaryTouching: lowParams['boundaryTouching'] as boolean,
     });
-    expect(routed).not.toBeNull();
-    expect(routed?.reason).toContain(`boundaryTouching=${lowStamp.boundaryTouching}`);
     expect(routed?.reason).toContain(`riskTier='${lowStamp.riskTier}'`);
+    expect(routed?.reason).toContain(`boundaryTouching=${lowStamp.boundaryTouching}`);
 
-    expect(
-      resolvePolicySkip({
-        gateName: 'check_test_adequacy',
-        riskTier: lowParams['riskTier'] as 'low' | 'medium' | 'high',
-      }),
-    ).toBeNull();
-
-    const highStamp = freezeDelegationStamp(HIGH_BOUNDARY_TASK);
-    const highParams = dispatchAdequacyParams(TASK_FIX, highStamp);
-    expect(highParams['boundaryTouching']).toBe(highStamp.boundaryTouching);
-    expect(highStamp.boundaryTouching).toBe(true);
-    expect(
-      resolvePolicySkip({
-        gateName: 'check_test_adequacy',
-        riskTier: highParams['riskTier'] as 'low' | 'medium' | 'high',
-        boundaryTouching: highParams['boundaryTouching'] as boolean,
-      }),
-    ).toBeNull();
-
-    const highResult = await runGateWithParams(highParams);
-    expect(highResult.passed).toBe(false);
+    expect(Object.keys(highParams).sort()).toEqual(Object.keys(lowParams).sort());
+    expect(highParams['repoRoot']).toBe(lowParams['repoRoot']);
   });
 });
-

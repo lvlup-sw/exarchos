@@ -1,8 +1,8 @@
 /**
  * The seeded-defect corpus: defect inputs that must fail verification, and matched known-good
- * controls, in six classes.
+ * controls, in five classes.
  *
- * Five classes target an `exarchos_orchestrate` gate (see `GATE_FOR_CLASS`). The
+ * Four classes target an `exarchos_orchestrate` gate (see `GATE_FOR_CLASS`). The
  * `dropped-edge-case` class has no production gate. The eval-side hidden oracle
  * ({@link runDroppedEdgeOracle}) detects it. The catch-rate report records it as an `ungated` row,
  * and no per-gate aggregate counts it.
@@ -24,15 +24,14 @@ import {
 import type { MechanicalGateClass } from '../../../../../src/verbs/gates/gate-provider-registry.js';
 
 /**
- * The six seeded-defect classes: the five mechanical classes and `dropped-edge-case`.
+ * The five seeded-defect classes: the four live mechanical classes and `dropped-edge-case`.
  * `gate-provider-registry.ts` owns the mechanical classes, so production does not import this eval
- * corpus and the two taxonomies cannot drift.
+ * corpus and the two taxonomies cannot drift. The retired `test-adequacy` class has no gate action, so the corpus leaves it out.
  */
-export type GateClass = MechanicalGateClass | 'dropped-edge-case';
+export type GateClass = Exclude<MechanicalGateClass, 'test-adequacy'> | 'dropped-edge-case';
 
-/** The five mechanical gate classes, in stable table order. */
+/** The four live mechanical gate classes, in stable table order. */
 export const MECHANICAL_GATE_CLASSES: readonly GateClass[] = [
-  'test-adequacy',
   'contract-drift',
   'mock-boundary',
   'static-analysis',
@@ -47,7 +46,6 @@ export const SEEDED_GATE_CLASSES: readonly GateClass[] = [
 
 /** The `exarchos_orchestrate` gate action each class targets (`null` = ungated). */
 export const GATE_FOR_CLASS: Readonly<Record<GateClass, string | null>> = {
-  'test-adequacy': 'check_test_adequacy',
   'contract-drift': 'check_contract_drift',
   'mock-boundary': 'check_mock_boundary',
   'static-analysis': 'check_static_analysis',
@@ -98,7 +96,7 @@ export interface FixtureManifest {
 
 /** A fully-resolved corpus fixture returned by {@link loadSeededCorpus}. */
 export interface SeededFixture {
-  /** Stable id, for example `test-adequacy/defect-01`. */
+  /** Stable id, for example `contract-drift/defect-01`. */
   readonly id: string;
   /** The defect class. */
   readonly gateClass: GateClass;

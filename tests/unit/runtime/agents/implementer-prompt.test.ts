@@ -2,8 +2,8 @@
 // `renderImplementerPrompt` reads `riskTier` and `boundaryTouching` from the delegation stamp, and
 // never branches on the workflow type.
 //
-//   - low: a static-analysis note of at most 3 lines, with no kill-probe
-//   - medium: scoped tests and the `check_test_adequacy` kill-probe
+//   - low: a static-analysis note of at most 3 lines
+//   - medium: scoped tests that can fail, judged by outcome
 //   - high: the medium note and the integration-suite rung
 //   - boundary: adds the steer on mocks of a dependency that the task does not own
 //
@@ -49,7 +49,7 @@ describe('renderImplementerPrompt — tier-conditional verification note', () =>
 
   /**
    * The medium and high notes judge adequacy by outcome and accept test-after. They name no
-   * `REFACTOR` step. The `check_test_adequacy` kill-probe proves that a test can fail.
+   * `REFACTOR` step. Each note asks the agent to check that a test can fail. No note names the retired kill probe.
    */
   it('RenderImplementerPrompt_MediumHighTier_EmitsAdequacyBlock_TestAfter', () => {
     for (const riskTier of ['medium', 'high'] as const) {
@@ -59,10 +59,8 @@ describe('renderImplementerPrompt — tier-conditional verification note', () =>
       expect(note, `${riskTier} note must not impose RGR ordering`).not.toMatch(/REFACTOR/);
       expect(note.toLowerCase(), `${riskTier} note must frame test-after`).toContain('test-after');
 
-      expect(
-        note,
-        `${riskTier} verification block must name the check_test_adequacy kill-probe`,
-      ).toMatch(/check_test_adequacy/);
+      expect(note, `${riskTier} verification block must ask for tests that can fail`).toContain('a test CAN fail');
+      expect(note, `${riskTier} verification block must not name the retired kill probe`).not.toMatch(/check_test_adequacy/);
     }
   });
 
@@ -109,20 +107,21 @@ describe('implementer contract is tier-conditional (CR-1)', () => {
 
   it('RenderImplementerPrompt_MediumTier_CarriesAdequacyDisciplineInNote', () => {
     const medium = renderImplementerPrompt({ riskTier: 'medium', boundaryTouching: false });
-    expect(medium).toContain('check_test_adequacy');
+    expect(medium).toContain('a test CAN fail');
     expect(medium.toLowerCase()).toContain('test-after');
   });
 
   /**
    * The implementer has two `pre-write` rules, and one is the worktree-boundary guard. The test
-   * selects the kill-probe rule, which must exempt the low tier.
+   * selects the test-adequacy rule, which must exempt the low tier.
    */
   it('ImplementerSpec_PreWriteRule_ScopedToKillProbeTiers', () => {
     const preWrite = IMPLEMENTER.validationRules
       ?.filter((r) => r.trigger === 'pre-write')
-      .find((r) => /check_test_adequacy|medium\/high/.test(r.rule));
+      .find((r) => /medium\/high/.test(r.rule));
     expect(preWrite).toBeDefined();
-    expect(preWrite!.rule).toMatch(/check_test_adequacy|medium\/high/);
+    expect(preWrite!.rule).toMatch(/medium\/high/);
+    expect(preWrite!.rule).not.toMatch(/check_test_adequacy/);
     expect(preWrite!.rule.toLowerCase()).toContain('low');
   });
 });

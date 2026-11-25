@@ -14,7 +14,71 @@
  * {@link detectIdentifier} for the boundary rule.
  */
 
-import { splitHunks } from './test-adequacy.js';
+import { DEFAULT_TEST_GLOBS, DEFAULT_TEST_SUPPORT_SEGMENTS } from '../../config/toolchains.js';
+
+export interface SplitHunksOptions {
+  /**
+   * Test-file globs from the resolved toolchain/config. When provided these
+   * REPLACE the co-located defaults (the toolchain is authoritative about what
+   * a "test file" is for that project). When omitted, {@link DEFAULT_TEST_GLOBS}
+   * is used.
+   */
+  readonly testGlobs?: readonly string[] | undefined;
+  /** The directory names that mark test support. They replace the registry seed. When omitted, {@link DEFAULT_TEST_SUPPORT_SEGMENTS} is used. */
+  readonly supportSegments?: readonly string[] | undefined;
+}
+
+export interface SplitHunksResult {
+  /** Changed files classified as tests, in input order. */
+  readonly testFiles: string[];
+  /** Changed files classified as source, in input order. A source file is not a test and not test support. */
+  readonly sourceFiles: string[];
+  /** Changed files that are not tests and sit under a test-support directory, in input order. They are in neither list above. */
+  readonly supportFiles: string[];
+}
+
+/** Returns true when a directory segment of the repo-relative path is in `segments`. The file name is not a directory segment. */
+function isTestSupport(file: string, segments: readonly string[]): boolean {
+  return file
+    .split('/')
+    .slice(0, -1)
+    .some((segment) => segments.includes(segment));
+}
+
+/**
+ * Classifies the changed files of a task diff as test, test support or source at the file level. Each file is in one class.
+ * A file that matches a test glob is a test. Else a file under a test-support directory is test support. Every other file is source.
+ *
+ * The function is pure. It makes no git calls and no file system reads.
+ *
+ * @param changedFiles - repo-relative paths changed by the task diff
+ * @param options.testGlobs - optional override for the test-file globs
+ * @param options.supportSegments - optional override for the test-support directory names
+ */
+export function splitHunks(
+  changedFiles: readonly string[],
+  options?: SplitHunksOptions,
+): SplitHunksResult {
+  const globs = options?.testGlobs ?? DEFAULT_TEST_GLOBS;
+  const supportSegments = options?.supportSegments ?? DEFAULT_TEST_SUPPORT_SEGMENTS;
+  const matchers = globs.map(globToRegExp);
+
+  const testFiles: string[] = [];
+  const sourceFiles: string[] = [];
+  const supportFiles: string[] = [];
+
+  for (const file of changedFiles) {
+    if (matchers.some((re) => re.test(file))) {
+      testFiles.push(file);
+    } else if (isTestSupport(file, supportSegments)) {
+      supportFiles.push(file);
+    } else {
+      sourceFiles.push(file);
+    }
+  }
+
+  return { testFiles, sourceFiles, supportFiles };
+}
 
 /** A single added line of a changed file, with its post-image line number. */
 export interface AddedLine {
@@ -77,11 +141,9 @@ export interface DetectMockOptions {
 }
 
 /**
- * Translates one glob into a RegExp anchored to the whole string. It supports
- * the same tokens as `splitHunks`. A double star matches any number of
- * segments, `*` matches a run of non-`/` characters, and every other character
- * is literal. This is a local copy because the `splitHunks` helper is
- * module-private, and because ownership globs can name bare package specifiers.
+ * Translates one glob into a RegExp anchored to the whole string. `splitHunks` and the ownership
+ * globs use it. A double star matches any number of segments, `*` matches a run of non-`/`
+ * characters, and every other character is literal. Ownership globs can name bare package specifiers.
  */
 function globToRegExp(glob: string): RegExp {
   let out = '^';

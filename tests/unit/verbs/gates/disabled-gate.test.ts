@@ -336,13 +336,13 @@ describe('a disabled gate through dispatch', () => {
   }, 60_000);
 
   /**
-   * The directive wins over the policy skip of the kill probe, because the runner reads it before the provider.
+   * The directive wins over the policy skip of the integration suite, because the runner reads it before the provider.
    * The control: the same low-tier call with no gate entry gives the policy skip.
    */
   it('DisabledGate_APolicySkip_LosesToTheDirective', async () => {
     const repoRoot = await scratchDir('disabled-gate-policy-');
     const args = {
-      action: 'check_test_adequacy',
+      action: 'check_integration_suite',
       taskId: 'task-policy',
       repoRoot,
       riskTier: 'low',
@@ -354,7 +354,7 @@ describe('a disabled gate through dispatch', () => {
     const control = await dispatch('exarchos_orchestrate', { ...args, featureId: 'policy-control' }, plain);
     expect(dataOf(control).discriminant).toBe(SKIPPED_BY_POLICY);
 
-    const ctx = await startedWorkflow('policy-disabled', configWithGates({ check_test_adequacy: DISABLED }));
+    const ctx = await startedWorkflow('policy-disabled', configWithGates({ check_integration_suite: DISABLED }));
     const result = await dispatch('exarchos_orchestrate', { ...args, featureId: 'policy-disabled' }, ctx);
 
     expect(result.success).toBe(true);
@@ -381,7 +381,7 @@ describe('a disabled gate through dispatch', () => {
   }, 60_000);
 });
 
-/** A task branch that changes the source and ships a test that never reads it. The kill probe blocks on it when it runs. */
+/** A task branch that changes the source and ships a test that never reads it. No gate of the segment judges that test. */
 async function vacuousTaskWorktree(): Promise<string> {
   const dir = await scratchDir('disabled-gate-worktree-');
   const git = async (args: readonly string[]): Promise<void> => {
@@ -425,13 +425,13 @@ function leavesOf(result: ToolResult): string[][] {
     : [];
 }
 
-describe('a disabled kill probe in the task-completion segment', () => {
+describe('a disabled integration suite in the task-completion segment', () => {
   /**
-   * The config disables the kill probe. The leaf skips, the segment does not halt, and the task completes on its static-analysis pass.
-   * The args carry no `capsuleVersion`, and the stream holds no prepared record. The task is not boundary-touching,
-   * so the policy skips contract drift and mock boundary.
+   * The config disables the integration suite of a high-tier task. The leaf skips, the segment does not halt, and the task
+   * completes on its static-analysis pass. The args carry no `capsuleVersion`, and the stream holds no prepared record.
+   * The task is not boundary-touching, so the policy skips contract drift and mock boundary.
    */
-  it('DisabledGate_AKillProbeInTheSegment_SkipsAndTheTaskCompletes', async () => {
+  it('DisabledGate_AnIntegrationSuiteInTheSegment_SkipsAndTheTaskCompletes', async () => {
     const streamId = 'disabled-segment';
     const taskId = 'task-segment';
     const worktreePath = await vacuousTaskWorktree();
@@ -440,7 +440,7 @@ describe('a disabled kill probe in the task-completion segment', () => {
       stateDir,
       eventStore: store,
       enableTelemetry: false,
-      projectConfig: configWithGates({ check_test_adequacy: DISABLED }),
+      projectConfig: configWithGates({ check_integration_suite: DISABLED }),
     };
 
     const result = await runWithDispatchContext(correlation('disabled-gate-segment'), () =>
@@ -451,7 +451,7 @@ describe('a disabled kill probe in the task-completion segment', () => {
           args: {
             taskId,
             worktreePath,
-            riskTier: 'medium',
+            riskTier: 'high',
             boundaryTouching: false,
             baseRef: 'main',
             result: { worktreePath },
@@ -466,15 +466,14 @@ describe('a disabled kill probe in the task-completion segment', () => {
     expect(result.error).toBeUndefined();
     expect(result.success).toBe(true);
     expect(leavesOf(result)).toEqual([
-      ['check_test_adequacy', 'passed'],
       ['check_contract_drift', 'passed'],
       ['check_mock_boundary', 'passed'],
       ['check_integration_suite', 'passed'],
       ['check_static_analysis', 'passed'],
       ['task_complete', 'passed'],
     ]);
-    const killProbe = (await signalsOf(streamId)).filter((row) => row.gateName === 'test-adequacy');
-    expect(killProbe.map((row) => [row.passed, row.details?.discriminant])).toEqual([[false, DISABLED_BY_CONFIG]]);
+    const suite = (await signalsOf(streamId)).filter((row) => row.gateName === 'integration-suite');
+    expect(suite.map((row) => [row.passed, row.details?.discriminant])).toEqual([[false, DISABLED_BY_CONFIG]]);
     expect(await store.query(streamId, { type: 'task.completed' })).toHaveLength(1);
   }, 120_000);
 });

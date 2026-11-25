@@ -4,7 +4,7 @@
  * Toolchain identity and markers come from `./toolchains.ts`. The task-runner layer comes from `./task-runners.ts`.
  * The result is a {@link ResolvedRuntime} with the commands and the highest layer that supplied one.
  *
- * {@link resolveScopedTestCommand} resolves the test command of the kill probe. It is not a field of that result.
+ * {@link resolveScopedTestCommand} resolves the scoped test command of the probe term. It is not a field of that result.
  * {@link packageManagerProjectType} gives the project-type label of the test command of a Node package manager.
  */
 
@@ -203,7 +203,7 @@ function isYarnBerry(repoRoot: string, pkg: PackageJsonShape | null): boolean {
 }
 
 /**
- * The scoped test script of a Node package manager. The kill probe runs `scopedTest -- <files>` when the `scopedTestScript` script exists.
+ * The scoped test script of a Node package manager. The probe term runs `scopedTest -- <files>` when the `scopedTestScript` script exists.
  * The script must run only the test files that it gets as arguments.
  */
 interface ScopedTestProfile {
@@ -301,7 +301,7 @@ export function packageScriptCommand(repoRoot: string, script: string): string |
   return `${pm} run ${script}`;
 }
 
-/** The command that the kill probe runs, and the exit codes that read as a red run of it. */
+/** The command that the probe term runs, and the exit codes that read as a red run of it. */
 export interface ScopedTestCommand {
   readonly command: string;
   /** The exit codes of a run with a failing test, from the toolchain registry. Exit 0 is green, and every other exit gives no verdict. */
@@ -309,7 +309,7 @@ export interface ScopedTestCommand {
 }
 
 /**
- * Resolves the command that the kill probe runs on a list of test files. The probe adds `-- <files>` to it.
+ * Resolves the command that the probe term runs on a list of test files. The probe adds `-- <files>` to it.
  * A `test:files` package script comes first, because it runs only the files that it gets.
  * Without that script, the command is the `test` field of {@link resolveTestRuntime}.
  * The command is not a field of {@link ResolvedRuntime}. It has no source layer and no `command.resolved` event.

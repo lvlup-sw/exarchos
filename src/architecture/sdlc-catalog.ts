@@ -59,8 +59,8 @@ const RAW_SDLC_ENTRIES: ReadonlyArray<Record<string, unknown>> = [
     'applies-to': ['implementation-tasks', 'test-suites'],
     summary:
       'Outcome-based test adequacy for workflow types that declare it (feature, ' +
-      'oneshot): new/changed behavior is covered by tests that can actually fail ' +
-      '(the check_test_adequacy kill probe), judged test-AFTER — NOT commit-order ' +
+      'oneshot): new/changed behavior is covered by tests that can actually fail, ' +
+      'judged test-AFTER — NOT commit-order ' +
       'test-first (#1587); discovery is exempt; debug and refactor have their own gates.',
     references: [GUIDE],
     'phase-affinity': ['review'],
@@ -69,15 +69,14 @@ const RAW_SDLC_ENTRIES: ReadonlyArray<Record<string, unknown>> = [
     enforcement: {
       mode: 'audit',
       /**
-       * Points at the `check_test_adequacy` gate, so test adequacy is not gated twice.
+       * No per-task gate judges test adequacy, so the review audit is the one check of it.
        * Test order is not a finding.
        */
       'audit-prompt':
         'For a workflow that declares verification (feature, oneshot), is each ' +
         'unit of new/changed production code covered by a test that can actually ' +
-        'fail (not vacuous)? This mirrors the check_test_adequacy kill-probe gate; ' +
-        'defer to that gate where it runs and flag only production code that landed ' +
-        'with no adequacy-verified test. Test ORDERING (first vs after) is NOT a ' +
+        'fail (not vacuous)? Flag production code that landed with no test that can ' +
+        'fail. Test ORDERING (first vs after) is NOT a ' +
         'finding (#1587).',
     },
   },

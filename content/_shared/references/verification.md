@@ -1,13 +1,13 @@
 # Verification Ladder
 
-Verification depth matches a task's **blast radius**. Pick the cheapest rung that still captures the risk — the deeper rungs add tests, an adequacy kill-probe, and integration coverage, all judged by **outcome (test-after)**, not by a failing-test-first ordering ceremony on every change.
+Verification depth matches a task's **blast radius**. Pick the cheapest rung that still captures the risk — the deeper rungs add tests that can fail and integration coverage, all judged by **outcome (test-after)**, not by a failing-test-first ordering ceremony on every change.
 
 ## The Ladder
 
 | Risk tier | What it adds on top of the rung below | Why this depth |
 |-----------|----------------------------------------|----------------|
 | **low** | Static analysis only (typecheck + lint) | Docs/config/rename-only edits have near-zero blast radius. A test ceremony is pure overhead here. |
-| **medium** | Scoped tests + the `check_test_adequacy` kill-probe | The kill-probe recaptures test-first's one real guarantee — that a test can actually fail — at lower cost, judged test-after instead of mandating a failing test first on every commit. |
+| **medium** | Scoped tests that can fail | A test that can actually fail is test-first's one real guarantee. It is judged test-after, at review, instead of mandating a failing test first on every commit. |
 | **high** | The integration suite on top of medium | Schema/type/API/shared-contract surfaces span the codebase. Cover them with adequacy-judged tests plus real-collaborator integration coverage across the seam. |
 
 `boundaryTouching` is an orthogonal flag: a boundary-crossing task (I/O adapter, client, schema artifact) adds contract-drift verification, and at medium/high also mock-boundary verification, regardless of its tier.
@@ -16,7 +16,7 @@ The task's `riskTier` / `boundaryTouching` stamp comes from the planner (or the 
 
 ## High-Tier Discipline: Outcome-Based Adequacy (test-after)
 
-When a task is high-tier (or you have chosen to write a test for a medium-tier behavior), the discipline is **outcome-based**, not ordering-based. Write the behavior and its tests in whatever order is natural — test-after is fine — then let the gates judge whether the tests are adequate. The cost-effective guarantee is that your tests *can actually fail*, captured by the `check_test_adequacy` kill-probe rather than by mandating a failing test first.
+When a task is high-tier (or you have chosen to write a test for a medium-tier behavior), the discipline is **outcome-based**, not ordering-based. Write the behavior and its tests in whatever order is natural — test-after is fine — then let the review judge whether the tests are adequate. The cost-effective guarantee is that your tests *can actually fail*, not that a failing test came first.
 
 ### Cover the behavior
 1. Write scoped tests that exercise the new/changed behavior and pin its contract
@@ -24,9 +24,9 @@ When a task is high-tier (or you have chosen to write a test for a medium-tier b
 3. Property tests (where they fit) are written alongside the example tests
 
 ### Prove the tests are not vacuous
-1. The `check_test_adequacy` gate runs your tests on the task source first. A red run there is `baseline-red`, which blocks and is not a kill
-2. Then it reverts your source hunks (keeping the tests) and re-runs them, asserting at least one goes red
-3. A test that still passes against the reverted source is vacuous — strengthen it
+1. Run your tests on the task source. They must pass there
+2. Ask what each test does when the changed source is stubbed out. At least one test must go red
+3. A test that still passes against a stubbed-out source is vacuous — strengthen it
 
 ### Integration coverage (high tier)
 1. Real-collaborator coverage across the seam belongs in the task's own scoped tests — write them at the layer the seam lives at
@@ -62,8 +62,8 @@ When no `.exarchos.yml` is present and detection cannot resolve a command (e.g.,
 an npm project missing a `test:run` script), the relevant gate is skipped with
 remediation text rather than failed.
 
-The `check_test_adequacy` kill probe runs only the changed test files of the task.
-The test command that it runs, and the `test:files` script that selects it, are in
+`spec_coverage_check` runs the declared test files with the probe command.
+That command, and the `test:files` script that selects it, are in
 `@skills/delegate/references/testing-patterns.md`, which every runtime ships.
 
 For test code patterns and examples, see `@skills/delegate/references/testing-patterns.md`.

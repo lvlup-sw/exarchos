@@ -100,7 +100,7 @@ describe('resolveVerificationPolicy', () => {
     const configured = resolveVerificationPolicy('low', false, config);
     expect(Object.isFrozen(configured.sequence)).toBe(true);
     expect(() => {
-      (configured.sequence as GateName[]).push('check_test_adequacy');
+      (configured.sequence as GateName[]).push('check_contract_drift');
     }).toThrow();
   });
 

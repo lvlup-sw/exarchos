@@ -1034,7 +1034,7 @@ describe('gates carry no language code', () => {
   it('LanguageCodeGuard_Matcher_IgnoresCommentsImportsGitArgvAndProse', () => {
     const clean = [
       '// The old gate ran npm run test:run here, with -warnaserror.',
-      "import { splitHunks } from './test-adequacy.js';",
+      "import { splitHunks } from './mock-boundary.js';",
       "const loaded = await import('./static-analysis.js');",
       'runCommandSync(argv[0], probeArgv(form, argv, files));',
       "gitExec(repoRoot, ['diff', '-z', '--no-renames', range]);",

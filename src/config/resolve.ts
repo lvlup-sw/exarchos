@@ -195,7 +195,7 @@ export const DEFAULTS: ResolvedProjectConfig = deepFreeze({
     },
     /** Per-gate defaults. A project can make a gate blocking again with a `review.gates` entry. */
     gates: {
-      /** Advisory, because the `check_test_adequacy` kill probe is the per-task verification. */
+      /** Advisory, because test order is not a finding. The review judges whether the tests can fail. */
       'tdd-compliance': { enabled: true, blocking: false, params: {} },
       /** Advisory, because an unowned-dependency mock can be correct with a `reason`. */
       'mock-boundary': { enabled: true, blocking: false, params: {} },

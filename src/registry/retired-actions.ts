@@ -23,6 +23,14 @@ export const RETIRED_ACTIONS: readonly RetiredAction[] = Object.freeze([
     message:
       'Exarchos retires mutation testing. A provisioned verifier runs no mutation adequacy check, and no local Stryker run replaces it.',
   }),
+  Object.freeze({
+    tool: 'exarchos_orchestrate',
+    action: 'check_test_adequacy',
+    code: 'TEST_ADEQUACY_RETIRED',
+    message:
+      'Exarchos retires the source-revert kill probe. No per-task gate reverts the source to judge the tests. ' +
+      'Use testgen and the test-campaign skill to build and judge tests for a correctness obligation.',
+  }),
 ]);
 
 /** The row that a call of `tool` with `args` names, or undefined when `args` names no retired action. */

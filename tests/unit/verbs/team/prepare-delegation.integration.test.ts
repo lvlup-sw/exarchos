@@ -364,7 +364,6 @@ describe('HandleOrchestrate_PrepareDelegation_StampsRiskTierBoundaryAndVerificat
     expect(high.boundaryTouching).toBe(false);
     expect(high.verificationSequence).toEqual([
       'check_static_analysis',
-      'check_test_adequacy',
       'check_integration_suite',
     ]);
 
@@ -373,7 +372,6 @@ describe('HandleOrchestrate_PrepareDelegation_StampsRiskTierBoundaryAndVerificat
     expect(highAccept.boundaryTouching).toBe(true);
     expect(highAccept.verificationSequence).toEqual([
       'check_static_analysis',
-      'check_test_adequacy',
       'check_integration_suite',
       'check_contract_drift',
       'check_mock_boundary',
@@ -384,7 +382,6 @@ describe('HandleOrchestrate_PrepareDelegation_StampsRiskTierBoundaryAndVerificat
     expect(medium.boundaryTouching).toBe(false);
     expect(medium.verificationSequence).toEqual([
       'check_static_analysis',
-      'check_test_adequacy',
     ]);
 
     const low = findClassification(data, 't-low');
@@ -397,7 +394,6 @@ describe('HandleOrchestrate_PrepareDelegation_StampsRiskTierBoundaryAndVerificat
     expect(boundary.riskTier).toBe('medium');
     expect(boundary.verificationSequence).toEqual([
       'check_static_analysis',
-      'check_test_adequacy',
       'check_contract_drift',
       'check_mock_boundary',
     ]);

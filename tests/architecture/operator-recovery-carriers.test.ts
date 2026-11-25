@@ -93,34 +93,9 @@ const CARRIED: readonly CarriedRecovery[] = [
       phrases: ['then call task_complete again', 'settle the claim under a new batch id'],
     },
   },
-  {
-    id: 'probe-unread-exit-code',
-    notes: 'Recovery: set a `test` command in `.exarchos.yml`',
-    carrier: {
-      kind: 'produced',
-      test: 'tests/unit/verbs/gates/test-adequacy.integration.test.ts',
-      testCase: 'ScopedTestRunner_WrapperRefusalThroughNpm_PassesExit2ThroughAsNoVerdict',
-      phrases: ['the command exited 2', 'only exit 1 reads as a red run'],
-    },
-  },
-  {
-    id: 'probe-test-support-path',
-    notes: 'Recovery: when the report says that the task changes no source file',
-    carrier: {
-      kind: 'shipped-text',
-      path: 'rendered/skills/claude/delegate/references/testing-patterns.md',
-      phrases: ['verification.tests.support'],
-    },
-  },
-  {
-    id: 'probe-baseline-red',
-    notes: 'Recovery: make the scoped tests pass on the task source',
-    carrier: {
-      kind: 'shipped-text',
-      path: 'rendered/skills/claude/delegate/references/testing-patterns.md',
-      phrases: ['make the scoped tests pass on the task source', 'then run `check_test_adequacy` again'],
-    },
-  },
+
+
+
   {
     id: 'boundary-local-depcruise',
     notes: 'Recovery: when the report says that no local `depcruise` exists',

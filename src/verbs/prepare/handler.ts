@@ -362,7 +362,7 @@ const SET_INTEGRATION_BRANCH =
 /**
  * The branch that each task of the batch forks from: the recorded integration branch of the workflow.
  * A missing branch is refused, not guessed. A guessed base measures the task diff against the wrong
- * commit, and the kill probe then judges work that the task did not do.
+ * commit, and the diff gates then judge work that the task did not do.
  */
 function resolveBaseRef(
   streamId: string,

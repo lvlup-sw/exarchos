@@ -146,7 +146,7 @@ const TestSupportTermSchema = z
   .strict();
 
 /**
- * The command of the kill probe, the form in which it takes the test files, and its red exit codes.
+ * The probe command that runs declared test files, the form in which it takes the test files, and its red exit codes.
  * `globs` names the test files that the command runs. A probe with no `globs` runs each file of the test globs.
  */
 const ProbeTermSchema = z

@@ -102,8 +102,8 @@ export const gateActions: readonly BuiltinToolAction[] = [
       'A leaf of the high-tier task segment; the policy skips it at lower tiers. ' +
       'Also the cumulative backstop between merges: set repoRoot to the integration ' +
       'worktree (or "auto" for the calling delegation\'s worktree). Persists ' +
-      'subject-bound evidence. Do NOT use for one task\'s scoped tests: use ' +
-      'check_static_analysis / check_test_adequacy.',
+      'subject-bound evidence. Do NOT use for one task\'s scoped tests: run ' +
+      'them in the task worktree.',
     schema: z.object({
       coordinate: TaskVerificationCoordinateSchema.optional(),
       featureId: z.string().min(1),
@@ -440,70 +440,6 @@ export const gateActions: readonly BuiltinToolAction[] = [
     emissions: declared({ event: 'gate.executed', condition: 'always', owner: 'orchestrate', role: 'primary' }),
   }),
   withContract({
-    name: 'check_test_adequacy',
-    /**
-     * The text holds the summary of the kill-probe step of the task runbooks, word for word. The registry cannot
-     * import the runbooks, so a test compares the two.
-     */
-    description:
-      'Per-task test-adequacy gate (mutation testing at N=1): ' +
-      'the kill probe runs the changed tests on the task source first, and a red first run is indeterminate ' +
-      '(baseline-red), not a kill. Then it reverts the source hunks, runs the tests again, and requires a red run' +
-      ', which proves that the tests are not vacuous. ' +
-      'Restores the working tree unconditionally (INV-14) and persists canonical ' +
-      'subject-bound evidence. Pass repoRoot ("auto" to resolve the calling ' +
-      "delegation's worktree) and baseBranch, the branch the task forked from; " +
-      'without a base the gate blocks (base-missing). Stamp riskTier + boundaryTouching (from ' +
-      'prepare_delegation) to let the gate self-skip when the verification ' +
-      'policy excludes it for that tier (skipped-by-policy). This is the sole ' +
-      'per-task verification gate: it subsumes the regression-coverage intent of ' +
-      'the retired check_tdd_compliance (#1587) — outcome-based test adequacy, ' +
-      'test-after, NOT commit-order test-first.',
-    /**
-     * The schema is `.strict()`, so dispatch rejects an unknown key such as `base` and applies no silent
-     * default. Dispatch removes injected sibling-action defaults before this validation.
-     */
-    schema: z.object({
-      featureId: z.string().min(1),
-      taskId: z.string().min(1),
-      coordinate: TaskVerificationCoordinateSchema.optional(),
-      branch: z.string().optional(),
-      baseBranch: z.string().optional(),
-      repoRoot: z.string().optional(),
-      worktreePath: z.string().optional(),
-      operationId: z.string().optional(),
-      /** A compatibility field. Durable evidence uses the stored `phaseAttemptId`, not this caller value. */
-      phase: z.string().optional(),
-      riskTier: z.enum(['low', 'medium', 'high']).optional(),
-      boundaryTouching: z.boolean().optional(),
-    }).strict(),
-    phases: DELEGATE_PHASES,
-    roles: ROLE_LEAD,
-    gate: { blocking: true, dimension: 'D1', gateClass: 'test-adequacy' },
-    /** It reverts source and runs the test command, which exceeds the 2s heartbeat threshold on a real repo. */
-    longRunning: true,
-    outputSchema: vacuityWaiver('exarchos_orchestrate.check_test_adequacy'),
-    annotations: LOCAL_MUTATION,
-  }, {
-    ensures: declared(
-      { source: 'durable-evidence', when: 'always', evidenceType: 'gate' },
-      { source: 'event-append', when: 'always', event: 'admission.evidence-recorded' },
-      { source: 'event-append', when: 'always', event: 'gate.executed' },
-    ),
-    needs: declared('fs:read', 'mcp:exarchos', 'shell:exec'),
-    resources: declared(
-      { kind: 'stream', selector: 'featureId' },
-      { kind: 'path', selector: 'repoRoot' },
-      { kind: 'worktree', selector: 'worktreePath' },
-      { kind: 'git-ref', selector: 'branch' },
-    ),
-    replay: { kind: 'claim-required', scope: 'stream-subject-request' },
-    emissions: declared(
-      { event: 'admission.evidence-recorded', condition: 'always', owner: 'orchestrate', role: 'primary' },
-      { event: 'gate.executed', condition: 'always', owner: 'orchestrate', role: 'primary' },
-    ),
-  }),
-  withContract({
     name: 'check_contract_drift',
     description:
       'Per-task contract-drift gate (verification-ladder slice 1): regenerates ' +
@@ -516,7 +452,7 @@ export const gateActions: readonly BuiltinToolAction[] = [
       'worktree). On a ' +
       'clean pass, surfaces a one-semantic-test steer in next_actions.',
     /**
-     * The field names and base types match `check_test_adequacy`, so `buildRegistrationSchema` sees no
+     * The field names and base types match `check_mock_boundary`, so `buildRegistrationSchema` sees no
      * field name with two base types.
      */
     schema: z.object({
@@ -574,7 +510,7 @@ export const gateActions: readonly BuiltinToolAction[] = [
       'acknowledgement in durable evidence. Pass repoRoot ("auto" to resolve ' +
       "the calling delegation's worktree).",
     /**
-     * The field names and base types match `check_test_adequacy` and `check_contract_drift`, so
+     * The field names and base types match `check_contract_drift`, so
      * `buildRegistrationSchema` sees no field name with two base types. `reason` is an optional string.
      */
     schema: z.object({

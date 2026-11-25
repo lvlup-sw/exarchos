@@ -68,8 +68,8 @@ describe('handleRunbook', () => {
   });
 
   /**
-   * In `task-completion`, the `check_test_adequacy` step resolves a blocking gate with dimension
-   * `D1`. The runbook holds no `check_tdd_compliance` step.
+   * In `task-completion`, the `check_contract_drift` step resolves a blocking gate with dimension
+   * `D1`. The runbook holds no `check_tdd_compliance` step and no `check_test_adequacy` step.
    */
   it('HandleRunbook_DetailMode_ResolvesGateFromRegistry', async () => {
     const result = await handleRunbook({ id: 'task-completion' });
@@ -78,11 +78,12 @@ describe('handleRunbook', () => {
       steps: Array<{ action: string; gate: { blocking: boolean; dimension?: string } | null }>;
     };
 
-    const adequacyStep = data.steps.find(s => s.action === 'check_test_adequacy');
-    expect(adequacyStep).toBeDefined();
-    expect(adequacyStep!.gate).not.toBeNull();
-    expect(adequacyStep!.gate!.blocking).toBe(true);
-    expect(adequacyStep!.gate!.dimension).toBe('D1');
+    const driftStep = data.steps.find(s => s.action === 'check_contract_drift');
+    expect(driftStep).toBeDefined();
+    expect(driftStep!.gate).not.toBeNull();
+    expect(driftStep!.gate!.blocking).toBe(true);
+    expect(driftStep!.gate!.dimension).toBe('D1');
+    expect(data.steps.find(s => s.action === 'check_test_adequacy')).toBeUndefined();
 
     const tddStep = data.steps.find(s => s.action === 'check_tdd_compliance');
     expect(tddStep).toBeUndefined();

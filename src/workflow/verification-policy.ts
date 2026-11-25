@@ -16,7 +16,6 @@ export type RiskTier = 'low' | 'medium' | 'high';
  */
 export const VERIFICATION_GATE_NAMES = [
   'check_static_analysis',
-  'check_test_adequacy',
   'check_integration_suite',
   'check_contract_drift',
   'check_mock_boundary',
@@ -26,15 +25,20 @@ export const VERIFICATION_GATE_NAMES = [
 export type GateName = (typeof VERIFICATION_GATE_NAMES)[number];
 
 /**
+ * The gate names of earlier policy tables. A configured policy cell can still name one, and the parse removes it.
+ * The source-revert kill probe left the table on 2026-11-25.
+ */
+export const RETIRED_VERIFICATION_GATE_NAMES = ['check_test_adequacy'] as const;
+
+/**
  * The base sequence for each risk tier, when the task does not touch a boundary.
- * Each tier extends the sequence of the tier below it by one gate.
+ * The low and medium tiers run static analysis. The high tier adds the integration suite.
  */
 const BASE_SEQUENCE_BY_TIER: Readonly<Record<RiskTier, readonly GateName[]>> = Object.freeze({
   low: Object.freeze(['check_static_analysis'] as const),
-  medium: Object.freeze(['check_static_analysis', 'check_test_adequacy'] as const),
+  medium: Object.freeze(['check_static_analysis'] as const),
   high: Object.freeze([
     'check_static_analysis',
-    'check_test_adequacy',
     'check_integration_suite',
   ] as const),
 });

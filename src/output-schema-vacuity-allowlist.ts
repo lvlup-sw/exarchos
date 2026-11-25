@@ -62,7 +62,6 @@ export const VACUITY_ALLOWLIST = Object.freeze({
   'exarchos_orchestrate.check_security_scan': { owner: 'orchestration', expires: '2027-02-28' },
   'exarchos_orchestrate.check_static_analysis': { owner: 'orchestration', expires: '2027-02-28' },
   'exarchos_orchestrate.check_task_decomposition': { owner: 'orchestration', expires: '2027-02-28' },
-  'exarchos_orchestrate.check_test_adequacy': { owner: 'orchestration', expires: '2027-02-28' },
   'exarchos_orchestrate.check_workflow_determinism': { owner: 'orchestration', expires: '2027-02-28' },
   'exarchos_orchestrate.classify_review_items': { owner: 'orchestration', expires: '2027-02-28' },
   'exarchos_orchestrate.create_issue': { owner: 'orchestration', expires: '2027-02-28' },
@@ -171,6 +170,11 @@ export const VACUITY_RETIRED: Readonly<Record<string, VacuityRetiredEntry>> = Ob
   'exarchos_orchestrate.cutover_readiness': {
     owner: 'orchestration',
     retiredAt: '2026-08-10',
+  },
+  /** The action is deleted. The retired-action table refuses a call of it before dispatch, so it declares no schema. */
+  'exarchos_orchestrate.check_test_adequacy': {
+    owner: 'orchestration',
+    retiredAt: '2026-11-25',
   },
   /** The action is deleted. The retired-action table refuses a call of it before dispatch, so it declares no schema. */
   'exarchos_orchestrate.mutation-adequacy': {

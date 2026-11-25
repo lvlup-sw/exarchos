@@ -71,7 +71,7 @@ export interface Toolchain {
   /**
    * The exit codes of a test run with a failing test, or with a test that does not load after a compile or import error.
    * An absent field means {@link DEFAULT_TEST_FAILURE_EXIT_CODES}. Set the field for each runner that uses a different code.
-   * The kill probe reads exit 0 as green, these codes as red, and every other end of a run as no verdict.
+   * A probe run reads exit 0 as green, these codes as red, and every other end of a run as no verdict.
    *
    * Only the built-in registry sets the field. A `.exarchos.yml` toolchain entry has no key for it, so it gets the default.
    */

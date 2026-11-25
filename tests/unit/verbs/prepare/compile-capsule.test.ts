@@ -257,7 +257,6 @@ describe('delegation capsule compilation', () => {
     }
     expect(outcome.capsule.contracts.evidenceKinds).toEqual([
       'static-analysis',
-      'test-adequacy',
       'integration-suite',
       'contract-drift',
       'mock-boundary',
@@ -313,8 +312,8 @@ describe('delegation capsule compilation', () => {
     );
     if (!outcome.ok) throw new Error(outcome.refusal.message);
     expect(outcome.capsule.knowledge.patterns.map((p) => p.statement)).toEqual([
-      'A task at riskTier=high, boundaryTouching=true is verified at settlement by: check_static_analysis, check_test_adequacy, check_integration_suite, check_contract_drift, check_mock_boundary.',
-      'A task at riskTier=medium, boundaryTouching=false is verified at settlement by: check_static_analysis, check_test_adequacy.',
+      'A task at riskTier=high, boundaryTouching=true is verified at settlement by: check_static_analysis, check_integration_suite, check_contract_drift, check_mock_boundary.',
+      'A task at riskTier=medium, boundaryTouching=false is verified at settlement by: check_static_analysis.',
       `Each task forks from feature/prepare-unit at ${BASE_COMMIT}. Settlement refuses a worktree that does not hold ${BASE_COMMIT}.`,
     ]);
   });
@@ -829,7 +828,7 @@ describe('delegation capsule compilation — the segment gates and the design so
     if (!outcome.ok) throw new Error(outcome.refusal.message);
     expect(resolveVerificationPolicy('high', false).sequence).toContain('check_integration_suite');
     expect(outcome.capsule.knowledge.patterns.map((p) => p.statement)).toEqual([
-      'A task at riskTier=high, boundaryTouching=false is verified at settlement by: check_static_analysis, check_test_adequacy, check_integration_suite.',
+      'A task at riskTier=high, boundaryTouching=false is verified at settlement by: check_static_analysis, check_integration_suite.',
       `Each task forks from feature/prepare-unit at ${BASE_COMMIT}. Settlement refuses a worktree that does not hold ${BASE_COMMIT}.`,
     ]);
   });
@@ -842,7 +841,7 @@ describe('delegation capsule compilation — the segment gates and the design so
           { id: 'T-1', title: 'boundary', status: 'pending', blockedBy: [], riskTier: 'medium', boundaryTouching: true },
           { id: 'T-2', title: 'plain', status: 'pending', blockedBy: [] },
         ]),
-        disabledGates: ['check_test_adequacy', 'check_mock_boundary'],
+        disabledGates: ['check_integration_suite', 'check_mock_boundary'],
       }),
     );
     if (!outcome.ok) throw new Error(outcome.refusal.message);

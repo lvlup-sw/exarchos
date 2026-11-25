@@ -5,7 +5,7 @@
  *
  * Arm E carries the production `buildVerificationNote` for the risk tier of the task. Arm N carries no steer.
  * Both arms must implement the task and write a durable test, so the only variable is the content of the steer.
- * The contrast is test adequacy (the kill-probe result), not the presence of a test.
+ * The contrast is test adequacy (the stub-revert probe result), not the presence of a test.
  *
  * A cell with a failed model call or no parseable `impl.ts` gets `status: 'blocked'` and null metrics, never an invented number.
  * The model runs as a text generator (`claude -p --tools ""`) with no file access, so it cannot read an oracle.
@@ -79,7 +79,7 @@ const IMPL_BLOCK = [
 
 /**
  * The request for a durable test, sent to both arms. The test must run by itself and exit non-zero on a failure.
- * The kill probe grades against that contract.
+ * The stub-revert probe grades against that contract.
  */
 const TEST_CONTRACT = [
   '',

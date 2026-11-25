@@ -4,7 +4,7 @@
  * - Parse: the `===FILE:<name>===` block parser turns model text into files.
  * - Prompt: arm E carries the production verification steer, and arm N does not.
  * - Dispatch: an injected model result writes a run directory. A failed or empty result gives a blocked cell.
- * - Capture: `captureCell` grades a fixture run directory with the real `gradeAdequacy` and `runProbe`, not a stub.
+ * - Capture: `captureCell` grades a fixture run directory with the real `gradeAdequacy` and `runEvalProbe`, not a stub.
  * - CSV: each row carries the provenance stamp, and a blocked cell has empty metric cells.
  */
 
@@ -83,7 +83,7 @@ describe('buildUserPrompt — both arms implement+test; ONLY the steer varies', 
 
   it('E arm embeds the production verification note + asks for a durable test.ts', () => {
     const p = buildUserPrompt(PARSE_DURATION, 'E', spec, stub);
-    expect(p).toContain('check_test_adequacy');
+    expect(p).toContain('a test CAN fail');
     expect(p).toContain('outcome-based adequacy');
     expect(p).toContain('===FILE:test.ts===');
     expect(p).toContain(spec.trim());
@@ -92,8 +92,8 @@ describe('buildUserPrompt — both arms implement+test; ONLY the steer varies', 
   it('N arm asks for the SAME durable test.ts but carries NO steer (symmetric test request)', () => {
     const p = buildUserPrompt(PARSE_DURATION, 'N', spec, stub);
     expect(p).toContain('===FILE:test.ts===');
-    expect(p).not.toContain('check_test_adequacy');
-    expect(p).not.toContain('kill-probe');
+    expect(p).not.toContain('a test CAN fail');
+    expect(p).not.toContain('outcome-based adequacy');
   });
 
   it('the test-request block is IDENTICAL across arms — the ONLY delta is the E steer', () => {

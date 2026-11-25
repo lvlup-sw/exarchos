@@ -1855,7 +1855,7 @@ describe('handlePrepareDelegation', () => {
       });
 
       expect(classification.verificationNoteKey).toBe('high|true');
-      expect(classification.implementerPrompt).toContain('check_test_adequacy');
+      expect(classification.implementerPrompt).toContain('a test CAN fail');
       expect(classification.implementerPrompt).toContain('check_integration_suite');
     });
 

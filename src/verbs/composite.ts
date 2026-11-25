@@ -28,7 +28,6 @@ import { handleAssessStack } from './vcs/assess-stack.js';
 import { handleDesignCompleteness } from './gates/design-completeness.js';
 import { handlePlanCoverage } from './gates/plan-coverage.js';
 import { handleCheckExplorationDepth } from './gates/check-exploration-depth.js';
-import { handleTestAdequacy } from './gates/test-adequacy-handler.js';
 import { handleContractDrift } from './gates/contract-drift-handler.js';
 import { handleMockBoundary } from './gates/mock-boundary-handler.js';
 import { handlePostMerge } from './gates/post-merge.js';
@@ -456,7 +455,6 @@ export const ACTION_HANDLERS: Readonly<Record<string, ActionHandler>> = {
    */
   check_exploration_depth: adaptWithEventStore(handleCheckExplorationDepth),
   /** Verification-ladder gate. {@link adaptLadderGate} copies the dispatch config into the args, and the severity wrapper applies the severity. */
-  check_test_adequacy: adaptLadderGate(handleTestAdequacy, true),
   check_contract_drift: adaptLadderGate(handleContractDrift, true),
   check_mock_boundary: adaptLadderGate(handleMockBoundary, true),
   check_post_merge: privateTermsRemoved(adaptWithEventStore(handlePostMerge)),

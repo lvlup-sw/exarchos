@@ -4,20 +4,17 @@ import { TOOL_REGISTRY } from '../../../src/registry.js';
 import type { RunbookDefinition, RunbookStep } from '../../../src/runbooks/types.js';
 
 /**
- * The delegation stamp that `prepare_delegation` freezes. `TASK_COMPLETION` and
- * `TASK_FIX` must declare both fields as `templateVars`, and each gate step that
- * reads the stamp must bind both as `params`. Without the stamp the gate reads an
- * unset tier, and a high-tier task without probed tests can get an advisory skip.
+ * The delegation stamp that `prepare_delegation` freezes. `TASK_COMPLETION` must
+ * declare both fields as `templateVars`, and each gate step that reads the stamp must
+ * bind both as `params`. Without the stamp the gate reads an unset tier.
  */
 const STAMP_FIELDS = ['riskTier', 'boundaryTouching'] as const;
 
 /**
- * The gate actions whose registry schema accepts the stamp. Of these, `TASK_FIX` has
- * only the `check_test_adequacy` step. `check_static_analysis` is not in the list,
- * because its schema does not declare the two fields.
+ * The gate actions whose registry schema accepts the stamp. `TASK_FIX` has none of them.
+ * `check_static_analysis` is not in the list, because its schema does not declare the two fields.
  */
 const STAMP_CONSUMING_ACTIONS = [
-  'check_test_adequacy',
   'check_contract_drift',
   'check_mock_boundary',
   'check_integration_suite',
@@ -61,9 +58,6 @@ describe('Runbook parameter shape (DR-3 / T-05): delegation stamp threading', ()
     expectStampDeclaredAsTemplateVars(TASK_COMPLETION);
   });
 
-  it('TaskFix_DeclaresStampAsTemplateVars', () => {
-    expectStampDeclaredAsTemplateVars(TASK_FIX);
-  });
 
   it('TaskCompletion_EveryStampConsumingStep_BindsBothStampFields', () => {
     for (const action of STAMP_CONSUMING_ACTIONS) {
@@ -71,10 +65,11 @@ describe('Runbook parameter shape (DR-3 / T-05): delegation stamp threading', ()
     }
   });
 
-  it('TaskFix_StampConsumingStep_BindsBothStampFields', () => {
-    expectStampBoundAsParams(TASK_FIX, 'check_test_adequacy');
-    expect(stepFor(TASK_FIX, 'check_contract_drift')).toBeUndefined();
-    expect(stepFor(TASK_FIX, 'check_mock_boundary')).toBeUndefined();
+  /** The task-fix runbook runs static analysis and the completion only, so it reads no stamp and declares none. */
+  it('TaskFix_HasNoStampConsumingStep_AndDeclaresNoStamp', () => {
+    for (const action of STAMP_CONSUMING_ACTIONS) expect(stepFor(TASK_FIX, action)).toBeUndefined();
+    expect(stepFor(TASK_FIX, 'check_test_adequacy')).toBeUndefined();
+    for (const field of STAMP_FIELDS) expect(TASK_FIX.templateVars).not.toContain(field);
   });
 
   /**

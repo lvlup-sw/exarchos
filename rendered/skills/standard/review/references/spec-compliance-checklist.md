@@ -27,14 +27,7 @@ npm run test:coverage
 npm run typecheck
 ```
 
-```typescript
-// Test adequacy (outcome-based kill-probe: revert source, assert a test goes red).
-// Settlement already ran it per task; read its recorded verdicts:
-exarchos_event({ action: "query", stream: "<featureId>", filter: { type: "gate.executed" }, limit: 200 })
-// rows with gateName "test-adequacy": details.taskId, passed, details.verdict
-```
-
-Run `check_test_adequacy` yourself only for a task with no recorded verdict. Pass `repoRoot: "auto"` and `worktreePath: "<worktreePath>"` (the worktree of the task), so the probe reverts and restores the task tree and not your checkout. Also pass `baseBranch` (the branch the task forked from). Without it the gate blocks with `base-missing`.
+Test adequacy is outcome-based, and no gate judges it. For each medium/high task, read the tests that the task added or changed. Each one must assert the changed behavior and go red against a stubbed-out implementation.
 
 ## Manual Checks
 
@@ -66,7 +59,7 @@ After scripts pass, verify:
 
 ## Completion Criteria
 
-- [ ] Every medium/high task's recorded `test-adequacy` verdict passes
+- [ ] Every medium/high task's tests can fail against a stubbed-out implementation
 - [ ] All tests pass
 - [ ] Coverage meets thresholds
 - [ ] All spec requirements verified

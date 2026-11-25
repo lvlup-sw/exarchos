@@ -52,7 +52,7 @@ The bootstrap response in this example is abridged:
                                                   "task-002": { "riskTier": "medium", "boundaryTouching": true, "baseRef": "feat/add-email-validation", "baseCommit": "4f1c2e9a…" } } },
     "knowledge": { "patterns": [
       { "statement": "A task at riskTier=low, boundaryTouching=false is verified at settlement by: check_static_analysis." },
-      { "statement": "A task at riskTier=medium, boundaryTouching=true is verified at settlement by: check_static_analysis, check_test_adequacy, check_contract_drift, check_mock_boundary." } ] },
+      { "statement": "A task at riskTier=medium, boundaryTouching=true is verified at settlement by: check_static_analysis, check_contract_drift, check_mock_boundary." } ] },
     "executionProfile": { "capabilities": ["fs:read", "fs:write", "mcp:exarchos", "shell:exec"] }
   }
 }
@@ -72,7 +72,7 @@ Task({
 Task({
   subagent_type: "general-purpose", run_in_background: true,
   description: "Implement task-002: Domain MX check",
-  prompt: `# Task: Domain MX Check\n\n## Working Directory\n/project/.worktrees/task-002-domain-mx\n\n## Base Step\nbaseCommit=4f1c2e9a… (start branch feat/task-002 there)\n\n## Verification terms\nriskTier=medium, boundaryTouching=true. A task at riskTier=medium, boundaryTouching=true is verified at settlement by: check_static_analysis, check_test_adequacy, check_contract_drift, check_mock_boundary.\n\n[...]`
+  prompt: `# Task: Domain MX Check\n\n## Working Directory\n/project/.worktrees/task-002-domain-mx\n\n## Base Step\nbaseCommit=4f1c2e9a… (start branch feat/task-002 there)\n\n## Verification terms\nriskTier=medium, boundaryTouching=true. A task at riskTier=medium, boundaryTouching=true is verified at settlement by: check_static_analysis, check_contract_drift, check_mock_boundary.\n\n[...]`
 })
 ```
 
@@ -131,7 +131,7 @@ Re-dispatch with the fixer prompt. The fix continues the earlier branch `feat/ta
 Task({
   subagent_type: "general-purpose",
   description: "Fix task-002: typecheck failure in domain.ts",
-  prompt: `# Fix Task: Typecheck Failure\n\n## Adversarial Verification Posture\nIndependently verify the failure...\n\n## Working Directory\n/project/.worktrees/task-002-domain-mx\n\n## Base Step\nContinue the earlier branch feat/task-002 (baseCommit=4f1c2e9a…)\n\n## Issue to Fix\n**File:** src/validators/domain.ts\n**Problem:** dns.resolveMx called with a callback where a promise is expected\n**Verification terms:** riskTier=medium, boundaryTouching=true — settlement runs check_static_analysis, check_test_adequacy, check_contract_drift, check_mock_boundary against this worktree.`
+  prompt: `# Fix Task: Typecheck Failure\n\n## Adversarial Verification Posture\nIndependently verify the failure...\n\n## Working Directory\n/project/.worktrees/task-002-domain-mx\n\n## Base Step\nContinue the earlier branch feat/task-002 (baseCommit=4f1c2e9a…)\n\n## Issue to Fix\n**File:** src/validators/domain.ts\n**Problem:** dns.resolveMx called with a callback where a promise is expected\n**Verification terms:** riskTier=medium, boundaryTouching=true — settlement runs check_static_analysis, check_contract_drift, check_mock_boundary against this worktree.`
 })
 ```
 

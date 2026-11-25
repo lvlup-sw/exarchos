@@ -1,6 +1,6 @@
-// The base of the three diff gates of the task-completion segment.
+// The base of the three gates of the task-completion segment that bind it.
 //
-// The runbook binds the capsule `baseRef` to the kill probe, contract drift and mock boundary, and not to static analysis.
+// The runbook binds the capsule `baseRef` to contract drift, mock boundary and the integration suite, and not to static analysis.
 // A segment thus measures contract drift and mock boundary from that base, not from `main`.
 // A direct run of either gate with no base does not guess one. Contract drift blocks with `base-missing`.
 // Mock boundary is advisory, so it reports `base-missing` and does not block.
@@ -12,7 +12,7 @@ import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { DEFAULTS, type ResolvedProjectConfig } from '../../../../src/config/resolve.js';
+import { DEFAULTS } from '../../../../src/config/resolve.js';
 import {
   deriveMcpCallerIdentity,
   snapshotCallerAuthorization,
@@ -56,7 +56,7 @@ vi.mock('../../../../src/verbs/gates/gate-utils.js', async (importOriginal) => {
 });
 
 /** The three gates of the segment that measure a diff. */
-const DIFF_GATES = ['check_test_adequacy', 'check_contract_drift', 'check_mock_boundary'];
+const DIFF_GATES = ['check_contract_drift', 'check_mock_boundary', 'check_integration_suite'];
 
 /** The two gates under test in the segment, each with its gate class. */
 const MEASURED_GATES: readonly (readonly [string, 'contract-drift' | 'mock-boundary'])[] = [
@@ -141,15 +141,6 @@ async function startedWorkflow(featureId: string): Promise<HandlerContext> {
   return ctx;
 }
 
-/** The project config that disables the kill probe, so the segment reaches the two gates under test. */
-function killProbeDisabled(): ResolvedProjectConfig {
-  const entry = { enabled: false, blocking: true, params: {} };
-  return {
-    ...DEFAULTS,
-    review: { ...DEFAULTS.review, gates: { ...DEFAULTS.review.gates, check_test_adequacy: entry } },
-  };
-}
-
 /**
  * A repository with three branches. `main` holds the first commit. The integration branch adds a prerequisite commit.
  * The task branch adds the task commit and stays checked out. A diff from `main` thus holds the prerequisite file too.
@@ -225,7 +216,7 @@ describe('the base of the diff gates in the task-completion segment', () => {
   /**
    * A boundary-touching medium task runs both gates. Each records its evidence on the subject of the frozen base.
    * The mock-boundary diff reads the range from that base, so the prerequisite commit stays out of it.
-   * The config disables the kill probe, so its blocking verdict does not stop the segment before the two gates.
+   * The two gates are the first leaves of the segment, so no earlier verdict stops the segment before them.
    */
   it('SegmentGateBase_ASegment_MeasuresContractDriftAndMockBoundaryFromTheBase', async () => {
     const streamId = 'segment-gate-base';
@@ -236,7 +227,7 @@ describe('the base of the diff gates in the task-completion segment', () => {
       stateDir,
       eventStore: store,
       enableTelemetry: false,
-      projectConfig: killProbeDisabled(),
+      projectConfig: DEFAULTS,
     };
 
     const result = await runWithDispatchContext(correlation('segment-gate-base'), () =>

@@ -11,7 +11,7 @@
 // Most tasks are low-risk and off the boundary. The ladder then runs the production static-analysis
 // gate on a real project, and policy skips the other gates. Each claimed task has its own linked
 // worktree of one real repository. One case puts two tasks at the medium tier in real git worktrees,
-// so the shipped runbook also runs the kill probe. The cases turn telemetry off, and one twin case
+// and its lint script reads the source of each task. The cases turn telemetry off, and one twin case
 // keeps the shipped default.
 //
 // @oracle-sources: ../../src/verbs/prepare/handler.ts, the settlement record and bundle blobs counted out of the real event store and content-addressed store after each dispatched call
@@ -123,7 +123,7 @@ interface PlannedTask {
   readonly boundaryTouching: boolean;
 }
 
-/** The branch that each task forks from. `prepare` freezes it in the capsule as the base of the kill probe. */
+/** The branch that each task forks from. `prepare` freezes it in the capsule as the base of the diff gates. */
 const INTEGRATION_BRANCH = 'feature/prepare-settle';
 
 /** Stamped by the planner: low risk, off the boundary, so static analysis is the whole ladder. */
@@ -372,8 +372,15 @@ function nodeTestFile(module: string, assertion: string): string {
   );
 }
 
-/** The scripts of the medium-tier project. The kill probe runs `test:run`, and static analysis runs the other three. */
-const MEDIUM_TIER_SCRIPTS = { 'test:run': 'node --test', lint: OK, typecheck: OK, 'quality-check': OK };
+/**
+ * The lint script of the medium-tier project. It fails when a source file holds a `debugger` statement.
+ * Static analysis runs it, so a task that adds the statement halts its segment with a gate verdict.
+ */
+const MEDIUM_TIER_LINT =
+  "node -e \"const fs=require('node:fs');const bad=fs.readdirSync('src').filter((f)=>fs.readFileSync('src/'+f,'utf8').includes('debugger'));if(bad.length>0){console.error(bad.join(','));process.exit(1)}\"";
+
+/** The scripts of the medium-tier project. Static analysis runs `lint`, `typecheck` and `quality-check`. */
+const MEDIUM_TIER_SCRIPTS = { 'test:run': 'node --test', lint: MEDIUM_TIER_LINT, typecheck: OK, 'quality-check': OK };
 
 /** The checkout of the medium-tier repository, the commit of its integration branch, and the worktree of each task. */
 interface MediumTierWorktrees {
@@ -381,17 +388,17 @@ interface MediumTierWorktrees {
   readonly checkout: string;
   /** The commit of the integration branch, which `prepare` pins as the base commit of each task. */
   readonly baseCommit: string;
-  /** The first task. Its test fails when its source change is reverted. */
+  /** The first task. Its source passes the lint script. */
   readonly passing: string;
-  /** The second task. Its test asserts nothing, so it passes on the reverted source. */
-  readonly vacuous: string;
+  /** The second task. Its source holds a `debugger` statement, so the lint script fails. */
+  readonly linted: string;
 }
 
 /**
  * A real repository whose integration branch holds two source modules, and one git worktree for
  * each task. Each worktree checks out a task branch that forks from the integration branch. Each
- * task changes its module and commits a test. The test of the first task asserts the change, and
- * the test of the second task asserts nothing.
+ * task changes its module and commits a test that asserts the change. The source of the second task
+ * also holds a `debugger` statement.
  */
 async function mediumTierWorktrees(): Promise<MediumTierWorktrees> {
   const parent = await realpath(await mkdtemp(path.join(tmpdir(), 'prepare-settle-medium-')));
@@ -410,11 +417,11 @@ async function mediumTierWorktrees(): Promise<MediumTierWorktrees> {
   await git(repo, ['commit', '-q', '-m', 'the integration branch']);
   await git(repo, ['branch', INTEGRATION_BRANCH]);
 
-  const worktreeOf = async (taskId: string, module: string, assertion: string): Promise<string> => {
+  const worktreeOf = async (taskId: string, module: string, body: string): Promise<string> => {
     const worktree = path.join(parent, taskId);
     await git(repo, ['worktree', 'add', '-q', '-b', taskId, worktree, INTEGRATION_BRANCH]);
-    await writeFixtureFile(worktree, `src/${module}.js`, 'export function value() {\n  return 2;\n}\n');
-    await writeFixtureFile(worktree, `test/${module}.test.js`, nodeTestFile(module, assertion));
+    await writeFixtureFile(worktree, `src/${module}.js`, `export function value() {\n${body}  return 2;\n}\n`);
+    await writeFixtureFile(worktree, `test/${module}.test.js`, nodeTestFile(module, 'assert.strictEqual(value(), 2);'));
     await git(worktree, ['add', '.']);
     await git(worktree, ['commit', '-q', '-m', `${taskId}: ${module} returns 2`]);
     return worktree;
@@ -422,8 +429,8 @@ async function mediumTierWorktrees(): Promise<MediumTierWorktrees> {
   return {
     checkout: repo,
     baseCommit: (await git(repo, ['rev-parse', INTEGRATION_BRANCH])).trim(),
-    passing: await worktreeOf('task-a', 'a', 'assert.strictEqual(value(), 2);'),
-    vacuous: await worktreeOf('task-b', 'b', 'assert.ok(true);'),
+    passing: await worktreeOf('task-a', 'a', ''),
+    linted: await worktreeOf('task-b', 'b', '  debugger;\n'),
   };
 }
 
@@ -612,7 +619,7 @@ describe('prepare then settle, through the dispatcher', () => {
    * the same leaf. `verified` is the flag of that leaf for caller-attached evidence, and a settled
    * claim attaches none. The verification is the durable gate row, not a field on the fact.
    *
-   * Each of the five ladder gates leaves an evidence row for each task, and a policy-skipped gate
+   * Each of the four ladder gates leaves an evidence row for each task, and a policy-skipped gate
    * records the skip. The three static-analysis rows hold the verdicts that decided the batch.
    *
    * The projection reads the facts as progress. The transition is a separate call with its own
@@ -640,7 +647,7 @@ describe('prepare then settle, through the dispatcher', () => {
     const evidence = (await rowsOf('admission.evidence-recorded')) as {
       data: { evidence: { requirementId: string; verdict: string } };
     }[];
-    expect(evidence).toHaveLength(15);
+    expect(evidence).toHaveLength(12);
     const decided = evidence.filter((e) => e.data.evidence.requirementId === 'verification-ladder:static-analysis');
     expect(decided.map((e) => e.data.evidence.verdict)).toEqual(['pass', 'pass', 'pass']);
 
@@ -874,8 +881,8 @@ describe('prepare then settle, through the dispatcher', () => {
       ['batch-1', 'corrective-capsule', [{ taskId: 'task-b', cause: 'verification-failed' }]],
     ]);
     const passed = await workRowsOf(['task-a', 'task-c']);
-    expect(countsByType(passed)).toEqual({ 'task.assigned': 2, 'gate.executed': 10, 'task.completed': 2 });
-    expect(countsByType(await workRowsOf(['task-b']))).toEqual({ 'task.assigned': 1, 'gate.executed': 5 });
+    expect(countsByType(passed)).toEqual({ 'task.assigned': 2, 'gate.executed': 8, 'task.completed': 2 });
+    expect(countsByType(await workRowsOf(['task-b']))).toEqual({ 'task.assigned': 1, 'gate.executed': 4 });
     const partial = await call('exarchos_workflow', { action: 'get', featureId: STREAM });
     expect(partial.data).toMatchObject({
       tasks: [
@@ -922,7 +929,7 @@ describe('prepare then settle, through the dispatcher', () => {
     expect(await workRowsOf(['task-a', 'task-c'])).toEqual(passed);
     expect(countsByType(await workRowsOf(['task-b']))).toEqual({
       'task.assigned': 1,
-      'gate.executed': 10,
+      'gate.executed': 8,
       'task.completed': 1,
     });
     await expectReplayReturnsTheReceiptAndTheSettleActionAppendsNoRow(correction, corrected);
@@ -935,18 +942,13 @@ describe('prepare then settle, through the dispatcher', () => {
   });
 
   /**
-   * Two medium-tier tasks in git worktrees go through the shipped runbook. The test of the first task fails on the
-   * reverted source, so its probe passes. The test of the second asserts nothing, so its probe halts the segment with a
-   * gate verdict. The receipt names the halted task, its cause and its leaf. The `execution.settled` row names the task
-   * and its cause only.
+   * Two medium-tier tasks in git worktrees go through the shipped runbook. The source of the first task passes the
+   * lint script, so its static analysis passes. The source of the second holds a `debugger` statement, so its static
+   * analysis halts the segment with a gate verdict. The receipt names the halted task, its cause and its leaf. The
+   * `execution.settled` row names the task and its cause only.
    *
    * Only the first task is complete on the stream and on the state document. The next call is a correction, so the
    * guard refuses the transition until a batch built from the unresolved list settles.
-   *
-   * Limit: a red run on the task source gives `baseline-red`, and a run with no verdict gives `run-no-verdict`.
-   * The probe reads each red run after the revert as a kill, also a test that does not load or a reverted config file.
-   * `dotnet test` on Microsoft.Testing.Platform and a `conftest.py` that does not load give no verdict. `cargo test`
-   * and `ctest` can run no test and stay green.
    */
   it('PrepareSettle_AMediumTierBatchThroughTheShippedRunbook_CompletesThePassingTaskAndCorrectsTheHaltedOne', async () => {
     const [first, second] = TASKS;
@@ -969,7 +971,7 @@ describe('prepare then settle, through the dispatcher', () => {
       featureId: STREAM,
       capsuleVersion,
       batchId: 'batch-medium',
-      claims: [claimOn(first.id, worktrees.passing), claimOn(second.id, worktrees.vacuous)],
+      claims: [claimOn(first.id, worktrees.passing), claimOn(second.id, worktrees.linted)],
     };
     const halted = await call('exarchos_orchestrate', firstBatch);
     expect(halted.success, JSON.stringify(halted)).toBe(true);
@@ -979,30 +981,34 @@ describe('prepare then settle, through the dispatcher', () => {
       findings: [{ kind: 'verification-failed', subject: second.id }],
       verification: [
         { taskId: first.id, outcome: 'verified' },
-        { taskId: second.id, outcome: 'failed', failedLeaf: 'check_test_adequacy' },
+        { taskId: second.id, outcome: 'failed', failedLeaf: 'check_static_analysis' },
       ],
       unresolved: [
         {
           taskId: second.id,
           cause: 'verification-failed',
-          failedLeaf: 'check_test_adequacy',
+          failedLeaf: 'check_static_analysis',
           operationId: expect.stringMatching(/^settle-task:[0-9a-f]{64}$/),
         },
       ],
     });
     const receipt = halted.data as { outcome: 'corrective-capsule'; unresolved: { taskId: string }[]; findings: { message: string }[] };
-    expect(receipt.findings[0]?.message).toContain("halted on 'check_test_adequacy'");
+    expect(receipt.findings[0]?.message).toContain("halted on 'check_static_analysis'");
     expect((await settlementRecords()).map((record) => [record.batchId, record.outcome, record.unresolvedTasks])).toEqual([
       ['batch-medium', 'corrective-capsule', [{ taskId: second.id, cause: 'verification-failed' }]],
     ]);
     expect(await gateVerdictsOf(first.id)).toEqual([
-      ['test-adequacy', 'pass'],
       ['contract-drift', 'skipped-by-policy'],
       ['mock-boundary', 'skipped-by-policy'],
       ['integration-suite', 'skipped-by-policy'],
       ['static-analysis', 'pass'],
     ]);
-    expect(await gateVerdictsOf(second.id)).toEqual([['test-adequacy', 'fail']]);
+    expect(await gateVerdictsOf(second.id)).toEqual([
+      ['contract-drift', 'skipped-by-policy'],
+      ['mock-boundary', 'skipped-by-policy'],
+      ['integration-suite', 'skipped-by-policy'],
+      ['static-analysis', 'fail'],
+    ]);
     expect(((await rowsOf('task.completed')) as { data: { taskId: string } }[]).map((row) => row.data.taskId)).toEqual([first.id]);
     const partial = await call('exarchos_workflow', { action: 'get', featureId: STREAM });
     expect(partial.data).toMatchObject({
@@ -1016,18 +1022,18 @@ describe('prepare then settle, through the dispatcher', () => {
     expect(early.success, JSON.stringify(early)).toBe(false);
     expect(early.error?.code).toBe('GUARD_FAILED');
     expect(await git(worktrees.passing, ['status', '--porcelain'])).toBe('');
-    expect(await git(worktrees.vacuous, ['status', '--porcelain'])).toBe('');
+    expect(await git(worktrees.linted, ['status', '--porcelain'])).toBe('');
     await expectReplayReturnsTheReceiptAndTheSettleActionAppendsNoRow(firstBatch, halted);
 
-    await writeFixtureFile(worktrees.vacuous, 'test/b.test.js', nodeTestFile('b', 'assert.strictEqual(value(), 2);'));
-    await git(worktrees.vacuous, ['commit', '-q', '-am', 'task-b: the test asserts the change']);
-    await execFileAsync(process.execPath, ['--test', 'test/b.test.js'], { cwd: worktrees.vacuous });
+    await writeFixtureFile(worktrees.linted, 'src/b.js', 'export function value() {\n  return 2;\n}\n');
+    await git(worktrees.linted, ['commit', '-q', '-am', 'task-b: remove the debugger statement']);
+    await execFileAsync(process.execPath, ['--test', 'test/b.test.js'], { cwd: worktrees.linted });
     const correction = {
       action: 'settle',
       featureId: STREAM,
       capsuleVersion,
       batchId: 'batch-medium-correction',
-      claims: receipt.unresolved.map((task) => claimOn(task.taskId, worktrees.vacuous)),
+      claims: receipt.unresolved.map((task) => claimOn(task.taskId, worktrees.linted)),
     };
     const corrected = await call('exarchos_orchestrate', correction);
     expect(corrected.success, JSON.stringify(corrected)).toBe(true);
@@ -1042,8 +1048,10 @@ describe('prepare then settle, through the dispatcher', () => {
     });
     expect(corrected.data).not.toHaveProperty('unresolved');
     expect(await gateVerdictsOf(second.id)).toEqual([
-      ['test-adequacy', 'fail'],
-      ['test-adequacy', 'pass'],
+      ['contract-drift', 'skipped-by-policy'],
+      ['mock-boundary', 'skipped-by-policy'],
+      ['integration-suite', 'skipped-by-policy'],
+      ['static-analysis', 'fail'],
       ['contract-drift', 'skipped-by-policy'],
       ['mock-boundary', 'skipped-by-policy'],
       ['integration-suite', 'skipped-by-policy'],
@@ -1102,7 +1110,7 @@ describe('prepare then settle, through the dispatcher', () => {
     ]);
     expect(countsByType(await workRowsOf(['task-a', 'task-c']))).toEqual({
       'task.assigned': 2,
-      'gate.executed': 10,
+      'gate.executed': 8,
       'task.completed': 2,
     });
     const reported = countsByType(await workRowsOf(['task-b']));
@@ -1326,7 +1334,7 @@ describe('prepare then settle, through the dispatcher', () => {
     ]);
     expect(countsByType(await workRowsOf(['task-a', 'task-b', 'task-c']))).toEqual({
       'task.assigned': 3,
-      'gate.executed': 15,
+      'gate.executed': 12,
       'task.completed': 3,
     });
     const got = await call('exarchos_workflow', { action: 'get', featureId: STREAM });
@@ -1784,7 +1792,7 @@ describe('prepare then settle, through the dispatcher', () => {
     expect(decided.success, JSON.stringify(decided)).toBe(true);
     expect(decided.data).toMatchObject({ outcome: 'settled', acceptedTasks: [first.id, second.id] });
     const finishedWork = await workRowsOf([first.id, second.id]);
-    expect(countsByType(finishedWork)).toEqual({ 'task.assigned': 2, 'gate.executed': 10, 'task.completed': 2 });
+    expect(countsByType(finishedWork)).toEqual({ 'task.assigned': 2, 'gate.executed': 8, 'task.completed': 2 });
 
     const recompiled = await call('exarchos_orchestrate', { action: 'prepare', featureId: STREAM, repoRoot: repository.checkout });
     expect(recompiled.success, JSON.stringify(recompiled)).toBe(true);
@@ -1856,7 +1864,7 @@ describe('prepare then settle, through the dispatcher', () => {
     expect(await workRowsOf([first.id, second.id])).toEqual(finishedWork);
     expect(countsByType(await workRowsOf([third.id]))).toEqual({
       'task.assigned': 1,
-      'gate.executed': 5,
+      'gate.executed': 4,
       'task.completed': 1,
     });
 
@@ -1968,7 +1976,7 @@ describe('prepare then settle, through the dispatcher', () => {
     });
     expect(countsByType(await workRowsOf([done.id]))).toEqual({
       'task.assigned': 1,
-      'gate.executed': 5,
+      'gate.executed': 4,
       'task.completed': 1,
     });
     expect(countsByType(await workRowsOf([named.id]))).toEqual({ 'task.assigned': 1 });

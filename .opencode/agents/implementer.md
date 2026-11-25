@@ -164,7 +164,7 @@ Cover the new/changed behavior with focused tests, judged by OUTCOME not by comm
 - Write scoped tests that exercise the behavior and pin the contract.
 - Keep the change minimal and refactor freely while the tests stay green.
 
-Kill-probe: the `check_test_adequacy` gate runs after your tests — it reverts your source hunks (keeping the tests) and asserts at least one test goes red. This recaptures the one real guarantee of test-first (that a test CAN fail) at lower cost; expect it to flag tests that pass against a stubbed-out implementation.
+Check that a test CAN fail: a test that still passes against a stubbed-out implementation asserts nothing about the change. The review reads your tests for this.
 
 ## Discipline
 - Run verification after each change to confirm state.

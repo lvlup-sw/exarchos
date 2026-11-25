@@ -1,7 +1,7 @@
 {
-  "capturedAt": "2026-11-23",
-  "tree": "65e47b29b311f632de42ed719e85648419a7566e",
-  "count": 127,
+  "capturedAt": "2026-11-25",
+  "tree": "3283f546357074700f375efb9157591fc424c39a",
+  "count": 126,
   "actionIds": [
     "exarchos_event.append",
     "exarchos_event.batch_append",
@@ -34,7 +34,6 @@
     "exarchos_orchestrate.check_security_scan",
     "exarchos_orchestrate.check_static_analysis",
     "exarchos_orchestrate.check_task_decomposition",
-    "exarchos_orchestrate.check_test_adequacy",
     "exarchos_orchestrate.check_workflow_determinism",
     "exarchos_orchestrate.classify_review_items",
     "exarchos_orchestrate.create_issue",

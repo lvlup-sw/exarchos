@@ -155,6 +155,18 @@ const RETIRED_TEST_FILES: ReadonlyArray<{ path: string; subject: string }> = [
   { path: 'tests/process/1928-verifier-binary.test.ts', subject: 'src/runtime/verification-host/main.ts' },
   { path: 'tests/process/1928-host-recovery.test.ts', subject: 'src/runtime/verification-host/adequacy.ts' },
   { path: 'tests/unit/dispatch/core/verifier-client.test.ts', subject: 'src/dispatch/core/verifier-client.ts' },
+  { path: 'tests/unit/verbs/gates/test-adequacy.test.ts', subject: 'src/verbs/gates/test-adequacy.ts' },
+  { path: 'tests/unit/verbs/gates/test-adequacy.false-advisory.test.ts', subject: 'src/verbs/gates/test-adequacy.ts' },
+  { path: 'tests/unit/verbs/gates/test-adequacy.handler.test.ts', subject: 'src/verbs/gates/test-adequacy-handler.ts' },
+  { path: 'tests/unit/verbs/gates/test-adequacy.integration.test.ts', subject: 'src/verbs/gates/test-adequacy-handler.ts' },
+  { path: 'tests/unit/verbs/gates/test-adequacy.parity.test.ts', subject: 'src/verbs/gates/test-adequacy-handler.ts' },
+  { path: 'tests/unit/verbs/gates/test-adequacy.production-path.test.ts', subject: 'src/verbs/gates/test-adequacy-handler.ts' },
+  { path: 'tests/unit/verbs/gates/test-adequacy.toolchain-globs.test.ts', subject: 'src/verbs/gates/test-adequacy-handler.ts' },
+  { path: 'tests/unit/verbs/gates/kill-probe-profile.test.ts', subject: 'src/verbs/gates/test-adequacy-handler.ts' },
+  { path: 'tests/acceptance/kill-probe-base.test.ts', subject: 'src/verbs/gates/test-adequacy-handler.ts' },
+  { path: 'tests/acceptance/kill-probe-profile.test.ts', subject: 'src/verbs/gates/test-adequacy-handler.ts' },
+  { path: 'tests/integration/1928-hosted-adequacy.test.ts', subject: 'src/verbs/gates/test-adequacy-handler.ts' },
+  { path: 'tests/core/types/run-outcome.type-test.ts', subject: 'src/verbs/gates/test-adequacy.ts' },
 ];
 
 describe('test inventory', () => {

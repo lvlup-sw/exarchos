@@ -55,7 +55,7 @@ const subject = createEvidenceSubject(
 );
 
 const gateA: ResolvedGate = { family: 'ladder', gate: 'check_static_analysis' };
-const gateB: ResolvedGate = { family: 'ladder', gate: 'check_test_adequacy' };
+const gateB: ResolvedGate = { family: 'ladder', gate: 'check_contract_drift' };
 const gateC: ResolvedGate = { family: 'ladder', gate: 'check_integration_suite' };
 
 const context = (

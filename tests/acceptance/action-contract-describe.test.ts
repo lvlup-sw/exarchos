@@ -85,7 +85,7 @@ describe('action-contract describe projection', () => {
       needs: { kind: 'declared', values: ['fs:read', 'fs:write'] },
       requires: {
         kind: 'declared',
-        values: [{ family: 'ladder', gate: 'check_test_adequacy' }],
+        values: [{ family: 'ladder', gate: 'check_contract_drift' }],
       },
     });
     const action = withDeclaredContract(makeAction({ name: 'probe' }), declared);

@@ -4,11 +4,11 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1508,
-    "parsedFiles": 1464,
+    "testFiles": 1498,
+    "parsedFiles": 1454,
     "shellFiles": 44,
-    "cases": 16756,
-    "dynamicTitles": 337,
+    "cases": 16692,
+    "dynamicTitles": 333,
     "unparseableFiles": 0
   },
   "unparseable": [],
@@ -5137,11 +5137,6 @@
           "suite": "dispatch keeps the code of a check that did not run",
           "name": "Dispatch_DidNotRunCode_KeepsItsOwnCodeInsteadOfTheEnsureViolation",
           "dynamic": false
-        },
-        {
-          "suite": "dispatch keeps the code of a check that did not run",
-          "name": "Dispatch_UnboundAdequacy_RunsLocallyAndFailsClosedOnAnUnreadableDiff",
-          "dynamic": false
         }
       ]
     },
@@ -7291,12 +7286,7 @@
         },
         {
           "suite": "SkillProse — the checked-by sentence names the gate row",
-          "name": "SkillProse_SeededProbeCallDisagreement_NamesTheUnboundField",
-          "dynamic": false
-        },
-        {
-          "suite": "SkillProse — the checked-by sentence names the gate row",
-          "name": "SkillProse_EveryProbeCallPassageOfTheContent_HasAProbeCallSite",
+          "name": "SkillProse_NoContentPassage_CallsTheRetiredKillProbe",
           "dynamic": false
         },
         {
@@ -10470,32 +10460,6 @@
           "suite": "host-era records in a governor store",
           "name": "HostEraIntegrationBinding_InAStore_ReadsUnchangedAndIsNoLocalAttempt",
           "dynamic": false
-        }
-      ]
-    },
-    "tests/integration/1928-hosted-adequacy.test.ts": {
-      "file": "tests/integration/1928-hosted-adequacy.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "",
-          "name": "BoundAdequacy_LocalRunInDisposableCopies_LeavesTheCheckoutUnchangedAndColdReplays",
-          "dynamic": false
-        },
-        {
-          "suite": "",
-          "name": "<dynamic-case-1>",
-          "dynamic": true
-        },
-        {
-          "suite": "",
-          "name": "BoundAdequacy_CrashesBeforeAndAfterBinding_LeaveTheAttemptRetryableAndRunOnceMore",
-          "dynamic": false
-        },
-        {
-          "suite": "",
-          "name": "<dynamic-case-2>",
-          "dynamic": true
         }
       ]
     },
@@ -25252,6 +25216,26 @@
         {
           "suite": "handleEventDescribe emissionGuide",
           "name": "HandleEventDescribe_ActionsOnly_BackwardCompatible",
+          "dynamic": false
+        },
+        {
+          "suite": "handleEventDescribe output schema",
+          "name": "EventDescribe_EverySuccessReply_ParsesAgainstTheDeclaredSchema",
+          "dynamic": false
+        },
+        {
+          "suite": "handleEventDescribe output schema",
+          "name": "EventDescribe_ActionEntryOfEveryRegisteredAction_ParsesAgainstTheDeclaredSchema",
+          "dynamic": false
+        },
+        {
+          "suite": "handleEventDescribe output schema",
+          "name": "EventDescribe_EmptyOrUnrelatedTopLevel_FailsTheDeclaredSchema",
+          "dynamic": false
+        },
+        {
+          "suite": "handleEventDescribe economy budget",
+          "name": "EventDescribe_TypicalRequests_StayWithinTheEconomyBudget",
           "dynamic": false
         },
         {
@@ -45881,7 +45865,7 @@
         },
         {
           "suite": "TOOL_REGISTRY > exarchos_orchestrate",
-          "name": "should have 71 actions for task management, review triage, gate checks, validation handlers, runbooks, agent spec, oneshot/pruning, onboard (DR-2 task 011), doctor, VCS, classify_review_items (#1159), merge_orchestrate (DR-MO-1), check_integration_suite (#1329), check_invariant_conformance (DR-3), invariants_scaffold/invariants_add (invariants-catalog-wizard P2), check_test_adequacy + check_contract_drift + check_mock_boundary (verification-ladder slice 1), and composite actions",
+          "name": "should have 71 actions for task management, review triage, gate checks, validation handlers, runbooks, agent spec, oneshot/pruning, onboard (DR-2 task 011), doctor, VCS, classify_review_items (#1159), merge_orchestrate (DR-MO-1), check_integration_suite (#1329), check_invariant_conformance (DR-3), invariants_scaffold/invariants_add (invariants-catalog-wizard P2), check_contract_drift + check_mock_boundary (verification-ladder slice 1), and composite actions",
           "dynamic": false
         },
         {
@@ -47400,17 +47384,12 @@
         },
         {
           "suite": "Runbook parameter shape (DR-3 / T-05): delegation stamp threading",
-          "name": "TaskFix_DeclaresStampAsTemplateVars",
-          "dynamic": false
-        },
-        {
-          "suite": "Runbook parameter shape (DR-3 / T-05): delegation stamp threading",
           "name": "TaskCompletion_EveryStampConsumingStep_BindsBothStampFields",
           "dynamic": false
         },
         {
           "suite": "Runbook parameter shape (DR-3 / T-05): delegation stamp threading",
-          "name": "TaskFix_StampConsumingStep_BindsBothStampFields",
+          "name": "TaskFix_HasNoStampConsumingStep_AndDeclaresNoStamp",
           "dynamic": false
         },
         {
@@ -47456,7 +47435,7 @@
         },
         {
           "suite": "Runbook definitions",
-          "name": "TaskCompletion_HasSixSteps_TaskCompleteTerminal",
+          "name": "TaskCompletion_HasFiveSteps_TaskCompleteTerminal",
           "dynamic": false
         },
         {
@@ -47491,12 +47470,7 @@
         },
         {
           "suite": "Runbook definitions",
-          "name": "TaskFixRunbook_IncludesAdequacyAndStaticGates_NoRetiredTddGate",
-          "dynamic": false
-        },
-        {
-          "suite": "Runbook definitions",
-          "name": "TaskFixRunbook_AdequacyStepThreadsWorktreePath",
+          "name": "TaskFixRunbook_RunsStaticAnalysisBeforeCompletion_NoRetiredGate",
           "dynamic": false
         },
         {
@@ -47591,7 +47565,7 @@
         },
         {
           "suite": "Runbook definitions",
-          "name": "KillProbeTexts_DescriptionAndStepNotes_HoldTheStepSummary",
+          "name": "RetiredKillProbe_IsInNoRunbookAndNotRegistered",
           "dynamic": false
         },
         {
@@ -47606,17 +47580,12 @@
         },
         {
           "suite": "DR-3 — delegation stamp threading (prepare_delegation → runbook → gate)",
-          "name": "DelegationStamp_UndefinedTier_CharacterizesTheVacuousAdvisoryPass",
+          "name": "DelegationStamp_MissingBoundaryTouching_GivesNoPolicySkip",
           "dynamic": false
         },
         {
           "suite": "DR-3 — delegation stamp threading (prepare_delegation → runbook → gate)",
           "name": "TaskCompletion_DelegationStamp_DeliversRiskTierToGate",
-          "dynamic": false
-        },
-        {
-          "suite": "DR-3 — delegation stamp threading (prepare_delegation → runbook → gate)",
-          "name": "TaskFix_DelegationStamp_DeliversBoundaryTouchingToGate",
           "dynamic": false
         }
       ]
@@ -56044,7 +56013,7 @@
         },
         {
           "suite": "compileIntent over the live registry",
-          "name": "TaskCompletion_CompilesToSixLocalLeaves",
+          "name": "TaskCompletion_CompilesToFiveLocalLeaves",
           "dynamic": false
         },
         {
@@ -57811,8 +57780,8 @@
           "dynamic": false
         },
         {
-          "suite": "a disabled kill probe in the task-completion segment",
-          "name": "DisabledGate_AKillProbeInTheSegment_SkipsAndTheTaskCompletes",
+          "suite": "a disabled integration suite in the task-completion segment",
+          "name": "DisabledGate_AnIntegrationSuiteInTheSegment_SkipsAndTheTaskCompletes",
           "dynamic": false
         }
       ]
@@ -60273,483 +60242,6 @@
         {
           "suite": "DR-6 — a skipped constituent renders DEGRADED, never PASS",
           "name": "LintScript_ConfiguredEngine_ReportsViolationAsError",
-          "dynamic": false
-        }
-      ]
-    },
-    "tests/unit/verbs/gates/test-adequacy.false-advisory.test.ts": {
-      "file": "tests/unit/verbs/gates/test-adequacy.false-advisory.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "TestAdequacy_CommittedBranchDiscovery (WFQ-005)",
-          "name": "refuses a named branch that the checkout does not hold, and discovers the added files on its checkout",
-          "dynamic": false
-        },
-        {
-          "suite": "TestAdequacy_CommittedBranchDiscovery (WFQ-005)",
-          "name": "returns an empty diff — not the branch diff — when HEAD is used instead of the branch",
-          "dynamic": false
-        },
-        {
-          "suite": "TestAdequacy_CommittedBranchDiscovery (WFQ-005)",
-          "name": "marks a deleted test file as deleted, keeps a non-ASCII path unquoted, and probes only the tests at the head",
-          "dynamic": false
-        },
-        {
-          "suite": "TestAdequacy_CommittedBranchDiscovery (WFQ-005)",
-          "name": "reports a git failure as a failure rather than an empty file list",
-          "dynamic": false
-        },
-        {
-          "suite": "TestAdequacy_NoFalseAdvisorySuccess (WFQ-005)",
-          "name": "fails closed when the task diff could not be computed",
-          "dynamic": false
-        },
-        {
-          "suite": "TestAdequacy_NoFalseAdvisorySuccess (WFQ-005)",
-          "name": "fails a medium-risk task that ships no probe-able tests",
-          "dynamic": false
-        },
-        {
-          "suite": "TestAdequacy_NoFalseAdvisorySuccess (WFQ-005)",
-          "name": "fails a high-risk task that ships no probe-able tests",
-          "dynamic": false
-        },
-        {
-          "suite": "TestAdequacy_NoFalseAdvisorySuccess (WFQ-005)",
-          "name": "still advisory-skips a low-risk task with no tests",
-          "dynamic": false
-        },
-        {
-          "suite": "TestAdequacy_NoFalseAdvisorySuccess (WFQ-005)",
-          "name": "advisory-skips when no risk tier is supplied (unchanged default)",
-          "dynamic": false
-        },
-        {
-          "suite": "TestAdequacy_TaskAddedSource_RealKillProbe (WFQ-005)",
-          "name": "reverts task-added source and observes a real red, not revert-conflict",
-          "dynamic": false
-        }
-      ]
-    },
-    "tests/unit/verbs/gates/test-adequacy.handler.test.ts": {
-      "file": "tests/unit/verbs/gates/test-adequacy.handler.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "check_test_adequacy routing + idempotency (task 014)",
-          "name": "HandleOrchestrate_CheckTestAdequacy_RoutesToHandler",
-          "dynamic": false
-        },
-        {
-          "suite": "check_test_adequacy routing + idempotency (task 014)",
-          "name": "CheckTestAdequacy_Registration_DoesNotThrow",
-          "dynamic": false
-        },
-        {
-          "suite": "check_test_adequacy routing + idempotency (task 014)",
-          "name": "CheckTestAdequacy_NoNewTests_SkippedAdvisory_PassedTrue",
-          "dynamic": false
-        },
-        {
-          "suite": "check_test_adequacy routing + idempotency (task 014)",
-          "name": "HandleOrchestrate_OneshotTestAdequacyFailure_ResolvesAdvisory",
-          "dynamic": false
-        },
-        {
-          "suite": "check_test_adequacy routing + idempotency (task 014)",
-          "name": "GateEvent_MigratedPath_DoesNotEmitLegacyGateEvent",
-          "dynamic": false
-        },
-        {
-          "suite": "check_test_adequacy routing + idempotency (task 014)",
-          "name": "CheckTestAdequacy_NoBase_IsBaseMissingAndBlocksAtEveryTier",
-          "dynamic": false
-        },
-        {
-          "suite": "check_test_adequacy routing + idempotency (task 014)",
-          "name": "CheckTestAdequacy_APolicySkippedGate_StillSkipsWithNoBase",
-          "dynamic": false
-        },
-        {
-          "suite": "check_test_adequacy routing + idempotency (task 014)",
-          "name": "CheckTestAdequacy_TheMergeBase_IsResolvedOnceAndMeasuresBothTheDiffAndTheRevert",
-          "dynamic": false
-        },
-        {
-          "suite": "check_test_adequacy routing + idempotency (task 014)",
-          "name": "CheckTestAdequacy_ADiffThatCannotBeRead_IsADiffFailure",
-          "dynamic": false
-        },
-        {
-          "suite": "check_test_adequacy routing + idempotency (task 014)",
-          "name": "CheckTestAdequacy_ARefGitWouldReadAsAnOption_NeverReachesGit",
-          "dynamic": false
-        },
-        {
-          "suite": "check_test_adequacy routing + idempotency (task 014)",
-          "name": "CheckTestAdequacy_ABaseWithNoMergeBase_IsADiffFailure",
-          "dynamic": false
-        },
-        {
-          "suite": "check_test_adequacy routing + idempotency (task 014)",
-          "name": "CheckTestAdequacy_EachIndeterminateCause_StatesTheVerdictOfItsCause",
-          "dynamic": false
-        },
-        {
-          "suite": "probeTestEnvironment",
-          "name": "ProbeTestEnvironment_OnPosix_SetsEachStoreKeyAndDropsEachPluginKey",
-          "dynamic": false
-        },
-        {
-          "suite": "probeTestEnvironment",
-          "name": "ProbeTestEnvironment_OnWindows_DropsAStoreOrPluginKeyOfAnyCase",
-          "dynamic": false
-        }
-      ]
-    },
-    "tests/unit/verbs/gates/test-adequacy.integration.test.ts": {
-      "file": "tests/unit/verbs/gates/test-adequacy.integration.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "check_test_adequacy acceptance (kill probe through handleOrchestrate)",
-          "name": "HandleOrchestrate_CheckTestAdequacy_RealTest_PassesProbe",
-          "dynamic": false
-        },
-        {
-          "suite": "check_test_adequacy acceptance (kill probe through handleOrchestrate)",
-          "name": "HandleOrchestrate_CheckTestAdequacy_AssertNothingTest_FailsProbe",
-          "dynamic": false
-        },
-        {
-          "suite": "check_test_adequacy acceptance (kill probe through handleOrchestrate)",
-          "name": "HandleOrchestrate_CheckTestAdequacy_TestCommandAlwaysFails_IsBaselineRedAndBlocks",
-          "dynamic": false
-        },
-        {
-          "suite": "check_test_adequacy acceptance (kill probe through handleOrchestrate)",
-          "name": "HandleOrchestrate_CheckTestAdequacy_TestFilesScript_IsTheCommandTheProbeRuns",
-          "dynamic": false
-        },
-        {
-          "suite": "check_test_adequacy acceptance (kill probe through handleOrchestrate)",
-          "name": "HandleOrchestrate_CheckTestAdequacy_ProbeTestRun_GetsAScratchStoreAndNoPluginKey",
-          "dynamic": false
-        },
-        {
-          "suite": "check_test_adequacy acceptance (kill probe through handleOrchestrate)",
-          "name": "HandleOrchestrate_CheckTestAdequacy_TaskAddedHelperAndVacuousTest_FailsAsVacuous",
-          "dynamic": false
-        },
-        {
-          "suite": "check_test_adequacy acceptance (kill probe through handleOrchestrate)",
-          "name": "HandleOrchestrate_CheckTestAdequacy_TestAndHelperOnly_FailsAsVacuous",
-          "dynamic": false
-        },
-        {
-          "suite": "check_test_adequacy acceptance (kill probe through handleOrchestrate)",
-          "name": "HandleOrchestrate_CheckTestAdequacy_SourceUnderANearMissDirectory_IsReverted",
-          "dynamic": false
-        },
-        {
-          "suite": "the probe leg of the local executor — each end of a real test run",
-          "name": "ScopedTestRunner_NoVerdictTable_HoldsEachCauseOnce",
-          "dynamic": false
-        },
-        {
-          "suite": "the probe leg of the local executor — each end of a real test run",
-          "name": "<dynamic-case-1>",
-          "dynamic": true
-        },
-        {
-          "suite": "the probe leg of the local executor — each end of a real test run",
-          "name": "<dynamic-case-2>",
-          "dynamic": true
-        },
-        {
-          "suite": "the probe leg of the local executor — each end of a real test run",
-          "name": "ScopedTestRunner_ScratchDirectoryNotMade_IsNoVerdictAndStartsNoCommand",
-          "dynamic": false
-        },
-        {
-          "suite": "the probe leg of the local executor — each end of a real test run",
-          "name": "ScopedTestRunner_ExitZero_IsAGreenRun",
-          "dynamic": false
-        },
-        {
-          "suite": "the probe leg of the local executor — each end of a real test run",
-          "name": "ScopedTestRunner_ExitOne_IsARedRunWithItsOutput",
-          "dynamic": false
-        },
-        {
-          "suite": "the probe leg of the local executor — each end of a real test run",
-          "name": "ScopedTestRunner_RustToolchain_ReadsExit101AsRedAndExit1AsNoVerdict",
-          "dynamic": false
-        },
-        {
-          "suite": "the probe leg of the local executor — each end of a real test run",
-          "name": "ScopedTestRunner_PythonToolchain_ReadsExit2AsRedAndExit4AsNoVerdict",
-          "dynamic": false
-        },
-        {
-          "suite": "the probe leg of the local executor — each end of a real test run",
-          "name": "ScopedTestRunner_RealPytestCollectionErrorAfterTheRevert_IsARedRun",
-          "dynamic": false
-        },
-        {
-          "suite": "the probe leg of the local executor — each end of a real test run",
-          "name": "ScopedTestRunner_WrapperRefusalThroughNpm_PassesExit2ThroughAsNoVerdict",
-          "dynamic": false
-        },
-        {
-          "suite": "the probe leg of the local executor — the test:files wrapper with a real vitest",
-          "name": "DefaultRunTests_TestFilesWrapper_RunsEachNamedFileInItsProjectAndReadsItsResult",
-          "dynamic": false
-        }
-      ]
-    },
-    "tests/unit/verbs/gates/test-adequacy.parity.test.ts": {
-      "file": "tests/unit/verbs/gates/test-adequacy.parity.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "exarchos check_test_adequacy CLI↔MCP parity (INV-2)",
-          "name": "TestAdequacy_CliVsMcp_IdenticalResultForSameInput",
-          "dynamic": false
-        }
-      ]
-    },
-    "tests/unit/verbs/gates/test-adequacy.production-path.test.ts": {
-      "file": "tests/unit/verbs/gates/test-adequacy.production-path.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "check_test_adequacy production path",
-          "name": "ObservedVacuousPass_HighTierNoProbeableTests_Blocks",
-          "dynamic": false
-        },
-        {
-          "suite": "check_test_adequacy production path",
-          "name": "ProductionPath_UnstampedTierNoProbeableTests_LabelledSkipNotProof",
-          "dynamic": false
-        },
-        {
-          "suite": "check_test_adequacy production path",
-          "name": "ProductionPath_PolicySkippedGate_DurableRowsRecordSkipNotPass",
-          "dynamic": false
-        },
-        {
-          "suite": "check_test_adequacy production path",
-          "name": "ProductionPath_ColocatedTestsUnderLayoutToolchain_ResolvesNonEmptyProbedTests",
-          "dynamic": false
-        },
-        {
-          "suite": "check_test_adequacy production path",
-          "name": "ProductionPath_BaselineRed_DurableRowsRecordIndeterminateNotFail",
-          "dynamic": false
-        },
-        {
-          "suite": "check_test_adequacy production path",
-          "name": "ProductionPath_RunNoVerdict_DurableRowsRecordIndeterminateNotFail",
-          "dynamic": false
-        },
-        {
-          "suite": "check_test_adequacy production path",
-          "name": "ProductionPath_DiffFailure_BlocksEvenAtLowTier",
-          "dynamic": false
-        },
-        {
-          "suite": "ProbeVerdict algebra",
-          "name": "Indeterminate_AtRequiredTier_NeverPasses",
-          "dynamic": false
-        },
-        {
-          "suite": "ProbeVerdict algebra",
-          "name": "Indeterminate_AtLowTier_IsAlwaysLabelledSkipWhenNonBlocking",
-          "dynamic": false
-        },
-        {
-          "suite": "ProbeVerdict algebra",
-          "name": "ExecutionFailureCauses_BlockOnEveryTier",
-          "dynamic": false
-        },
-        {
-          "suite": "ProbeVerdict algebra",
-          "name": "Indeterminate_Report_StatesWhatTheProbeDidForEachCause",
-          "dynamic": false
-        },
-        {
-          "suite": "ProbeVerdict algebra",
-          "name": "Failed_IsNeverDowngradedByTier",
-          "dynamic": false
-        },
-        {
-          "suite": "ProbeVerdict algebra",
-          "name": "VerdictOf_LegacyVacuousCarrier_ReconstructsIndeterminateNotPass",
-          "dynamic": false
-        },
-        {
-          "suite": "ProbeVerdict algebra",
-          "name": "VerdictOf_UnknownDiscriminant_FailsClosed",
-          "dynamic": false
-        },
-        {
-          "suite": "ProbeVerdict algebra",
-          "name": "ResolveProbeTestGlobs_AugmentsRatherThanReplacesColocatedDefaults",
-          "dynamic": false
-        }
-      ]
-    },
-    "tests/unit/verbs/gates/test-adequacy.test.ts": {
-      "file": "tests/unit/verbs/gates/test-adequacy.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "splitHunks (file-level test/source classification)",
-          "name": "SplitHunks_CoLocatedTestFile_ClassifiedTest",
-          "dynamic": false
-        },
-        {
-          "suite": "splitHunks (file-level test/source classification)",
-          "name": "SplitHunks_SourceFile_ClassifiedSource",
-          "dynamic": false
-        },
-        {
-          "suite": "splitHunks (file-level test/source classification)",
-          "name": "SplitHunks_MixedDiff_PartitionsBoth",
-          "dynamic": false
-        },
-        {
-          "suite": "splitHunks (file-level test/source classification)",
-          "name": "SplitHunks_CustomGlobs_OverrideDefault",
-          "dynamic": false
-        },
-        {
-          "suite": "splitHunks (file-level test/source classification)",
-          "name": "SplitHunks_Partition_EveryFileClassifiedExactlyOnce",
-          "dynamic": false
-        },
-        {
-          "suite": "splitHunks (file-level test/source classification)",
-          "name": "SplitHunks_TestSupportSegments_AreNeitherTestNorSource",
-          "dynamic": false
-        },
-        {
-          "suite": "splitHunks (file-level test/source classification)",
-          "name": "SplitHunks_NearMissNamesAndTestsUnderSupport_KeepTheirClass",
-          "dynamic": false
-        },
-        {
-          "suite": "the reverted source image (no Git write)",
-          "name": "RevertedImage_WritesNoRefNoStashAndNoLiveFile",
-          "dynamic": false
-        },
-        {
-          "suite": "the reverted source image (no Git write)",
-          "name": "RevertedImage_HoldsTheBaseSourceAndTheHeadTest",
-          "dynamic": false
-        },
-        {
-          "suite": "the reverted source image (no Git write)",
-          "name": "RevertedImage_MixedExistingAndAddedSource_HoldsTheBaseAndLeavesOutTheAdded",
-          "dynamic": false
-        },
-        {
-          "suite": "the reverted source image (no Git write)",
-          "name": "RevertedImage_ARunThatThrows_LeavesTheLiveCheckoutUnchanged",
-          "dynamic": false
-        },
-        {
-          "suite": "the reverted source image (no Git write)",
-          "name": "RevertedImage_ASourceInNeitherTree_Refuses",
-          "dynamic": false
-        },
-        {
-          "suite": "the reverted source image (no Git write)",
-          "name": "RevertedImage_TaskAddedSource_IsAbsentAndTheLiveIndexKeepsIt",
-          "dynamic": false
-        },
-        {
-          "suite": "runProbe (split, then the head run, then the reverted run)",
-          "name": "Probe_NoNewTests_ReturnsNoNewTestsDiscriminant",
-          "dynamic": false
-        },
-        {
-          "suite": "runProbe (split, then the head run, then the reverted run)",
-          "name": "Probe_NewTestFailsOnRevert_RedObservedTrue_PassedTrue",
-          "dynamic": false
-        },
-        {
-          "suite": "runProbe (split, then the head run, then the reverted run)",
-          "name": "Probe_NewTestPassesOnRevert_PassedFalse",
-          "dynamic": false
-        },
-        {
-          "suite": "runProbe (split, then the head run, then the reverted run)",
-          "name": "Probe_Result_CarriesProbedTestsAndRestoredClean",
-          "dynamic": false
-        },
-        {
-          "suite": "runProbe (split, then the head run, then the reverted run)",
-          "name": "Probe_TestCommandAlwaysFails_IsBaselineRedAndBlocksAtEveryTier",
-          "dynamic": false
-        },
-        {
-          "suite": "runProbe (split, then the head run, then the reverted run)",
-          "name": "Probe_BaselineRed_DetailEndsWithTheTailOfTheRunnerOutput",
-          "dynamic": false
-        },
-        {
-          "suite": "runProbe (split, then the head run, then the reverted run)",
-          "name": "Probe_TestOnlyTask_RunsTheTestsOnceAndNeverPasses",
-          "dynamic": false
-        },
-        {
-          "suite": "runProbe (split, then the head run, then the reverted run)",
-          "name": "Probe_DeletedTestFile_IsNeverProbed",
-          "dynamic": false
-        },
-        {
-          "suite": "runProbe (split, then the head run, then the reverted run)",
-          "name": "Probe_RenamedAndDeletedSource_TheRevertedImageHoldsTheBasePathsAndTheLiveTreeStays",
-          "dynamic": false
-        },
-        {
-          "suite": "runProbe (split, then the head run, then the reverted run)",
-          "name": "Probe_AnUnbuiltHeadImage_IsRunNoVerdictBeforeAnyRevert",
-          "dynamic": false
-        },
-        {
-          "suite": "runProbe (split, then the head run, then the reverted run)",
-          "name": "Probe_RunOnTheTaskSourceWithNoVerdict_IsRunNoVerdictAndBlocksAtEveryTier",
-          "dynamic": false
-        },
-        {
-          "suite": "runProbe (split, then the head run, then the reverted run)",
-          "name": "Probe_RunAfterTheRevertWithNoVerdict_IsNeverAKill",
-          "dynamic": false
-        },
-        {
-          "suite": "runProbe (split, then the head run, then the reverted run)",
-          "name": "Probe_AnUnbuiltRevertedImage_IsRunNoVerdictAndNeverAKill",
-          "dynamic": false
-        },
-        {
-          "suite": "runProbe (split, then the head run, then the reverted run)",
-          "name": "Probe_BaselineRed_DetailKeepsTheFirstStderrLineAheadOfTheTail",
-          "dynamic": false
-        }
-      ]
-    },
-    "tests/unit/verbs/gates/test-adequacy.toolchain-globs.test.ts": {
-      "file": "tests/unit/verbs/gates/test-adequacy.toolchain-globs.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "check_test_adequacy toolchain test-glob threading (FIX-3)",
-          "name": "CheckTestAdequacy_PythonTestsLayout_ClassifiedAsTest",
           "dynamic": false
         }
       ]
@@ -63296,6 +62788,26 @@
         },
         {
           "suite": "delegation capsule compilation",
+          "name": "Compile_TheEnvelope_PinsTheMaterialKinds",
+          "dynamic": false
+        },
+        {
+          "suite": "delegation capsule compilation",
+          "name": "Compile_EachMaterialKind_IsAlsoAnAllowedKind",
+          "dynamic": false
+        },
+        {
+          "suite": "delegation capsule compilation",
+          "name": "Compile_TheDesignVersion_IsTheIdOfTheCounterAndTheReferenceDigestStaysInProvenance",
+          "dynamic": false
+        },
+        {
+          "suite": "delegation capsule compilation",
+          "name": "Compile_TheProvenance_NamesTheCompilerThatTheCallerPasses",
+          "dynamic": false
+        },
+        {
+          "suite": "delegation capsule compilation",
           "name": "Compile_ACompiledCapsule_IsOneTheRealAdjudicatorCanSettle",
           "dynamic": false
         },
@@ -63317,6 +62829,61 @@
         {
           "suite": "delegation capsule compilation",
           "name": "Compile_TheSameInputs_CompileTheSameCapsule",
+          "dynamic": false
+        },
+        {
+          "suite": "delegation capsule compilation — the accepted design changes",
+          "name": "Compile_TheCompilerVersion_IsRaisedWithTheStatementBinding",
+          "dynamic": false
+        },
+        {
+          "suite": "delegation capsule compilation — the accepted design changes",
+          "name": "Compile_ARevisionWithNoDesignOfRecord_StillStatesTheChange",
+          "dynamic": false
+        },
+        {
+          "suite": "delegation capsule compilation — the accepted design changes",
+          "name": "Compile_ALongStatementAndALongProposedChange_AreEachCutAndBothKept",
+          "dynamic": false
+        },
+        {
+          "suite": "delegation capsule compilation — the accepted design changes",
+          "name": "Compile_ATextWithALineFeedOrAPairAtTheCut_StaysOneWellFormedLine",
+          "dynamic": false
+        },
+        {
+          "suite": "delegation capsule compilation — the accepted design changes",
+          "name": "Compile_MoreThanEightChanges_BindsThoseThatNameItsTasksFirstAndCountsTheRest",
+          "dynamic": false
+        },
+        {
+          "suite": "delegation capsule compilation — the accepted design changes",
+          "name": "SelectDesignChanges_FromNoReadRevision_AsksForEachBoundRevisionOnceAndForNoOther",
+          "dynamic": false
+        },
+        {
+          "suite": "delegation capsule compilation — the accepted design changes",
+          "name": "SelectDesignChanges_MoreRevisionsThatNameABatchTaskThanPlaces_BindsTheNewestAndAsksForNoOther",
+          "dynamic": false
+        },
+        {
+          "suite": "delegation capsule compilation — the accepted design changes",
+          "name": "SelectDesignChanges_ARowThatDisagreesWithItsChangeAboutABatchTask_BindsTheChangeWithTheRest",
+          "dynamic": false
+        },
+        {
+          "suite": "delegation capsule compilation — the accepted design changes",
+          "name": "Compile_ACutAtTheLimit_KeepsExactlyTheLimitAndNeverHalfAPair",
+          "dynamic": false
+        },
+        {
+          "suite": "delegation capsule compilation — the accepted design changes",
+          "name": "Compile_ABoundChangeThatTheInputLacks_IsRefusedAsUnreadable",
+          "dynamic": false
+        },
+        {
+          "suite": "delegation capsule compilation — the accepted design changes",
+          "name": "Compile_ACapsuleAfterARevision_NamesTheRevisionsInItsProvenance",
           "dynamic": false
         },
         {
@@ -63479,6 +63046,66 @@
         },
         {
           "suite": "prepare — the compilation endpoint",
+          "name": "Prepare_AWorkflowWithSpecAndPlan_BindsTheSpec",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare — the compilation endpoint",
+          "name": "Prepare_AWorkflowWithDesignAndPlan_BindsTheDesign",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare — the compilation endpoint",
+          "name": "Prepare_ASpecThatHoldsContents_IsSkippedForThePlanPath",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare — the compilation endpoint",
+          "name": "Prepare_AReferenceOverTheLengthBound_IsSkipped",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare — the compilation endpoint",
+          "name": "Prepare_APlanOnlyWorkflow_BindsThePlanArtifactAsTheDesignOfRecord",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare — the compilation endpoint",
+          "name": "Prepare_AWorkflowWithNoUsableArtifact_CompilesWithNoRationale",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare — the compilation endpoint",
+          "name": "Prepare_ABlankOrMultiLineSeparatorReference_IsSkipped",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare — the compilation endpoint",
+          "name": "Prepare_AStreamWithNoRevision_CompilesTheFirstDesignVersion",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare — the compilation endpoint",
+          "name": "Prepare_AfterADesignRevision_CompilesTheNextVersionRatherThanReplaying",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare — the compilation endpoint",
+          "name": "Prepare_AClaimFromAnEarlierCompilerVersion_IsNotReplayed",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare — the compilation endpoint",
+          "name": "Prepare_AClaimFromTheSameCompilerVersion_IsReplayed",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare — the compilation endpoint",
+          "name": "Prepare_ACapsuleStoredWithTheEarlierIdentityForm_StillParsesAndIsFound",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare — the compilation endpoint",
           "name": "Prepare_TheCatalog_IsResolvedFromTheCheckoutOfRepoRoot",
           "dynamic": false
         },
@@ -63540,6 +63167,156 @@
         {
           "suite": "prepare — the compilation endpoint > refusals happen before any effect",
           "name": "Prepare_NoSubject_IsRefused",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare — the continuation after a design revision",
+          "name": "Prepare_AContinuation_RecordsTheSliceAheadOfThePreparedRecord",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare — the continuation after a design revision",
+          "name": "Prepare_AContinuationReceipt_CarriesTheRecompile",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare — the continuation after a design revision",
+          "name": "Prepare_TwoRevisionsBeforeOneContinuation_AreOneRowSpanningBothVersions",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare — the continuation after a design revision",
+          "name": "Prepare_ARevisionThatNamesNoTask_StillRecordsARowWithEmptyLists",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare — the continuation after a design revision",
+          "name": "Prepare_AnInvalidatedTaskThatIsNotReady_IsNamedOnTheRowAndCompiledByALaterPrepare",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare — the continuation after a design revision",
+          "name": "Prepare_AContinuation_AnnouncesOnlyWhatAnOrdinaryPrepareWould",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare — the continuation after a design revision",
+          "name": "Prepare_AContinuationBesideAStateDocument_LeavesTheDocumentAsItWas",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare — the continuation after a design revision",
+          "name": "Prepare_ARetriedContinuation_ReturnsTheRecordedCapsuleAndAppendsNothing",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare — the continuation after a design revision",
+          "name": "Prepare_AContinuationThatLosesTheRace_AppendsNothingAndTheRetryRecordsOnce",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare — the continuation after a design revision",
+          "name": "Prepare_WithNoRevision_EmitsNoRecompileRecord",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare — the continuation after a design revision",
+          "name": "Prepare_AfterAContinuationAndAChangedPlan_TheNextPrepareIsOrdinary",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare — the continuation after a design revision",
+          "name": "Prepare_APendingRevisionWithEveryTaskComplete_IsRefusedAndRecordsNothing",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare — the continuation after a design revision",
+          "name": "Prepare_APendingRevisionWhoseTasksAreAllBlocked_IsRefusedAndStaysPending",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare — the accepted design changes as knowledge",
+          "name": "Prepare_ACapsuleAfterARevision_BindsTheAcceptedStatementAndItsActor",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare — the accepted design changes as knowledge",
+          "name": "Prepare_ARevisionWithAProposedChange_BindsTheChange",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare — the accepted design changes as knowledge",
+          "name": "Prepare_ARevisionCoveringTwoDeviations_BindsTwoStatements",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare — the accepted design changes as knowledge",
+          "name": "Prepare_ARoundThatAlsoRejectedOrAcceptedANonMaterialDeviation_BindsOnlyWhatTheRevisionNames",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare — the accepted design changes as knowledge",
+          "name": "Prepare_AnOrdinaryPrepareAfterAContinuation_StillBindsTheAcceptedChanges",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare — the accepted design changes as knowledge",
+          "name": "Prepare_TwoPreparesWithTheSameInputs_BindTheSameStatements",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare — the accepted design changes as knowledge",
+          "name": "Prepare_ABundleThatLacksANamedDeviation_IsRefusedAsUnreadable",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare — the accepted design changes as knowledge",
+          "name": "Prepare_ABundleWhoseNamedDeviationWasRejected_IsRefusedAsUnreadable",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare — the accepted design changes as knowledge",
+          "name": "Prepare_AClaimFromAnEarlierCompilerOnARevisedStream_IsCompiledAgainWithTheAcceptedChanges",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare — the accepted design changes as knowledge",
+          "name": "Prepare_ARoundOfManyDeviationsWithOneThatNamesACapsuleTask_BindsThatChangeFirst",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare — the accepted design changes as knowledge",
+          "name": "Prepare_ChangesThatNameACapsuleTask_ComeFirstAcrossRevisionsNewestFirst",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare — the accepted design changes as knowledge",
+          "name": "Prepare_OnlyTheBundlesOfBoundRevisions_AreRead",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare — the accepted design changes as knowledge",
+          "name": "Prepare_ARevisionWhoseBundleCannotBeRead_IsRefusedAndRecordsNothing",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare — the accepted design changes as knowledge",
+          "name": "Prepare_ARevisionWhoseBundleIsRestored_CompilesOnTheRetry",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare — the accepted design changes as knowledge",
+          "name": "Prepare_AReplayOfARecordedPrepare_ReadsNoBundle",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare — the accepted design changes as knowledge",
+          "name": "Prepare_AReceiptAfterEightRevisions_StaysUnderTheResponseBudget",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare — the registered action",
+          "name": "PrepareAction_ItsDescription_NamesTheUnreadableRevisionRefusal",
           "dynamic": false
         }
       ]
@@ -66059,7 +65836,7 @@
       "cases": [
         {
           "suite": "settle — a blocking gate that blocks",
-          "name": "Settle_AKillProbeThatBlocks_LeavesTheTaskUnresolvedAndLeavesNoCompletion",
+          "name": "Settle_AnIntegrationSuiteThatBlocks_LeavesTheTaskUnresolvedAndLeavesNoCompletion",
           "dynamic": false
         }
       ]
@@ -71696,11 +71473,6 @@
       "cases": [
         {
           "suite": "verification-ladder self-routing (FIX-1)",
-          "name": "CheckTestAdequacy_LowTierStamp_SkippedByPolicy",
-          "dynamic": false
-        },
-        {
-          "suite": "verification-ladder self-routing (FIX-1)",
           "name": "CheckContractDrift_NonBoundaryStamp_SkippedByPolicy",
           "dynamic": false
         },
@@ -71712,16 +71484,6 @@
         {
           "suite": "verification-ladder self-routing (FIX-1)",
           "name": "CheckContractDrift_LowTierBoundary_StillRuns",
-          "dynamic": false
-        },
-        {
-          "suite": "verification-ladder self-routing (FIX-1)",
-          "name": "CheckTestAdequacy_MediumTier_StillRuns",
-          "dynamic": false
-        },
-        {
-          "suite": "verification-ladder self-routing (FIX-1)",
-          "name": "CheckTestAdequacy_NoStampArgs_BehaviorUnchanged",
           "dynamic": false
         }
       ]
@@ -89848,37 +89610,6 @@
         }
       ]
     },
-    "tests/acceptance/kill-probe-base.test.ts": {
-      "file": "tests/acceptance/kill-probe-base.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "the kill probe measures a task from the branch it forked from",
-          "name": "KillProbe_GivenMainAsTheBase_ReproducesTheDefect_PassingOnWaveOnesKill",
-          "dynamic": false
-        },
-        {
-          "suite": "the kill probe measures a task from the branch it forked from",
-          "name": "KillProbe_MeasuredFromTheIntegrationBranch_BlocksTheVacuousTest",
-          "dynamic": false
-        },
-        {
-          "suite": "the kill probe measures a task from the branch it forked from",
-          "name": "KillProbe_WithNoBase_IsBaseMissingAndProbesNothing",
-          "dynamic": false
-        },
-        {
-          "suite": "the kill probe measures a task from the branch it forked from",
-          "name": "KillProbe_ThroughSettle_RunsUnderTheBaseTheCapsuleFroze_AndLeavesTheTaskUnresolved",
-          "dynamic": false
-        },
-        {
-          "suite": "the kill probe measures a task from the branch it forked from",
-          "name": "KillProbeBase_AWorktreeForkedFromMain_IsUnresolvedAsBaseNotHeld",
-          "dynamic": false
-        }
-      ]
-    },
     "tests/architecture/published-dependencies.test.ts": {
       "file": "tests/architecture/published-dependencies.test.ts",
       "runner": "vitest:root",
@@ -90749,112 +90480,6 @@
         }
       ]
     },
-    "tests/unit/verbs/gates/kill-probe-profile.test.ts": {
-      "file": "tests/unit/verbs/gates/kill-probe-profile.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "the kill probe in a root where a test of another toolchain can change",
-          "name": "KillProbe_ACSharpTestInANodeRootWithAConfiguredDotnetProbe_IsProbed",
-          "dynamic": false
-        },
-        {
-          "suite": "the kill probe in a root where a test of another toolchain can change",
-          "name": "KillProbe_ATypeScriptTestInAPolyglotRootWithAConfiguredDotnetProbe_BlocksAsUnprobedTestPaths",
-          "dynamic": false
-        },
-        {
-          "suite": "the kill probe in a root where a test of another toolchain can change",
-          "name": "KillProbe_AHelperUnderADirectoryGlobOfASecondToolchain_StaysTestSupport",
-          "dynamic": false
-        },
-        {
-          "suite": "the kill probe in a root where a test of another toolchain can change",
-          "name": "KillProbe_ACSharpTestInANodeRootWithTheSeededNodeProbe_BlocksAsUnprobedTestPaths",
-          "dynamic": false
-        },
-        {
-          "suite": "the kill probe in a root where a test of another toolchain can change",
-          "name": "KillProbe_ACoLocatedTestInASolutionRoot_BlocksAsUnprobedTestPaths",
-          "dynamic": false
-        },
-        {
-          "suite": "the kill probe in a root where a test of another toolchain can change",
-          "name": "KillProbe_ACSharpTestInASolutionRootWithAConfiguredNpmProbe_BlocksAsUnprobedTestPaths",
-          "dynamic": false
-        },
-        {
-          "suite": "the kill probe in a root where a test of another toolchain can change",
-          "name": "KillProbe_AConfiguredProbeInAPolyglotRootWithNoGlobs_BlocksWithProfileUnresolved",
-          "dynamic": false
-        },
-        {
-          "suite": "the kill probe in a root where a test of another toolchain can change",
-          "name": "KillProbe_ATestOfAnotherToolchainUnderASupportDirectory_BlocksAsUnprobedTestPaths",
-          "dynamic": false
-        },
-        {
-          "suite": "the kill probe in a root where a test of another toolchain can change",
-          "name": "KillProbe_ADeletedTestOfAnotherToolchain_IsNotRevertedAndDoesNotBlock",
-          "dynamic": false
-        },
-        {
-          "suite": "a diff that touches a test path never passes with nothing probed",
-          "name": "KillProbe_ACSharpTestThatNoGlobMatches_BlocksAsUnprobedTestPaths",
-          "dynamic": false
-        },
-        {
-          "suite": "a diff that touches a test path never passes with nothing probed",
-          "name": "KillProbe_ADiffThatOnlyDeletesTests_BlocksAtEveryTier",
-          "dynamic": false
-        },
-        {
-          "suite": "a term that the profile does not resolve blocks the probe",
-          "name": "KillProbe_AnUnresolvedGlobSet_BlocksAtEveryTierWithProfileUnresolved",
-          "dynamic": false
-        },
-        {
-          "suite": "a term that the profile does not resolve blocks the probe",
-          "name": "KillProbe_AnUnresolvedProbeCommand_BlocksWithProfileUnresolvedAtTheFirstRun",
-          "dynamic": false
-        },
-        {
-          "suite": "a term that the profile does not resolve blocks the probe",
-          "name": "KillProbe_APinnedUnresolvedTerm_NamesTheCheckoutANewPrepareAndANewBatch",
-          "dynamic": false
-        },
-        {
-          "suite": "the probe runs the command of its term",
-          "name": "KillProbe_AConfiguredFailureExitCode_ReadsAsRed",
-          "dynamic": false
-        },
-        {
-          "suite": "the probe runs the command of its term",
-          "name": "KillProbe_TheAsArgumentsForm_PassesTheFilesWithNoSeparator",
-          "dynamic": false
-        },
-        {
-          "suite": "the probe runs the command of its term",
-          "name": "KillProbe_ConfiguredSupportSegments_KeepTheirFilesOutOfTheRevert",
-          "dynamic": false
-        },
-        {
-          "suite": "the probe runs the command of its term",
-          "name": "KillProbe_TheNoneForm_RunsTheWholeCommandAndMarksUnscopedRun",
-          "dynamic": false
-        },
-        {
-          "suite": "the probe runs the command of its term",
-          "name": "KillProbe_AnUnscopedRun_GetsTheLimitOfAWholeSuiteRun",
-          "dynamic": false
-        },
-        {
-          "suite": "the probe runs the command of its term",
-          "name": "KillProbe_ADirectCall_ResolvesTheProfileAtItsRepoRootAndSaysSo",
-          "dynamic": false
-        }
-      ]
-    },
     "tests/unit/verbs/gates/mock-boundary-profile.test.ts": {
       "file": "tests/unit/verbs/gates/mock-boundary-profile.test.ts",
       "runner": "vitest:root",
@@ -90887,22 +90512,6 @@
         {
           "suite": "check_mock_boundary reads the terms of the profile",
           "name": "MockBoundary_ADirectCallWithAConfigThatDoesNotLoad_ScansWithTheFallbackAndIsNoSkip",
-          "dynamic": false
-        }
-      ]
-    },
-    "tests/acceptance/kill-probe-profile.test.ts": {
-      "file": "tests/acceptance/kill-probe-profile.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "settle runs the kill probe under the pinned terms",
-          "name": "Settle_AWorktreeThatEmptiesItsTestGlobs_IsProbedWithThePinnedGlobs",
-          "dynamic": false
-        },
-        {
-          "suite": "settle runs the kill probe under the pinned terms",
-          "name": "Settle_AnUnscopedRun_GivesADegradedQualifierInTheTrace",
           "dynamic": false
         }
       ]
@@ -91600,6 +91209,47 @@
         {
           "suite": "an unresolved probe command beside a declared test that its globs do not hold",
           "name": "SpecCoverage_AnUnresolvedProbeWithAnUnfitDeclaredTest_FailsWithProfileUnresolved",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/verbs/gates/split-hunks.test.ts": {
+      "file": "tests/unit/verbs/gates/split-hunks.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "splitHunks (file-level test/source classification)",
+          "name": "SplitHunks_CoLocatedTestFile_ClassifiedTest",
+          "dynamic": false
+        },
+        {
+          "suite": "splitHunks (file-level test/source classification)",
+          "name": "SplitHunks_SourceFile_ClassifiedSource",
+          "dynamic": false
+        },
+        {
+          "suite": "splitHunks (file-level test/source classification)",
+          "name": "SplitHunks_MixedDiff_PartitionsBoth",
+          "dynamic": false
+        },
+        {
+          "suite": "splitHunks (file-level test/source classification)",
+          "name": "SplitHunks_CustomGlobs_OverrideDefault",
+          "dynamic": false
+        },
+        {
+          "suite": "splitHunks (file-level test/source classification)",
+          "name": "SplitHunks_Partition_EveryFileClassifiedExactlyOnce",
+          "dynamic": false
+        },
+        {
+          "suite": "splitHunks (file-level test/source classification)",
+          "name": "SplitHunks_TestSupportSegments_AreNeitherTestNorSource",
+          "dynamic": false
+        },
+        {
+          "suite": "splitHunks (file-level test/source classification)",
+          "name": "SplitHunks_NearMissNamesAndTestsUnderSupport_KeepTheirClass",
           "dynamic": false
         }
       ]
@@ -96949,27 +96599,12 @@
       "cases": [
         {
           "suite": "immutable diff leaves",
-          "name": "LandedRoot_NotEmptyAgainstMovedRef",
-          "dynamic": false
-        },
-        {
-          "suite": "immutable diff leaves",
-          "name": "DependentKillProbe_ExcludesBlocker",
-          "dynamic": false
-        },
-        {
-          "suite": "immutable diff leaves",
           "name": "MockBoundary_ExactHeadNotHEAD",
           "dynamic": false
         },
         {
           "suite": "immutable diff leaves",
           "name": "CoordinateAdapter_RejectsPublicAndMismatch_PreservesLegacy",
-          "dynamic": false
-        },
-        {
-          "suite": "immutable diff leaves",
-          "name": "Adequacy_SelectedCheckoutRequiredBeforeRevert",
           "dynamic": false
         },
         {
@@ -97041,11 +96676,6 @@
         },
         {
           "suite": "selected coordinate execution",
-          "name": "PassingAdequacy_OriginalClaims_ReplayWithoutProvider",
-          "dynamic": false
-        },
-        {
-          "suite": "selected coordinate execution",
           "name": "HeadMovesBeforeCompletion_NoStanding",
           "dynamic": false
         },
@@ -97061,17 +96691,7 @@
         },
         {
           "suite": "selected coordinate execution",
-          "name": "AdequacyReplay_RejectsIncompleteAndMismatchedPairs",
-          "dynamic": false
-        },
-        {
-          "suite": "selected coordinate execution",
           "name": "LiteralTokens_OptionalAndLegacyCommands",
-          "dynamic": false
-        },
-        {
-          "suite": "selected coordinate execution",
-          "name": "DirtyAdequacy_ProbeOutputStaysInTheCopyAndThePassingPairReplays",
           "dynamic": false
         }
       ]

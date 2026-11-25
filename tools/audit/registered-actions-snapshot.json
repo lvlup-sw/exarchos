@@ -4,7 +4,7 @@
   "counts": {
     "tools": 5,
     "visibleTools": 4,
-    "actions": 127,
+    "actions": 126,
     "eventTypes": 186
   },
   "tools": [
@@ -49,7 +49,6 @@
         "check_security_scan",
         "check_static_analysis",
         "check_task_decomposition",
-        "check_test_adequacy",
         "check_workflow_determinism",
         "classify_review_items",
         "create_issue",

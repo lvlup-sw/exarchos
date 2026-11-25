@@ -11,8 +11,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const controls = vi.hoisted(() => ({
   staticStatus: 'pass' as 'pass' | 'fail' | 'skip',
   staticAdvisorySkip: false,
-  probePassed: true,
-  probeDiscriminant: undefined as string | undefined,
   contractPassed: true,
   contractSkipped: false,
   mockFindings: [] as Array<{
@@ -60,23 +58,6 @@ vi.mock('../../../src/verbs/pure/static-analysis.js', async (importActual) => {
                 }
               : {}),
           },
-  };
-});
-
-vi.mock('../../../src/verbs/gates/test-adequacy.js', async (importActual) => {
-  const actual = await importActual<typeof import('../../../src/verbs/gates/test-adequacy.js')>();
-  return {
-    ...actual,
-    runProbe: async () => ({
-      passed: controls.probePassed,
-      redObserved: controls.probePassed,
-      restoredClean: true,
-      probedTests: ['src/example.test.ts'],
-      ...(controls.probeDiscriminant
-        ? { discriminant: controls.probeDiscriminant }
-        : {}),
-      report: 'adequacy report',
-    }),
   };
 });
 
@@ -131,12 +112,10 @@ import { fakeExecutor } from '../../helpers/verification/check-executor.js';
 import { handleContractDrift } from '../../../src/verbs/gates/contract-drift-handler.js';
 import { handleMockBoundary } from '../../../src/verbs/gates/mock-boundary-handler.js';
 import { handleStaticAnalysis } from '../../../src/verbs/gates/static-analysis.js';
-import { handleTestAdequacy } from '../../../src/verbs/gates/test-adequacy-handler.js';
 import { rmrfAsync } from '../../../tools/test-helpers/temp-dir.js';
 
 type GateName =
   | 'static-analysis'
-  | 'test-adequacy'
   | 'integration-suite'
   | 'contract-drift'
   | 'mock-boundary';
@@ -225,8 +204,6 @@ describe('migrated ladder gate durable evidence', () => {
     store = new RecordingStore(featureId, 'phase-attempt:implement-008');
     controls.staticStatus = 'pass';
     controls.staticAdvisorySkip = false;
-    controls.probePassed = true;
-    controls.probeDiscriminant = undefined;
     controls.contractPassed = true;
     controls.contractSkipped = false;
     controls.mockFindings = [];
@@ -246,8 +223,6 @@ describe('migrated ladder gate durable evidence', () => {
   ): Promise<ToolResult> {
     controls.staticStatus =
       outcome === 'fail' ? 'fail' : outcome === 'advisory' ? 'skip' : 'pass';
-    controls.probePassed = outcome !== 'fail';
-    controls.probeDiscriminant = outcome === 'advisory' ? 'no-new-tests' : undefined;
     controls.contractPassed = outcome !== 'fail';
     controls.contractSkipped = outcome === 'advisory';
     controls.mockFindings =
@@ -274,12 +249,6 @@ describe('migrated ladder gate durable evidence', () => {
       switch (gate) {
         case 'static-analysis':
           return handleStaticAnalysis(common, root, eventStore);
-        case 'test-adequacy':
-          return handleTestAdequacy({
-            ...common,
-            gitExec: () => ({ stdout: '', exitCode: 0 }),
-            runTests: async () => ({ kind: 'ran', result: 'green' }),
-          }, root, eventStore);
         case 'integration-suite':
           await writeFile(join(root, 'package.json'), JSON.stringify({ name: 'ladder-evidence', scripts: { 'test:run': 'node --test' } }), 'utf-8');
           return handleCheckIntegrationSuite(
@@ -316,7 +285,6 @@ describe('migrated ladder gate durable evidence', () => {
 
   it.each<GateName>([
     'static-analysis',
-    'test-adequacy',
     'integration-suite',
     'contract-drift',
     'mock-boundary',
@@ -346,7 +314,6 @@ describe('migrated ladder gate durable evidence', () => {
 
   it.each<GateName>([
     'static-analysis',
-    'test-adequacy',
     'integration-suite',
     'contract-drift',
     'mock-boundary',
@@ -362,7 +329,6 @@ describe('migrated ladder gate durable evidence', () => {
 
   it.each<GateName>([
     'static-analysis',
-    'test-adequacy',
     'integration-suite',
     'contract-drift',
     'mock-boundary',
@@ -379,7 +345,6 @@ describe('migrated ladder gate durable evidence', () => {
 
   it.each<GateName>([
     'static-analysis',
-    'test-adequacy',
     'contract-drift',
     'mock-boundary',
   ])('LadderGate_AdvisoryOutcome_PreservesCarrierAndEvidence [%s]', async (gate) => {
@@ -390,12 +355,6 @@ describe('migrated ladder gate durable evidence', () => {
     expect(data.evidenceReferences).toEqual([expect.any(Object)]);
     if (gate === 'static-analysis') {
       expect(data).toMatchObject({ passed: false, skipped: true, passCount: 0 });
-    } else if (gate === 'test-adequacy') {
-      expect(data).toMatchObject({
-        passed: true,
-        discriminant: 'no-new-tests',
-        restoredClean: true,
-      });
     } else if (gate === 'contract-drift') {
       expect(data).toMatchObject({ passed: true, skipped: true, breaking: [] });
     } else {

@@ -946,31 +946,4 @@ describe('dispatch keeps the code of a check that did not run', () => {
     expect(await eventStore.query('feat-did-not-run')).toEqual([]);
   });
 
-  /**
-   * An unbound `check_test_adequacy` call runs in the local executor, through real dispatch.
-   * The repo root holds no repository, so the diff read fails closed before any test command.
-   */
-  it('Dispatch_UnboundAdequacy_RunsLocallyAndFailsClosedOnAnUnreadableDiff', async () => {
-    const stateDir = await mkdtemp(path.join(os.tmpdir(), 'unbound-adequacy-'));
-    const repoRoot = await mkdtemp(path.join(os.tmpdir(), 'unbound-adequacy-repo-'));
-    const stream = 'feat-unbound-adequacy';
-    const store = new DurableEventStore(stateDir);
-    await store.initialize();
-    try {
-      await store.append(stream, { type: 'workflow.started', data: { featureId: stream, workflowType: 'feature' } });
-      const result = await dispatch('exarchos_orchestrate', {
-        action: 'check_test_adequacy', featureId: stream, taskId: 'task-1', repoRoot, baseBranch: 'main',
-        riskTier: 'high', boundaryTouching: true,
-      }, {
-        stateDir, eventStore: store, enableTelemetry: false,
-        callerIdentity: deriveMcpCallerIdentity({ sessionId: 'unbound-adequacy' }),
-        capabilityResolver: createInMemoryResolver(['fs:read', 'fs:write', 'mcp:exarchos', 'shell:exec', 'admission:issue-gate-evidence']),
-      });
-      expect(result, JSON.stringify(result)).toMatchObject({ success: true, data: { passed: false, discriminant: 'diff-failed' } });
-    } finally {
-      store.close();
-      await rmrfAsync(stateDir);
-      await rmrfAsync(repoRoot);
-    }
-  });
 });

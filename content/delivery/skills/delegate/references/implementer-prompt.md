@@ -124,7 +124,7 @@ Cover the new/changed behavior with focused tests, judged by OUTCOME not by comm
 2. Add scoped tests named `[MethodName]_[Scenario]_[ExpectedOutcome]` that exercise it; run the project test command (from `.exarchos.yml`, e.g. `cargo test` / `pytest` / `dotnet test` / `npm run test:run`) and confirm they pass.
 3. Refactor (SOLID, extract helpers) while the tests stay green.
 
-Kill-probe: the `check_test_adequacy` gate runs after your tests — it reverts your source hunks (keeping the tests) and asserts at least one goes red. This recaptures test-first's one real guarantee — that a test can actually fail — at lower cost. Expect it to flag tests that pass against a stubbed-out implementation. (Granular per-behavior red-green is available as an opt-in if it helps, never a requirement.)
+Check that a test can actually fail: a test that still passes against a stubbed-out implementation asserts nothing about the change. The review reads your tests for this. (Granular per-behavior red-green is available as an opt-in if it helps, never a requirement.)
 
 (For **high** tier, exercise real collaborators across the seam in your own scoped tests, not just unit isolation. Do **not** run the `check_integration_suite` gate — `settle` runs the pinned suite for a high-tier task, and it is also a wave-boundary backstop the lead runs once after the wave's merges land.)
 
@@ -189,7 +189,7 @@ describe('[ComponentName]', () => {
 ## Success Criteria
 
 - [ ] Behavior covered by adequate tests (test-after is fine — no failing-test-first ceremony required)
-- [ ] Tests can actually fail for the right reason (the test-adequacy kill-probe verifies this)
+- [ ] Tests can actually fail for the right reason (each one goes red against a stubbed-out implementation)
 - [ ] Implementation passes test
 - [ ] No extra code beyond requirements
 - [ ] All tests in worktree pass
@@ -492,7 +492,7 @@ Cover the behavior with tests, judged test-after by outcome (no failing-test-fir
 1. Extract regex to constant
 2. Run tests after change; they stay green
 
-Kill-probe: the `check_test_adequacy` gate runs after your tests — it reverts your source and asserts at least one test goes red, flagging tests that pass against a stubbed-out implementation.
+Check that a test can fail: revert the source in your head and ask whether a test goes red. A test that passes against a stubbed-out implementation asserts nothing.
 
 Boundary task: mock only what you own. The MX lookup is an unowned external dependency — use a hermetic fixture or a contract-verified stub, never an unverified hand-mock.
 
@@ -519,7 +519,7 @@ describe('validateEmail', () => {
 - [ ] Behavior implemented per the task description
 - [ ] Scoped tests cover the new/changed behavior (order flexible — test-after is fine)
 - [ ] Tests pass when run with the project test command
-- [ ] Kill-probe holds: at least one test goes red when the implementation is reverted
+- [ ] At least one test goes red when the implementation is stubbed out
 - [ ] No extra code beyond requirements
 - [ ] No comment names a planning ordinal (`DR-N`, `task N`, `INV-N`, a `docs/specs/…` path)
 - [ ] All tests in worktree pass

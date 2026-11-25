@@ -171,7 +171,7 @@ describe('gate catch-rate driver', () => {
     expect(
       verdictFromResult('static-analysis', { success: true, data: { skipped: true, passed: false } }).verdict,
     ).toBe('invalid');
-    expect(verdictFromResult('test-adequacy', { success: false, error: { code: 'X', message: 'y' } }).verdict).toBe(
+    expect(verdictFromResult('contract-drift', { success: false, error: { code: 'X', message: 'y' } }).verdict).toBe(
       'invalid',
     );
   });

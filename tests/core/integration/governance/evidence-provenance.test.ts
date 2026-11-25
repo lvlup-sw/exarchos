@@ -15,6 +15,7 @@
  * `tests/unit/projections/fold-at-tail.test.ts` asserts that behavior at the seam.
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { randomUUID } from 'node:crypto';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -57,7 +58,7 @@ async function withHarness<T>(
   }
 }
 
-/** Makes a real git repository. Its feature branch adds production code and no tests. */
+/** Makes a real git repository. Its feature branch adds production code and no tests, and its test script fails. */
 async function makeGitFixture(): Promise<string> {
   const repo = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'gov-t2-git-')));
   scratchDirs.push(repo);
@@ -70,7 +71,7 @@ async function makeGitFixture(): Promise<string> {
   await git(['config', 'commit.gpgsign', 'false']);
   await fs.writeFile(
     path.join(repo, 'package.json'),
-    JSON.stringify({ name: 'gov-t2-git-fixture', version: '1.0.0', private: true }, null, 2),
+    JSON.stringify({ name: 'gov-t2-git-fixture', version: '1.0.0', private: true, scripts: { 'test:run': 'node -e "process.exit(1)"' } }, null, 2),
     'utf-8',
   );
   await git(['add', '.']);
@@ -82,6 +83,15 @@ async function makeGitFixture(): Promise<string> {
   await git(['add', '.']);
   await git(['commit', '--quiet', '-m', 'feat: add widget with no tests']);
   return repo;
+}
+
+/**
+ * Names the fixture checkout as a worktree of the workflow in the worktree registry.
+ * The workflow has no prepared scope, so the local check executor runs a direct call only in a worktree of the workflow.
+ */
+async function adoptFixture(harness: PublicRootHarness, featureId: string): Promise<void> {
+  await harness.appendEvent('worktrees', { type: 'worktree.adopted', data: { worktreeId: `${featureId}:${gitFixture}`, path: gitFixture,
+    featureId, operationId: randomUUID(), ownerPid: null, ownerStartedAt: null } });
 }
 
 beforeAll(async () => {
@@ -115,8 +125,9 @@ describe('T2 governance — evidence provenance (DR-2, DR-3, DR-4, DR-10)', () =
     await withHarness({}, async (h) => {
       expect(h.ctx.callerIdentity).toBeUndefined();
       await h.runAction('exarchos_workflow', 'init', { featureId, workflowType: 'feature' });
+      await adoptFixture(h, featureId);
 
-      const refused = await h.runAction('exarchos_orchestrate', 'check_test_adequacy', request, {
+      const refused = await h.runAction('exarchos_orchestrate', 'check_integration_suite', request, {
         timeoutMs: 180_000,
       });
       expect(refused.result?.success).toBe(false);
@@ -134,10 +145,11 @@ describe('T2 governance — evidence provenance (DR-2, DR-3, DR-4, DR-10)', () =
       { overrides: { callerIdentity: deriveMcpCallerIdentity({ sessionId: 'gov-t2-session' }) } },
       async (h) => {
         await h.runAction('exarchos_workflow', 'init', { featureId, workflowType: 'feature' });
+        await adoptFixture(h, featureId);
 
         const produced = await h.runAction(
           'exarchos_orchestrate',
-          'check_test_adequacy',
+          'check_integration_suite',
           request,
           { timeoutMs: 180_000 },
         );
@@ -167,10 +179,11 @@ describe('T2 governance — evidence provenance (DR-2, DR-3, DR-4, DR-10)', () =
       { overrides: { callerIdentity: deriveLocalOperatorIdentity('gov-t2-provenance') } },
       async (h) => {
         await h.runAction('exarchos_workflow', 'init', { featureId, workflowType: 'feature' });
+        await adoptFixture(h, featureId);
 
         const run = await h.runAction(
           'exarchos_orchestrate',
-          'check_test_adequacy',
+          'check_integration_suite',
           {
             featureId,
             taskId: 'T-prov',
@@ -195,7 +208,7 @@ describe('T2 governance — evidence provenance (DR-2, DR-3, DR-4, DR-10)', () =
         const persisted = (recorded[0]?.data as Rec).evidence as Rec;
         expect(persisted.evidenceId).toBe(claimedId);
         expect((persisted.subject as Rec).taskId).toBe('T-prov');
-        expect(String((persisted.producer as Rec).providerRef)).toBe('check_test_adequacy');
+        expect(String((persisted.producer as Rec).providerRef)).toBe('check_integration_suite');
 
         const signals = events.filter((e) => e.type === 'gate.executed');
         expect(signals).toHaveLength(1);
@@ -212,7 +225,7 @@ describe('T2 governance — evidence provenance (DR-2, DR-3, DR-4, DR-10)', () =
 
         const skipped = await h.runAction(
           'exarchos_orchestrate',
-          'check_test_adequacy',
+          'check_integration_suite',
           {
             featureId,
             taskId: 'T-prov-low',
@@ -250,11 +263,11 @@ describe('T2 governance — evidence provenance (DR-2, DR-3, DR-4, DR-10)', () =
 
   /**
    * The frozen `riskTier` reaches the gate and changes its decision.
-   * BLOCKING ARM: at `riskTier: 'high'`, a diff with no new tests gets `disposition: 'blocked'` and a report that names the tier.
-   * NEGATIVE TWIN: at `riskTier: 'low'`, the identical diff is a policy skip, and the reason echoes the tier and `boundaryTouching`.
+   * BLOCKING ARM: at `riskTier: 'high'`, the integration suite runs, and its failing test script blocks the gate.
+   * NEGATIVE TWIN: at `riskTier: 'low'`, the identical call is a policy skip, and the reason echoes the tier and `boundaryTouching`.
    * If the tier does not reach the gate, both arms return the same verdict.
    *
-   * Both task runbooks declare the coordinate as template variables and bind it into the params of a step.
+   * The task-completion runbook declares the coordinate as template variables and binds it into the params of a step.
    * The test also applies the predicate to a step list with no coordinate, so a predicate that always reports no gap fails.
    */
   it('Governance_Dr3_FrozenRiskTier_ReachesTheGate', async () => {
@@ -263,6 +276,7 @@ describe('T2 governance — evidence provenance (DR-2, DR-3, DR-4, DR-10)', () =
       { overrides: { callerIdentity: deriveLocalOperatorIdentity('gov-t2-tier') } },
       async (h) => {
         await h.runAction('exarchos_workflow', 'init', { featureId, workflowType: 'feature' });
+        await adoptFixture(h, featureId);
         const base = {
           featureId,
           repoRoot: gitFixture,
@@ -272,20 +286,17 @@ describe('T2 governance — evidence provenance (DR-2, DR-3, DR-4, DR-10)', () =
 
         const high = await h.runAction(
           'exarchos_orchestrate',
-          'check_test_adequacy',
+          'check_integration_suite',
           { ...base, taskId: 'T-high', riskTier: 'high', boundaryTouching: true },
           { timeoutMs: 180_000 },
         );
         expect(high.result?.success).toBe(true);
         expect(data(high).passed).toBe(false);
-        expect(data(high).disposition).toBe('blocked');
-        expect(data(high).discriminant).toBe('no-new-tests');
-        expect(String(data(high).report)).toContain('the high tier requires a kill probe');
         expect(data(high).skipped).toBeFalsy();
 
         const low = await h.runAction(
           'exarchos_orchestrate',
-          'check_test_adequacy',
+          'check_integration_suite',
           { ...base, taskId: 'T-low', riskTier: 'low', boundaryTouching: true },
           { timeoutMs: 180_000 },
         );
@@ -293,8 +304,8 @@ describe('T2 governance — evidence provenance (DR-2, DR-3, DR-4, DR-10)', () =
         expect(data(low).passed).toBe(true);
         expect(data(low).skipped).toBe(true);
         expect(data(low).discriminant).toBe('skipped-by-policy');
-        expect(String(data(low).reason)).toContain("riskTier='low'");
-        expect(String(data(low).reason)).toContain('boundaryTouching=true');
+        expect(String(data(low).report)).toContain("riskTier='low'");
+        expect(String(data(low).report)).toContain('boundaryTouching=true');
 
         expect(data(high).passed).not.toBe(data(low).passed);
 
@@ -316,7 +327,7 @@ describe('T2 governance — evidence provenance (DR-2, DR-3, DR-4, DR-10)', () =
           return gaps;
         };
 
-        for (const id of ['task-completion', 'task-fix']) {
+        for (const id of ['task-completion']) {
           const runbook = await h.runAction('exarchos_orchestrate', 'runbook', { id });
           expect(runbook.result?.success).toBe(true);
           const templateVars = (data(runbook).templateVars ?? []) as readonly string[];
@@ -325,7 +336,7 @@ describe('T2 governance — evidence provenance (DR-2, DR-3, DR-4, DR-10)', () =
           expect(missingCoordinate(templateVars, steps)).toEqual([]);
         }
 
-        expect(missingCoordinate([], [{ action: 'check_test_adequacy', params: {} }])).toEqual([
+        expect(missingCoordinate([], [{ action: 'check_integration_suite', params: {} }])).toEqual([
           'templateVar:riskTier',
           'param:riskTier',
           'templateVar:boundaryTouching',

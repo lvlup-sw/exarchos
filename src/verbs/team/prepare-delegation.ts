@@ -140,9 +140,8 @@ export interface PrepareDelegationResult {
    */
   readonly dispatch: DispatchShape;
   /**
-   * The integration branch that each task of the wave forks from. The kill probe measures the task
-   * diff from it, so the task-completion runbook binds it as `baseRef`. Without it, the gate blocks
-   * and does not guess a base.
+   * The integration branch that each task of the wave forks from. The diff gates measure the task
+   * diff from it, so the task-completion runbook binds it as `baseRef`. A gate does not guess a base.
    */
   readonly baseBranch: string;
   readonly blockers?: string[];

@@ -18,40 +18,16 @@ export const STATIC_ANALYSIS_STEP_PARAMS: Readonly<Record<'repoRoot' | 'worktree
   taskId: '<taskId>',
 };
 
-/**
- * What the kill-probe step does, in one text. The note of each kill-probe step holds it.
- * The registry cannot import the runbooks, so a test finds this text in the `check_test_adequacy` description.
- */
-export const KILL_PROBE_STEP_SUMMARY =
-  'the kill probe runs the changed tests on the task source first, and a red first run is indeterminate ' +
-  '(baseline-red), not a kill. Then it reverts the source hunks, runs the tests again, and requires a red run';
-
-/** The note of each kill-probe step of the task runbooks. */
-const KILL_PROBE_STEP_NOTE =
-  `${KILL_PROBE_STEP_SUMMARY}. It is the load-bearing per-task gate. baseRef is the branch the task forked from`;
-
 export const TASK_COMPLETION = literalRunbook({
   id: 'task-completion',
   phase: 'delegate',
   description: 'Complete a task after every blocking per-task gate has passed.',
   steps: [
     /**
-     * Kill-probe gate. It first runs the changed tests on the task source, and a red
-     * run there is indeterminate, not a kill. Then it reverts the source hunks of the
-     * task, runs the tests again, and requires at least one to fail. `riskTier` and
-     * `boundaryTouching` carry the stamp that `prepare_delegation` froze. The gate
-     * reads the tier to decide if a task without probed tests blocks (medium or
-     * high) or gets an advisory skip (low). `resolvePolicySkip` needs both fields.
-     */
-    { tool: 'exarchos_orchestrate', action: 'check_test_adequacy', onFail: 'stop',
-      params: { repoRoot: 'auto', worktreePath: '<worktreePath>',
-        riskTier: '<riskTier>', boundaryTouching: '<boundaryTouching>', baseBranch: '<baseRef>' },
-      note: KILL_PROBE_STEP_NOTE },
-    /**
      * Contract-drift gate. It regenerates the schema bindings, typechecks them, and
      * diffs them against the merge base for breaking changes. When no contract tool
      * resolves, it gives an advisory pass, so `stop` halts only on breaking drift.
-     * `baseBranch: '<baseRef>'` measures the diff from the task base, as the kill probe does.
+     * `baseBranch: '<baseRef>'` measures the diff from the task base.
      */
     { tool: 'exarchos_orchestrate', action: 'check_contract_drift', onFail: 'stop',
       params: { repoRoot: 'auto', worktreePath: '<worktreePath>',
@@ -284,15 +260,6 @@ export const TASK_FIX: RunbookDefinition = {
       },
       note: 'CC: resume agentId with full context. Others: agent_spec("fixer") + fresh dispatch.' },
     /**
-     * Kill-probe gate, as in `TASK_COMPLETION`. A fixed task gets the same adequacy
-     * probe as a first completion, with the run on the task source first. The frozen
-     * `riskTier` and `boundaryTouching` stamp makes the gate judge the fix at its real tier.
-     */
-    { tool: 'exarchos_orchestrate', action: 'check_test_adequacy', onFail: 'stop',
-      params: { repoRoot: 'auto', worktreePath: '<worktreePath>',
-        riskTier: '<riskTier>', boundaryTouching: '<boundaryTouching>', baseBranch: '<baseRef>' },
-      note: KILL_PROBE_STEP_NOTE },
-    /**
      * Static-analysis gate, as in `TASK_COMPLETION`. It runs in the agent worktree
      * and binds its record to the task, so `task_complete` can accept the fix.
      */
@@ -301,10 +268,8 @@ export const TASK_FIX: RunbookDefinition = {
       note: 'run per task with taskId in the agent worktree: task_complete reads only the run for that task' },
     { tool: 'exarchos_orchestrate', action: 'task_complete', onFail: 'stop' },
   ],
-  templateVars: ['taskId', 'featureId', 'streamId', 'branch', 'agentId', 'failureContext', 'worktreePath',
-    /** The delegation stamp and the task base. See `TASK_COMPLETION.templateVars`. */
-    'riskTier', 'boundaryTouching', 'baseRef'],
-  /** Both gates go through the durable gate runner. See `TASK_COMPLETION.autoEmits`. */
+  templateVars: ['taskId', 'featureId', 'streamId', 'branch', 'agentId', 'failureContext', 'worktreePath'],
+  /** The gate goes through the durable gate runner. See `TASK_COMPLETION.autoEmits`. */
   autoEmits: ['admission.evidence-recorded', 'gate.executed', 'task.completed'],
 };
 

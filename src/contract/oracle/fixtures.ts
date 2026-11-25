@@ -929,7 +929,6 @@ const GATE_ACTIONS: readonly string[] = [
   'check_design_completeness',
   'check_plan_coverage',
   'check_exploration_depth',
-  'check_test_adequacy',
   'check_contract_drift',
   'check_mock_boundary',
   'check_post_merge',

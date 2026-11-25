@@ -10,7 +10,7 @@
  *
  * This tier is above the built-in ecosystem table and below the user declarations.
  * The precedence is in `test-runtime-resolver.ts`.
- * Each runner is also a seed row of the kill probe: the file form and the red exit codes of its `test` target.
+ * Each runner is also a seed row of the probe term: the file form and the red exit codes of its `test` target.
  */
 import { existsSync, readFileSync } from 'node:fs';
 import * as path from 'node:path';

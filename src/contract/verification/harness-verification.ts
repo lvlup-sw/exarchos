@@ -118,7 +118,8 @@ export type CheckLeg = z.infer<typeof CheckLeg>;
 
 /**
  * The reviewed typed scope of one check. Its digest binds the request to the operator command policy.
- * The source-revert adequacy probe runs only in the local executor, so only a local plan names `adequacy`.
+ * The retired source-revert adequacy probe ran only in the local executor, so only a stored local plan names `adequacy`.
+ * The literal stays, so a stored plan still parses.
  */
 export const CheckPlan = z.object({
   operation: z.enum([...HOSTED_CHECK_OPERATIONS, 'adequacy']),

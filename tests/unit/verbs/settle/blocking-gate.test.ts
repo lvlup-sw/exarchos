@@ -1,13 +1,13 @@
 // `settle` over the full shipped task-completion runbook, when a blocking gate blocks.
 //
-// The kill probe is the first gate of that runbook, and it runs for real here, in real source images through a spawning test executor.
-// The capsule stamps the task medium-tier. The claimed worktree is a git repository whose branch ships a test that does not read the change.
-// The probe reverts the source, the test stays green, and the gate blocks on a success carrier.
+// The integration suite is a blocking gate of that runbook, and it runs for real here through a spawning test executor.
+// The capsule stamps the task high-tier. The claimed worktree is a git repository whose branch ships a test that fails on the change.
+// The suite exits with a red code, and the gate blocks on a success carrier.
 // The batch must need a correction with the halt named, and the stream must hold no completion.
 //
 // The fixture also passes lint, typecheck, and the quality check.
 // A segment that lets the verdict through thus runs on to a completion that static analysis admits.
-// An unresolved task here can only come from the kill probe.
+// An unresolved task here can only come from the integration suite.
 //
 // @oracle-sources: ../../../../src/verbs/settle/handler.ts, the rows a real event store holds after the batch, read back by type rather than off the receipt
 
@@ -88,8 +88,8 @@ async function git(cwd: string, args: readonly string[]): Promise<void> {
   await execFileAsync('git', args, { cwd, timeout: 30_000 });
 }
 
-/** A task branch that changes the source and ships a test that never reads it. */
-async function vacuousTaskWorktree(): Promise<string> {
+/** A task branch that changes the source and ships a test that fails on the change. */
+async function failingTaskWorktree(): Promise<string> {
   const dir = await realpath(await mkdtemp(path.join(tmpdir(), 'settle-blocking-gate-worktree-')));
   scratchDirs.push(dir);
   const scripts = { 'test:files': 'node --test', 'test:run': 'node --test', lint: OK, typecheck: OK, 'quality-check': OK };
@@ -106,30 +106,30 @@ async function vacuousTaskWorktree(): Promise<string> {
   await git(dir, ['config', 'commit.gpgsign', 'false']);
   await git(dir, ['add', '.']);
   await git(dir, ['commit', '-q', '-m', 'base']);
-  await git(dir, ['checkout', '-q', '-b', 'task/vacuous']);
+  await git(dir, ['checkout', '-q', '-b', 'task/failing']);
   await writeFile(path.join(dir, 'src', 'answer.mjs'), 'export const answer = 42;\n', 'utf-8');
   await writeFile(
     path.join(dir, 'src', 'answer.test.mjs'),
-    "import { test } from 'node:test';\n\ntest('runs', () => {});\n",
+    "import { test } from 'node:test';\nimport assert from 'node:assert';\nimport { answer } from './answer.mjs';\n\ntest('answer', () => {\n  assert.strictEqual(answer, 41);\n});\n",
     'utf-8',
   );
   await git(dir, ['add', '.']);
-  await git(dir, ['commit', '-q', '-m', 'ship the change with a test that does not read it']);
+  await git(dir, ['commit', '-q', '-m', 'ship the change with a test that fails on it']);
   return dir;
 }
 
 /**
- * The base capsule, with its one required task stamped medium-tier so the kill
- * probe runs, measured from the branch the task worktree forked from.
+ * The base capsule, with its one required task stamped high-tier so the integration
+ * suite runs, measured from the branch the task worktree forked from.
  */
-function mediumTierCapsule(): ExarchosCapsuleV1 {
+function highTierCapsule(): ExarchosCapsuleV1 {
   const base = baseValidCapsule();
   return {
     ...base,
     identity: { ...base.identity, capsuleVersion: CAPSULE_VERSION },
     settlementContract: {
       ...base.settlementContract,
-      taskVerification: { 'task-verify': { riskTier: 'medium', boundaryTouching: false, baseRef: 'main' } },
+      taskVerification: { 'task-verify': { riskTier: 'high', boundaryTouching: false, baseRef: 'main' } },
     },
   };
 }
@@ -173,7 +173,7 @@ beforeEach(async () => {
   await store.initialize();
   await seedActivePhaseAttempt(store, STREAM);
   scope = await scopeOfCheckout(path.join(stateDir, 'checkout'));
-  await seedPrepared(mediumTierCapsule());
+  await seedPrepared(highTierCapsule());
 });
 
 afterEach(async () => {
@@ -183,13 +183,13 @@ afterEach(async () => {
 });
 
 describe('settle — a blocking gate that blocks', () => {
-  it('Settle_AKillProbeThatBlocks_LeavesTheTaskUnresolvedAndLeavesNoCompletion', async () => {
-    const worktreePath = await vacuousTaskWorktree();
+  it('Settle_AnIntegrationSuiteThatBlocks_LeavesTheTaskUnresolvedAndLeavesNoCompletion', async () => {
+    const worktreePath = await failingTaskWorktree();
     const receipt = receiptOf(
       await settle({
         featureId: STREAM,
         capsuleVersion: CAPSULE_VERSION,
-        batchId: 'batch-vacuous',
+        batchId: 'batch-failing',
         claims: [{ taskId: 'task-verify', fields: { passed: true, worktreePath }, evidence: [] }],
       }),
     );
@@ -200,16 +200,16 @@ describe('settle — a blocking gate that blocks', () => {
       ['verification-failed', 'task-verify', 'claims[0]'],
     ]);
     expect(receipt.findings[0]?.message).toContain(
-      "leaf 'check_test_adequacy' is a blocking gate and its verdict blocked (passed: false, disposition 'blocked')",
+      "leaf 'check_integration_suite' is a blocking gate and its verdict blocked (passed: false",
     );
     expect(receipt.verification).toEqual([
-      expect.objectContaining({ taskId: 'task-verify', outcome: 'failed', failedLeaf: 'check_test_adequacy' }),
+      expect.objectContaining({ taskId: 'task-verify', outcome: 'failed', failedLeaf: 'check_integration_suite' }),
     ]);
 
     expect(await rowsOf('task.completed')).toEqual([]);
     expect((await rowsOf(INTENT_EXECUTED_EVENT)).map((row) => row.outcome)).toEqual(['failed']);
-    const gates = await rowsOf('gate.executed');
-    expect(gates.map((row) => [row.gateName, row.passed])).toEqual([['test-adequacy', false]]);
+    const gates = (await rowsOf('gate.executed')).filter((row) => row.gateName === 'integration-suite');
+    expect(gates.map((row) => [row.gateName, row.passed])).toEqual([['integration-suite', false]]);
     expect(gates[0]?.details).not.toHaveProperty('discriminant');
     expect(gates[0]?.details).toMatchObject({ verdict: 'fail' });
 

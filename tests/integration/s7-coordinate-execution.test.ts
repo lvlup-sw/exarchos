@@ -2,7 +2,6 @@
 /** Immutable leaf measurements retain the selected task delta and legacy calls retain their ref behavior. */
 import fc from 'fast-check';
 import { resolveConfig } from '../../src/config/resolve.js';
-import { Database } from 'bun:sqlite';
 import { getDispatchContext, runWithDispatchContext } from '../../src/dispatch/dispatch-context.js';
 import { handleTaskComplete } from '../../src/verbs/tasks/tools.js';
 import { TASK_COMPLETION } from '../../src/runbooks/definitions.js';
@@ -19,7 +18,6 @@ import { readDesignRecord } from '../../src/workflow/design-record/read.js';
 import { configDigestAt } from '../../src/verbs/prepare/prepare-scope.js';
 import { handleSettle } from '../../src/verbs/settle/handler.js';
 import { productionExecuteDeps, derivedLeafOperationId } from '../../src/verbs/execute/executor.js';
-import { decodeExecuteIntentBundle } from '../../src/verbs/execute/run-bundle.js';
 import { fixture as preparedFixture, prepared, task, textOf } from '../helpers/capsule/prepared-authority.js';
 import { fixtureWiring } from '../unit/verbs/execute/fixtures.js';
 import { profiledValidCapsule } from '../../src/contract/capsule/exarchos-capsule-fixtures.js';
@@ -38,11 +36,11 @@ afterEach(async () => { for (const close of closes.splice(0).reverse()) await cl
 /** Executes fixture Git operations only in the isolated repository. */
 async function git(tree: string, ...args: string[]) { return (await execFileAsync('git', ['-C', tree, ...args])).trim(); }
 
-/** The real probe runner records source bytes on every baseline, revert and restored run. */
-async function setup(dirtyProbe = false) {
+/** A probe runner that records the source bytes of each run. No leaf of the task segment runs it, so the journal stays absent. */
+async function setup() {
   const stateDir = makeTempDir('s7-diff-');
   const journal = join(stateDir, 'probe.jsonl');
-  const runner = `const fs=require('node:fs');const paths=process.argv.slice(2).filter(x=>x!=='--');const source=fs.readFileSync('src/value.cjs','utf8');const blocker=fs.existsSync('src/blocker.cjs')?fs.readFileSync('src/blocker.cjs','utf8'):null;fs.appendFileSync(${JSON.stringify(journal)},JSON.stringify({paths,source,blocker})+'\\n');let ok=true;for(const p of paths){const t=JSON.parse(fs.readFileSync(p,'utf8'));ok=ok&&source===t.source&&(t.blocker===undefined||blocker===t.blocker)}${dirtyProbe ? "fs.writeFileSync('PROBE_DIRTY','leftover');" : ""}process.exit(ok?0:1);`;
+  const runner = `const fs=require('node:fs');const paths=process.argv.slice(2).filter(x=>x!=='--');const source=fs.readFileSync('src/value.cjs','utf8');const blocker=fs.existsSync('src/blocker.cjs')?fs.readFileSync('src/blocker.cjs','utf8'):null;fs.appendFileSync(${JSON.stringify(journal)},JSON.stringify({paths,source,blocker})+'\\n');let ok=true;for(const p of paths){const t=JSON.parse(fs.readFileSync(p,'utf8'));ok=ok&&source===t.source&&(t.blocker===undefined||blocker===t.blocker)}process.exit(ok?0:1);`;
   const repo = await scopedRepository({ integrationBranch: 'integration', files: { 'src/value.cjs': 'root', 'probe.cjs': runner } });
   closes.push(() => rmrfAsync(repo.root));
   const tree = await repo.worktreeFor('target');
@@ -68,8 +66,8 @@ async function setup(dirtyProbe = false) {
 }
 
 /** Publishes real approved custody and executes the canonical completion runbook. */
-async function preparedRun(dirtyProbe = false) {
-  const f = await setup(dirtyProbe);
+async function preparedRun() {
+  const f = await setup();
   const commands = join(f.stateDir, 'commands.jsonl');
   const expected = join(f.stateDir, 'expected.json');
   const command = `const fs=require('node:fs'),cp=require('node:child_process');const expected=JSON.parse(fs.readFileSync(${JSON.stringify(expected)},'utf8'));const args=process.argv.slice(2);const head=cp.execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim();fs.appendFileSync(${JSON.stringify(commands)},JSON.stringify(args)+'\\n');if(head!==expected.head)process.exit(6);if(args[0]==='diff'&&(args.length!==3||args[1]!==expected.base||args[2]!==expected.head))process.exit(7);if(args[0]==='dirty')fs.writeFileSync('DIRTY','changed');`;
@@ -123,7 +121,7 @@ describe('selected coordinate execution', () => {
     expect(rows.filter(row=>row.type==='task.completed')).toHaveLength(1);
     const commands=(await readFile(f.commands,'utf8')).trim().split('\n').map(line=>JSON.parse(line));
     expect(commands).toContainEqual(['diff',f.repo.baseCommit,f.selected.observedHeadCommit]);
-    expect(commands).toContainEqual(['static']);expect(await f.snapshots()).toHaveLength(2);
+    expect(commands).toContainEqual(['static']);expect(existsSync(f.journal)).toBe(false);
     expect(await git(f.tree,'status','--porcelain')).toBe('');
   });
 
@@ -139,25 +137,6 @@ describe('selected coordinate execution', () => {
     }),{numRuns:2,seed:8008});
   });
 
-  /** A completed adequacy pair resumes without another provider run and keeps its original event references. */
-  it('PassingAdequacy_OriginalClaims_ReplayWithoutProvider',async()=>{
-    const f=await preparedRun();await f.publish();
-    const interrupted={...ACTION_HANDLERS,check_contract_drift:async()=>{throw new Error('stop after committed adequacy pair')}};
-    await f.call(interrupted).catch(()=>undefined);
-    const before=await f.events.query(f.identity.workflowId);
-    const pair=before.filter(row=>row.type==='admission.evidence-recorded'||row.type==='gate.executed');
-    expect(pair).toHaveLength(2);expect(before.some(row=>row.type==='orchestrate.intent_executed')).toBe(false);
-    expect(await f.snapshots()).toHaveLength(2);
-    const resumed=await f.call();expect(resumed.success,JSON.stringify(resumed)).toBe(true);
-    expect(await f.snapshots()).toHaveLength(2);
-    const after=await f.events.query(f.identity.workflowId);
-    for(const row of pair)expect(after.find(candidate=>candidate.sequence===row.sequence)).toEqual(row);
-    const terminal=after.find(row=>row.type==='orchestrate.intent_executed');
-    const refs=terminal?.data?.bundleRefs;if(!Array.isArray(refs)||refs[0]===undefined)throw new Error('Missing bundle');
-    const run=decodeExecuteIntentBundle(await f.events.bundleStore.resolve(refs[0].digest));
-    expect(run.leaves[0]?.disposition.kind).toBe('replay-elided');
-    expect(run.leaves[0]?.events).toEqual(pair.map(row=>({type:row.type,streamId:row.streamId,sequence:row.sequence})));
-  });
   /** Dirty provider output and a changed head after static analysis both prevent terminal completion. */
   it('HeadMovesBeforeCompletion_NoStanding',async()=>{
     for(const mode of ['dirty','head']){
@@ -210,36 +189,6 @@ describe('selected coordinate execution', () => {
     expect((await f.events.query(f.identity.workflowId)).filter(row=>row.type==='task.completed')).toEqual([]);
   });
 
-  /** Incomplete, unclaimed, failing and wrong-head original-store pairs never rerun the completed provider. */
-  it('AdequacyReplay_RejectsIncompleteAndMismatchedPairs',async()=>{
-    for(const mode of ['missing-signal','missing-claim','orphan-claims','wrong-head','failed']){
-      const f=await preparedRun();await f.publish();
-      const interrupted={...ACTION_HANDLERS,check_contract_drift:async()=>{throw new Error('stop after committed adequacy pair')}};
-      await f.call(interrupted).catch(()=>undefined);
-      const rows=await f.events.query(f.identity.workflowId);const signal=rows.find(row=>row.type==='gate.executed');const evidence=rows.find(row=>row.type==='admission.evidence-recorded');
-      expect(signal).toBeDefined();expect(evidence).toBeDefined();
-      const db=new Database(join(f.stateDir,'exarchos.db'));
-      try{
-        if(mode==='orphan-claims')db.prepare('DELETE FROM events WHERE streamId=? AND operation_id=?').run(f.identity.workflowId,signal!.operationId!);
-        if(mode==='missing-signal')db.prepare('DELETE FROM events WHERE streamId=? AND sequence=?').run(f.identity.workflowId,signal!.sequence);
-        if(mode==='missing-claim')db.prepare('DELETE FROM idempotency_claims WHERE streamId=? AND idempotencyKey=?').run(f.identity.workflowId,evidence!.idempotencyKey!);
-        if(mode==='wrong-head'||mode==='failed'){
-          const data=structuredClone(signal!.data!);if(mode==='wrong-head')(data.details as Record<string,unknown>).head=f.repo.baseCommit;else data.passed=false;
-          const stored=db.prepare('SELECT payload FROM events WHERE streamId=? AND sequence=?').get(f.identity.workflowId,signal!.sequence) as {payload:string};
-          const payload=JSON.parse(stored.payload);payload.data=data;
-          db.prepare('UPDATE events SET data=?,payload=? WHERE streamId=? AND sequence=?').run(JSON.stringify(data),JSON.stringify(payload),f.identity.workflowId,signal!.sequence);
-        }
-      }finally{db.close()}
-      const before=await f.events.query(f.identity.workflowId);
-      if(mode==='wrong-head')expect(before.find(row=>row.sequence===signal!.sequence)?.data?.details).toMatchObject({head:f.repo.baseCommit});
-      if(mode==='failed')expect(before.find(row=>row.sequence===signal!.sequence)?.data?.passed).toBe(false);
-      await f.call();
-      const after=await f.events.query(f.identity.workflowId);
-      expect(await f.snapshots()).toHaveLength(2);expect(after.filter(row=>row.type==='task.completed')).toEqual([]);
-      expect(after.filter(row=>row.type==='gate.executed'||row.type==='admission.evidence-recorded')).toEqual(before.filter(row=>row.type==='gate.executed'||row.type==='admission.evidence-recorded'));
-    }
-  });
-
   /** Embedded text stays literal beside valid tokens, and unresolved or legacy commands retain their policy. */
   it('LiteralTokens_OptionalAndLegacyCommands',async()=>{
     const f=await preparedRun();
@@ -256,33 +205,6 @@ describe('selected coordinate execution', () => {
     f.profile.contract.diff={state:'resolved',argv:[process.execPath,'-e',legacyScript,'@baseCommit@'],source:'config'};
     const legacy=await runAsTrustedCaller(f.stateDir,()=>ACTION_HANDLERS.check_contract_drift!(f.args,f.stateDir,f.ctx));
     expect(legacy.success).toBe(true);expect(legacy.data).toMatchObject({passed:true});
-  });
-
-  /**
-   * A real probe that writes output writes it in its disposable copy, so the live checkout stays clean after a valid kill.
-   * An interruption after the pair leaves a passing pair, and the retry replays it on the clean selected checkout with no new probe run.
-   */
-  it('DirtyAdequacy_ProbeOutputStaysInTheCopyAndThePassingPairReplays',async()=>{
-    const f=await preparedRun(true);
-    const leftover=join(f.tree,'PROBE_DIRTY');
-    await f.publish();
-    const interrupted={...ACTION_HANDLERS,check_test_adequacy:async(...args:Parameters<NonNullable<typeof ACTION_HANDLERS.check_test_adequacy>>)=>{
-      await ACTION_HANDLERS.check_test_adequacy!(...args);throw new Error('stop after genuine adequacy endpoint and pair');
-    }};
-    await f.call(interrupted).catch(()=>undefined);
-    expect(existsSync(leftover)).toBe(false);
-    expect(await git(f.tree,'status','--porcelain')).toBe('');
-    expect((await f.snapshots()).map(row=>(row as {source:string}).source)).toEqual(['task','root']);
-    const before=await f.events.query(f.identity.workflowId);
-    const pair=before.filter(row=>row.type==='admission.evidence-recorded'||row.type==='gate.executed');
-    expect(pair).toHaveLength(2);expect(before.some(row=>row.type==='orchestrate.intent_executed')).toBe(false);
-    expect(pair.find(row=>row.type==='admission.evidence-recorded')?.data?.evidence).toMatchObject({verdict:'pass'});
-    expect(pair.find(row=>row.type==='gate.executed')?.data?.passed).toBe(true);
-    await f.call();
-    const after=await f.events.query(f.identity.workflowId);
-    expect(await f.snapshots()).toHaveLength(2);
-    expect(after.filter(row=>row.type==='admission.evidence-recorded'&&row.operationId===pair[0]?.operationId)).toEqual(pair.filter(row=>row.type==='admission.evidence-recorded'));
-    expect(after.filter(row=>row.type==='gate.executed'&&row.operationId===pair[1]?.operationId)).toEqual(pair.filter(row=>row.type==='gate.executed'));
   });
 
 });

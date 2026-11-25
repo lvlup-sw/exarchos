@@ -674,10 +674,10 @@ describe('TOOL_REGISTRY', () => {
      * The count alone passes when a different action takes the place of a named action.
      * Each new capability is an action on this tool and not a new visible tool.
      */
-    it('should have 71 actions for task management, review triage, gate checks, validation handlers, runbooks, agent spec, oneshot/pruning, onboard (DR-2 task 011), doctor, VCS, classify_review_items (#1159), merge_orchestrate (DR-MO-1), check_integration_suite (#1329), check_invariant_conformance (DR-3), invariants_scaffold/invariants_add (invariants-catalog-wizard P2), check_test_adequacy + check_contract_drift + check_mock_boundary (verification-ladder slice 1), and composite actions', () => {
+    it('should have 71 actions for task management, review triage, gate checks, validation handlers, runbooks, agent spec, oneshot/pruning, onboard (DR-2 task 011), doctor, VCS, classify_review_items (#1159), merge_orchestrate (DR-MO-1), check_integration_suite (#1329), check_invariant_conformance (DR-3), invariants_scaffold/invariants_add (invariants-catalog-wizard P2), check_contract_drift + check_mock_boundary (verification-ladder slice 1), and composite actions', () => {
       const composite = findComposite('exarchos_orchestrate');
       expect(composite).toBeDefined();
-      expect(composite!.actions).toHaveLength(85);
+      expect(composite!.actions).toHaveLength(84);
 
       const actionNames = composite!.actions.map((a) => a.name);
       expect(actionNames).toEqual(
@@ -691,7 +691,6 @@ describe('TOOL_REGISTRY', () => {
           'assess_stack',
           'check_design_completeness',
           'check_plan_coverage',
-          'check_test_adequacy',
           'check_contract_drift',
           'check_mock_boundary',
           'check_post_merge',
@@ -2752,7 +2751,6 @@ const EXPECTED_EFFECTIVE_BUDGETS: Readonly<Record<string, number>> = {
   'exarchos_orchestrate.check_design_completeness': 2000,
   'exarchos_orchestrate.check_plan_coverage': 2000,
   'exarchos_orchestrate.check_exploration_depth': 2000,
-  'exarchos_orchestrate.check_test_adequacy': 2000,
   'exarchos_orchestrate.check_contract_drift': 2000,
   'exarchos_orchestrate.check_mock_boundary': 2000,
   'exarchos_orchestrate.check_post_merge': 2000,
@@ -3766,7 +3764,7 @@ describe('Task 022 — registry schema batch (DR-1/DR-3/DR-8)', () => {
       expect(violations, `owner-set inconsistency:\n${violations.join('\n')}`).toEqual([]);
 
       const gateExecuted = byEvent.get('gate.executed') ?? [];
-      expect(gateExecuted).toHaveLength(22);
+      expect(gateExecuted).toHaveLength(21);
       expect([...new Set(gateExecuted.map((e) => e.emission.owner))]).toEqual(['orchestrate']);
 
       const statePatched = byEvent.get('state.patched') ?? [];
@@ -3911,7 +3909,10 @@ describe('the closed retired-action table', () => {
    * A call of the row gets the code and the message of the row. A live action and a call with no action get no row.
    */
   it('RetiredActions_EachRowNamesAnUnregisteredActionOfARegisteredTool', () => {
-    expect(RETIRED_ACTIONS.map((entry) => `${entry.tool}.${entry.action}`)).toEqual(['exarchos_orchestrate.mutation-adequacy']);
+    expect(RETIRED_ACTIONS.map((entry) => `${entry.tool}.${entry.action}`)).toEqual([
+      'exarchos_orchestrate.mutation-adequacy',
+      'exarchos_orchestrate.check_test_adequacy',
+    ]);
     for (const entry of RETIRED_ACTIONS) {
       const tool = TOOL_REGISTRY.find((candidate) => candidate.name === entry.tool);
       expect(tool, entry.tool).toBeDefined();

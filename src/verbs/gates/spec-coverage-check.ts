@@ -20,10 +20,8 @@ import { PROFILE_UNRESOLVED, type VerificationProfile } from '../../workflow/ver
 import { hostedPendingResult, runPhaseGateWithEvidence } from './gate-runner.js';
 import { contentDigest } from '../../contract/capsule/capsule-digest.js';
 import type { CheckPlan } from '../../contract/verification/harness-verification.js';
-import { refusedCheckResult, runApprovedCheck, type CheckExecutor } from '../verification/check-executor.js';
-import { profileOf, withProfileRoute, type ProfiledGateArgs } from './gate-utils.js';
-import { probeRunOutcome, runTimeoutOf } from './test-adequacy-handler.js';
-import type { RunOutcome } from './test-adequacy.js';
+import { refusedCheckResult, runApprovedCheck, type CheckExecutor, type LegObservation } from '../verification/check-executor.js';
+import { profileOf, WHOLE_SUITE_TIMEOUT_MS, withProfileRoute, type ProfiledGateArgs } from './gate-utils.js';
 
 /**
  * The lifecycle point of a coverage check.
@@ -42,7 +40,7 @@ export interface SpecCoverageCheckArgs extends ProfiledGateArgs {
   readonly skipRun?: boolean;
   /**
    * Which semantics to apply. The name is not `phase`, because the registration
-   * schema flattens field names across all actions. `check_test_adequacy` has a
+   * schema flattens field names across all actions. Another action declares a
    * free-form `phase: z.string()`, and the two types collide at server start.
    */
   readonly coveragePhase?: SpecCoveragePhase;
@@ -419,8 +417,52 @@ function runnerFitReason(files: readonly string[]): string {
   );
 }
 
+/** The time limit of one scoped run of the probe command. */
+const SCOPED_TEST_TIMEOUT_MS = 120_000;
+
+/**
+ * The time limit of one run in the file form `form`. The `none` form runs a whole suite, so it takes the limit of a whole suite.
+ *
+ * @internal Exported so that a test can read the limit of each form without a run.
+ */
+export function runTimeoutOf(form: ProbeTerm['files']): number {
+  return form === 'none' ? WHOLE_SUITE_TIMEOUT_MS : SCOPED_TEST_TIMEOUT_MS;
+}
+
+/** An end of a run of the probe command that gives no verdict. */
+type RunNoVerdictCause = 'did-not-start' | 'timeout' | 'signal' | 'overflow' | 'unknown-exit-code';
+
+/**
+ * The outcome of one run of the probe command. `ran` is `green` for exit 0 and `red` for a test-failure exit code.
+ * `no-verdict` is every other end, with its cause and a detail that names the fact, such as the exit code or the signal.
+ */
+type RunOutcome =
+  | { readonly kind: 'ran'; readonly result: 'green' | 'red' }
+  | { readonly kind: 'no-verdict'; readonly cause: RunNoVerdictCause; readonly detail: string };
+
+/**
+ * The outcome of one leg of the local executor. Exit 0 is green, and a test-failure exit code of the probe term is red.
+ * Each other end of the leg gives no verdict, with its cause.
+ *
+ * @internal Exported so that a test can read each end of a leg without a run.
+ */
+export function probeRunOutcome(run: LegObservation, redCodes: readonly number[]): RunOutcome {
+  switch (run.end) {
+    case 'exited':
+      if (run.exitCode === 0) return { kind: 'ran', result: 'green' };
+      if (run.exitCode !== null && redCodes.includes(run.exitCode)) return { kind: 'ran', result: 'red' };
+      return { kind: 'no-verdict', cause: 'unknown-exit-code',
+        detail: `the command exited ${run.exitCode ?? 'with no status'}, and only exit ${redCodes.join(' or ')} reads as a red run` };
+    case 'timeout': return { kind: 'no-verdict', cause: 'timeout', detail: 'the executor stopped the run at its time limit' };
+    case 'output-limit': return { kind: 'no-verdict', cause: 'overflow', detail: 'the executor stopped the run at its output limit' };
+    case 'unavailable': return { kind: 'no-verdict', cause: 'did-not-start', detail: run.detail ?? 'the test command did not start' };
+    case 'refused': return { kind: 'no-verdict', cause: 'did-not-start', detail: run.detail ?? 'the executor refused the test command' };
+    case 'signal': return { kind: 'no-verdict', cause: 'signal', detail: `the signal ${run.signal ?? 'SIGKILL'} stopped the run` };
+  }
+}
+
 /** The check of one run that started. Exit 0 passes, a red exit code fails, and any other end fails with no verdict. */
-function checkOfRun(name: string, outcome: Exclude<RunOutcome, { kind: 'unresolved' }>): CheckEntry {
+function checkOfRun(name: string, outcome: RunOutcome): CheckEntry {
   if (outcome.kind === 'no-verdict') {
     return { status: 'FAIL', name, detail: `no verdict (${outcome.cause}): ${outcome.detail}` };
   }
@@ -439,7 +481,7 @@ interface DeclaredTestRun extends SpecCoverageRun {
  *
  * A refusal of the executor is a failed carrier, which the runner records with no verdict.
  *
- * The check reads the probe globs only when the probe command is resolved, as the kill probe does.
+ * The check reads the probe globs only when the probe command is resolved.
  * Thus an unresolved command fails with `profile-unresolved`, not with the runner-fit reason.
  */
 async function runDeclaredTests(

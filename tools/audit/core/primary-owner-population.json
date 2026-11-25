@@ -1,8 +1,8 @@
 {
   "totals": {
-    "emissionEdges": 116,
-    "edgesCarryingRole": 116,
-    "edgesCarryingOwner": 116,
+    "emissionEdges": 114,
+    "edgesCarryingRole": 114,
+    "edgesCarryingOwner": 114,
     "distinctEventsWithEdges": 79,
     "distinctOwners": 3,
     "registeredEvents": 186,
@@ -20,28 +20,27 @@
       "multiPrimary": [
         {
           "key": "admission.evidence-recorded",
-          "primaryEdges": 5,
+          "primaryEdges": 4,
           "primaryOwners": [
             "orchestrate"
           ],
           "unattributedPrimaryEdges": 0,
-          "declaringEdges": 5,
+          "declaringEdges": 4,
           "declaredBy": [
             "exarchos_orchestrate.check_contract_drift",
             "exarchos_orchestrate.check_integration_suite",
             "exarchos_orchestrate.check_mock_boundary",
-            "exarchos_orchestrate.check_static_analysis",
-            "exarchos_orchestrate.check_test_adequacy"
+            "exarchos_orchestrate.check_static_analysis"
           ]
         },
         {
           "key": "gate.executed",
-          "primaryEdges": 22,
+          "primaryEdges": 21,
           "primaryOwners": [
             "orchestrate"
           ],
           "unattributedPrimaryEdges": 0,
-          "declaringEdges": 22,
+          "declaringEdges": 21,
           "declaredBy": [
             "exarchos_orchestrate.check_context_economy",
             "exarchos_orchestrate.check_contract_drift",
@@ -60,7 +59,6 @@
             "exarchos_orchestrate.check_security_scan",
             "exarchos_orchestrate.check_static_analysis",
             "exarchos_orchestrate.check_task_decomposition",
-            "exarchos_orchestrate.check_test_adequacy",
             "exarchos_orchestrate.check_workflow_determinism",
             "exarchos_orchestrate.post_delegation_check",
             "exarchos_orchestrate.pre_synthesis_check",
@@ -354,8 +352,8 @@
       }
     },
     "per-emission-site/primary-edges": {
-      "populationSize": 116,
-      "satisfyingCount": 113,
+      "populationSize": 114,
+      "satisfyingCount": 111,
       "zeroPrimaryCount": 3,
       "unownedPrimaryCount": 0,
       "multiPrimaryCount": 0,
@@ -399,7 +397,6 @@
         "admission.evidence-recorded@exarchos_orchestrate.check_integration_suite",
         "admission.evidence-recorded@exarchos_orchestrate.check_mock_boundary",
         "admission.evidence-recorded@exarchos_orchestrate.check_static_analysis",
-        "admission.evidence-recorded@exarchos_orchestrate.check_test_adequacy",
         "admission.rollout-decision@exarchos_orchestrate.cutover_decide",
         "branch.delete.executed@exarchos_workflow.cancel",
         "branch.delete.requested@exarchos_workflow.cancel",
@@ -433,7 +430,6 @@
         "gate.executed@exarchos_orchestrate.check_security_scan",
         "gate.executed@exarchos_orchestrate.check_static_analysis",
         "gate.executed@exarchos_orchestrate.check_task_decomposition",
-        "gate.executed@exarchos_orchestrate.check_test_adequacy",
         "gate.executed@exarchos_orchestrate.check_workflow_determinism",
         "gate.executed@exarchos_orchestrate.post_delegation_check",
         "gate.executed@exarchos_orchestrate.pre_synthesis_check",

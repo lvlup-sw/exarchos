@@ -1435,7 +1435,7 @@ async function attemptTaskComplete(
  * Each attempt pins the stream tail before its reads, and the append expects that tail.
  * A sequence conflict starts the next attempt after a backoff. After the last attempt, the result is `CONCURRENCY_CONFLICT`.
  * After the append, the handler syncs the state document that the transition guards read.
- * The task-completion runbook runs the tier-scaled kill probe before this step.
+ * The task-completion runbook runs the tier-scaled gates before this step.
  */
 export async function handleTaskComplete(
   args: TaskCompleteArgs,

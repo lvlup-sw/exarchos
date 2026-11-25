@@ -46,15 +46,15 @@ const GREEN_PROJECT: FixtureFiles = {
 /** A config of the checkout that keeps the shipped severity of each gate. It loads, and it names the mock-boundary gate only. */
 const KEEPING_CONFIG = 'review:\n  gates:\n    mock-boundary:\n      enabled: true\n      blocking: false\n';
 
-/** A config of the checkout that disables the kill probe. */
-const DISABLING_CONFIG = 'review:\n  gates:\n    check_test_adequacy:\n      enabled: false\n';
+/** A config of the checkout that disables the integration suite. */
+const DISABLING_CONFIG = 'review:\n  gates:\n    check_integration_suite:\n      enabled: false\n';
 
-/** The config of the server in the case of the disabled gate: the shipped defaults, with the kill probe enabled and blocking. */
+/** The config of the server in the case of the disabled gate: the shipped defaults, with the integration suite enabled and blocking. */
 const SERVER_CONFIG: ResolvedProjectConfig = {
   ...DEFAULTS,
   review: {
     ...DEFAULTS.review,
-    gates: { ...DEFAULTS.review.gates, check_test_adequacy: { enabled: true, blocking: true, params: {} } },
+    gates: { ...DEFAULTS.review.gates, check_integration_suite: { enabled: true, blocking: true, params: {} } },
   },
 };
 
@@ -127,12 +127,12 @@ const SettledView = z.object({
 type Settled = z.infer<typeof SettledView>;
 
 /** The rows of a plan: each task is ready and off the boundary, at the given tier. */
-function planRows(taskIds: readonly string[], riskTier: 'low' | 'medium'): Record<string, unknown>[] {
+function planRows(taskIds: readonly string[], riskTier: 'low' | 'medium' | 'high'): Record<string, unknown>[] {
   return taskIds.map((id) => ({ id, title: id, status: 'pending', blockedBy: [], riskTier, boundaryTouching: false }));
 }
 
 /** A feature workflow in `delegate` with the given ready tasks, as rows of the event store only. */
-async function seed(taskIds: readonly string[], riskTier: 'low' | 'medium'): Promise<void> {
+async function seed(taskIds: readonly string[], riskTier: 'low' | 'medium' | 'high'): Promise<void> {
   await eventStore.append(STREAM, { type: 'workflow.started', data: { featureId: STREAM, workflowType: 'feature' } });
   await eventStore.append(STREAM, { type: 'workflow.transition', data: { from: 'plan-review', to: 'delegate' } });
   await eventStore.append(STREAM, {
@@ -219,23 +219,23 @@ describe('settle runs the segments under the config of the checkout', () => {
   }, CASE_TIMEOUT_MS);
 
   /**
-   * The checkout config disables the kill probe of a medium-tier task, and the config of the server keeps it enabled and blocking.
-   * The segment skips the kill probe, and the trace names the skip as `disabled-by-config`. The task completes on its static-analysis pass.
+   * The checkout config disables the integration suite of a high-tier task, and the config of the server keeps it enabled and blocking.
+   * The segment skips the suite, and the trace names the skip as `disabled-by-config`. The task completes on its static-analysis pass.
    */
   it('SettleConfig_AGateThatTheCheckoutDisables_IsSkippedAndTheTraceNamesDisabledByConfig', async () => {
     await writeCheckoutConfig(DISABLING_CONFIG);
-    await seed(['task-a'], 'medium');
+    await seed(['task-a'], 'high');
     const server = agentContext(SERVER_CONFIG);
     const capsuleVersion = await prepare(server);
     const worktree = await repository.worktreeFor('task-a');
 
-    const settled = settledOf(await settleCall(capsuleVersion, 'batch-disabled-kill-probe', [claimOn('task-a', worktree)], server));
+    const settled = settledOf(await settleCall(capsuleVersion, 'batch-disabled-integration-suite', [claimOn('task-a', worktree)], server));
     expect(settled.outcome).toBe('settled');
     expect(settled.acceptedTasks).toEqual(['task-a']);
     const [trace] = settled.verification ?? [];
     expect(trace?.outcome).toBe('verified');
     expect((trace?.qualifiers ?? []).map((qualifier) => [qualifier.gate, qualifier.mark, qualifier.discriminant])).toEqual([
-      ['test-adequacy', 'skipped', 'disabled-by-config'],
+      ['integration-suite', 'skipped', 'disabled-by-config'],
     ]);
     expect(await completedTasks()).toEqual(['task-a']);
   }, CASE_TIMEOUT_MS);

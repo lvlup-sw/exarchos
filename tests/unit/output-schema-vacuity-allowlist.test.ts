@@ -290,6 +290,7 @@ describe('DR-4: outputSchema vacuity is unconstructible', () => {
       'exarchos_event.describe',
       'exarchos_event.query',
       'exarchos_orchestrate.check_invariant_conformance',
+      'exarchos_orchestrate.check_test_adequacy',
       'exarchos_orchestrate.cutover_decide',
       'exarchos_orchestrate.cutover_readiness',
       'exarchos_orchestrate.mutation-adequacy',
@@ -322,7 +323,10 @@ describe('DR-4: outputSchema vacuity is unconstructible', () => {
         expect(census.substantive).toContain(currentIdOf(id));
       }
     }
-    expect([...deletedIds].filter((id) => retiredIds.includes(id))).toEqual(['exarchos_orchestrate.mutation-adequacy']);
+    expect([...deletedIds].filter((id) => retiredIds.includes(id))).toEqual([
+      'exarchos_orchestrate.mutation-adequacy',
+      'exarchos_orchestrate.check_test_adequacy',
+    ]);
 
     const retirementShape = (entry: { owner: string; retiredAt: string }): boolean =>
       entry.owner.length > 0 && /^\d{4}-\d{2}-\d{2}$/.test(entry.retiredAt);
