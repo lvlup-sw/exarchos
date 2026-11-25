@@ -91,6 +91,23 @@ describe('packaged compiler 8-vcs activation', () => {
     });
   }, CASE_TIMEOUT_MS);
 
+  /**
+   * The harness does not land the task branch, so the integration tip does not contain the task head.
+   * The packaged settle accepts no task, names the verification-failed finding at the integration ref and runs no suite.
+   */
+  it('TypedActivation_UnmergedTaskHead_FailsVerificationWithNoSuiteRun', async () => {
+    await withActivation(async ({ f, env, args, suiteTips }) => {
+      const id = TASKS[0];
+      const settled = await f.cli(args, env);
+      expect(settled.exitCode, JSON.stringify(settled.envelope)).toBe(0);
+      const outcome = data(settled.envelope);
+      expect(outcome).toMatchObject({ acceptedTasks: [], unresolved: [{ taskId: id, cause: 'verification-failed' }],
+        findings: [{ kind: 'verification-failed', subject: id, at: 'settlementContract.integration.ref' }] });
+      expect(JSON.stringify(outcome)).toContain('does not contain the accepted head');
+      expect(await suiteTips()).toEqual([]);
+    });
+  }, CASE_TIMEOUT_MS);
+
   /** The integration checkout of the capsule scope holds another branch. The packaged settle refuses before any claim, row or suite run. */
   it('TypedActivation_WrongIntegrationCheckout_RefusesBeforeAnyClaim', async () => {
     await withActivation(async ({ f, env, args, suiteTips }) => {

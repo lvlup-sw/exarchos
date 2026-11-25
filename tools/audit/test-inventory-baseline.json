@@ -7,7 +7,7 @@
     "testFiles": 1498,
     "parsedFiles": 1454,
     "shellFiles": 44,
-    "cases": 16692,
+    "cases": 16693,
     "dynamicTitles": 333,
     "unparseableFiles": 0
   },
@@ -12055,6 +12055,11 @@
         {
           "suite": "packaged compiler 8-vcs activation",
           "name": "TypedActivation_FreshPrepareHarnessLandingAndSettle_AcceptsAtTheTip",
+          "dynamic": false
+        },
+        {
+          "suite": "packaged compiler 8-vcs activation",
+          "name": "TypedActivation_UnmergedTaskHead_FailsVerificationWithNoSuiteRun",
           "dynamic": false
         },
         {
