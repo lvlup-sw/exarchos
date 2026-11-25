@@ -1,0 +1,72 @@
+# The Buildkite pull request pipeline. The admission build in lvlup-sw/.github
+# reads this file from the tip of main, never from the pull request, checks it
+# against ci/policy.json, and runs these steps on the tested merge after the
+# mandatory suites. A change here takes effect for other PRs once it merges.
+#
+# Each step runs scripts/ci/pr-lane.sh, which checks the toolchain, installs
+# from the lockfile, and runs `npm run ci:pr:<suite>` (tools/ci/pr-lane.mjs).
+#
+# The image carries Node 22, Bun and npm 11. Its Bun must equal .bun-version:
+# publish the new image and bump this digest before a .bun-version change.
+image: ghcr.io/lvlup-sw/ci-worker-exarchos-validation:af3e095@sha256:18abd2d572246e3dfcc15d2d71a0ee21deb31ca9ad1c39767a1b2546e079f7a9
+
+steps:
+  - label: ":typescript: Static"
+    key: static
+    command: scripts/ci/pr-lane.sh static
+    agents:
+      queue: pr-small
+    timeout_in_minutes: 30
+    retry:
+      automatic:
+        - exit_status: -1
+          limit: 1
+        - signal_reason: agent_stop
+          limit: 1
+        - signal_reason: stack_error
+          limit: 1
+        - signal_reason: agent_refused
+          limit: 1
+
+  # Any changed path selects the tests, except the paths below that no test
+  # reads. A path that no rule names is an unknown dependency, so it selects
+  # the tests too.
+  - label: ":vitest: Tests"
+    key: tests
+    command: scripts/ci/pr-lane.sh tests
+    agents:
+      queue: pr-large
+    timeout_in_minutes: 45
+    if_changed:
+      include:
+        - "**"
+      exclude:
+        - ".coderabbit.yaml"
+        - ".cursor/environment.json"
+        - ".github/DISCUSSION_TEMPLATE/**"
+        - ".github/ISSUE_TEMPLATE/**"
+        - ".github/PULL_REQUEST_TEMPLATE.md"
+        - ".github/cliff.toml"
+        - ".github/labels.yml"
+        - ".github/workflow-hygiene.toml"
+        - ".impeccable.md"
+        - "CHANGELOG.md"
+        - "LICENSE"
+        - "LICENSE.md"
+        - "ONBOARDING.md"
+        - "README.md"
+        - "SECURITY.md"
+        - "agent-principles.md"
+        - "docs/phase-gate-taxonomy.html"
+        - "docs/system-design.html"
+        - "exarchos-logo.svg"
+    retry:
+      automatic:
+        - exit_status: -1
+          limit: 1
+        - signal_reason: agent_stop
+          limit: 1
+        - signal_reason: stack_error
+          limit: 1
+        - signal_reason: agent_refused
+          limit: 1

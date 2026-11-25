@@ -16,3 +16,7 @@ tests/ @reedsalus
 
 # Policy data, including the comment policy and its exemptions
 .exarchos/ @reedsalus
+
+# The Buildkite pull request pipeline and the scripts it runs: the gate itself
+.buildkite/ @reedsalus
+scripts/ci/ @reedsalus
