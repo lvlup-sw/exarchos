@@ -72,13 +72,11 @@ const ReviewConfig = z.object({
 }).strict().transform(withoutRetiredMutationReview);
 
 /**
- * The retired `vcs` block. No code reads it, because Exarchos builds no VCS provider. The schema still
- * accepts it, so an existing `.exarchos.yml` keeps loading, and the full parse removes it.
+ * The retired `vcs` block. No code reads it, because Exarchos builds no VCS provider. The schema accepts
+ * any value, so an existing `.exarchos.yml` keeps loading, and the full parse removes it.
+ * A stale provider or an unknown sub-key thus gives only the migration finding and never a failed full parse.
  */
-const VcsConfig = z.object({
-  provider: z.enum(['github', 'gitlab', 'azure-devops']).optional(),
-  settings: z.record(z.string(), z.unknown()).optional(),
-}).strict();
+const VcsConfig = z.unknown();
 
 const PhaseConfig = z.object({
   'human-checkpoint': z.boolean().optional(),

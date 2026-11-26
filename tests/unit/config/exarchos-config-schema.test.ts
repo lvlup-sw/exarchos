@@ -343,6 +343,21 @@ describe('FullExarchosConfigSchema — retired vcs key', () => {
     ]);
     expect(collectConfigDeprecations({ tools: { 'default-branch': 'main' } })).toEqual([]);
   });
+
+  /** Nothing reads the key, so any value of it parses. A stale provider or an unknown sub-key gives only the migration finding. */
+  it.each([
+    ['a provider that the old enum did not hold', { provider: 'bitbucket' }],
+    ['an unknown sub-key', { provider: 'github', token: 'x' }],
+    ['a scalar', 'github'],
+  ])('RetiredVcsKey_WithAnyValue_StillParses_%s', (_label, vcs) => {
+    const document = { vcs, tools: { 'default-branch': 'main' } };
+
+    const result = FullExarchosConfigSchema.safeParse(document);
+
+    expect(result.success).toBe(true);
+    if (result.success) expect('vcs' in result.data).toBe(false);
+    expect(collectConfigDeprecations(document).map((finding) => finding.code)).toEqual([VCS_KEY_RETIRED_CODE]);
+  });
 });
 
 /**

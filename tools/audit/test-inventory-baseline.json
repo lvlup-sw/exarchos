@@ -7,8 +7,8 @@
     "testFiles": 1407,
     "parsedFiles": 1363,
     "shellFiles": 44,
-    "cases": 15732,
-    "dynamicTitles": 316,
+    "cases": 15735,
+    "dynamicTitles": 317,
     "unparseableFiles": 0
   },
   "unparseable": [],
@@ -20059,6 +20059,16 @@
           "dynamic": false
         },
         {
+          "suite": "FullExarchosConfigSchema — retired vcs key",
+          "name": "RetiredVcsKey_WithAnyValue_StillParses_%s",
+          "dynamic": false
+        },
+        {
+          "suite": "FullExarchosConfigSchema — retired vcs key",
+          "name": "<dynamic-case-1>",
+          "dynamic": true
+        },
+        {
           "suite": "ExarchosConfigSchema — invariants.devCatalog retirement (DR-31 / T-43)",
           "name": "ExarchosConfig_DevCatalogRemoved_EffectiveCatalogUnchanged",
           "dynamic": false
@@ -21585,7 +21595,7 @@
         },
         {
           "suite": "ProjectConfigSchema",
-          "name": "ProjectConfigSchema_VcsProvider_ValidatesEnum",
+          "name": "ProjectConfigSchema_RetiredVcsKey_AcceptsAnyValue",
           "dynamic": false
         },
         {
@@ -21721,6 +21731,11 @@
         {
           "suite": "ProjectConfigSchema > default .exarchos.yml",
           "name": "FullExarchosConfigSchema_TypoTopLevelKey_StillRejected",
+          "dynamic": false
+        },
+        {
+          "suite": "ProjectConfigSchema > verification section",
+          "name": "ProjectConfigSchema_VerificationRetiredGateName_RemovedFromParsedCell",
           "dynamic": false
         },
         {
