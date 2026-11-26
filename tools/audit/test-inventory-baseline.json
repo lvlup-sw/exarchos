@@ -7,7 +7,7 @@
     "testFiles": 1407,
     "parsedFiles": 1363,
     "shellFiles": 44,
-    "cases": 15708,
+    "cases": 15710,
     "dynamicTitles": 316,
     "unparseableFiles": 0
   },
@@ -20054,6 +20054,11 @@
           "dynamic": false
         },
         {
+          "suite": "FullExarchosConfigSchema — retired vcs key",
+          "name": "RetiredVcsKey_StillParses_IsRemoved_AndGetsAMigrationFinding",
+          "dynamic": false
+        },
+        {
           "suite": "ExarchosConfigSchema — invariants.devCatalog retirement (DR-31 / T-43)",
           "name": "ExarchosConfig_DevCatalogRemoved_EffectiveCatalogUnchanged",
           "dynamic": false
@@ -20323,7 +20328,7 @@
         },
         {
           "suite": "resolveConfig",
-          "name": "resolveConfig_VcsProvider_OverridesDefault",
+          "name": "resolveConfig_RetiredVcsKey_GivesNoResolvedField",
           "dynamic": false
         },
         {
@@ -21470,6 +21475,11 @@
         {
           "suite": "loadProjectConfig",
           "name": "loadProjectConfig_YamlExtension_Loaded",
+          "dynamic": false
+        },
+        {
+          "suite": "loadProjectConfig",
+          "name": "loadProjectConfig_RetiredVcsKey_LoadsAndIsRemoved",
           "dynamic": false
         },
         {
@@ -71793,7 +71803,7 @@
         },
         {
           "suite": "buildConfigDescription",
-          "name": "DescribeConfig_VcsOverride_ShowsSource",
+          "name": "DescribeConfig_RetiredVcsKey_GivesNoSection",
           "dynamic": false
         },
         {

@@ -79,6 +79,9 @@ export const MUTATION_REVIEW_RETIRED_CODE = 'RETIRED_MUTATION_REVIEW';
 /** The name of the retired mutation review. No producer writes it, so a setting that names it has no effect. */
 export const RETIRED_MUTATION_REVIEW = 'mutation-adequacy';
 
+/** Stable machine-readable code for the retired `vcs` key. */
+export const VCS_KEY_RETIRED_CODE = 'RETIRED_VCS_KEY';
+
 /**
  * A typed `.exarchos.yml` deprecation. A consumer can branch on `code` and show `replacement` as an edit, with no match on prose.
  */
@@ -115,8 +118,19 @@ export interface MutationReviewDeprecation {
   readonly message: string;
 }
 
+/**
+ * A migration finding for the top-level `vcs` key. Exarchos reads and writes no pull request and builds no
+ * VCS provider, so no code reads the key. The loader removes it and has no replacement for it.
+ */
+export interface VcsKeyDeprecation {
+  readonly code: typeof VCS_KEY_RETIRED_CODE;
+  readonly key: 'vcs';
+  readonly replacement: null;
+  readonly message: string;
+}
+
 /** One typed `.exarchos.yml` deprecation. The loader reports it and removes the key from the parsed config. */
-export type ConfigDeprecation = DevCatalogDeprecation | MutationCommandDeprecation | MutationReviewDeprecation;
+export type ConfigDeprecation = DevCatalogDeprecation | MutationCommandDeprecation | MutationReviewDeprecation | VcsKeyDeprecation;
 
 /** True when `value` is a plain object, not null and not an array. */
 function isPlainRecord(value: unknown): value is Record<string, unknown> {
@@ -199,6 +213,29 @@ export function withoutRetiredRequiredReview<T extends { readonly 'required-revi
   return { ...block, 'required-reviews': required.filter((name) => name !== RETIRED_MUTATION_REVIEW) };
 }
 
+/** Collects the finding for the retired top-level `vcs` key, if the document holds it. */
+function collectVcsKeyFindings(document: Record<string, unknown>): VcsKeyDeprecation[] {
+  if (!('vcs' in document)) return [];
+  return [
+    {
+      code: VCS_KEY_RETIRED_CODE,
+      key: 'vcs',
+      replacement: null,
+      message:
+        '`vcs` is retired. Exarchos reads and writes no pull request, so the loader ignores the key. ' +
+        'Delete the key from .exarchos.yml.',
+    },
+  ];
+}
+
+/**
+ * Removes the retired `vcs` key from a parsed document. The schema still accepts the key, so an existing `.exarchos.yml` keeps loading.
+ */
+export function withoutRetiredVcsKey<T extends { readonly vcs?: unknown }>(document: T): Omit<T, 'vcs'> {
+  const { vcs, ...rest } = document;
+  return rest;
+}
+
 /**
  * Removes the retired `mutation` key from a parsed block. The schema still accepts the key, so an existing `.exarchos.yml` keeps loading.
  */
@@ -211,12 +248,17 @@ export function withoutRetiredMutationCommand<T extends { readonly mutation?: un
 
 /**
  * Collects typed deprecations from a raw `.exarchos.yml` document.
- * It must run before the parse, because the schema removes `invariants.devCatalog` and each `mutation` key.
+ * It must run before the parse, because the schema removes `invariants.devCatalog`, each `mutation` key and the `vcs` key.
  * It is a diagnostic, not a validator. It returns `[]` for malformed input and for a document with no deprecated key.
  */
 export function collectConfigDeprecations(document: unknown): ConfigDeprecation[] {
   if (!isPlainRecord(document)) return [];
-  return [...collectDevCatalogFindings(document), ...collectMutationCommandFindings(document), ...collectMutationReviewFindings(document)];
+  return [
+    ...collectDevCatalogFindings(document),
+    ...collectMutationCommandFindings(document),
+    ...collectMutationReviewFindings(document),
+    ...collectVcsKeyFindings(document),
+  ];
 }
 
 /** Collects the finding for the retired `invariants.devCatalog` key, if the document holds it. */

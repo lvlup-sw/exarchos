@@ -7,7 +7,7 @@ describe('buildConfigDescription', () => {
     const result = buildConfigDescription(DEFAULTS);
     expect(result.review.dimensions.D1.value).toBe('blocking');
     expect(result.review.dimensions.D1.source).toBe('default');
-    expect(result.vcs.provider.source).toBe('default');
+    expect('vcs' in result).toBe(false);
   });
 
   it('DescribeConfig_WithOverrides_SourceAnnotated', () => {
@@ -39,12 +39,12 @@ describe('buildConfigDescription', () => {
     expect(result.review.gates['tdd-compliance'].blocking.source).toBe('.exarchos.yml');
   });
 
-  it('DescribeConfig_VcsOverride_ShowsSource', () => {
+  /** The retired `vcs` key gives no description section. */
+  it('DescribeConfig_RetiredVcsKey_GivesNoSection', () => {
     const config = resolveConfig({ vcs: { provider: 'gitlab' } });
     const result = buildConfigDescription(config);
 
-    expect(result.vcs.provider.value).toBe('gitlab');
-    expect(result.vcs.provider.source).toBe('.exarchos.yml');
+    expect('vcs' in result).toBe(false);
   });
 
   it('DescribeConfig_ToolsDefaults_AllDefault', () => {
