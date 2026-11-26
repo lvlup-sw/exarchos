@@ -3,6 +3,7 @@ import {
   INTERNAL_CANCELLATION_EVENT_TYPES,
   INTERNAL_EXECUTION_LEDGER_EVENT_TYPES,
   INTERNAL_GATE_SIGNAL_EVENT_TYPES,
+  INTERNAL_PRUNE_EVENT_TYPES,
   INTERNAL_VCS_LEDGER_EVENT_TYPES,
 } from '../events/schemas.js';
 import type { SupportedGateClass } from '../verbs/gates/gate-provider-registry.js';
@@ -113,6 +114,19 @@ const GATE_SIGNAL_APPEND_GUIDANCE =
 
 const GATE_SIGNAL_TYPES: ReadonlySet<string> = new Set(INTERNAL_GATE_SIGNAL_EVENT_TYPES);
 
+/** The refusal guidance of a prune record. Only a prune run writes the record, so the caller runs prune instead. */
+const PRUNE_RECORD_APPEND_GUIDANCE =
+  'Run exarchos_orchestrate prune_stale_workflows with dryRun true. The prune handler records this row.';
+
+const PRUNE_RECORD_TYPES: ReadonlySet<string> = new Set(INTERNAL_PRUNE_EVENT_TYPES);
+
+/** Returns the refusal guidance of a reserved type, or `undefined` when the type has none. */
+function appendGuidanceOf(eventType: string): string | undefined {
+  if (GATE_SIGNAL_TYPES.has(eventType)) return GATE_SIGNAL_APPEND_GUIDANCE;
+  if (PRUNE_RECORD_TYPES.has(eventType)) return PRUNE_RECORD_APPEND_GUIDANCE;
+  return undefined;
+}
+
 /**
  * The server-owned catalog of reserved admission event types. It controls which untrusted write
  * surfaces can mint a fact. `EVENT_EMISSION_REGISTRY` is separate, and it classifies replay and
@@ -131,14 +145,16 @@ export const RESERVED_EVENT_APPEND_REGISTRY: ReadonlyMap<
     ...INTERNAL_VCS_LEDGER_EVENT_TYPES,
     ...INTERNAL_EXECUTION_LEDGER_EVENT_TYPES,
     ...INTERNAL_GATE_SIGNAL_EVENT_TYPES,
+    ...INTERNAL_PRUNE_EVENT_TYPES,
   ].map((eventType) => {
     const typedHandler = TYPED_APPEND_HANDLERS.get(eventType);
+    const guidance = appendGuidanceOf(eventType);
     return [
       eventType,
       {
         eventType,
         ...(typedHandler !== undefined ? { typedHandler } : {}),
-        ...(GATE_SIGNAL_TYPES.has(eventType) ? { guidance: GATE_SIGNAL_APPEND_GUIDANCE } : {}),
+        ...(guidance !== undefined ? { guidance } : {}),
       },
     ];
   }),

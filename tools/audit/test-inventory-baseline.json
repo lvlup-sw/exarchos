@@ -7,7 +7,7 @@
     "testFiles": 1407,
     "parsedFiles": 1363,
     "shellFiles": 44,
-    "cases": 15731,
+    "cases": 15732,
     "dynamicTitles": 316,
     "unparseableFiles": 0
   },
@@ -66457,6 +66457,11 @@
           "suite": "handlePruneStaleWorkflows",
           "name": "<dynamic-case-1>",
           "dynamic": true
+        },
+        {
+          "suite": "handlePruneStaleWorkflows",
+          "name": "handlePrune_AMarkedRecordAppendedThroughEventAppend_DoesNotOpenTheGuard",
+          "dynamic": false
         },
         {
           "suite": "handlePruneStaleWorkflows",

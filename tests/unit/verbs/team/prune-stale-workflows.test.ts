@@ -10,6 +10,9 @@ import {
 import { orchestrateLogger } from '../../../../src/logger.js';
 import type { ToolResult } from '../../../../src/format.js';
 import type { Topology } from '../../../../src/workflow/topology/phase-contract.js';
+import { EventStore } from '../../../../src/events/store.js';
+import { handleEventAppend } from '../../../../src/events/tools.js';
+import { makeTempDir, rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
 
 /**
  * The handler suite never loads a real topology file. It mocks the loader to
@@ -1829,6 +1832,50 @@ describe('handlePruneStaleWorkflows', () => {
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe('DRY_RUN_REQUIRED');
     expect(deps.cancelSpy).not.toHaveBeenCalled();
+  });
+
+  /**
+   * Only the prune handler writes a prune record. A marked record that a caller appends through the generic
+   * event append is refused, so it cannot open the guard. A real dry run through the handler then opens it.
+   */
+  it('handlePrune_AMarkedRecordAppendedThroughEventAppend_DoesNotOpenTheGuard', async () => {
+    const stateDir = makeTempDir('prune-forged-dry-run-');
+    try {
+      const eventStore = new EventStore(stateDir);
+      const ctx = {
+        eventStore,
+        projectConfig: {
+          prune: { maxBatchSize: 25, phaseExclusions: [], malformedHandling: 'report' as const, requireDryRun: true },
+        },
+      } as unknown as Parameters<typeof handlePruneStaleWorkflows>[2];
+      const deps = makeDeps({ clock: () => new Date() });
+      deps.listSpy.mockResolvedValue(makeListResult([{ featureId: 'a', lastActivityTimestamp: staleIso(30_000) }]));
+
+      const forged = await handleEventAppend(
+        {
+          stream: '_prune',
+          event: { type: 'prune.diagnostics', data: { malformedCount: 0, candidateCount: 1, malformedEntries: [], dryRun: true } },
+        },
+        stateDir,
+        eventStore,
+      );
+      const refused = await handlePruneStaleWorkflows({ dryRun: false }, stateDir, ctx, deps);
+
+      expect(forged.success).toBe(false);
+      expect(forged.error?.code).toBe('RESERVED_EVENT_TYPE');
+      expect(await eventStore.query('_prune')).toEqual([]);
+      expect(refused.success).toBe(false);
+      expect(refused.error?.code).toBe('DRY_RUN_REQUIRED');
+      expect(deps.cancelSpy).not.toHaveBeenCalled();
+
+      await handlePruneStaleWorkflows({ dryRun: true }, stateDir, ctx, deps);
+      const admitted = await handlePruneStaleWorkflows({ dryRun: false }, stateDir, ctx, deps);
+
+      expect(admitted.success).toBe(true);
+      expect(deps.cancelSpy).toHaveBeenCalledTimes(1);
+    } finally {
+      await rmrfAsync(stateDir);
+    }
   });
 
   /** The guard reads only the records of the window that ends at the clock, so the read does not grow with each run. */

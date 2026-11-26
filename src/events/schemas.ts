@@ -128,6 +128,13 @@ export const INTERNAL_EXECUTION_LEDGER_EVENT_TYPES: readonly [
 export const INTERNAL_GATE_SIGNAL_EVENT_TYPES: readonly ['gate.executed'] = ['gate.executed'];
 
 /**
+ * Server-owned prune records. The prune handler writes `prune.diagnostics` through the store.
+ * The `requireDryRun` guard reads a record that a dry run marked as proof of that dry run.
+ * A generic append of it can open the guard with no dry run. The type is already in `EventTypes`, so this list only reserves it.
+ */
+export const INTERNAL_PRUNE_EVENT_TYPES: readonly ['prune.diagnostics'] = ['prune.diagnostics'];
+
+/**
  * The event types that settlement reads as inputs of its verdict. A generic append of one of them
  * can fake a verdict, so each one must be in the reserved append registry. A test holds that rule.
  * An evidence citation resolves only to an `admission.evidence-recorded` gate row. `task_complete`
