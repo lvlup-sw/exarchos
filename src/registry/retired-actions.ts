@@ -34,9 +34,9 @@ const PROVIDER_READ_MESSAGE =
 const WORKTREE_PROVISIONING_MESSAGE =
   'Exarchos retires worktree provisioning. The harness creates task worktrees and removes them from disk with its own tools.';
 
-/** The one message of a retired local merge action. It names the harness as the owner of the landing and the merge.executed row as its record. */
+/** The one message of a retired local merge action. It names the harness as the owner of the landing and settle as its observer. */
 const MERGE_LANDING_MESSAGE =
-  'Exarchos retires local merges. The harness lands the task branch on the integration branch with its own tools, and the coordinator records that landing with a merge.executed event.';
+  'Exarchos retires local merges. The harness lands the accepted head on the integration branch with its own tools. Settle observes the landing by ancestry.';
 
 /** The closed table. Each row names one pair of tool and action, and no registered action is in it. */
 export const RETIRED_ACTIONS: readonly RetiredAction[] = Object.freeze([

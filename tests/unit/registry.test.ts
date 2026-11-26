@@ -3744,8 +3744,8 @@ describe('the closed retired-action table', () => {
     expect(new Set(RETIRED_ACTIONS.filter((entry) => entry.action !== 'mutation-adequacy' && entry.action !== 'check_test_adequacy').map((entry) => entry.code))).toEqual(new Set(['PROVIDER_WRITE_RETIRED', 'PROVIDER_READ_RETIRED']));
     expect(RETIRED_ACTIONS.filter((entry) => entry.code === 'PROVIDER_WRITE_RETIRED').map((entry) => entry.action)).toEqual(['create_pr', 'merge_pr', 'add_pr_comment', 'create_issue', 'setup_worktree', 'prune_worktrees', 'merge_orchestrate', 'serialize_merge', 'acquire_worktree', 'release_worktree', 'reconcile_worktrees']);
     expect(RETIRED_ACTIONS.filter((entry) => entry.action === 'merge_orchestrate' || entry.action === 'serialize_merge').map((entry) => entry.message)).toEqual([
-      'Exarchos retires local merges. The harness lands the task branch on the integration branch with its own tools, and the coordinator records that landing with a merge.executed event.',
-      'Exarchos retires local merges. The harness lands the task branch on the integration branch with its own tools, and the coordinator records that landing with a merge.executed event.',
+      'Exarchos retires local merges. The harness lands the accepted head on the integration branch with its own tools. Settle observes the landing by ancestry.',
+      'Exarchos retires local merges. The harness lands the accepted head on the integration branch with its own tools. Settle observes the landing by ancestry.',
     ]);
     expect(RETIRED_ACTIONS.filter((entry) => entry.topLevel !== undefined).map((entry) => [entry.action, entry.topLevel])).toEqual([['merge_orchestrate', 'merge-orchestrate']]);
     expect(RETIRED_ACTIONS.filter((entry) => ['setup_worktree', 'prune_worktrees', 'acquire_worktree', 'release_worktree', 'reconcile_worktrees'].includes(entry.action)).map((entry) => entry.message)).toEqual(

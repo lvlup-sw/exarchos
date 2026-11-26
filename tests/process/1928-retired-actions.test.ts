@@ -81,7 +81,7 @@ const MERGE_LANDING_REFUSAL = {
   success: false,
   error: {
     code: 'PROVIDER_WRITE_RETIRED',
-    message: 'Exarchos retires local merges. The harness lands the task branch on the integration branch with its own tools, and the coordinator records that landing with a merge.executed event.',
+    message: 'Exarchos retires local merges. The harness lands the accepted head on the integration branch with its own tools. Settle observes the landing by ancestry.',
   },
 };
 
