@@ -26,13 +26,10 @@ const SOURCE_ROOT = join(process.cwd(), 'src');
  * The definite faults. Each append is inside the area of a provider that the annotation does not
  * name, so one of the two claims is false.
  *
- * The list must only shrink. The event is a worktree lifecycle event with the provider
- * `exarchos_orchestrate` (`verbs/`). The saga compensation path in `workflow/` appends it, and
- * `exarchos_workflow` owns that area.
+ * The list must only shrink. It is empty, because the ledger-only cancel compensation no longer
+ * appends `worktree.adopted` in `workflow/`.
  */
-const MEASURED_CONTRADICTIONS: readonly string[] = Object.freeze([
-  'worktree.adopted -> workflow/compensation.ts (owned by exarchos_workflow)',
-]);
+const MEASURED_CONTRADICTIONS: readonly string[] = Object.freeze([]);
 
 /**
  * The structural gap. Each append is in an area that no provider owns, so no annotation over the
@@ -81,11 +78,11 @@ describe('provider-area audit', () => {
     );
 
     expect(census.scannedModuleCount, 'the scan read no modules').toBeGreaterThan(500);
-    expect(census.modulesByEvent.size, 'the scan resolved no append sites').toBeGreaterThan(50);
+    expect(census.modulesByEvent.size, 'the scan resolved no append sites').toBeGreaterThan(46);
 
     const audit = auditProviderAreas(census);
     expect(audit.subjectCount, 'no capability registration was assessed').toBeGreaterThan(40);
-    expect(audit.measuredCount, 'no subject had a measured append site').toBeGreaterThan(21);
+    expect(audit.measuredCount, 'no subject had a measured append site').toBeGreaterThan(19);
 
     expect(
       audit.contradictions

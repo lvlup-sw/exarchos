@@ -60,7 +60,7 @@ export const MULTI_PRIMARY_OWNER_CODE = 'MULTI_PRIMARY_OWNER';
  * declared emission edge. It is a floor with the same ratchet rule as
  * {@link EMISSION_DENOMINATOR_FLOOR}. Each new event type with a declared edge adds one.
  */
-export const PRIMARY_OWNER_POPULATION_FLOOR = 55;
+export const PRIMARY_OWNER_POPULATION_FLOOR = 51;
 
 /**
  * The measured size of the set that the provider comparison ranges over: declared emission edges
@@ -69,7 +69,7 @@ export const PRIMARY_OWNER_POPULATION_FLOOR = 55;
  * while every non-empty check still passes. A lower floor must be a deliberate, reviewed edit.
  * It is a constant, not a parameter, so no caller can relax it to zero.
  */
-export const EMISSION_DENOMINATOR_FLOOR = 43;
+export const EMISSION_DENOMINATOR_FLOOR = 42;
 
 /**
  * How the weld reference of one tier is resolved. For `boot`, `authority` names the live registry

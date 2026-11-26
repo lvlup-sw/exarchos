@@ -1,17 +1,17 @@
 {
   "totals": {
-    "emissionEdges": 89,
-    "edgesCarryingRole": 89,
-    "edgesCarryingOwner": 89,
-    "distinctEventsWithEdges": 55,
+    "emissionEdges": 85,
+    "edgesCarryingRole": 85,
+    "edgesCarryingOwner": 85,
+    "distinctEventsWithEdges": 51,
     "distinctOwners": 3,
     "registeredEvents": 186,
     "moduleEmitterRows": 22
   },
   "keys": {
     "per-event-type/primary-edges": {
-      "populationSize": 55,
-      "satisfyingCount": 46,
+      "populationSize": 51,
+      "satisfyingCount": 42,
       "zeroPrimaryCount": 0,
       "unownedPrimaryCount": 0,
       "multiPrimaryCount": 9,
@@ -162,8 +162,6 @@
       "satisfyingKeys": [
         "admission.enforcement-enabled",
         "admission.rollout-decision",
-        "branch.delete.executed",
-        "branch.delete.requested",
         "capsule.recompiled",
         "catalog.registered",
         "design.revised",
@@ -203,8 +201,6 @@
         "worktree.adopted",
         "worktree.merge_executed",
         "worktree.orphan_detected",
-        "worktree.remove.executed",
-        "worktree.remove.requested",
         "worktree.reserved"
       ],
       "arms": {
@@ -217,8 +213,8 @@
       }
     },
     "per-event-type/primary-owners": {
-      "populationSize": 55,
-      "satisfyingCount": 55,
+      "populationSize": 51,
+      "satisfyingCount": 51,
       "zeroPrimaryCount": 0,
       "unownedPrimaryCount": 0,
       "multiPrimaryCount": 0,
@@ -229,8 +225,6 @@
         "admission.enforcement-enabled",
         "admission.evidence-recorded",
         "admission.rollout-decision",
-        "branch.delete.executed",
-        "branch.delete.requested",
         "capsule.recompiled",
         "catalog.registered",
         "design.revised",
@@ -278,8 +272,6 @@
         "worktree.merge_executed",
         "worktree.orphan_detected",
         "worktree.released",
-        "worktree.remove.executed",
-        "worktree.remove.requested",
         "worktree.reserved"
       ],
       "arms": {
@@ -292,8 +284,8 @@
       }
     },
     "per-emission-site/primary-edges": {
-      "populationSize": 89,
-      "satisfyingCount": 86,
+      "populationSize": 85,
+      "satisfyingCount": 82,
       "zeroPrimaryCount": 3,
       "unownedPrimaryCount": 0,
       "multiPrimaryCount": 0,
@@ -338,8 +330,6 @@
         "admission.evidence-recorded@exarchos_orchestrate.check_mock_boundary",
         "admission.evidence-recorded@exarchos_orchestrate.check_static_analysis",
         "admission.rollout-decision@exarchos_orchestrate.cutover_decide",
-        "branch.delete.executed@exarchos_workflow.cancel",
-        "branch.delete.requested@exarchos_workflow.cancel",
         "capsule.recompiled@exarchos_orchestrate.prepare",
         "catalog.registered@exarchos_orchestrate.invariants_add",
         "design.revised@exarchos_orchestrate.settle",
@@ -415,8 +405,6 @@
         "worktree.orphan_detected@exarchos_orchestrate.reconcile_worktrees",
         "worktree.released@exarchos_orchestrate.reconcile_worktrees",
         "worktree.released@exarchos_orchestrate.release_worktree",
-        "worktree.remove.executed@exarchos_workflow.cancel",
-        "worktree.remove.requested@exarchos_workflow.cancel",
         "worktree.reserved@exarchos_orchestrate.acquire_worktree"
       ],
       "arms": {
@@ -429,8 +417,8 @@
       }
     },
     "per-event-and-tool/primary-owners": {
-      "populationSize": 58,
-      "satisfyingCount": 58,
+      "populationSize": 54,
+      "satisfyingCount": 54,
       "zeroPrimaryCount": 0,
       "unownedPrimaryCount": 0,
       "multiPrimaryCount": 0,
@@ -441,8 +429,6 @@
         "admission.enforcement-enabled@exarchos_orchestrate",
         "admission.evidence-recorded@exarchos_orchestrate",
         "admission.rollout-decision@exarchos_orchestrate",
-        "branch.delete.executed@exarchos_workflow",
-        "branch.delete.requested@exarchos_workflow",
         "capsule.recompiled@exarchos_orchestrate",
         "catalog.registered@exarchos_orchestrate",
         "design.revised@exarchos_orchestrate",
@@ -493,8 +479,6 @@
         "worktree.merge_executed@exarchos_orchestrate",
         "worktree.orphan_detected@exarchos_orchestrate",
         "worktree.released@exarchos_orchestrate",
-        "worktree.remove.executed@exarchos_workflow",
-        "worktree.remove.requested@exarchos_workflow",
         "worktree.reserved@exarchos_orchestrate"
       ],
       "arms": {
@@ -510,7 +494,7 @@
   "perTier": [
     {
       "tier": "capability",
-      "eventCount": 18,
+      "eventCount": 17,
       "events": [
         "admission.enforcement-enabled",
         "admission.evidence-recorded",
@@ -528,7 +512,6 @@
         "worktree.merge_executed",
         "worktree.orphan_detected",
         "worktree.released",
-        "worktree.remove.executed",
         "worktree.reserved"
       ],
       "zeroPrimaryEvents": [],
@@ -536,10 +519,8 @@
     },
     {
       "tier": "substrate",
-      "eventCount": 37,
+      "eventCount": 34,
       "events": [
-        "branch.delete.executed",
-        "branch.delete.requested",
         "capsule.recompiled",
         "catalog.registered",
         "design.revised",
@@ -573,8 +554,7 @@
         "workflow.pruned",
         "workflow.rehydrated",
         "workflow.started",
-        "workflow.transition",
-        "worktree.remove.requested"
+        "workflow.transition"
       ],
       "zeroPrimaryEvents": [],
       "multiPrimaryEventsByOwner": []
