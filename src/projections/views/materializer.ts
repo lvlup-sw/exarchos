@@ -9,6 +9,11 @@ export interface ViewProjection<T> {
   init(): T;
   /** Apply a single event to the current view state, returning the new state. */
   apply(view: T, event: WorkflowEvent): T;
+  /**
+   * Reads a persisted view state as the current fold reads it. The view cache and the snapshot store have no fold version.
+   * Thus a view whose fold changed uses this hook to correct a state that an older fold wrote.
+   */
+  fromSnapshot?(view: T): T;
 }
 
 interface ViewState<T = unknown> {
@@ -244,7 +249,7 @@ export class ViewMaterializer {
 
       const stateKey = `${viewName}:${streamId}`;
       this.states.set(stateKey, {
-        view: cached.state,
+        view: this.readSnapshotView(viewName, cached.state),
         highWaterMark: cached.highWaterMark,
       });
       this.lastSnapshotHwm.set(stateKey, cached.highWaterMark);
@@ -259,12 +264,18 @@ export class ViewMaterializer {
 
     const stateKey = `${viewName}:${streamId}`;
     this.states.set(stateKey, {
-      view: snapshot.view,
+      view: this.readSnapshotView(viewName, snapshot.view),
       highWaterMark: snapshot.highWaterMark,
     });
     this.lastSnapshotHwm.set(stateKey, snapshot.highWaterMark);
     this.evictIfNeeded();
     return true;
+  }
+
+  /** Passes a loaded view state through the `fromSnapshot` hook of the registered projection, when it has one. */
+  private readSnapshotView(viewName: string, view: unknown): unknown {
+    const projection = this.projections.get(viewName);
+    return projection?.fromSnapshot !== undefined ? projection.fromSnapshot(view) : view;
   }
 
   /**

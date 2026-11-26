@@ -474,10 +474,12 @@ function applyReviewEscalated(
 /**
  * The `rehydration@v1` reducer. An unknown event type returns `state` unchanged.
  * It maps `task.assigned`, `task.completed` and `task.failed` to the `TaskSchema.status` values `in_progress`, `complete` and `failed`.
+ * Version 2 starts when the merge substate is retired. A version 1 snapshot can hold a `merge-pending` phase that no later event moves.
+ * A snapshot read matches on the version, so the stream folds again from the start.
  */
 export const rehydrationReducer: ProjectionReducer<RehydrationDocument, WorkflowEvent> = {
   id: 'rehydration@v1',
-  version: 1,
+  version: 2,
   scope: 'stream' as const,
   initial: initialRehydrationDocument,
   apply(state: RehydrationDocument, event: WorkflowEvent): RehydrationDocument {

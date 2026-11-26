@@ -955,6 +955,7 @@ decisions:
       This removes the code of #1991 and #1992. A user definition with a MERGE step type no longer loads. INV-14 now references the delegate skill, so the invariant-catalog digest moves and the contract authority lock is re-approved in its own commit.
       The built-in golden, the transition corpus and the counts that derive from the feature machine drop the merge-pending cases.
       The state schema, the workflow-state fold, the rehydration reducer and the state-file read of resolveWorkflowState all read a feature phase through readStoredPhase. So a stored state or an in-flight log that ends in merge-pending reads as delegate, and prepare and settle accept it. A stored ideate reads as plan in the same way.
+      The rehydration reducer is version 2, so a version 1 snapshot that holds merge-pending is skipped and the stream folds again. The workflow-state view cache has no fold version, so its fromSnapshot hook reads a cached merge-pending phase as delegate.
     status: "Committed on codex/1928-s5-worktrees-merges-cancel."
 
   - date: "2026-11-25"

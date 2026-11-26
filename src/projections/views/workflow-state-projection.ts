@@ -971,4 +971,13 @@ export const workflowStateProjection: ViewProjection<WorkflowStateView> = {
       }
     }
   },
+
+  /**
+   * Reads a cached view as the current fold reads it. A view that an older fold cached can hold a retired feature phase.
+   * The phase reads as its replacement phase, as a folded transition reads. A view with a current phase returns unchanged.
+   */
+  fromSnapshot: (view: WorkflowStateView): WorkflowStateView => {
+    const phase = readStoredPhase(view.workflowType, view.phase);
+    return phase === view.phase ? view : { ...view, phase };
+  },
 };

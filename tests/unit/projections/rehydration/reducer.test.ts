@@ -60,7 +60,7 @@ describe('rehydration reducer — initial state (T022, DR-3)', () => {
 
   it('Rehydration_ReducerIdentity_IsCanonical', () => {
     expect(rehydrationReducer.id).toBe('rehydration@v1');
-    expect(rehydrationReducer.version).toBe(1);
+    expect(rehydrationReducer.version).toBe(2);
   });
 
   it('Rehydration_ApplyUnknownEvent_ReturnsStateUnchanged', () => {

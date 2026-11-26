@@ -19,6 +19,10 @@ import {
   type RehydrationDocument,
 } from '../../../src/projections/rehydration/schema.js';
 import '../../../src/projections/rehydration/index.js';
+import {
+  REHYDRATION_PROJECTION_ID,
+  REHYDRATION_PROJECTION_VERSION,
+} from '../../../src/projections/rehydration/identity.js';
 import { rmrfAsync } from '../../../tools/test-helpers/temp-dir.js';
 
 describe('shouldEnforceCheckpoint', () => {
@@ -198,8 +202,8 @@ describe('handleCheckpoint — materializes rehydration projection (T034, DR-6)'
 
     const latestSnapshot = store.getReadBackend().readLatestProjectionSnapshot(
       featureId,
-      'rehydration@v1',
-      '1',
+      REHYDRATION_PROJECTION_ID,
+      REHYDRATION_PROJECTION_VERSION,
     );
     const lines = latestSnapshot !== undefined
       ? [JSON.stringify(latestSnapshot)]
@@ -208,7 +212,7 @@ describe('handleCheckpoint — materializes rehydration projection (T034, DR-6)'
 
     const parsed = SnapshotRecord.parse(JSON.parse(lines[lines.length - 1]!));
     expect(parsed.projectionId).toBe('rehydration@v1');
-    expect(parsed.projectionVersion).toBe('1');
+    expect(parsed.projectionVersion).toBe(REHYDRATION_PROJECTION_VERSION);
 
     const doc = RehydrationDocumentSchema.parse(parsed.state) as RehydrationDocument;
 
@@ -266,8 +270,8 @@ describe('handleCheckpoint — materializes rehydration projection (T034, DR-6)'
 
     const latestSnapshot = store.getReadBackend().readLatestProjectionSnapshot(
       featureId,
-      'rehydration@v1',
-      '1',
+      REHYDRATION_PROJECTION_ID,
+      REHYDRATION_PROJECTION_VERSION,
     );
     const lines = latestSnapshot !== undefined
       ? [JSON.stringify(latestSnapshot)]
@@ -333,8 +337,8 @@ describe('handleCheckpoint — materializes rehydration projection (T034, DR-6)'
 
     const latestSnapshot = store.getReadBackend().readLatestProjectionSnapshot(
       featureId,
-      'rehydration@v1',
-      '1',
+      REHYDRATION_PROJECTION_ID,
+      REHYDRATION_PROJECTION_VERSION,
     );
     const lines = latestSnapshot !== undefined
       ? [JSON.stringify(latestSnapshot)]
