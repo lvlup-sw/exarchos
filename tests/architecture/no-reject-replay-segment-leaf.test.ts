@@ -1,7 +1,8 @@
 /**
  * No runbook step that the intent compiler can compile declares the replay kind `reject-replay`.
- * The executor keeps a replay-elision gate for that kind. While this test holds, no compiled leaf reaches the gate.
- * The provider writers were the last leaves of that kind. A new leaf of that kind needs a test of the gate on a real leaf first.
+ * The executor elides a leaf of that kind on retry only in a segment with an immutable bound input.
+ * In a segment with no bound input, it refuses the retry, and an operator must recover the segment.
+ * The provider writers were the last leaves of that kind.
  * `prune_stale_workflows` declares `reject-replay`, but no runbook names it as a step, and it declares `ensures`.
  */
 import { describe, expect, it } from 'vitest';

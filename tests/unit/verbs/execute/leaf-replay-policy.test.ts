@@ -1,12 +1,10 @@
 // @oracle-sources: ../../../../src/verbs/execute/executor.ts, the rows a real EventStore holds under a leaf's DERIVED operation id — queried back from the store rather than read off the receipt the executor built, so a receipt that claims a leaf ran once cannot satisfy a comparison against rows nobody wrote twice
 //
-// Tests for the `reject-replay` gate of the executor. On a crash-retry, the executor reads the
-// rows of a leaf under its derived operation id. When each unconditional emission of the leaf is
-// present, it does not call the handler again. These tests use fixture leaves, so the remote
-// precheck of `create_pr` cannot hide the effect of the gate.
+// Tests for the `reject-replay` retry rule of the executor. On a crash-retry, the executor reads the
+// rows of a leaf under its derived operation id. A `reject-replay` leaf with any row there is refused:
+// the handler does not run again, and the segment does not pass. A leaf with no row runs again.
 //
-// Each case crashes a later leaf. The retry then runs the segment again under the same
-// operation id, and a completed leaf comes up a second time.
+// Each case crashes a leaf. The retry then runs the segment again under the same operation id.
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as path from 'node:path';
@@ -14,7 +12,6 @@ import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 
 import { runWithDispatchContext } from '../../../../src/dispatch/dispatch-context.js';
-import { EMISSION_VIOLATION_EVENT } from '../../../../src/dispatch/core/interceptors/emission-verifier.js';
 import { EventStore } from '../../../../src/events/store.js';
 import { declared, type ToolAction } from '../../../../src/registry.js';
 import type { ToolResult } from '../../../../src/format.js';
@@ -103,10 +100,10 @@ const request = {
 
 describe('a reject-replay leaf that already completed', () => {
   /**
-   * A crash in the middle of the segment commits no claim event. Without the gate,
-   * the handler runs twice, which `reject-replay` forbids.
+   * A crash in the middle of the segment commits no claim event. The rows under the derived id do not prove that this request caused them.
+   * So the retry refuses, the handler does not run twice, and no claim event commits.
    */
-  it('RejectReplayLeaf_CompletedBeforeALaterLeafCrashed_IsNotReInvokedOnRetry', async () => {
+  it('RejectReplayLeaf_CompletedBeforeALaterLeafCrashed_RefusesTheRetry', async () => {
     const completed = fixtureAction({
       name: 'fixture_completed',
       replay: {
@@ -132,17 +129,19 @@ describe('a reject-replay leaf that already completed', () => {
     await expect(execute(request, deps)).rejects.toThrow('leaf crashed on its first attempt');
     expect(await store.query(STREAM, { type: INTENT_EXECUTED_EVENT })).toHaveLength(0);
 
-    const result = await execute(request, deps);
-    expect(result.success).toBe(true);
+    await expect(execute(request, deps)).rejects.toThrow(
+      "Interrupted leaf 'fixture_completed' has effects without a safe continuation contract",
+    );
 
     expect(counted.calls()).toBe(1);
+    expect(await store.query(STREAM, { type: INTENT_EXECUTED_EVENT })).toHaveLength(0);
     const derived = derivedLeafOperationId(request.operationId, 0, 'fixture_completed');
     expect(await rowsFor(derived, 'task.completed')).toHaveLength(1);
   });
 
   /**
-   * The control case. Only the replay policy differs from the first case, so the gate
-   * skips a leaf because of `reject-replay` and not by default.
+   * The control case. Only the replay policy differs from the first case, so the retry
+   * refuses a leaf because of `reject-replay` and not by default.
    */
   it('SafeRepeatLeaf_InTheSamePosition_IsReInvokedOnRetry', async () => {
     const repeatable = fixtureAction({
@@ -173,8 +172,8 @@ describe('a reject-replay leaf that already completed', () => {
 
   /**
    * The handler crashes before its own append, so no row exists under the derived id.
-   * A partial row set is not proof of the effect. Thus the recovery precheck of an
-   * action, such as `listPrs` for `create_pr`, stays reachable on retry.
+   * The retry rule reads rows only, so a leaf that left no row runs again, and its own
+   * precheck decides what to do.
    */
   it('RejectReplayLeaf_CrashedMidHandler_StillRunsOnRetry', async () => {
     const flaky = fixtureAction({
@@ -208,9 +207,8 @@ describe('a reject-replay leaf that already completed', () => {
   });
 
   /**
-   * The check that each owed event is present is true for an empty owed set. Without
-   * the empty-set branch in `replayElidedRows`, the gate skips this leaf on retry with
-   * no evidence that it ran.
+   * A leaf that declares no unconditional emission and appends nothing leaves no row.
+   * So the retry rule has nothing to refuse, and the leaf runs again.
    */
   it('RejectReplayLeaf_DeclaringNoUnconditionalEmission_IsAlwaysInvoked', async () => {
     const silent = fixtureAction({
@@ -234,102 +232,5 @@ describe('a reject-replay leaf that already completed', () => {
     expect(result.success).toBe(true);
 
     expect(counted.calls()).toBe(2);
-  });
-
-  /**
-   * The gate reads only the unconditional emissions, so it cannot stand in for a declared
-   * `ensures`. A skip also skips `observeActionPostconditions`, so the leaf must run again.
-   * Without the `ensures.kind` guard in `replayElidedRows`, the call count is 1.
-   */
-  it('RejectReplayLeaf_DeclaringEnsures_IsNeverElidedOnRetry', async () => {
-    const withEnsures = fixtureAction({
-      name: 'fixture_with_ensures',
-      replay: {
-        kind: 'reject-replay',
-        because: 'fixture leaf refuses replay while declaring a durable postcondition',
-      },
-      emissions: declared({
-        event: 'task.completed',
-        condition: 'always',
-        owner: 'orchestrate',
-        role: 'primary',
-      }),
-      ensures: declared({ source: 'event-append', when: 'success', event: 'task.completed' }),
-    });
-    const crasher = fixtureAction({ name: 'fixture_crasher' });
-
-    const counted = countingHandler(appendingHandler('task.completed'));
-    const deps = depsFor(
-      [fixtureStep('fixture_with_ensures', 'stop'), fixtureStep('fixture_crasher', 'stop')],
-      { fixture_with_ensures: counted.handler, fixture_crasher: crashesOnceThenSucceeds(silentHandler()) },
-      [withEnsures, crasher],
-    );
-
-    await expect(execute(request, deps)).rejects.toThrow('leaf crashed on its first attempt');
-    const result = await execute(request, deps);
-    expect(result.success).toBe(true);
-
-    expect(counted.calls()).toBe(2);
-  });
-
-  /**
-   * The test seeds an `emission.violated` row next to the `task.completed` row under the
-   * derived id of the leaf. The emission verifier writes such a row when a first attempt
-   * lands its emission but trips a lifecycle finding. The skipped leaf must not report
-   * that row as an event of this run.
-   */
-  it('RejectReplayLeaf_ElidedOnRetry_DoesNotFoldAPriorEmissionViolationRowIntoItsCaptures', async () => {
-    const completed = fixtureAction({
-      name: 'fixture_completed_with_prior_finding',
-      replay: {
-        kind: 'reject-replay',
-        because: 'fixture leaf refuses replay so the durable gate has something to guard',
-      },
-      emissions: declared({
-        event: 'task.completed',
-        condition: 'always',
-        owner: 'orchestrate',
-        role: 'primary',
-      }),
-    });
-    const crasher = fixtureAction({ name: 'fixture_crasher' });
-
-    const counted = countingHandler(appendingHandler('task.completed'));
-    const deps = depsFor(
-      [fixtureStep('fixture_completed_with_prior_finding', 'stop'), fixtureStep('fixture_crasher', 'stop')],
-      {
-        fixture_completed_with_prior_finding: counted.handler,
-        fixture_crasher: crashesOnceThenSucceeds(silentHandler()),
-      },
-      [completed, crasher],
-    );
-
-    await expect(execute(request, deps)).rejects.toThrow('leaf crashed on its first attempt');
-
-    const derived = derivedLeafOperationId(request.operationId, 0, 'fixture_completed_with_prior_finding');
-    await store.append(STREAM, {
-      type: EMISSION_VIOLATION_EVENT,
-      operationId: derived,
-      data: {
-        action: 'fixture_completed_with_prior_finding',
-        missingEvents: [],
-        lifecycleViolations: [
-          { event: 'task.completed', lifecycle: 'deprecated' },
-        ],
-        operationId: derived,
-      },
-    });
-
-    const result = await execute(request, deps);
-    expect(result.success).toBe(true);
-    expect(counted.calls()).toBe(1);
-
-    const receipt = result.data as {
-      leaves?: readonly { events?: readonly { type: string }[] }[];
-      interaction?: { eventsAppended?: number };
-    };
-    const leafEvents = receipt.leaves?.[0]?.events ?? [];
-    expect(leafEvents.map((e) => e.type)).not.toContain(EMISSION_VIOLATION_EVENT);
-    expect(leafEvents.map((e) => e.type)).toContain('task.completed');
   });
 });
