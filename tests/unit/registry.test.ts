@@ -1732,7 +1732,7 @@ describe('AutoEmits Drift Tests', () => {
     }
 
     expect(populatedCount, 'declared autoEmits population dropped below the floor').toBeGreaterThan(
-      54,
+      53,
     );
     expect(violations, `AutoEmits drift:\n${violations.join('\n')}`).toEqual([]);
   });

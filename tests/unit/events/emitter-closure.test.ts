@@ -135,8 +135,8 @@ describe('emitter closure', () => {
     );
     const closure = auditEmitterClosure(census, declaredEmissionEdges());
 
-    expect(closure.measuredSiteCount, 'no append site was measured').toBeGreaterThan(62);
-    expect(closure.explainedByAction, 'no site was explained by an action edge').toBeGreaterThan(40);
+    expect(closure.measuredSiteCount, 'no append site was measured').toBeGreaterThan(59);
+    expect(closure.explainedByAction, 'no site was explained by an action edge').toBeGreaterThan(37);
     expect(
       closure.explainedByModule,
       'no site was explained by the non-action surface',
