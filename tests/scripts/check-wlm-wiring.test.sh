@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Self-test for check-wlm-wiring.mjs.
 #   - Each fixture exercises one rule: rule 1 (retry-adapter coverage) or rule 2
-#     (no raw merge_orchestrate integration directive). It overrides only the
+#     (no content line names a retired merge action). It overrides only the
 #     root flag of that rule, so the other rule runs on the real tree.
 #   - The real repo must pass (exit 0).
 set -euo pipefail
@@ -72,8 +72,8 @@ check "WiringGate_CompensationWorktreeMutation_Fails" 1 "$compensation_exit"
 grep -q "workflow/compensation.ts:.*rule1-naked-worktree-mutation" /tmp/wlm-compensation.out || { echo "  FAIL: compensation.ts site not reported"; fail=$((fail + 1)); }
 
 # ── WiringGate_SkillRawMergeOrchestrate_Fails ───────────────────────────────
-# A content fixture directs a raw `merge_orchestrate` at an integration merge,
-# with no `serialize_merge` caveat on the same line. The gate must fail.
+# A content fixture directs a raw `merge_orchestrate` at an integration merge.
+# The action is retired, so the gate must fail.
 mkdir -p "$TMP/badskill/some-skill"
 cat > "$TMP/badskill/some-skill/SKILL.md" <<'EOF'
 ---
@@ -88,13 +88,13 @@ node "$GATE" --skills-root "$TMP/badskill" >/tmp/wlm-badskill.out 2>&1
 badskill_exit=$?
 set -e
 check "WiringGate_SkillRawMergeOrchestrate_Fails" 1 "$badskill_exit"
-grep -q "rule2-raw-merge-orchestrate-integration-directive" /tmp/wlm-badskill.out || { echo "  FAIL: missing rule2 tag"; fail=$((fail + 1)); }
+grep -q "rule2-retired-merge-action" /tmp/wlm-badskill.out || { echo "  FAIL: missing rule2 tag"; fail=$((fail + 1)); }
 
-# A skill line that names `merge_orchestrate` in an integration context, with
-# the `serialize_merge` caveat on the same line, must pass. Thus the name alone
-# is not a violation.
-mkdir -p "$TMP/goodskill/some-skill"
-cat > "$TMP/goodskill/some-skill/SKILL.md" <<'EOF'
+# ── WiringGate_SkillSerializeMergeCaveat_Fails ──────────────────────────────
+# A skill line that routes integration merges through `serialize_merge` was the
+# old legal pairing. Both actions are retired now, so the gate must fail.
+mkdir -p "$TMP/caveatskill/some-skill"
+cat > "$TMP/caveatskill/some-skill/SKILL.md" <<'EOF'
 ---
 name: some-skill
 description: test fixture
@@ -103,10 +103,27 @@ description: test fixture
 Route integration merges through `serialize_merge`; do not dispatch raw `merge_orchestrate` for them.
 EOF
 set +e
+node "$GATE" --skills-root "$TMP/caveatskill" >/tmp/wlm-caveatskill.out 2>&1
+caveatskill_exit=$?
+set -e
+check "WiringGate_SkillSerializeMergeCaveat_Fails" 1 "$caveatskill_exit"
+grep -q "serialize_merge" /tmp/wlm-caveatskill.out || { echo "  FAIL: serialize_merge not reported"; fail=$((fail + 1)); }
+
+# A skill line that names the harness landing and no retired action must pass.
+mkdir -p "$TMP/goodskill/some-skill"
+cat > "$TMP/goodskill/some-skill/SKILL.md" <<'EOF'
+---
+name: some-skill
+description: test fixture
+---
+# Some Skill
+The harness lands each accepted task head onto the integration branch, and settle observes the landing.
+EOF
+set +e
 node "$GATE" --skills-root "$TMP/goodskill" >/tmp/wlm-goodskill.out 2>&1
 goodskill_exit=$?
 set -e
-check "skills fixture with serialize_merge caveat passes" 0 "$goodskill_exit"
+check "skills fixture with no retired merge action passes" 0 "$goodskill_exit"
 [[ "$goodskill_exit" == "0" ]] || cat /tmp/wlm-goodskill.out
 
 # ── WiringGate_MergeSeamOutsideWorktreeDir_StillInScope ─────────────────────
