@@ -396,6 +396,7 @@ describe('DR-13 kill — the widened detector sees evaded network clients', () =
    * A module that imports the spawn primitive and calls one of its entries starts a process.
    * The planted caller must fail as an indeterminate process owner, and a rule that names it by module clears it.
    * An import of a non-spawn helper of the primitive, a type-only import and a module of the same name in another directory start no process.
+   * A mixed import whose spawn member has a `type` modifier starts no process, and a namespace read of a spawn entry does.
    */
   it('EffectLedger_CallerOfTheSpawnPrimitive_IsAProcessSiteByName', async () => {
     const primitive = `import { spawnSync } from 'node:child_process';
@@ -416,6 +417,15 @@ export function isPidAlive(pid: number): boolean { return pid > 0; }`;
         import type { runCommandSync } from '../utils/process.js';
         export type Runner = typeof runCommandSync;
       `,
+      'verbs/mixed-reader.ts': `
+        import { isPidAlive, type runCommandSync } from '../utils/process.js';
+        export const alive = (pid: number): boolean => isPidAlive(pid);
+        export type Runner = typeof runCommandSync;
+      `,
+      'verbs/namespace-caller.ts': `
+        import * as proc from '../utils/process.js';
+        export const head = (): string => proc.runCommandSync('git', ['rev-parse', 'HEAD']);
+      `,
       'verbs/other.ts': `
         import { runCommandSync } from './utils/process.js';
         export const go = (): string => runCommandSync('x', []);
@@ -433,12 +443,14 @@ export function isPidAlive(pid: number): boolean { return pid > 0; }`;
     const result = await auditEffectOwnership(root, lexModule, [...SCOPED_RULES, primitiveRule]);
 
     const bad = indeterminateOf(result.diagnostics);
-    expect(bad.map((d) => [d.module, d.effectClass, d.evidence])).toEqual([
+    expect(bad.map((d) => [d.module, d.effectClass, d.evidence]).sort()).toEqual([
+      ['verbs/namespace-caller.ts', 'process', `${PROCESS_PRIMITIVE_MODULE}#runCommandSync`],
       ['verbs/rogue-caller.ts', 'process', `${PROCESS_PRIMITIVE_MODULE}#runCommandSync`],
     ]);
 
     const callerRule: EffectOwnershipRule = { ...primitiveRule, match: 'verbs/rogue-caller.ts', owner: 'test-caller' };
-    const claimed = await auditEffectOwnership(root, lexModule, [...SCOPED_RULES, primitiveRule, callerRule]);
+    const namespaceRule: EffectOwnershipRule = { ...primitiveRule, match: 'verbs/namespace-caller.ts', owner: 'test-namespace-caller' };
+    const claimed = await auditEffectOwnership(root, lexModule, [...SCOPED_RULES, primitiveRule, callerRule, namespaceRule]);
     expect(claimed.diagnostics).toEqual([]);
   });
 

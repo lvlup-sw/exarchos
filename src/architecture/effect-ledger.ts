@@ -415,9 +415,36 @@ export const PROCESS_PRIMITIVE_SPAWNERS: readonly string[] = Object.freeze([
   'spawnHarnessChild',
 ]);
 
-const PROCESS_PRIMITIVE_SPAWNER_RE = new RegExp(
-  `(?<![\\w$])(${PROCESS_PRIMITIVE_SPAWNERS.join('|')})(?![\\w$])`,
-);
+/**
+ * A value `import { … } from` or `export { … } from` clause in masked code. The clause text stays code after masking.
+ * A statement-level `import type` or `export type` clause does not match.
+ */
+const VALUE_BINDING_CLAUSE_RE = /(?<![\w$])(?:import|export)\s+(?!type[\s{])(?:[\w$]+\s*,\s*)?\{([^}]*)\}\s*from(?![\w$])/g;
+
+/** A value namespace import, `import * as name from`, in masked code. Group 1 is the local name. */
+const NAMESPACE_IMPORT_RE = /(?<![\w$])import\s+(?!type\s)(?:[\w$]+\s*,\s*)?\*\s*as\s+([\w$]+)\s+from(?![\w$])/g;
+
+/**
+ * The first spawn entry that `masked` binds as a value, or undefined.
+ * A clause member with a `type` modifier binds no value, so it does not count. An alias counts by its imported name.
+ * A namespace import counts when the code reads a spawn entry through the namespace.
+ */
+function valueBoundSpawnEntry(masked: string): string | undefined {
+  for (const clause of masked.matchAll(VALUE_BINDING_CLAUSE_RE)) {
+    for (const raw of (clause[1] ?? '').split(',')) {
+      const member = raw.trim();
+      if (member === '' || /^type\s/.test(member)) continue;
+      const imported = member.split(/\s+as\s+/)[0]?.trim() ?? '';
+      if (PROCESS_PRIMITIVE_SPAWNERS.includes(imported)) return imported;
+    }
+  }
+  for (const namespace of masked.matchAll(NAMESPACE_IMPORT_RE)) {
+    const local = (namespace[1] ?? '').replace(/\$/g, '\\$');
+    const read = new RegExp(`(?<![\\w$])${local}\\s*\\.\\s*(${PROCESS_PRIMITIVE_SPAWNERS.join('|')})(?![\\w$])`).exec(masked);
+    if (read !== null) return read[1];
+  }
+  return undefined;
+}
 
 /** True when the relative specifier `spec` of `module` names {@link PROCESS_PRIMITIVE_MODULE}. */
 function resolvesToProcessPrimitive(module: string, spec: string): boolean {
@@ -428,16 +455,16 @@ function resolvesToProcessPrimitive(module: string, spec: string): boolean {
 
 /**
  * The evidence for a call through the spawn primitive, or undefined. The module
- * must value-import {@link PROCESS_PRIMITIVE_MODULE}, and its masked code must
- * name a spawn entry. The import clause names the entry, so an alias still counts.
+ * must value-import {@link PROCESS_PRIMITIVE_MODULE}, and a value import or re-export clause
+ * of the module must bind a spawn entry. An alias still counts, and a type-only member does not.
  */
 function processPrimitiveCall(module: string, lexed: LexedModule): string | undefined {
   const importsPrimitive = lexed.imports.some(
     (ref) => !ref.typeOnly && resolvesToProcessPrimitive(module, ref.specifier),
   );
   if (!importsPrimitive) return undefined;
-  const spawner = PROCESS_PRIMITIVE_SPAWNER_RE.exec(lexed.maskedSource);
-  return spawner === null ? undefined : `${PROCESS_PRIMITIVE_MODULE}#${spawner[1] ?? ''}`;
+  const spawner = valueBoundSpawnEntry(lexed.maskedSource);
+  return spawner === undefined ? undefined : `${PROCESS_PRIMITIVE_MODULE}#${spawner}`;
 }
 
 /**
