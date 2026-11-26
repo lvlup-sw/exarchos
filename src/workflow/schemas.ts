@@ -81,6 +81,16 @@ const RETIRED_FEATURE_PHASES: Readonly<Record<string, (typeof FEATURE_PHASES)[nu
 };
 
 /**
+ * Returns the phase that a stored or folded phase of a workflow reads as.
+ * A feature log or state file can hold a retired feature phase. This function reads it as the schema does.
+ * Each other phase and each other workflow type returns unchanged.
+ */
+export function readStoredPhase(workflowType: unknown, phase: string): string {
+  if (workflowType !== 'feature' || !Object.hasOwn(RETIRED_FEATURE_PHASES, phase)) return phase;
+  return RETIRED_FEATURE_PHASES[phase] ?? phase;
+}
+
+/**
  * Feature workflows start at `plan` and never produce `ideate`. The feature machine has no
  * `merge-pending` substate, because the harness lands each task head and settle observes it.
  * The schema reads a persisted `ideate` phase as `plan` and a persisted `merge-pending` phase as

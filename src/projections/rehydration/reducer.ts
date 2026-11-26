@@ -31,6 +31,7 @@ import {
   extractTaskId,
   extractString,
 } from '../shared/event-data-extractors.js';
+import { readStoredPhase } from '../../workflow/schemas.js';
 
 /**
  * Task status in `taskProgress`. It uses the `TaskSchema.status` values of `workflow/schemas.ts`, so a consumer compares statuses with no translation.
@@ -216,6 +217,7 @@ function applyWorkflowStarted(
 
 /**
  * Handles `workflow.transition`: sets `workflowState.phase` to `to`, and keeps `featureId` and `workflowType`.
+ * A retired feature phase in `to` reads as its replacement phase, as the state schema reads it.
  * An event with no `to` returns `state` unchanged.
  */
 function applyWorkflowTransition(
@@ -231,7 +233,7 @@ function applyWorkflowTransition(
     projectionSequence: state.projectionSequence + 1,
     workflowState: {
       ...state.workflowState,
-      phase: to,
+      phase: readStoredPhase(state.workflowState.workflowType, to),
     },
   };
 }

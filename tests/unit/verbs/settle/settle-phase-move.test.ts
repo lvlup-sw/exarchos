@@ -505,6 +505,18 @@ describe('settle moves the phase on one plain edge', () => {
     expect(entered?.data).toMatchObject({ phase: 'review', kind: 'REVIEW', resolvedGates: [{ family: 'review', gate: 'review' }] });
   });
 
+  /** An in-flight log from a build with the `merge-pending` detour reads as `delegate`, so settle moves it on the delegate edge. */
+  it('Settle_ALogEndingInMergePending_MovesFromDelegate', async () => {
+    const store = await openStore();
+    const capsuleVersion = await featureBatchAtDelegate(store);
+    await store.eventStore.append(STREAM, { type: 'workflow.transition', data: { from: 'delegate', to: 'merge-pending' } });
+
+    const receipt = receiptOf(await settle(store, { capsuleVersion, batchId: 'batch-1', claims: [completedClaim('task-a')] }));
+
+    expect(receipt.outcome).toBe('settled');
+    expect(receipt.phaseMove).toMatchObject({ kind: 'moved', from: 'delegate', to: 'review' });
+  });
+
   /** The receipt names the edge, its guard and the phase attempt that the transition row carries. */
   it('Settle_TheReceipt_NamesTheEdge', async () => {
     const store = await openStore();

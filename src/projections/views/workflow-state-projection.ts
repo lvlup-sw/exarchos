@@ -31,7 +31,7 @@ import {
   type PhaseAttemptAdmissionState,
 } from '../../workflow/admission/phase-attempt-state.js';
 import { isPlainObject, applyDotPath, StateStoreError } from '../../workflow/state-mutation.js';
-import { ErrorCode } from '../../workflow/schemas.js';
+import { ErrorCode, readStoredPhase } from '../../workflow/schemas.js';
 import type { DesignDepth } from '../../workflow/plan-depth-policy.js';
 
 export const WORKFLOW_STATE_VIEW = 'workflow-state';
@@ -390,7 +390,7 @@ export const workflowStateProjection: ViewProjection<WorkflowStateView> = {
 
         return {
           ...view,
-          phase: data.to,
+          phase: readStoredPhase(view.workflowType, data.to),
           ...(data.phaseAttemptId !== undefined
             ? { phaseAttemptId: data.phaseAttemptId }
             : {}),

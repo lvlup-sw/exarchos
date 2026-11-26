@@ -711,6 +711,17 @@ describe('prepare — the compilation endpoint', () => {
     }
   });
 
+  /** An in-flight log from a build with the `merge-pending` detour reads as `delegate`, so prepare compiles its batch. */
+  it('Prepare_ALogEndingInMergePending_CompilesAsDelegate', async () => {
+    await seedDelegatingFeature(PLAN);
+    await store.append(STREAM, { type: 'workflow.transition', data: { from: 'delegate', to: 'merge-pending' } });
+
+    const receipt = receiptOf(await prepare({ featureId: STREAM }));
+
+    expect(receipt.capsule.graph.tasks.map((t) => t.taskId)).toEqual(['T-2', 'T-3']);
+    expect(receipt.capsule.graph.tasks.every((t) => t.stepId === 'delegate')).toBe(true);
+  });
+
   it('Prepare_ARetryWithUnchangedInputs_ReturnsTheRecordedCapsuleAndAppendsNothing', async () => {
     await seedDelegatingFeature(PLAN);
     const first = receiptOf(await prepare({ featureId: STREAM }));

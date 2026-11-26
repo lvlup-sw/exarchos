@@ -282,19 +282,19 @@ describe('the cancel handler decides on the ledger fold', () => {
     expect(await documentOf(store)).toEqual(document);
   });
 
-  /** A feature stream at `ideate`, which is no step, reaches `cancelled`. */
+  /** A feature stream at a phase that is no step, and no retired phase that the fold reads as a step, reaches `cancelled`. */
   it('HandleCancel_APhaseThatIsNoStep_ReachesCancelled', async () => {
     const store = await openStore();
     await init(store, 'feature');
-    await appendRow(store, 'workflow.transition', { from: 'plan', to: 'ideate', trigger: 'test', featureId: FEATURE_ID });
+    await appendRow(store, 'workflow.transition', { from: 'plan', to: 'unknown-phase', trigger: 'test', featureId: FEATURE_ID });
     const unknownPhaseDocument = await documentOf(store);
-    await writeStateFile(stateFileOf(store), { ...unknownPhaseDocument, phase: 'ideate' }, { skipValidation: true, expectedVersion: Number(unknownPhaseDocument._version) });
+    await writeStateFile(stateFileOf(store), { ...unknownPhaseDocument, phase: 'unknown-phase' }, { skipValidation: true, expectedVersion: Number(unknownPhaseDocument._version) });
 
     const result = await handleCancel({ featureId: FEATURE_ID }, store.stateDir, store.eventStore);
 
     expect(result.success).toBe(true);
-    expect(recordOf(result.data).previousPhase).toBe('ideate');
-    expect(closingCancelRowOf(await rowsOf(store))).toMatchObject({ from: 'ideate', to: 'cancelled' });
+    expect(recordOf(result.data).previousPhase).toBe('unknown-phase');
+    expect(closingCancelRowOf(await rowsOf(store))).toMatchObject({ from: 'unknown-phase', to: 'cancelled' });
   });
 
   /** Each fallback case keeps the path of the state document. It reaches `cancelled` with one fallback warning. */

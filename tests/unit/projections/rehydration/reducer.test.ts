@@ -140,6 +140,29 @@ describe('rehydration reducer — task events fold (T023, DR-3)', () => {
   });
 });
 
+/** A feature log can end in a transition to the retired `merge-pending` phase. The reducer reads it as `delegate`, as the state schema does. */
+describe('rehydration reducer — retired feature phases', () => {
+  it('Rehydration_FeatureTransitionToMergePending_ReadsAsDelegate', () => {
+    const next = rehydrationReducer.apply(
+      featureInDelegate(),
+      makeEvent('workflow.transition', { from: 'delegate', to: 'merge-pending' }, 2),
+    );
+
+    expect(next.workflowState.phase).toBe('delegate');
+    expect(RehydrationDocumentSchema.safeParse(next).success).toBe(true);
+  });
+
+  it('Rehydration_OtherTypeTransitionToMergePending_KeepsThePhase', () => {
+    const started = rehydrationReducer.apply(
+      rehydrationReducer.initial,
+      makeEvent('workflow.started', { featureId: 'r', workflowType: 'release-check' }, 1),
+    );
+    const next = rehydrationReducer.apply(started, makeEvent('workflow.transition', { from: 'build', to: 'merge-pending' }, 2));
+
+    expect(next.workflowState.phase).toBe('merge-pending');
+  });
+});
+
 describe('rehydration reducer — workflow events fold (T024, DR-3)', () => {
   /** `workflow.started` has no phase field, so `phase` stays `''` until a `workflow.transition` event. */
   it('Rehydration_Given_WorkflowStarted_When_Fold_Then_WorkflowStatePopulated', () => {
