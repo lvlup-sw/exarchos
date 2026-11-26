@@ -7,7 +7,7 @@
     "testFiles": 1407,
     "parsedFiles": 1363,
     "shellFiles": 44,
-    "cases": 15725,
+    "cases": 15730,
     "dynamicTitles": 316,
     "unparseableFiles": 0
   },
@@ -43644,6 +43644,21 @@
           "dynamic": false
         },
         {
+          "suite": "ViewMaterializer stale merge-pending workflow-state cache",
+          "name": "LoadFromSnapshot_BackendCacheInMergePending_ReadsDelegateAfterMergeExecuted",
+          "dynamic": false
+        },
+        {
+          "suite": "ViewMaterializer stale merge-pending workflow-state cache",
+          "name": "LoadFromSnapshot_SnapshotStoreInMergePending_ReadsDelegate",
+          "dynamic": false
+        },
+        {
+          "suite": "ViewMaterializer stale merge-pending workflow-state cache",
+          "name": "FromSnapshot_CurrentPhase_ReturnsTheSameView",
+          "dynamic": false
+        },
+        {
           "suite": "ViewMaterializer Cache Stats",
           "name": "getCacheStats_NewMaterializer_ReturnsZeros",
           "dynamic": false
@@ -75445,6 +75460,16 @@
         {
           "suite": "handleRehydrate — degradation precedence (P04-06, EFF-004)",
           "name": "Rehydrate_ColdProbeUnknownFeature_NoEvent_WorkflowExistsFalse",
+          "dynamic": false
+        },
+        {
+          "suite": "handleRehydrate — stale merge-pending snapshot",
+          "name": "Rehydrate_VersionOneMergePendingSnapshotThenMergeExecuted_ReadsDelegate",
+          "dynamic": false
+        },
+        {
+          "suite": "handleRehydrate — stale merge-pending snapshot",
+          "name": "HydrateFromSnapshotThenTail_VersionOneMergePendingSnapshot_FoldsTheStreamAgain",
           "dynamic": false
         }
       ]
