@@ -133,8 +133,8 @@ describe('emitter closure', () => {
     );
     const closure = auditEmitterClosure(census, declaredEmissionEdges());
 
-    expect(closure.measuredSiteCount, 'no append site was measured').toBeGreaterThan(48);
-    expect(closure.explainedByAction, 'no site was explained by an action edge').toBeGreaterThan(26);
+    expect(closure.measuredSiteCount, 'no append site was measured').toBeGreaterThan(46);
+    expect(closure.explainedByAction, 'no site was explained by an action edge').toBeGreaterThan(25);
     expect(
       closure.explainedByModule,
       'no site was explained by the non-action surface',
@@ -192,7 +192,7 @@ describe('emitter closure', () => {
       distinctDeclaredEvents,
     );
     expect(closure.declaredActionEventCount, 'the declared population collapsed').toBeGreaterThan(
-      50,
+      44,
     );
     expect(UNRESOLVED_ACTION_EVENT_ALLOWANCE.length, 'the allowance is empty').toBeGreaterThan(0);
 
