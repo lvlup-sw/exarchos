@@ -7,7 +7,7 @@
     "testFiles": 1407,
     "parsedFiles": 1363,
     "shellFiles": 44,
-    "cases": 15709,
+    "cases": 15725,
     "dynamicTitles": 316,
     "unparseableFiles": 0
   },
@@ -39555,6 +39555,16 @@
           "dynamic": false
         },
         {
+          "suite": "rehydration reducer — retired feature phases",
+          "name": "Rehydration_FeatureTransitionToMergePending_ReadsAsDelegate",
+          "dynamic": false
+        },
+        {
+          "suite": "rehydration reducer — retired feature phases",
+          "name": "Rehydration_OtherTypeTransitionToMergePending_KeepsThePhase",
+          "dynamic": false
+        },
+        {
           "suite": "rehydration reducer — workflow events fold (T024, DR-3)",
           "name": "Rehydration_Given_WorkflowStarted_When_Fold_Then_WorkflowStatePopulated",
           "dynamic": false
@@ -44724,6 +44734,16 @@
         {
           "suite": "WorkflowStateProjection workflow lifecycle > Apply_WorkflowCheckpoint_UpdatesCheckpointFields",
           "name": "should leave operationsSince unchanged when counter is not provided",
+          "dynamic": false
+        },
+        {
+          "suite": "WorkflowStateProjection retired feature phases",
+          "name": "Apply_FeatureTransitionToMergePending_ReadsAsDelegate",
+          "dynamic": false
+        },
+        {
+          "suite": "WorkflowStateProjection retired feature phases",
+          "name": "Apply_OtherTypeTransitionToMergePending_KeepsThePhase",
           "dynamic": false
         },
         {
@@ -59852,6 +59872,11 @@
         },
         {
           "suite": "prepare — the compilation endpoint",
+          "name": "Prepare_ALogEndingInMergePending_CompilesAsDelegate",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare — the compilation endpoint",
           "name": "Prepare_ARetryWithUnchangedInputs_ReturnsTheRecordedCapsuleAndAppendsNothing",
           "dynamic": false
         },
@@ -61655,6 +61680,16 @@
         {
           "suite": "resolveWorkflowState",
           "name": "ResolveWorkflowState_ProjectionFoldOverRealHistory_ReconstructsAllFileFields",
+          "dynamic": false
+        },
+        {
+          "suite": "resolveWorkflowState",
+          "name": "ResolveWorkflowState_StoredMergePendingState_ResolvesToDelegate",
+          "dynamic": false
+        },
+        {
+          "suite": "resolveWorkflowState",
+          "name": "ResolveWorkflowState_LogEndingInMergePending_ResolvesToDelegate",
           "dynamic": false
         },
         {
@@ -66407,6 +66442,26 @@
           "suite": "handlePruneStaleWorkflows",
           "name": "<dynamic-case-1>",
           "dynamic": true
+        },
+        {
+          "suite": "handlePruneStaleWorkflows",
+          "name": "handlePrune_TheGuardQuery_IsBoundedToTheWindow",
+          "dynamic": false
+        },
+        {
+          "suite": "handlePruneStaleWorkflows",
+          "name": "handlePrune_ACallerSuppliedNow_DoesNotMoveTheWindow",
+          "dynamic": false
+        },
+        {
+          "suite": "handlePruneStaleWorkflows",
+          "name": "handlePrune_AGuardQueryThatThrows_RejectsWithDryRunRequired",
+          "dynamic": false
+        },
+        {
+          "suite": "handlePruneStaleWorkflows",
+          "name": "handlePrune_AnEventStoreWithNoQuery_RejectsWithDryRunRequired",
+          "dynamic": false
         },
         {
           "suite": "handlePruneStaleWorkflows",
@@ -76243,13 +76298,33 @@
           "dynamic": false
         },
         {
-          "suite": "FeaturePhaseSchema (T26)",
-          "name": "FeaturePhaseSchema_MergePending_Parses",
+          "suite": "FeaturePhaseSchema",
+          "name": "FeaturePhaseSchema_MergePending_ParsesAsDelegate",
           "dynamic": false
         },
         {
-          "suite": "FeaturePhaseSchema (T26)",
+          "suite": "FeaturePhaseSchema",
           "name": "FeaturePhaseSchema_TypoInMergePending_Rejects",
+          "dynamic": false
+        },
+        {
+          "suite": "readStoredPhase",
+          "name": "ReadStoredPhase_FeatureMergePending_ReadsAsDelegate",
+          "dynamic": false
+        },
+        {
+          "suite": "readStoredPhase",
+          "name": "ReadStoredPhase_FeatureIdeate_ReadsAsPlan",
+          "dynamic": false
+        },
+        {
+          "suite": "readStoredPhase",
+          "name": "ReadStoredPhase_LivePhase_IsUnchanged",
+          "dynamic": false
+        },
+        {
+          "suite": "readStoredPhase",
+          "name": "ReadStoredPhase_OtherWorkflowType_IsUnchanged",
           "dynamic": false
         },
         {
@@ -88776,6 +88851,11 @@
         {
           "suite": "settle moves the phase on one plain edge",
           "name": "Settle_OneAdmittedEdge_AppendsThePhaseRowsBeforeTheRecord",
+          "dynamic": false
+        },
+        {
+          "suite": "settle moves the phase on one plain edge",
+          "name": "Settle_ALogEndingInMergePending_MovesFromDelegate",
           "dynamic": false
         },
         {
