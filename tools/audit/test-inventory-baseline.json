@@ -70849,7 +70849,7 @@
         },
         {
           "suite": "shared-mutating posture gate — removed (INV-11)",
-          "name": "ReadOnlyCaller_AcquireWorktree_IsStillRejected_ByTheReadonlyGate",
+          "name": "ReadOnlyCaller_StackPlace_IsRejected_ByTheReadonlyGate",
           "dynamic": false
         }
       ]

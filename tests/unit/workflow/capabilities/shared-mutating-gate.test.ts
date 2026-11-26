@@ -20,7 +20,7 @@ import { createInMemoryResolver } from '../../../../src/workflow/capabilities/re
 import * as resolverModule from '../../../../src/workflow/capabilities/resolver.js';
 import { capabilitiesForPosture } from '../../../../src/workflow/capabilities/posture-mapping.js';
 import type { DispatchContext } from '../../../../src/dispatch/core/dispatch.js';
-import { dispatch, stubCompositeHandler } from '../../../../src/dispatch/core/dispatch.js';
+import { dispatch, READ_ONLY_ACTIONS, stubCompositeHandler } from '../../../../src/dispatch/core/dispatch.js';
 import { deriveLocalOperatorIdentity } from '../../../../src/dispatch/caller-identity.js';
 import { EventStore } from '../../../../src/events/store.js';
 import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
@@ -101,11 +101,15 @@ describe('shared-mutating posture gate — removed (INV-11)', () => {
     }
   });
 
-  /** The absent posture gate must not widen state authority, so the read-only gate still rejects this call. */
-  it('ReadOnlyCaller_AcquireWorktree_IsStillRejected_ByTheReadonlyGate', async () => {
+  /**
+   * The absent posture gate must not widen state authority, so the read-only gate still rejects a registered
+   * mutating action. The code is the proof, because an unknown or retired action fails before the gate runs.
+   */
+  it('ReadOnlyCaller_StackPlace_IsRejected_ByTheReadonlyGate', async () => {
     const resolver = createInMemoryResolver(readOnlyCaps);
     expect(resolver.has('mcp:exarchos:readonly')).toBe(true);
-    expect(resolver.has('fs:write')).toBe(false);
+    expect(resolver.has('mcp:exarchos')).toBe(false);
+    expect(READ_ONLY_ACTIONS.exarchos_orchestrate).not.toContain('stack_place');
 
     const readOnlyCtx: DispatchContext = { ...ctx, capabilityResolver: resolver };
     const streamsBefore = eventStore.listStreams();
@@ -115,11 +119,12 @@ describe('shared-mutating posture gate — removed (INV-11)', () => {
     try {
       const result = await dispatch(
         'exarchos_orchestrate',
-        { action: 'acquire_worktree', repoRoot: '/tmp/repo', worktreeId: '/tmp/repo-wt' },
+        { action: 'stack_place', featureId: 'readonly-gate', taskId: 'task-a' },
         readOnlyCtx,
       );
 
       expect(result.success).toBe(false);
+      expect(result.error?.code).toBe('CAPABILITY_DENIED');
       expect(compositeSpy).not.toHaveBeenCalled();
       expect(eventStore.listStreams()).toEqual(streamsBefore);
     } finally {
