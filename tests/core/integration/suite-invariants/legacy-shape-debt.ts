@@ -173,7 +173,6 @@ export const LEGACY_SHAPE_DEBT: readonly string[] = Object.freeze([
   'tools/conformance/src/parity/lifecycle-verbs.parity.test.ts',
   'tools/conformance/src/parity/readonly-cap-parity.test.ts',
   'tests/unit/projections/clone-extraction-fold.regression.test.ts',
-  'tests/unit/projections/merge-orchestrator/reducer.test.ts',
   'tests/unit/projections/merge-rollback-replay.regression.test.ts',
   'tests/unit/projections/next-action/reducer.test.ts',
   'tests/unit/projections/project-at.test.ts',

@@ -640,7 +640,6 @@ describe('settle keeps the phase when the decide does not admit one plain edge',
       reason: 'no-edge-admits',
       edges: [
         { transitionId: 'delegate->review', to: 'review', verdict: 'deny', falseFacts: ['team.disbandedOk'] },
-        { transitionId: 'delegate->merge-pending', to: 'merge-pending', verdict: 'deny', falseFacts: ['mergePending.entryReady'] },
       ],
     });
     expect(await phaseRowTypes(store)).toEqual(['workflow.transition']);

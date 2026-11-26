@@ -7,7 +7,7 @@
     "testFiles": 1407,
     "parsedFiles": 1363,
     "shellFiles": 44,
-    "cases": 15710,
+    "cases": 15709,
     "dynamicTitles": 316,
     "unparseableFiles": 0
   },
@@ -36755,11 +36755,6 @@
         {
           "suite": "skill content lint (#1360)",
           "name": "Skill_Checkpoint_ContainsReservedFieldsSection",
-          "dynamic": false
-        },
-        {
-          "suite": "skill content lint (#1360)",
-          "name": "Skill_MergeOrchestrator_CrossLinksReservedFields",
           "dynamic": false
         }
       ]
