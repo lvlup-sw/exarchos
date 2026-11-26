@@ -21,6 +21,8 @@ import {
   GOVERNED_SOURCE_ROOT,
   INERT_DEPENDENCIES,
   INSTALL_PROBE_OWNER_PREFIX,
+  PROCESS_PRIMITIVE_MODULE,
+  TESTGEN_OWNER_PREFIX,
   type EffectLedgerDiagnostic,
   type EffectOccurrence,
   type EffectOwnershipRule,
@@ -391,6 +393,56 @@ describe('DR-13 kill — the widened detector sees evaded network clients', () =
   });
 
   /**
+   * A module that imports the spawn primitive and calls one of its entries starts a process.
+   * The planted caller must fail as an indeterminate process owner, and a rule that names it by module clears it.
+   * An import of a non-spawn helper of the primitive, a type-only import and a module of the same name in another directory start no process.
+   */
+  it('EffectLedger_CallerOfTheSpawnPrimitive_IsAProcessSiteByName', async () => {
+    const primitive = `import { spawnSync } from 'node:child_process';
+export function runCommandSync(cmd: string, args: string[]): string { return String(spawnSync(cmd, args).stdout); }
+export function isPidAlive(pid: number): boolean { return pid > 0; }`;
+    const root = await plant({
+      [OWNER_MODULE]: OWNER_SOURCE,
+      [PROCESS_PRIMITIVE_MODULE]: primitive,
+      'verbs/rogue-caller.ts': `
+        import { runCommandSync as run } from '../utils/process.js';
+        export const head = (): string => run('git', ['rev-parse', 'HEAD']);
+      `,
+      'verbs/pid-reader.ts': `
+        import { isPidAlive } from '../utils/process.js';
+        export const alive = (pid: number): boolean => isPidAlive(pid);
+      `,
+      'verbs/type-reader.ts': `
+        import type { runCommandSync } from '../utils/process.js';
+        export type Runner = typeof runCommandSync;
+      `,
+      'verbs/other.ts': `
+        import { runCommandSync } from './utils/process.js';
+        export const go = (): string => runCommandSync('x', []);
+      `,
+      'verbs/utils/process.ts': `export function runCommandSync(cmd: string, args: string[]): string { return cmd + args.join(' '); }`,
+    });
+    const primitiveRule: EffectOwnershipRule = {
+      effectClass: 'process',
+      match: PROCESS_PRIMITIVE_MODULE,
+      owner: 'test-spawn-primitive',
+      idempotency: 'i',
+      compensation: 'c',
+    };
+
+    const result = await auditEffectOwnership(root, lexModule, [...SCOPED_RULES, primitiveRule]);
+
+    const bad = indeterminateOf(result.diagnostics);
+    expect(bad.map((d) => [d.module, d.effectClass, d.evidence])).toEqual([
+      ['verbs/rogue-caller.ts', 'process', `${PROCESS_PRIMITIVE_MODULE}#runCommandSync`],
+    ]);
+
+    const callerRule: EffectOwnershipRule = { ...primitiveRule, match: 'verbs/rogue-caller.ts', owner: 'test-caller' };
+    const claimed = await auditEffectOwnership(root, lexModule, [...SCOPED_RULES, primitiveRule, callerRule]);
+    expect(claimed.diagnostics).toEqual([]);
+  });
+
+  /**
    * A re-export names the primitive, so the module that re-exports it is the effect site.
    * The scan does not charge the consumer of the re-export, because attribution is per module and never transitive.
    */
@@ -680,10 +732,12 @@ describe('DR-13 live tree — the widened census is green and load-bearing', () 
 
   /**
    * Each process rule names one exact module, and the list equals the measured process sites of the live tree.
-   * The install probes are the second allowed process class, and only their owner names carry the install-probe prefix.
+   * A caller of a spawn entry of the process primitive is a process site, so each such caller has its own rule.
+   * The install-time owners are the second allowed process class, and only their owner names carry the install-probe prefix.
+   * The testgen product is the third class, and only its owner names carry the testgen prefix.
    * A new process site, or a prefix rule that covers a directory, fails here first.
    */
-  it('EffectLedger_ProcessOwners_AreTheMeasuredModulesInTwoNamedClasses', async () => {
+  it('EffectLedger_ProcessOwners_AreTheMeasuredModulesInThreeNamedClasses', async () => {
     const processRules = EFFECT_OWNERSHIP.filter((r) => r.effectClass === 'process');
     expect(processRules.filter((r) => r.match.endsWith('/'))).toEqual([]);
     const live = (await scanEffectTree(SRC_ROOT, lexModule)).occurrences
@@ -694,6 +748,7 @@ describe('DR-13 live tree — the widened census is green and load-bearing', () 
     expect(live).toEqual([
       'install/advisory-kill-probes.ts',
       'install/hooks-guard.ts',
+      'install/install-skills.ts',
       'install/runtimes/detect.ts',
       'install/skills-guard.ts',
       'install/wizard/prerequisites.ts',
@@ -701,12 +756,17 @@ describe('DR-13 live tree — the widened census is green and load-bearing', () 
       'utils/git-tree.ts',
       'utils/process.ts',
       'verbs/doctor/probes.ts',
+      'verbs/gates/check-integration-suite.ts',
       'verbs/gates/gate-utils.ts',
+      'verbs/gates/static-analysis.ts',
+      'verbs/pure/post-merge.ts',
       'verbs/reconcile-state.ts',
       'verbs/tasks/extract-intent.ts',
+      'verbs/verification/check-executor.ts',
     ]);
     for (const r of processRules) {
       expect(r.owner.startsWith(INSTALL_PROBE_OWNER_PREFIX), `${r.match} owner ${r.owner}`).toBe(r.match.startsWith('install/'));
+      expect(r.owner.startsWith(TESTGEN_OWNER_PREFIX), `${r.match} owner ${r.owner}`).toBe(r.match.startsWith('testgen/'));
     }
   });
 

@@ -8,14 +8,16 @@
  * claims no occurrence fails as `STALE_OWNERSHIP`. The census detects three
  * effect classes: `filesystem`, `process` and `network`. No rule owns a network
  * effect, so any network occurrence in the shipped tree fails. Process rules name
- * exact modules in two allowed classes: governor checks and install probes.
+ * exact modules in three allowed classes: governor checks, install-time owners and
+ * the testgen product. A module that calls a spawn entry of `utils/process.ts` is
+ * a process site too, so the census names each caller of the primitive.
  *
  * The lexer is a required port ({@link ModuleLexer}). Only the TypeScript
  * compiler parses TypeScript soundly, but an import of `typescript` here needs an
  * effect owner, because `ts.sys` gives filesystem and process access.
  */
 import { readdir, readFile } from 'node:fs/promises';
-import { join, relative } from 'node:path';
+import { join, posix, relative } from 'node:path';
 
 /** The three statically-detectable effect primitives. */
 export type EffectClass = 'filesystem' | 'process' | 'network';
@@ -398,11 +400,52 @@ const AMBIENT_BUN_RULES: readonly {
   },
 ];
 
+/** The repo-relative path of the cross-OS spawn primitive. */
+export const PROCESS_PRIMITIVE_MODULE = 'utils/process.ts';
+
+/**
+ * The spawn entries of {@link PROCESS_PRIMITIVE_MODULE}. A module that imports the
+ * primitive and names one of them starts a process through it. The census charges
+ * that module with a `process` occurrence.
+ */
+export const PROCESS_PRIMITIVE_SPAWNERS: readonly string[] = Object.freeze([
+  'runCommandSync',
+  'spawnCommand',
+  'spawnCommandSync',
+  'spawnHarnessChild',
+]);
+
+const PROCESS_PRIMITIVE_SPAWNER_RE = new RegExp(
+  `(?<![\\w$])(${PROCESS_PRIMITIVE_SPAWNERS.join('|')})(?![\\w$])`,
+);
+
+/** True when the relative specifier `spec` of `module` names {@link PROCESS_PRIMITIVE_MODULE}. */
+function resolvesToProcessPrimitive(module: string, spec: string): boolean {
+  if (!spec.startsWith('.')) return false;
+  const target = posix.normalize(posix.join(posix.dirname(module), spec));
+  return target.replace(/\.(?:js|ts)$/, '') === PROCESS_PRIMITIVE_MODULE.replace(/\.ts$/, '');
+}
+
+/**
+ * The evidence for a call through the spawn primitive, or undefined. The module
+ * must value-import {@link PROCESS_PRIMITIVE_MODULE}, and its masked code must
+ * name a spawn entry. The import clause names the entry, so an alias still counts.
+ */
+function processPrimitiveCall(module: string, lexed: LexedModule): string | undefined {
+  const importsPrimitive = lexed.imports.some(
+    (ref) => !ref.typeOnly && resolvesToProcessPrimitive(module, ref.specifier),
+  );
+  if (!importsPrimitive) return undefined;
+  const spawner = PROCESS_PRIMITIVE_SPAWNER_RE.exec(lexed.maskedSource);
+  return spawner === null ? undefined : `${PROCESS_PRIMITIVE_MODULE}#${spawner[1] ?? ''}`;
+}
+
 /**
  * Lists the distinct effect classes of one module, one occurrence for each
  * class. One `lex` call gives the imports and the masked code. Type-only imports
- * are not effects. The scan does not see an injected client, the consumer of a
- * re-exported primitive, or a computed global access. Tests in
+ * are not effects. A call through a spawn entry of {@link PROCESS_PRIMITIVE_MODULE}
+ * is a `process` occurrence. The scan does not see an injected client, the consumer
+ * of another re-exported primitive, or a computed global access. Tests in
  * `effect-ledger.test.ts` pin these three false negatives.
  *
  * @param module Repo-relative module path, reported on the occurrence.
@@ -423,6 +466,11 @@ export function detectModuleEffects(
     if (hit !== undefined && !found.has(hit.effectClass)) {
       found.set(hit.effectClass, hit.evidence);
     }
+  }
+
+  if (!found.has('process')) {
+    const spawner = processPrimitiveCall(module, lexed);
+    if (spawner !== undefined) found.set('process', spawner);
   }
 
   if (
@@ -626,11 +674,18 @@ const rule = (
 ): EffectOwnershipRule => ({ effectClass, match, owner, idempotency, compensation });
 
 /**
- * The owner-name prefix of the second allowed process class: the install probes.
- * They detect runtimes, check prerequisites and guard derived trees against drift.
+ * The owner-name prefix of the second allowed process class: the install-time owners.
+ * The probes detect runtimes, check prerequisites and guard derived trees against drift.
+ * The class also holds the `npx skills add` fallback of the skills installer, which no production caller reaches.
  * They are not settle checks, so the ledger names them apart from the governor process owners.
  */
 export const INSTALL_PROBE_OWNER_PREFIX = 'install-probe:';
+
+/**
+ * The owner-name prefix of the third allowed process class: the testgen product.
+ * Testgen is its own product, so the governor boundary does not cover it. Its inspection reads Git metadata only.
+ */
+export const TESTGEN_OWNER_PREFIX = 'testgen:';
 
 /**
  * The effect ownership ledger, with one rule for each effect class and module or
@@ -682,6 +737,34 @@ function registerLedger(): readonly EffectOwnershipRule[] {
     ),
     rule(
       'process',
+      'verbs/gates/check-integration-suite.ts',
+      'integration-suite-runner',
+      'idempotent: runCommandSync runs the resolved integration test command of the checkout, which reads the tree',
+      'none: the suite writes no state that the gate keeps, and a non-zero exit is a finding',
+    ),
+    rule(
+      'process',
+      'verbs/gates/static-analysis.ts',
+      'static-analysis-runner',
+      'idempotent: runCommandSync runs the resolved lint and typecheck commands, which read the tree',
+      'none: the tools write no state that the gate keeps, and a non-zero exit is a finding',
+    ),
+    rule(
+      'process',
+      'verbs/pure/post-merge.ts',
+      'post-merge-test-runner',
+      'idempotent: runCommandSync runs the resolved test command of the checkout, which reads the tree',
+      'none: the check reads no provider state, and a failed suite gives the fail status',
+    ),
+    rule(
+      'process',
+      'verbs/verification/check-executor.ts',
+      'approved-check-executor',
+      'idempotent: spawnCommand runs one approved check of the capsule, and taskkill stops its process tree on win32',
+      'none: the executor kills a check that runs past its time limit, and the verdict records the run',
+    ),
+    rule(
+      'process',
       'verbs/reconcile-state.ts',
       'reconcile-git-read-owner',
       'idempotent: git rev-parse --verify of a branch ref and git worktree list --porcelain are reads',
@@ -710,6 +793,14 @@ function registerLedger(): readonly EffectOwnershipRule[] {
     ),
     rule(
       'process',
+      'install/install-skills.ts',
+      `${INSTALL_PROBE_OWNER_PREFIX}npx-skills-fallback`,
+      'not idempotent: spawnCommand starts npx skills add --copy only when the caller does not set localSourceOnly; ' +
+        'the onboard bridge always sets it, so no production caller reaches the branch',
+      'none: a non-zero exit throws InstallSkillsError, and a re-run copies the skills again',
+    ),
+    rule(
+      'process',
       'install/runtimes/detect.ts',
       `${INSTALL_PROBE_OWNER_PREFIX}runtime-detection`,
       'idempotent: which <command> is a read',
@@ -733,7 +824,13 @@ function registerLedger(): readonly EffectOwnershipRule[] {
     rule('filesystem', 'index.ts', 'server-entry-fs', 'startup read-only', 'none'),
     rule('filesystem', 'testgen/adapters/cli.ts', 'testgen-request-fs', 'read-only request file', 'none'),
     rule('filesystem', 'testgen/inspection/collect.ts', 'testgen-inspection-fs', 'read-only tracked metadata', 'none'),
-    rule('process', 'testgen/inspection/collect.ts', 'testgen-inspection-process', 'read-only git queries', 'none'),
+    rule(
+      'process',
+      'testgen/inspection/collect.ts',
+      `${TESTGEN_OWNER_PREFIX}inspection-git-reads`,
+      'read-only git queries',
+      'none',
+    ),
     rule(
       'filesystem',
       'storage/artifacts/',

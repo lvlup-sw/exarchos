@@ -7,7 +7,7 @@
     "testFiles": 1406,
     "parsedFiles": 1362,
     "shellFiles": 44,
-    "cases": 15726,
+    "cases": 15727,
     "dynamicTitles": 325,
     "unparseableFiles": 0
   },
@@ -18356,6 +18356,11 @@
         },
         {
           "suite": "DR-13 kill — the widened detector sees evaded network clients",
+          "name": "EffectLedger_CallerOfTheSpawnPrimitive_IsAProcessSiteByName",
+          "dynamic": false
+        },
+        {
+          "suite": "DR-13 kill — the widened detector sees evaded network clients",
           "name": "EffectLedger_ReExportOfEffectPrimitive_IsDetectedAtTheReExporter",
           "dynamic": false
         },
@@ -18406,7 +18411,7 @@
         },
         {
           "suite": "DR-13 live tree — the widened census is green and load-bearing",
-          "name": "EffectLedger_ProcessOwners_AreTheMeasuredModulesInTwoNamedClasses",
+          "name": "EffectLedger_ProcessOwners_AreTheMeasuredModulesInThreeNamedClasses",
           "dynamic": false
         },
         {
