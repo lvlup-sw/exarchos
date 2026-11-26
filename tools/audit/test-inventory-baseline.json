@@ -11536,7 +11536,7 @@
         },
         {
           "suite": "",
-          "name": "DataOnly_MalformedOldProvisioningFile_RunTestsIgnoresItAndUnboundAdequacyRunsLocallyWithNoTestCommand",
+          "name": "DataOnly_MalformedOldProvisioningFile_RunTestsIgnoresItAndRetiredAdequacyRefusesWithNoTestCommand",
           "dynamic": false
         },
         {

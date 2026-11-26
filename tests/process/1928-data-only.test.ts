@@ -176,8 +176,9 @@ it.runIf(process.platform === 'linux')('DataOnly_OldTerminalWorkflow_ReadsWithNo
 /**
  * The standalone test verb ignores the files at the old provisioning location. An unreadable or malformed file does not change its outcome.
  * A directory that no checkout holds refuses with exit 77 in the local executor, and the test command does not run.
+ * The source-revert kill probe is retired, so an unbound adequacy call refuses with TEST_ADEQUACY_RETIRED through the CLI and MCP and runs nothing.
  */
-it.runIf(process.platform === 'linux')('DataOnly_MalformedOldProvisioningFile_RunTestsIgnoresItAndUnboundAdequacyRunsLocallyWithNoTestCommand', async () => {
+it.runIf(process.platform === 'linux')('DataOnly_MalformedOldProvisioningFile_RunTestsIgnoresItAndRetiredAdequacyRefusesWithNoTestCommand', async () => {
   const f = await dataOnlyFixture();
   try {
     const checkout = join(f.root, 'checkout');
@@ -200,10 +201,11 @@ it.runIf(process.platform === 'linux')('DataOnly_MalformedOldProvisioningFile_Ru
 
     const adequacy = await f.json(['orchestrate', 'check_test_adequacy', '--feature-id', 'unbound', '--task-id', 'task-1',
       '--repo-root', checkout, '--base-branch', 'main'], checkout);
-    expect(JSON.stringify(adequacy.envelope)).not.toContain('HOSTED_VERIFICATION_REFUSED');
+    expect(adequacy.exitCode, adequacy.stderr).toBe(2);
+    expect(adequacy.envelope).toMatchObject({ success: false, error: { code: 'TEST_ADEQUACY_RETIRED' } });
     const mcpAdequacy = await f.mcp('exarchos_orchestrate', { action: 'check_test_adequacy', featureId: 'unbound', taskId: 'task-1',
       repoRoot: checkout, baseBranch: 'main' });
-    expect(JSON.stringify(mcpAdequacy)).not.toContain('HOSTED_VERIFICATION_REFUSED');
+    expect(mcpAdequacy).toMatchObject({ success: false, error: { code: 'TEST_ADEQUACY_RETIRED' } });
 
     expect(await f.gitCalls()).toEqual([]);
     expect(await exists(f.marker('test'))).toBe(false);
