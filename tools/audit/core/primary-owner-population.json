@@ -519,23 +519,14 @@
   ],
   "planDeclaredPopulation": {
     "events": [
-      "promotion.executed",
-      "vcs.compensated",
-      "vcs.executed",
-      "vcs.requested"
+      "promotion.executed"
     ],
     "coveredByAutoEmits": [],
     "uncoveredByAutoEmits": [
-      "promotion.executed",
-      "vcs.compensated",
-      "vcs.executed",
-      "vcs.requested"
+      "promotion.executed"
     ],
     "registeredInCatalog": [
-      "promotion.executed",
-      "vcs.compensated",
-      "vcs.executed",
-      "vcs.requested"
+      "promotion.executed"
     ]
   },
   "moduleEmitters": [

@@ -465,11 +465,6 @@ export const AUTHORITY_TOPOLOGY: Readonly<Record<ContractBoundaryId, AuthorityTo
       authority: Object.freeze({ kind: 'single', authority: 'EffectPlan.emits' }),
       representations: Object.freeze([
         authoritative('EffectPlan `emits` (`dispatch/core/effect-carrier.ts`)'),
-        bound(
-          'the VCS ledger append site (`vcs/mutation-owner.ts`)',
-          'EffectPlan.emits',
-          'the sink is handed the plan’s emission and appends `emission.event`, so the name it records is computed from the plan and moves with it',
-        ),
         unbound(
           'the promotion record sink (`install/atomic-promotion.ts`)',
           'the promoter owns the PAYLOAD and the caller owns the DESTINATION, so the sink discards ' +
@@ -482,8 +477,8 @@ export const AUTHORITY_TOPOLOGY: Readonly<Record<ContractBoundaryId, AuthorityTo
         kind: 'wave',
         wave: 'wave-2',
         driver:
-          'DR-7 landed the EffectPlan ↔ event coupling and closed it for the ledger owner; the row ' +
-          'closes when the promotion sink also names its record from the emission it is handed',
+          'DR-7 landed the EffectPlan ↔ event coupling. The ledger owner that it closed is deleted, ' +
+          'and the row closes when the promotion sink names its record from the emission it is handed',
       }),
       provenance: Object.freeze({
         kind: 'declared',
@@ -497,10 +492,10 @@ export const AUTHORITY_TOPOLOGY: Readonly<Record<ContractBoundaryId, AuthorityTo
           'a fabricated bridge that reports a totality it does not have.',
       }),
       measured:
-        'Single authority, PARTIALLY bound. Of the two owners that declare emissions on a plan, the ' +
-        'ledger owner appends `emission.event` and follows the plan; the promoter hands its record ' +
-        'to a caller-supplied destination and does not. Measured live rather than transcribed — see ' +
-        'the oracle named on this row’s evidence.',
+        'Single authority, unbound. One owner declares emissions on a plan: the promoter hands its ' +
+        'record to a caller-supplied destination and does not follow the plan. The VCS ledger owner ' +
+        'is deleted, because Exarchos performs no git mutation. Measured live rather than ' +
+        'transcribed — see the oracle named on this row’s evidence.',
     }),
 
     'capability-posture': Object.freeze({

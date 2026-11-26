@@ -78,11 +78,11 @@ describe('stripComments', () => {
 });
 
 describe('runVcsOwnershipCensus — verdict logic', () => {
-  const owners = ['vcs/mutation-owner.ts'];
+  const owners = ['planted/owner.ts'];
 
   it('flags a mutation site no owner claims as DIRECT_VCS_BYPASS', () => {
     const sites: VcsMutationSite[] = [
-      { module: 'vcs/mutation-owner.ts', mutation: 'worktree.add', evidence: "'worktree', 'add'" },
+      { module: 'planted/owner.ts', mutation: 'worktree.add', evidence: "'worktree', 'add'" },
       { module: 'verbs/rogue.ts', mutation: 'worktree.add', evidence: "'worktree', 'add'" },
     ];
     const result = runVcsOwnershipCensus(sites, owners);
@@ -98,19 +98,24 @@ describe('runVcsOwnershipCensus — verdict logic', () => {
 
   it('passes when every site is owned and every owner claims a site', () => {
     const sites: VcsMutationSite[] = [
-      { module: 'vcs/mutation-owner.ts', mutation: 'worktree.add', evidence: "'worktree', 'add'" },
+      { module: 'planted/owner.ts', mutation: 'worktree.add', evidence: "'worktree', 'add'" },
     ];
     expect(runVcsOwnershipCensus(sites, owners).ok).toBe(true);
   });
 });
 
 describe('EXIT PROOF — live VCS-ownership census', () => {
-  /** It asserts the diagnostics array first, so a regression describes itself. */
-  it('(a) the live shipped source has ZERO direct bypasses and no stale owner', async () => {
+  /**
+   * It asserts the diagnostics array first, so a regression describes itself.
+   * The harness owns each worktree, branch and landing, so the governed tree holds no mutation site and declares no owner.
+   */
+  it('(a) the live shipped source has ZERO mutation sites and declares no owner', async () => {
     const result = await auditVcsOwnership(SRC_ROOT, lexModule);
     expect(result.diagnostics).toEqual([]);
     expect(result.ok).toBe(true);
-    expect(result.siteCount).toBeGreaterThan(0);
+    expect(result.siteCount).toBe(0);
+    expect(result.moduleCount).toBeGreaterThan(0);
+    expect(VCS_MUTATION_OWNERS).toEqual([]);
   });
 
   it('(a) a planted direct bypass in a non-owner module FAILS the census against the live sites', async () => {
@@ -132,13 +137,12 @@ describe('EXIT PROOF — live VCS-ownership census', () => {
     ).toBe(true);
   });
 
-  /** Each declared owner has a live mutation site, or `STALE_VCS_OWNER` trips in the live audit. */
-  it('every declared owner corresponds to a real module path present in the scan root', async () => {
+  /** An owner rule with no live site trips `STALE_VCS_OWNER`, so a restored owner list cannot pre-authorize a mutation. */
+  it('an owner rule that claims no live site FAILS the census as stale cover', async () => {
     const sites = await scanVcsMutationSites(SRC_ROOT, lexModule);
-    const liveModules = new Set(sites.map((s) => s.module));
-    for (const owner of VCS_MUTATION_OWNERS) {
-      expect(liveModules.has(owner)).toBe(true);
-    }
+    const result = runVcsOwnershipCensus(sites, ['verbs/phantom-owner.ts']);
+    expect(result.ok).toBe(false);
+    expect(result.diagnostics.map((d) => d.code)).toEqual(['STALE_VCS_OWNER']);
   });
 });
 
@@ -159,10 +163,9 @@ const COMPLEMENT_EXEMPTIONS: readonly { module: string; owner: string; rationale
       owner: 'exarchos-core',
       rationale:
         'Outcome-test harness. Creates a throwaway repo under os.tmpdir() and adds/removes ' +
-        'sibling worktrees INSIDE it, never in this repository, so the mutation-owner ' +
-        'contract (idempotency, fencing, compensation) has no subject: the whole tree is ' +
-        'discarded when the test ends. Routing it through vcs/mutation-owner.ts would make ' +
-        'the harness depend on the production module it exists to test around.',
+        'sibling worktrees INSIDE it, never in this repository. It stands in for the harness, ' +
+        'which owns worktree and branch mutation, and the whole tree is discarded when the ' +
+        'test ends.',
     },
     {
       module: 'tests/helpers/scoped-repository.ts',
@@ -171,10 +174,8 @@ const COMPLEMENT_EXEMPTIONS: readonly { module: string; owner: string; rationale
         'Scoped-repository test helper. Creates a throwaway repo under os.tmpdir() and adds a ' +
         'linked worktree for each task as a sibling directory INSIDE that temp tree, never in ' +
         'this repository. It also merges a task branch into the integration branch of that ' +
-        'temp repo, as a harness lands a task. So the mutation-owner contract (idempotency, ' +
-        'fencing, compensation) has no subject: the test deletes the whole tree when it ends. Routing it through ' +
-        'vcs/mutation-owner.ts would make the fixtures depend on the production module that ' +
-        'they exist to test around.',
+        'temp repo, as a harness lands a task. It stands in for the harness, which owns ' +
+        'worktree, branch and merge mutation, and the test deletes the whole tree when it ends.',
     },
   ]);
 
@@ -223,8 +224,7 @@ describe('DR-8 — the governed root is declared, and its complement is measured
       'A module OUTSIDE the governed scan root performs direct git worktree/branch ' +
         'mutation. It is invisible to the census — which is exactly the shape DR-8 ' +
         'names: the guard reads green for a reason unrelated to the tree being clean. ' +
-        'Route it through vcs/mutation-owner.ts, widen the census (and move ' +
-        'VCS_MUTATION_OWNERS to repo-relative paths), or record it in ' +
+        'Remove the mutation, widen the census, or record it in ' +
         'COMPLEMENT_EXEMPTIONS with an owner and a rationale.',
     ).toEqual([]);
 

@@ -51,7 +51,6 @@ const UNRESOLVED_BASELINE: Readonly<Record<string, number>> = Object.freeze({
   'projections/task-store/event-sourced-task-store.ts': 1,
   'storage/sidecar-merger.ts': 1,
   'storage/sidecar-scheduler.ts': 1,
-  'vcs/mutation-owner.ts': 2,
   'verbs/team/prepare-delegation.ts': 1,
   'workflow/cancel.ts': 1,
 });

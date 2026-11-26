@@ -1924,20 +1924,20 @@ describe('emission verifier — contract evaluation', () => {
   it('EmissionVerifier_MissingUnconditionalEmissions_ReportsTheFullSet', () => {
     const verdict = verifyDeclaredEmissions({
       declared: [
-        edge('vcs.requested', 'always'),
-        edge('vcs.executed', 'always'),
+        edge('export.requested', 'always'),
+        edge('export.executed', 'always'),
         edge('promotion.executed', 'always'),
       ],
       streamId: 'feat-x',
-      landed: ['vcs.requested'],
+      landed: ['export.requested'],
     });
     expect(verdict.status).toBe('violated');
-    expect(verdict.missingEvents).toEqual(['promotion.executed', 'vcs.executed']);
+    expect(verdict.missingEvents).toEqual(['export.executed', 'promotion.executed']);
 
     const clean = verifyDeclaredEmissions({
-      declared: [edge('vcs.requested', 'always'), edge('vcs.executed', 'always')],
+      declared: [edge('export.requested', 'always'), edge('export.executed', 'always')],
       streamId: 'feat-x',
-      landed: ['vcs.executed', 'vcs.requested', 'workflow.transition'],
+      landed: ['export.executed', 'export.requested', 'workflow.transition'],
     });
     expect(clean.status).toBe('ok');
     expect(clean.missingEvents).toEqual([]);

@@ -4,10 +4,10 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1407,
-    "parsedFiles": 1363,
+    "testFiles": 1406,
+    "parsedFiles": 1362,
     "shellFiles": 44,
-    "cases": 15746,
+    "cases": 15726,
     "dynamicTitles": 325,
     "unparseableFiles": 0
   },
@@ -19469,17 +19469,12 @@
         },
         {
           "suite": "DR-12 live tree — the widened census is green and load-bearing",
-          "name": "the widened detector SEES branch.create on the live tree and finds no local merge",
+          "name": "the widened detector finds no git worktree, branch or merge mutation anywhere in src",
           "dynamic": false
         },
         {
           "suite": "DR-12 live tree — the widened census is green and load-bearing",
-          "name": "every declared owner still claims a live site (STALE_VCS_OWNER ratchet intact)",
-          "dynamic": false
-        },
-        {
-          "suite": "DR-12 live tree — the widened census is green and load-bearing",
-          "name": "dropping a DR-12 owner turns the live census RED (the new owners are load-bearing)",
+          "name": "a mutation site added to the live sites turns the census RED (no owner covers it)",
           "dynamic": false
         }
       ]
@@ -52348,107 +52343,6 @@
         }
       ]
     },
-    "tests/unit/vcs/mutation-owner.test.ts": {
-      "file": "tests/unit/vcs/mutation-owner.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "VCS mutation owner (P04-05) > assertVcsEpochCurrent",
-          "name": "rejects a writer below the current epoch, allows equal / greater",
-          "dynamic": false
-        },
-        {
-          "suite": "VCS mutation owner (P04-05) > assertVcsEpochCurrent",
-          "name": "carries the fencing token detail on the error",
-          "dynamic": false
-        },
-        {
-          "suite": "VCS mutation owner (P04-05) > mode is requested, never inferred",
-          "name": "VcsMutationOwner_NoModeRequested_MutatesLive",
-          "dynamic": false
-        },
-        {
-          "suite": "VCS mutation owner (P04-05) > mode is requested, never inferred",
-          "name": "VcsMutationOwner_ExplicitDryRun_IsStillHonoured",
-          "dynamic": false
-        },
-        {
-          "suite": "VCS mutation owner (P04-05) > foldVcsLedger",
-          "name": "computes the max epoch, the terminal cache, and open intents",
-          "dynamic": false
-        },
-        {
-          "suite": "VCS mutation owner (P04-05)",
-          "name": "(b) duplicate branch-create requests create exactly ONE branch and replay the outcome",
-          "dynamic": false
-        },
-        {
-          "suite": "VCS mutation owner (P04-05)",
-          "name": "(c) duplicate worktree-create requests create exactly ONE worktree",
-          "dynamic": false
-        },
-        {
-          "suite": "VCS mutation owner (P04-05)",
-          "name": "(c2) createWorktree after a real remove RE-CREATES instead of replaying the stale terminal",
-          "dynamic": false
-        },
-        {
-          "suite": "VCS mutation owner (P04-05)",
-          "name": "(c3) removeWorktree after a recreate re-runs the remove instead of replaying",
-          "dynamic": false
-        },
-        {
-          "suite": "VCS mutation owner (P04-05)",
-          "name": "(d) duplicate provider mutation (PR/merge) runs the effect exactly ONCE",
-          "dynamic": false
-        },
-        {
-          "suite": "VCS mutation owner (P04-05)",
-          "name": "(e) an interrupted worktree-create leaves an intent (not an event-less orphan) and converges on retry",
-          "dynamic": false
-        },
-        {
-          "suite": "VCS mutation owner (P04-05)",
-          "name": "compensates the minted branch when worktree add fails (no orphaned on-disk state)",
-          "dynamic": false
-        },
-        {
-          "suite": "VCS mutation owner (P04-05)",
-          "name": "MutationOwner_IntentThenTerminalOrdering_IsPreserved",
-          "dynamic": false
-        },
-        {
-          "suite": "VCS mutation owner (P04-05)",
-          "name": "(f) a fenced-out stale owner (lower epoch) is rejected and performs NO mutation",
-          "dynamic": false
-        },
-        {
-          "suite": "VCS mutation owner (P04-05)",
-          "name": "(g) an explicit dry-run creates NO branch, touches NO git, and appends NO event",
-          "dynamic": false
-        },
-        {
-          "suite": "shared git-mutation primitives (P04-05)",
-          "name": "worktreeRemoveForceArgs builds the canonical forced-remove argv",
-          "dynamic": false
-        },
-        {
-          "suite": "shared git-mutation primitives (P04-05)",
-          "name": "branchDeleteForceArgs builds the canonical forced-delete argv",
-          "dynamic": false
-        },
-        {
-          "suite": "shared git-mutation primitives (P04-05)",
-          "name": "removeWorktreeForce runs the forced-remove argv through the caller transport and returns its result",
-          "dynamic": false
-        },
-        {
-          "suite": "shared git-mutation primitives (P04-05)",
-          "name": "deleteBranchForce runs the forced-delete argv through the caller transport and returns its result",
-          "dynamic": false
-        }
-      ]
-    },
     "tests/unit/verbs/composite.onboard-dispatch.test.ts": {
       "file": "tests/unit/verbs/composite.onboard-dispatch.test.ts",
       "runner": "vitest:root",
@@ -81361,7 +81255,7 @@
         },
         {
           "suite": "EXIT PROOF — live VCS-ownership census",
-          "name": "(a) the live shipped source has ZERO direct bypasses and no stale owner",
+          "name": "(a) the live shipped source has ZERO mutation sites and declares no owner",
           "dynamic": false
         },
         {
@@ -81371,7 +81265,7 @@
         },
         {
           "suite": "EXIT PROOF — live VCS-ownership census",
-          "name": "every declared owner corresponds to a real module path present in the scan root",
+          "name": "an owner rule that claims no live site FAILS the census as stale cover",
           "dynamic": false
         },
         {

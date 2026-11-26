@@ -215,7 +215,6 @@ export const LEGACY_SHAPE_DEBT: readonly string[] = Object.freeze([
   'tests/unit/projections/telemetry/trace-writer.test.ts',
   'tests/unit/utils/atomic-write.test.ts',
   'tests/unit/utils/path-portability.test.ts',
-  'tests/unit/vcs/mutation-owner.test.ts',
   'tests/unit/projections/views/code-quality-view.test.ts',
   'tests/unit/projections/views/composite.test.ts',
   'tests/unit/projections/views/delegation-timeline-view.test.ts',

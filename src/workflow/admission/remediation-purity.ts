@@ -20,7 +20,6 @@ export const FORBIDDEN_IMPORT_MARKERS: readonly string[] = Object.freeze([
   'compensation',
   'workflow/cancel',
   '/vcs/',
-  'mutation-owner',
   'node:fs',
   'node:child_process',
   'node:net',

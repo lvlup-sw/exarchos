@@ -99,7 +99,6 @@ export const ACKNOWLEDGED_UNRESOLVED_MODULES: ReadonlySet<string> = Object.freez
     'projections/task-store/event-sourced-task-store.ts',
     'storage/sidecar-merger.ts',
     'storage/sidecar-scheduler.ts',
-    'vcs/mutation-owner.ts',
     'verbs/team/prepare-delegation.ts',
     'workflow/cancel.ts',
   ]),

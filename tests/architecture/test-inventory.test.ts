@@ -232,6 +232,7 @@ const RETIRED_TEST_FILES: ReadonlyArray<{ path: string; subject: string }> = [
   { path: 'tests/unit/vcs/azure-devops.test.ts', subject: 'src/vcs/azure-devops.ts' },
   { path: 'tests/unit/vcs/factory.test.ts', subject: 'src/vcs/factory.ts' },
   { path: 'tests/unit/vcs/detector.test.ts', subject: 'src/vcs/detector.ts' },
+  { path: 'tests/unit/vcs/mutation-owner.test.ts', subject: 'src/vcs/mutation-owner.ts' },
   { path: 'tests/unit/review/registry.test.ts', subject: 'src/review/registry.ts' },
   { path: 'tests/unit/review/providers/coderabbit.test.ts', subject: 'src/review/providers/coderabbit.ts' },
   { path: 'tests/unit/review/providers/github-copilot.test.ts', subject: 'src/review/providers/github-copilot.ts' },

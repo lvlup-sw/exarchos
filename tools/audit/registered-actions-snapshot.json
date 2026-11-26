@@ -967,19 +967,19 @@
     },
     {
       "type": "vcs.compensated",
-      "lifecycle": "active",
+      "lifecycle": "retired",
       "tier": "substrate",
       "rationale": "operation-record"
     },
     {
       "type": "vcs.executed",
-      "lifecycle": "active",
+      "lifecycle": "retired",
       "tier": "substrate",
       "rationale": "operation-record"
     },
     {
       "type": "vcs.requested",
-      "lifecycle": "active",
+      "lifecycle": "retired",
       "tier": "substrate",
       "rationale": "operation-record"
     },

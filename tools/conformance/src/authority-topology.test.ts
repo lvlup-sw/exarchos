@@ -317,7 +317,7 @@ describe('authority topology — the rows', () => {
       { boundary: 'action-contract', authoritative: 1, bound: 1, unbound: 0 },
       { boundary: 'capability-posture', authoritative: 1, bound: 1, unbound: 3 },
       { boundary: 'cli-surface', authoritative: 2, bound: 1, unbound: 0 },
-      { boundary: 'effect-event', authoritative: 1, bound: 1, unbound: 1 },
+      { boundary: 'effect-event', authoritative: 1, bound: 0, unbound: 1 },
       { boundary: 'event-catalog', authoritative: 1, bound: 0, unbound: 3 },
       { boundary: 'phase-events', authoritative: 1, bound: 2, unbound: 1 },
       { boundary: 'phase-sequencing', authoritative: 1, bound: 0, unbound: 2 },
@@ -349,22 +349,15 @@ describe('authority topology — the rows', () => {
 
   /**
    * The carrier gives this row its authority. A plan that declares an emission cannot reach a committed value without a receipt.
-   * The one `bound` representation must name the authority of the row.
-   * The row stays open, because one owner hands its record to a destination that the caller owns.
+   * The VCS ledger owner is deleted, so no representation is bound.
+   * The row stays open, because the one remaining owner hands its record to a destination that the caller owns.
    * The committed binding kinds must match the live measurement.
    */
   it('AuthorityTopology_EffectEventRow_RecordsTheCarrierCoupling', () => {
     const row = AUTHORITY_TOPOLOGY['effect-event'];
     expect(row.authority.kind).toBe('single');
     expect(authoritativeRepresentations(row).length).toBe(1);
-
-    const authority = row.authority.kind === 'single' ? row.authority.authority : '';
-    const boundReps = row.representations.filter((r) => r.binding.kind === 'bound');
-    expect(boundReps.length).toBe(1);
-    for (const rep of boundReps) {
-      expect(rep.binding.kind === 'bound' ? rep.binding.boundTo : '').toBe(authority);
-    }
-
+    expect(row.representations.filter((r) => r.binding.kind === 'bound')).toEqual([]);
     expect(unboundRepresentations(row).length).toBe(1);
 
     const live = measureEffectEvent(readEffectEventSources());

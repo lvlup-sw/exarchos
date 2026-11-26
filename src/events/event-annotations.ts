@@ -383,13 +383,12 @@ export const EVENT_ANNOTATIONS: Readonly<Record<string, EventRegistration>> = Ob
     rationale: 'operation-record',
   },
   /**
-   * The single git and worktree mutation owner appends the intent before the git effect, then one
-   * of the two terminals. Only the ledger fold of that owner reads them, and an emitter is not a
-   * consumer of its own record.
+   * The retired git and worktree mutation ledger. Exarchos performs no git mutation, because the
+   * harness owns it, so no module appends these records. The schemas stay, so old logs still parse.
    */
-  'vcs.requested': { lifecycle: 'active', tier: 'substrate', rationale: 'operation-record' },
-  'vcs.executed': { lifecycle: 'active', tier: 'substrate', rationale: 'operation-record' },
-  'vcs.compensated': { lifecycle: 'active', tier: 'substrate', rationale: 'operation-record' },
+  'vcs.requested': { lifecycle: 'retired', tier: 'substrate', rationale: 'operation-record' },
+  'vcs.executed': { lifecycle: 'retired', tier: 'substrate', rationale: 'operation-record' },
+  'vcs.compensated': { lifecycle: 'retired', tier: 'substrate', rationale: 'operation-record' },
   /**
    * The atomic tree-promotion record. `promoteTree` declares this emission, but only tests call
    * it. Production calls `promoteTreeSync`, which declares nothing. The entry stays `planned`
