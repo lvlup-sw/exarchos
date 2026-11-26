@@ -6,6 +6,7 @@
 import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import type { ToolResult } from '../../format.js';
+import { END_OF_OPTIONS, isSafeBaseRef, unsafeBaseRefResult } from '../git-base-ref.js';
 
 interface NeedsSchemaSyncArgs {
   readonly repoRoot: string;
@@ -43,19 +44,20 @@ function getChangedFilesFromDiff(diffContent: string): readonly string[] {
   return [...files].sort();
 }
 
+/** Lists the changed files with a three-dot diff, then a two-ref diff, then a diff of the base against the worktree. */
 function getChangedFilesFromGit(
   repoRoot: string,
   baseBranch: string,
 ): readonly string[] {
-  const diffSpecs = [
-    `${baseBranch}...HEAD`,
-    `${baseBranch} HEAD`,
-    baseBranch,
+  const revisionLists: readonly (readonly string[])[] = [
+    [`${baseBranch}...HEAD`],
+    [baseBranch, 'HEAD'],
+    [baseBranch],
   ];
 
-  for (const spec of diffSpecs) {
+  for (const revisions of revisionLists) {
     try {
-      const args = ['diff', '--name-only', ...spec.split(' ')];
+      const args = ['diff', '--name-only', END_OF_OPTIONS, ...revisions];
       const output = execFileSync('git', args, {
         encoding: 'utf-8',
         cwd: repoRoot,
@@ -125,6 +127,9 @@ export function handleNeedsSchemaSync(args: NeedsSchemaSyncArgs): ToolResult {
     const diffContent = readFileSync(args.diffFile, 'utf-8');
     changedFiles = getChangedFilesFromDiff(diffContent);
   } else {
+    if (!isSafeBaseRef(baseBranch)) {
+      return unsafeBaseRefResult('baseBranch', baseBranch);
+    }
     try {
       changedFiles = getChangedFilesFromGit(args.repoRoot, baseBranch);
     } catch (err: unknown) {

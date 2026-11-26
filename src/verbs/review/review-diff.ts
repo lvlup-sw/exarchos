@@ -7,6 +7,7 @@
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import type { ToolResult } from '../../format.js';
+import { END_OF_OPTIONS, isSafeBaseRef, unsafeBaseRefResult } from '../git-base-ref.js';
 
 /** Caps on the embedded diff. The first cap that the diff reaches stops it. */
 export const REVIEW_DIFF_CAPS = {
@@ -82,23 +83,24 @@ function git(args: readonly string[], cwd: string): string {
 
 /**
  * Runs `git diff` with three-dot notation. If that fails, for example in a shallow clone with no
- * merge base, it runs the two-dot form.
+ * merge base, it runs the two-dot form. The options go before the end-of-options mark, and the range after it.
  */
 function gitDiffWithFallback(
   base: string,
-  extraArgs: readonly string[],
+  options: readonly string[],
   cwd: string,
 ): string {
   try {
-    return git(['diff', `${base}...HEAD`, ...extraArgs], cwd);
+    return git(['diff', ...options, END_OF_OPTIONS, `${base}...HEAD`], cwd);
   } catch {
-    return git(['diff', `${base}..HEAD`, ...extraArgs], cwd);
+    return git(['diff', ...options, END_OF_OPTIONS, `${base}..HEAD`], cwd);
   }
 }
 
 /**
- * Validates `worktreePath`, then diffs it against `baseBranch`, which defaults to `main`. An
- * unknown base branch returns `DIFF_FAILED`, not a thrown error.
+ * Validates `baseBranch` and `worktreePath`, then diffs the worktree against `baseBranch`, which defaults to `main`.
+ * A base branch that is not a safe ref returns `INVALID_INPUT` before git runs.
+ * An unknown base branch returns `DIFF_FAILED`, not a thrown error.
  */
 export async function handleReviewDiff(
   args: ReviewDiffArgs,
@@ -106,6 +108,9 @@ export async function handleReviewDiff(
 ): Promise<ToolResult> {
   const worktreePath = args.worktreePath ?? process.cwd();
   const baseBranch = args.baseBranch ?? 'main';
+  if (!isSafeBaseRef(baseBranch)) {
+    return unsafeBaseRefResult('baseBranch', baseBranch);
+  }
 
   try {
     if (!fs.statSync(worktreePath).isDirectory()) {

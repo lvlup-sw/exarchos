@@ -13,6 +13,7 @@ import { execFileSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import type { ToolResult } from '../../format.js';
+import { END_OF_OPTIONS, isSafeBaseRef, unsafeBaseRefResult } from '../git-base-ref.js';
 
 export interface CheckPolishScopeArgs {
   readonly repoRoot: string;
@@ -37,13 +38,13 @@ export interface CheckPolishScopeResult {
 function getModifiedFiles(repoRoot: string, baseBranch: string): readonly string[] | null {
   let output = '';
   try {
-    output = execFileSync('git', ['diff', '--name-only', `${baseBranch}...HEAD`], {
+    output = execFileSync('git', ['diff', '--name-only', END_OF_OPTIONS, `${baseBranch}...HEAD`], {
       cwd: repoRoot,
       encoding: 'utf-8',
     });
   } catch {
     try {
-      output = execFileSync('git', ['diff', '--name-only', baseBranch, 'HEAD'], {
+      output = execFileSync('git', ['diff', '--name-only', END_OF_OPTIONS, baseBranch, 'HEAD'], {
         cwd: repoRoot,
         encoding: 'utf-8',
       });
@@ -92,6 +93,9 @@ export function handleCheckPolishScope(args: CheckPolishScopeArgs): ToolResult {
 
   const { repoRoot } = args;
   const baseBranch = args.baseBranch ?? 'main';
+  if (!isSafeBaseRef(baseBranch)) {
+    return unsafeBaseRefResult('baseBranch', baseBranch);
+  }
 
   const modifiedFiles = getModifiedFiles(repoRoot, baseBranch);
 
