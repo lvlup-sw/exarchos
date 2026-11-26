@@ -1,8 +1,7 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": [
-    "local>lvlup-sw/.github:renovate.json",
-    "github>lvlup-sw/.github:ci-images"
+    "local>lvlup-sw/.github:renovate.json"
   ],
   "packageRules": [
     {

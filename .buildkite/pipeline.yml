@@ -6,9 +6,10 @@
 # Each step runs scripts/ci/pr-lane.sh, which checks the toolchain, installs
 # from the lockfile, and runs `npm run ci:pr:<suite>` (tools/ci/pr-lane.mjs).
 #
-# The image carries Node 22, Bun and npm 11. Its Bun must equal .bun-version:
-# publish the new image and bump this digest before a .bun-version change.
-image: ghcr.io/lvlup-sw/ci-worker-exarchos-validation:af3e095@sha256:18abd2d572246e3dfcc15d2d71a0ee21deb31ca9ad1c39767a1b2546e079f7a9
+# The image carries Node 22, Bun and npm 11. Its Bun must equal .bun-version.
+# The ci-images pipeline in lvlup-sw/.github moves :stable when the image's
+# Dockerfile changes on main, so land that change before a .bun-version change.
+image: ghcr.io/lvlup-sw/ci-worker-exarchos-validation:stable
 
 steps:
   - label: ":typescript: Static"
