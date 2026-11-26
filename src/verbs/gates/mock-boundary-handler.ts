@@ -26,6 +26,7 @@ import {
   type ProfiledGateArgs,
 } from './gate-utils.js';
 import { runGatePreflight } from '../pure/gate-preflight.js';
+import { END_OF_OPTIONS, isSafeBaseRef, unsafeBaseRefResult } from '../git-base-ref.js';
 import { runDurableGateProducer } from './durable-gate-producer.js';
 import type { RiskTier } from '../../workflow/verification-policy.js';
 import { resolveGateSeverity } from './gate-severity.js';
@@ -254,6 +255,9 @@ export async function handleMockBoundary(
   if (!pre.ok) return pre.result;
   const repoRoot = pre.repoRoot;
   const baseRef = args.baseBranch && args.baseBranch.trim().length > 0 ? args.baseBranch.trim() : undefined;
+  if (baseRef !== undefined && !isSafeBaseRef(baseRef)) {
+    return unsafeBaseRefResult('baseBranch', baseRef);
+  }
 
   return runDurableGateProducer(
     {
@@ -310,7 +314,7 @@ export async function handleMockBoundary(
       const severity = resolveGateSeverity('mock-boundary', 'D1', severityConfig);
 
       const diffResult = args.coordinate === undefined
-        ? gitExec(repoRoot, ['diff', '--no-ext-diff', `${baseRef}...HEAD`])
+        ? gitExec(repoRoot, ['diff', '--no-ext-diff', END_OF_OPTIONS, `${baseRef}...HEAD`])
         : gitExec(repoRoot, ['diff', '--no-ext-diff', args.coordinate.diffBaseCommit, args.coordinate.observedHeadCommit, '--']);
       if (args.coordinate !== undefined && diffResult.exitCode !== 0) {
         return { success: false, error: { code: 'TASK_COORDINATE_REFUSED', message: 'The immutable mock-boundary diff could not be read.' } };

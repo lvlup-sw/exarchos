@@ -38,6 +38,7 @@ import {
   type MutationDiffScope,
 } from '../../config/toolchains.js';
 import { defaultGitExec, requireGateEvent, resolveRepoRoot } from './gate-utils.js';
+import { END_OF_OPTIONS, isSafeBaseRef, unsafeBaseRefResult } from '../git-base-ref.js';
 import { orchestrateLogger } from '../../logger.js';
 
 /**
@@ -299,7 +300,7 @@ export type RunDiff = (base: string, repoRoot: string) => readonly string[];
  * form. A git failure gives `[]`, so a scope computation does not throw.
  */
 export const defaultRunDiff: RunDiff = (base, repoRoot) => {
-  const result = defaultGitExec(repoRoot, ['diff', '--name-only', `${base}...HEAD`]);
+  const result = defaultGitExec(repoRoot, ['diff', '--name-only', END_OF_OPTIONS, `${base}...HEAD`]);
   if (result.exitCode !== 0) return [];
   return result.stdout
     .split('\n')
@@ -737,6 +738,9 @@ export async function handleMutationAdequacy(
   }
   if (!args.base) {
     return { success: false, error: { code: 'INVALID_INPUT', message: 'base is required' } };
+  }
+  if (!isSafeBaseRef(args.base)) {
+    return unsafeBaseRefResult('base', args.base);
   }
 
   let scope: 'diff' | 'full';

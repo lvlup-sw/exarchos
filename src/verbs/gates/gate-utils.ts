@@ -23,6 +23,7 @@ import type { PhaseKind } from '../../workflow/phase-kind.js';
 import type { GitExec } from '../pure/execute-merge.js';
 import type { EvidenceArtifactReferenceV1 } from '../../workflow/admission/evidence-artifact.js';
 import type { AdmissionEvidenceRecorded } from '../../events/schemas.js';
+import { END_OF_OPTIONS, isSafeBaseRef } from '../git-base-ref.js';
 
 /**
  * Output ceiling for the git shell-outs in this module. The Node default of 1 MiB raises
@@ -57,13 +58,21 @@ export const defaultGitExec: GitExec = (repoRoot, args) => {
 
 /**
  * Returns the unified diff from `baseBranch` to HEAD, or null on failure. It logs the failure
- * cause, because the callers report only a generic `DIFF_ERROR`.
+ * cause, because the callers report only a generic `DIFF_ERROR`. A base branch that is not a safe ref
+ * returns null before git runs.
  */
 export function getDiff(repoRoot: string, baseBranch: string): string | null {
+  if (!isSafeBaseRef(baseBranch)) {
+    orchestrateLogger.warn(
+      { repoRoot, baseBranch },
+      'getDiff: the base branch is not a safe git ref; the gate will report DIFF_ERROR',
+    );
+    return null;
+  }
   try {
     return execFileSync(
       'git',
-      ['diff', `${baseBranch}...HEAD`],
+      ['diff', END_OF_OPTIONS, `${baseBranch}...HEAD`],
       {
         cwd: repoRoot,
         encoding: 'utf-8',

@@ -202,7 +202,7 @@ describe('handleNeedsSchemaSync', () => {
 
       expect(mockExecFileSync).toHaveBeenCalledWith(
         'git',
-        ['diff', '--name-only', 'main...HEAD'],
+        ['diff', '--name-only', '--end-of-options', 'main...HEAD'],
         expect.objectContaining({ cwd: '/repo' }),
       );
     });
@@ -214,7 +214,7 @@ describe('handleNeedsSchemaSync', () => {
 
       expect(mockExecFileSync).toHaveBeenCalledWith(
         'git',
-        ['diff', '--name-only', 'develop...HEAD'],
+        ['diff', '--name-only', '--end-of-options', 'develop...HEAD'],
         expect.objectContaining({ cwd: '/repo' }),
       );
     });

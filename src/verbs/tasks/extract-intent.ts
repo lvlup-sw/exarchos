@@ -14,10 +14,11 @@ import { handleUpdate } from '../../workflow/tools.js';
 import { WorkflowIntentSchema } from '../../workflow/schemas.js';
 import type { WorkflowIntent } from '../../workflow/schemas.js';
 import { resolveWorkflowState } from '../resolve-state.js';
+import { END_OF_OPTIONS, isSafeBaseRef } from '../git-base-ref.js';
 
 export type { WorkflowIntent } from '../../workflow/schemas.js';
 
-/** The default base branch from `origin/HEAD`. A git error, or a ref name outside a safe character set, gives `main`. */
+/** The default base branch from `origin/HEAD`. A git error, or a ref name that is not a safe ref, gives `main`. */
 function detectDefaultBranch(cwd?: string): string {
   try {
     const ref = execFileSync('git', ['symbolic-ref', 'refs/remotes/origin/HEAD'], {
@@ -27,7 +28,7 @@ function detectDefaultBranch(cwd?: string): string {
       ...(cwd ? { cwd } : {}),
     }).trim();
     const branch = ref.replace('refs/remotes/origin/', '');
-    return /^[a-zA-Z0-9/_.-]+$/.test(branch) ? branch : 'main';
+    return isSafeBaseRef(branch) ? branch : 'main';
   } catch {
     return 'main';
   }
@@ -37,7 +38,7 @@ function detectDefaultBranch(cwd?: string): string {
 export function changedFilesAgainstBase(cwd?: string): string[] {
   try {
     const baseBranch = detectDefaultBranch(cwd);
-    const output = execFileSync('git', ['diff', '--name-only', `${baseBranch}...HEAD`], {
+    const output = execFileSync('git', ['diff', '--name-only', END_OF_OPTIONS, `${baseBranch}...HEAD`], {
       encoding: 'buffer',
       timeout: 15_000,
       stdio: ['pipe', 'pipe', 'pipe'],

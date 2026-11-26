@@ -10,6 +10,7 @@ import { runCommandSync } from '../../utils/process.js';
 import { resolveRunnableCommand, type RunnableCommand } from '../../config/test-runtime-resolver.js';
 import { resolveWorkflowState } from '../resolve-state.js';
 import { emitGateEvent } from '../gates/gate-utils.js';
+import { END_OF_OPTIONS, isSafeBaseRef } from '../git-base-ref.js';
 import type { ResolvedProjectConfig } from '../../config/resolve.js';
 import { globToRegExp } from '../../architecture/glob-to-regexp.js';
 import { createEvidenceSubject } from '../../workflow/admission/evidence-subject.js';
@@ -153,7 +154,10 @@ function parseTypecheckErrors(output: string, command: string): string[] {
   return [trimmed.length > 0 ? trimmed : `${command} exited with a non-zero status`];
 }
 
-/** Returns the default branch from `origin/HEAD`, or `'main'`. A branch name with unexpected characters also gives `'main'`, which prevents command injection. */
+/**
+ * Returns the default branch from `origin/HEAD`, or `'main'`. A branch name that is not a safe ref also gives `'main'`.
+ * A safe ref holds no shell character and does not start with a dash, so neither the shell nor git reads it as an option.
+ */
 function detectDefaultBranch(repoRoot: string): string {
   try {
     const ref = execSync('git symbolic-ref refs/remotes/origin/HEAD', {
@@ -163,7 +167,7 @@ function detectDefaultBranch(repoRoot: string): string {
       stdio: ['pipe', 'pipe', 'pipe'],
     }).trim();
     const branch = ref.replace('refs/remotes/origin/', '');
-    return /^[a-zA-Z0-9/_.-]+$/.test(branch) ? branch : 'main';
+    return isSafeBaseRef(branch) ? branch : 'main';
   } catch {
     return 'main';
   }
@@ -172,7 +176,7 @@ function detectDefaultBranch(repoRoot: string): string {
 function verifyStack(repoRoot: string): StackResult {
   try {
     const baseBranch = detectDefaultBranch(repoRoot);
-    const output = execSync(`git log --oneline --graph ${baseBranch}..HEAD`, {
+    const output = execSync(`git log --oneline --graph ${END_OF_OPTIONS} ${baseBranch}..HEAD`, {
       cwd: repoRoot,
       encoding: 'buffer',
       timeout: 15_000,
@@ -255,7 +259,7 @@ export function documentLegBlocks(result: DocumentLegResult): boolean {
 function changedFilesAgainstBase(repoRoot: string): string[] | null {
   try {
     const baseBranch = detectDefaultBranch(repoRoot);
-    const output = execFileSync('git', ['diff', '--name-only', `${baseBranch}...HEAD`], {
+    const output = execFileSync('git', ['diff', '--name-only', END_OF_OPTIONS, `${baseBranch}...HEAD`], {
       cwd: repoRoot,
       encoding: 'buffer',
       timeout: 15_000,
