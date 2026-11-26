@@ -136,9 +136,8 @@ export const defaultVcsGitRunner: VcsGitRunner = {
 };
 
 /**
- * The canonical git argv for a forced worktree removal. `verbs/worktree/manager.ts` has its own
- * idempotency boundary, so it uses these argv helpers and not a second ledger. The census in `tools/conformance/src/vcs-ownership.ts` fails
- * on a worktree or branch mutation in a module that it does not declare.
+ * The canonical git argv for a forced worktree removal. No module uses this helper or the branch helper now.
+ * The census in `tools/conformance/src/vcs-ownership.ts` fails on a worktree or branch mutation in a module that it does not declare.
  */
 export function worktreeRemoveForceArgs(worktreePath: string): readonly string[] {
   return ['worktree', 'remove', '--force', worktreePath];
