@@ -279,7 +279,7 @@ describe('initializeContext — projectConfig (YAML)', () => {
     const projectRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'ctx-yaml-'));
     await fs.writeFile(
       path.join(projectRoot, '.exarchos.yml'),
-      `review:\n  dimensions:\n    D3: warning\nvcs:\n  provider: gitlab\n`,
+      `review:\n  dimensions:\n    D3: warning\ntools:\n  default-branch: trunk\n`,
     );
 
     try {
@@ -288,7 +288,7 @@ describe('initializeContext — projectConfig (YAML)', () => {
       expect(ctx.projectConfig).toBeDefined();
       expect(ctx.projectConfig!.review.dimensions.D3.severity).toBe('warning');
       expect(ctx.projectConfig!.review.dimensions.D1.severity).toBe('blocking');
-      expect(ctx.projectConfig!.vcs.provider).toBe('gitlab');
+      expect(ctx.projectConfig!.tools.defaultBranch).toBe('trunk');
     } finally {
       await rmrfAsync(projectRoot);
     }
@@ -304,7 +304,7 @@ describe('initializeContext — projectConfig (YAML)', () => {
 
       expect(ctx.projectConfig).toBeDefined();
       expect(ctx.projectConfig!.review.dimensions.D1.severity).toBe('blocking');
-      expect(ctx.projectConfig!.vcs.provider).toBe('github');
+      expect('vcs' in ctx.projectConfig!).toBe(false);
       expect(ctx.projectConfig!.workflow.maxFixCycles).toBe(3);
       expect(ctx.projectConfig!.tools.commitStyle).toBe('conventional');
     } finally {
@@ -349,14 +349,14 @@ describe('initializeContext — projectConfig (YAML)', () => {
     const projectRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'ctx-dispatch-'));
     await fs.writeFile(
       path.join(projectRoot, '.exarchos.yml'),
-      `vcs:\n  provider: azure-devops\n`,
+      `tools:\n  default-branch: release\n`,
     );
 
     try {
       const ctx = await initializeContext(tmpDir, { projectRoot });
 
       expect(ctx.projectConfig).toBeDefined();
-      expect(ctx.projectConfig!.vcs.provider).toBe('azure-devops');
+      expect(ctx.projectConfig!.tools.defaultBranch).toBe('release');
 
       let receivedCtx: unknown;
       const spy = async (_args: Record<string, unknown>, c: typeof ctx) => {
@@ -370,7 +370,7 @@ describe('initializeContext — projectConfig (YAML)', () => {
         await dispatch('exarchos_workflow', { action: 'describe' }, ctx);
         const capturedCtx = receivedCtx as typeof ctx;
         expect(capturedCtx.projectConfig).toBeDefined();
-        expect(capturedCtx.projectConfig!.vcs.provider).toBe('azure-devops');
+        expect(capturedCtx.projectConfig!.tools.defaultBranch).toBe('release');
       } finally {
         (COMPOSITE_HANDLERS as Record<string, unknown>)['exarchos_workflow'] = original;
       }
@@ -394,7 +394,7 @@ describe('initializeContext — projectConfig (YAML)', () => {
     }
   });
 
-  /** The `vcs` config key still loads into the project config, and startup builds no provider from it. */
+  /** A file with the retired `vcs` key still loads. The project config holds no `vcs` field, and startup builds no provider. */
   it('initializeContext_WithGitLabConfig_VcsKeyLoadsWithoutProvider', async () => {
     const { initializeContext } = await import('../../../../src/dispatch/core/context.js');
 
@@ -407,7 +407,8 @@ describe('initializeContext — projectConfig (YAML)', () => {
     try {
       const ctx = await initializeContext(tmpDir, { projectRoot });
 
-      expect(ctx.projectConfig?.vcs.provider).toBe('gitlab');
+      expect(ctx.projectConfig).toBeDefined();
+      expect('vcs' in ctx.projectConfig!).toBe(false);
       expect(Object.keys(ctx)).not.toContain('vcsProvider');
     } finally {
       await rmrfAsync(projectRoot);
