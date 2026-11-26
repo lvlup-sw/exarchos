@@ -14,6 +14,7 @@ import { createEvidenceSubject } from '../../workflow/admission/evidence-subject
 import { PROFILE_UNRESOLVED } from '../../workflow/verification/profile.js';
 import { runPhaseGateWithEvidence } from '../gates/gate-runner.js';
 import { profileOf, withProfileRoute, type ProfiledGateArgs } from '../gates/gate-utils.js';
+import { END_OF_OPTIONS, isSafeBaseRef, unsafeBaseRefResult } from '../git-base-ref.js';
 
 export interface DebugReviewGateArgs extends ProfiledGateArgs {
   /** The stream the gate's durable evidence is recorded against. */
@@ -79,6 +80,10 @@ function executeDebugReviewGate(args: DebugReviewGateArgs): ToolResult {
       success: false,
       error: { code: 'INVALID_INPUT', message: 'baseBranch is required' },
     };
+  }
+
+  if (!isSafeBaseRef(args.baseBranch)) {
+    return unsafeBaseRefResult('baseBranch', args.baseBranch);
   }
 
   if (!existsSync(args.repoRoot)) {
@@ -172,7 +177,7 @@ function getChangedFiles(repoRoot: string, baseBranch: string): string[] | null 
   try {
     const output = execFileSync(
       'git',
-      ['diff', '--name-only', `${baseBranch}...HEAD`],
+      ['diff', '--name-only', END_OF_OPTIONS, `${baseBranch}...HEAD`],
       { cwd: repoRoot, encoding: 'utf-8' },
     );
     return output
@@ -183,7 +188,7 @@ function getChangedFiles(repoRoot: string, baseBranch: string): string[] | null 
     try {
       const output = execFileSync(
         'git',
-        ['diff', '--name-only', baseBranch, 'HEAD'],
+        ['diff', '--name-only', END_OF_OPTIONS, baseBranch, 'HEAD'],
         { cwd: repoRoot, encoding: 'utf-8' },
       );
       return output
