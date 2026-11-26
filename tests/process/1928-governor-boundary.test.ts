@@ -35,11 +35,17 @@ const CATCH_ALL: ReadonlySet<string> = new Set(['sh', 'bash', 'npx', 'npm', 'pnp
 /** The remote-service command line tools. The binary must start none of them. */
 const REMOTE_TOOLS: ReadonlySet<string> = new Set(['gh', 'glab', 'az']);
 
-/** The Git subcommands that write a repository or reach a remote. The normal path runs none of them. */
-const FORBIDDEN_GIT: ReadonlySet<string> = new Set([
-  'merge', 'push', 'fetch', 'pull', 'clone', 'ls-remote', 'commit', 'checkout', 'switch', 'reset', 'rebase',
-  'cherry-pick', 'branch', 'tag', 'update-ref', 'gc', 'maintenance', 'submodule', 'am', 'apply', 'restore',
+/**
+ * The Git subcommands that only read the local repository in every form. Any other subcommand is a write or a remote read, unless a form rule below allows it.
+ */
+const READ_ONLY_GIT: ReadonlySet<string> = new Set([
+  'rev-parse', 'cat-file', 'ls-tree', 'ls-files', 'merge-base', 'rev-list', 'show', 'log', 'diff', 'diff-tree',
+  'diff-index', 'diff-files', 'for-each-ref', 'show-ref', 'name-rev', 'describe', 'check-ignore', 'check-attr',
+  'status', 'var', 'version', 'count-objects',
 ]);
+
+/** The `git config` options that read a value. A `git config` start with none of them writes. */
+const GIT_CONFIG_READS: ReadonlySet<string> = new Set(['--get', '--get-all', '--get-regexp', '--get-urlmatch', '--list', '-l']);
 
 /** The Git options that take the next argument as their value. */
 const GIT_VALUE_OPTIONS: ReadonlySet<string> = new Set(['-c', '-C']);
@@ -221,14 +227,25 @@ function gitSubcommand(args: readonly string[]): readonly string[] {
   return [];
 }
 
-/** True when one Git start writes a repository or reaches a remote. A worktree or remote subcommand counts unless it lists or reads. */
+/**
+ * True when one Git start writes a repository or reaches a remote. The rule allows only the read-only forms and refuses every other start.
+ * A worktree, remote or stash subcommand counts unless it lists or reads. `git config` counts unless it reads a value, and `hash-object` counts when it writes the object.
+ * `symbolic-ref` counts unless it names one reference and does not delete it. A start with no subcommand counts unless it asks for the version.
+ */
 function writesOrReaches(args: readonly string[]): boolean {
   const [subcommand = '', verb = ''] = gitSubcommand(args);
-  if (FORBIDDEN_GIT.has(subcommand)) return true;
+  if (subcommand === '') return !args.includes('--version');
+  if (READ_ONLY_GIT.has(subcommand)) return false;
+  if (subcommand === 'symbolic-ref') {
+    const operands = args.slice(args.indexOf('symbolic-ref') + 1);
+    return operands.some(arg => arg === '-d' || arg === '--delete') || operands.filter(arg => !arg.startsWith('-')).length > 1;
+  }
   if (subcommand === 'worktree') return verb !== 'list';
   if (subcommand === 'remote') return verb !== 'get-url';
   if (subcommand === 'stash') return verb !== 'list';
-  return false;
+  if (subcommand === 'config') return !args.some(arg => GIT_CONFIG_READS.has(arg)) && verb !== 'get';
+  if (subcommand === 'hash-object') return args.includes('-w');
+  return true;
 }
 
 /** Parse the JSON envelope of one packaged call. */
@@ -381,7 +398,8 @@ describe('packaged CLI-only governor boundary', () => {
 
   /**
    * The control of the shim log. A planted node script starts programs by name through the same shim PATH, as the binary does.
-   * The starts of gh, a Git merge and curl land in the log, and the boundary assertion fails on them. The log with them removed passes.
+   * The starts of gh, a Git merge, a Git config write, a symbolic-ref write and curl land in the log.
+   * The boundary assertion fails on them. The log with them removed passes.
    */
   it.runIf(process.platform === 'linux')('GovernorBoundary_ShimLog_RecordsAndRefusesAPlantedRemoteToolGitMergeAndCatchAllStart', async () => {
     await withRaceRepository(async (f) => {
@@ -392,7 +410,7 @@ describe('packaged CLI-only governor boundary', () => {
       const planted = path.join(f.controls, 'planted.cjs');
       await writeFile(planted, [
         "const { spawnSync } = require('node:child_process');",
-        "for (const [program, ...args] of [['git', 'rev-parse', '--git-dir'], ['gh', 'pr', 'list'], ['git', 'merge', '--no-edit', 'task/x'], ['curl', 'http://192.0.2.1/'], ['node', 'command.cjs', 'integration']]) {",
+        "for (const [program, ...args] of [['git', 'rev-parse', '--git-dir'], ['gh', 'pr', 'list'], ['git', 'merge', '--no-edit', 'task/x'], ['git', 'config', '--local', 'boundary.probe', 'true'], ['git', 'symbolic-ref', 'HEAD', 'refs/heads/x'], ['curl', 'http://192.0.2.1/'], ['node', 'command.cjs', 'integration']]) {",
         "  spawnSync(program, args, { stdio: 'ignore' });",
         "}",
       ].join('\n'));
@@ -402,6 +420,8 @@ describe('packaged CLI-only governor boundary', () => {
       expect(unapprovedStarts(starts)).toEqual([
         { program: 'gh', args: ['pr', 'list'] },
         { program: 'git', args: ['merge', '--no-edit', 'task/x'] },
+        { program: 'git', args: ['config', '--local', 'boundary.probe', 'true'] },
+        { program: 'git', args: ['symbolic-ref', 'HEAD', 'refs/heads/x'] },
         { program: 'curl', args: ['http://192.0.2.1/'] },
       ]);
       expect(() => expectOnlyApprovedStarts(starts)).toThrow();
