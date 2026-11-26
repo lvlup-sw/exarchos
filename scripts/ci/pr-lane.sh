@@ -10,8 +10,10 @@
 # `npm run ci:pr:<suite>` offline. tools/ci/pr-lane.mjs owns what each suite runs.
 #
 # The private packages in scripts/ci/npm-pins.json come from a directory in
-# EXARCHOS_STAGED_NPM, or else from the npm/ artifacts of the admission build
-# that triggered this build. This build holds no registry credential.
+# EXARCHOS_STAGED_NPM, or else from the lvlup/packages/npm/ artifacts of the
+# admission build that triggered this build ($BUILDKITE_TRIGGERED_FROM_BUILD_ID).
+# That build stages them from the pins on trunk, so a pin change takes effect
+# once it merges. This build holds no registry credential.
 set -euo pipefail
 
 suite="${1:-}"
@@ -118,8 +120,8 @@ if [[ -s "$work/used" ]]; then
   if [[ -z "$staged" ]]; then
     [[ -n "${BUILDKITE_TRIGGERED_FROM_BUILD_ID:-}" ]] || fail "set EXARCHOS_STAGED_NPM to a directory that holds the packages in ${pins}"
     mkdir "$work/staged"
-    (cd "$work/staged" && buildkite-agent artifact download 'npm/*.tgz' . --build "$BUILDKITE_TRIGGERED_FROM_BUILD_ID")
-    staged="$work/staged/npm"
+    (cd "$work/staged" && buildkite-agent artifact download 'lvlup/packages/npm/*' . --build "$BUILDKITE_TRIGGERED_FROM_BUILD_ID")
+    staged="$work/staged/lvlup/packages/npm"
   fi
   while read -r file integrity; do
     tarball="$staged/$file"
