@@ -1775,13 +1775,13 @@ describe('handlePruneStaleWorkflows', () => {
         },
       },
     };
-    const deps = makeDeps();
+    const deps = makeDeps({ clock: () => new Date(NOW_ISO) });
     deps.listSpy.mockResolvedValue(
       makeListResult([
         { featureId: 'a', lastActivityTimestamp: staleIso(30_000) },
       ]),
     );
-    return { append, ctx: ctx as unknown as Parameters<typeof handlePruneStaleWorkflows>[2], deps };
+    return { append, query, ctx: ctx as unknown as Parameters<typeof handlePruneStaleWorkflows>[2], deps };
   }
 
   function diagnosticsRow(minutesBefore: number, data: Record<string, unknown>) {
@@ -1825,6 +1825,62 @@ describe('handlePruneStaleWorkflows', () => {
       ctx,
       deps,
     );
+
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('DRY_RUN_REQUIRED');
+    expect(deps.cancelSpy).not.toHaveBeenCalled();
+  });
+
+  /** The guard reads only the records of the window that ends at the clock, so the read does not grow with each run. */
+  it('handlePrune_TheGuardQuery_IsBoundedToTheWindow', async () => {
+    const { ctx, deps, query } = guardedApply([diagnosticsRow(10, { dryRun: true })]);
+
+    await handlePruneStaleWorkflows({ dryRun: false, now: NOW_ISO }, STATE_DIR, ctx, deps);
+
+    expect(query).toHaveBeenCalledTimes(1);
+    expect(query).toHaveBeenCalledWith('_prune', {
+      type: 'prune.diagnostics',
+      since: new Date(Date.parse(NOW_ISO) - DRY_RUN_WINDOW_MS).toISOString(),
+      until: NOW_ISO,
+    });
+  });
+
+  /**
+   * The window runs on the clock of the deps, never on the `now` arg. A caller that passes a `now` just
+   * after an old marked record does not reopen the guard.
+   */
+  it('handlePrune_ACallerSuppliedNow_DoesNotMoveTheWindow', async () => {
+    const oldRow = diagnosticsRow(DRY_RUN_WINDOW_MS / 60_000 * 24, { dryRun: true });
+    const { ctx, deps } = guardedApply([oldRow]);
+    const justAfterOldRow = new Date(Date.parse(oldRow.timestamp) + 60_000).toISOString();
+
+    const result = await handlePruneStaleWorkflows({ dryRun: false, now: justAfterOldRow }, STATE_DIR, ctx, deps);
+
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('DRY_RUN_REQUIRED');
+    expect(deps.cancelSpy).not.toHaveBeenCalled();
+  });
+
+  /** The guard fails closed. A query that throws refuses the apply run, and nothing is cancelled. */
+  it('handlePrune_AGuardQueryThatThrows_RejectsWithDryRunRequired', async () => {
+    const { ctx, deps, query } = guardedApply([]);
+    query.mockRejectedValue(new Error('store offline'));
+
+    const result = await handlePruneStaleWorkflows({ dryRun: false, now: NOW_ISO }, STATE_DIR, ctx, deps);
+
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('DRY_RUN_REQUIRED');
+    expect(result.error?.message).toContain('store offline');
+    expect(deps.listSpy).not.toHaveBeenCalled();
+    expect(deps.cancelSpy).not.toHaveBeenCalled();
+  });
+
+  /** The guard fails closed. An event store with no query refuses the apply run, and nothing is cancelled. */
+  it('handlePrune_AnEventStoreWithNoQuery_RejectsWithDryRunRequired', async () => {
+    const { append, ctx, deps } = guardedApply([]);
+    const noQueryCtx = { ...ctx, eventStore: { append } } as unknown as Parameters<typeof handlePruneStaleWorkflows>[2];
+
+    const result = await handlePruneStaleWorkflows({ dryRun: false, now: NOW_ISO }, STATE_DIR, noQueryCtx, deps);
 
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe('DRY_RUN_REQUIRED');

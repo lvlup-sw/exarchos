@@ -963,7 +963,7 @@ decisions:
       Item 1 of #2007 is fixed in kept code. Each prune.diagnostics record carries dryRun, and the requireDryRun guard of prune_stale_workflows accepts only a record that a dry run marked at most one hour before the apply run and not after it. Each run appends its marked record, also with malformedHandling skip.
       The inert vcs config key is removed from the resolved config, the config description and .exarchos.yml. A file with the key still loads, the full parse removes the key, and the loader reports the RETIRED_VCS_KEY migration finding, in the form of the retired mutation key.
     known: >-
-      Items 2 and 3 of #2007 left with manager.prune and git-retry.ts. An old prune.diagnostics record has no mark, so the guard refuses it. The guard still skips its check when the store query fails.
+      Items 2 and 3 of #2007 left with manager.prune and git-retry.ts. An old prune.diagnostics record has no mark, so the guard refuses it. The guard fails closed: a store with no query, or a query that throws, gives DRY_RUN_REQUIRED. The window runs on the real clock of the handler deps, never on the now arg, and the guard reads only the records of that one-hour window.
     status: "Committed on codex/1928-s5-worktrees-merges-cancel."
 
 build_order:
