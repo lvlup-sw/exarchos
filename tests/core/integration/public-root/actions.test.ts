@@ -37,11 +37,11 @@ import { TOOL_REGISTRY, type CompositeTool, type ToolAction } from '../../../../
 /**
  * The measured action denominator. The ratchet has two sides: coverage has no
  * missing action, and the covered count stays at or above this floor. Thus
- * deleted actions cannot make the sweep pass. The surface went from 126 to 113
- * actions when thirteen actions moved to the closed retired-action table.
+ * deleted actions cannot make the sweep pass. The surface went from 126 to 111
+ * actions when fifteen actions moved to the closed retired-action table.
  * Raise the floor when the surface grows. A lower floor needs a review.
  */
-const ACTION_COVERAGE_FLOOR = 113;
+const ACTION_COVERAGE_FLOOR = 111;
 
 /**
  * The floor for actions whose outcome comes from the composite handler when

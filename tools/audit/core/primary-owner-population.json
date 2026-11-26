@@ -1,20 +1,20 @@
 {
   "totals": {
-    "emissionEdges": 97,
-    "edgesCarryingRole": 97,
-    "edgesCarryingOwner": 97,
-    "distinctEventsWithEdges": 62,
+    "emissionEdges": 89,
+    "edgesCarryingRole": 89,
+    "edgesCarryingOwner": 89,
+    "distinctEventsWithEdges": 55,
     "distinctOwners": 3,
     "registeredEvents": 186,
     "moduleEmitterRows": 22
   },
   "keys": {
     "per-event-type/primary-edges": {
-      "populationSize": 62,
-      "satisfyingCount": 52,
+      "populationSize": 55,
+      "satisfyingCount": 46,
       "zeroPrimaryCount": 0,
       "unownedPrimaryCount": 0,
-      "multiPrimaryCount": 10,
+      "multiPrimaryCount": 9,
       "zeroPrimary": [],
       "unownedPrimary": [],
       "multiPrimary": [
@@ -146,19 +146,6 @@
           ]
         },
         {
-          "key": "worktree.merge_executed",
-          "primaryEdges": 2,
-          "primaryOwners": [
-            "orchestrate"
-          ],
-          "unattributedPrimaryEdges": 0,
-          "declaringEdges": 2,
-          "declaredBy": [
-            "exarchos_orchestrate.reconcile_worktrees",
-            "exarchos_orchestrate.serialize_merge"
-          ]
-        },
-        {
           "key": "worktree.released",
           "primaryEdges": 2,
           "primaryOwners": [
@@ -191,12 +178,6 @@
         "invariant.amended",
         "invariant.authored",
         "launch.executed",
-        "merge.completed",
-        "merge.executed",
-        "merge.executing_started",
-        "merge.preflight",
-        "merge.recovered",
-        "merge.retry_attempt",
         "onboard.executed",
         "onboard.requested",
         "orchestrate.intent_executed",
@@ -220,7 +201,7 @@
         "workflow.pruned",
         "workflow.rehydrated",
         "worktree.adopted",
-        "worktree.merge_requested",
+        "worktree.merge_executed",
         "worktree.orphan_detected",
         "worktree.remove.executed",
         "worktree.remove.requested",
@@ -236,8 +217,8 @@
       }
     },
     "per-event-type/primary-owners": {
-      "populationSize": 62,
-      "satisfyingCount": 62,
+      "populationSize": 55,
+      "satisfyingCount": 55,
       "zeroPrimaryCount": 0,
       "unownedPrimaryCount": 0,
       "multiPrimaryCount": 0,
@@ -265,12 +246,6 @@
         "invariant.amended",
         "invariant.authored",
         "launch.executed",
-        "merge.completed",
-        "merge.executed",
-        "merge.executing_started",
-        "merge.preflight",
-        "merge.recovered",
-        "merge.retry_attempt",
         "onboard.executed",
         "onboard.requested",
         "orchestrate.intent_executed",
@@ -301,7 +276,6 @@
         "workflow.transition",
         "worktree.adopted",
         "worktree.merge_executed",
-        "worktree.merge_requested",
         "worktree.orphan_detected",
         "worktree.released",
         "worktree.remove.executed",
@@ -318,8 +292,8 @@
       }
     },
     "per-emission-site/primary-edges": {
-      "populationSize": 97,
-      "satisfyingCount": 94,
+      "populationSize": 89,
+      "satisfyingCount": 86,
       "zeroPrimaryCount": 3,
       "unownedPrimaryCount": 0,
       "multiPrimaryCount": 0,
@@ -401,12 +375,6 @@
         "invariant.amended@exarchos_orchestrate.invariants_amend",
         "invariant.authored@exarchos_orchestrate.invariants_add",
         "launch.executed@exarchos_orchestrate.reconcile_worktrees",
-        "merge.completed@exarchos_orchestrate.merge_orchestrate",
-        "merge.executed@exarchos_orchestrate.merge_orchestrate",
-        "merge.executing_started@exarchos_orchestrate.merge_orchestrate",
-        "merge.preflight@exarchos_orchestrate.merge_orchestrate",
-        "merge.recovered@exarchos_orchestrate.merge_orchestrate",
-        "merge.retry_attempt@exarchos_orchestrate.merge_orchestrate",
         "onboard.executed@exarchos_orchestrate.onboard",
         "onboard.requested@exarchos_orchestrate.onboard",
         "orchestrate.intent_executed@exarchos_orchestrate.execute_intent",
@@ -444,8 +412,6 @@
         "workflow.transition@exarchos_workflow.transition",
         "worktree.adopted@exarchos_orchestrate.acquire_worktree",
         "worktree.merge_executed@exarchos_orchestrate.reconcile_worktrees",
-        "worktree.merge_executed@exarchos_orchestrate.serialize_merge",
-        "worktree.merge_requested@exarchos_orchestrate.serialize_merge",
         "worktree.orphan_detected@exarchos_orchestrate.reconcile_worktrees",
         "worktree.released@exarchos_orchestrate.reconcile_worktrees",
         "worktree.released@exarchos_orchestrate.release_worktree",
@@ -463,8 +429,8 @@
       }
     },
     "per-event-and-tool/primary-owners": {
-      "populationSize": 65,
-      "satisfyingCount": 65,
+      "populationSize": 58,
+      "satisfyingCount": 58,
       "zeroPrimaryCount": 0,
       "unownedPrimaryCount": 0,
       "multiPrimaryCount": 0,
@@ -492,12 +458,6 @@
         "invariant.amended@exarchos_orchestrate",
         "invariant.authored@exarchos_orchestrate",
         "launch.executed@exarchos_orchestrate",
-        "merge.completed@exarchos_orchestrate",
-        "merge.executed@exarchos_orchestrate",
-        "merge.executing_started@exarchos_orchestrate",
-        "merge.preflight@exarchos_orchestrate",
-        "merge.recovered@exarchos_orchestrate",
-        "merge.retry_attempt@exarchos_orchestrate",
         "onboard.executed@exarchos_orchestrate",
         "onboard.requested@exarchos_orchestrate",
         "orchestrate.intent_executed@exarchos_orchestrate",
@@ -531,7 +491,6 @@
         "workflow.transition@exarchos_workflow",
         "worktree.adopted@exarchos_orchestrate",
         "worktree.merge_executed@exarchos_orchestrate",
-        "worktree.merge_requested@exarchos_orchestrate",
         "worktree.orphan_detected@exarchos_orchestrate",
         "worktree.released@exarchos_orchestrate",
         "worktree.remove.executed@exarchos_workflow",
@@ -551,17 +510,13 @@
   "perTier": [
     {
       "tier": "capability",
-      "eventCount": 23,
+      "eventCount": 18,
       "events": [
         "admission.enforcement-enabled",
         "admission.evidence-recorded",
         "admission.rollout-decision",
         "gate.executed",
         "launch.executed",
-        "merge.completed",
-        "merge.executed",
-        "merge.preflight",
-        "merge.recovered",
         "review.routed",
         "stack.position-filled",
         "task.assigned",
@@ -571,7 +526,6 @@
         "workflow.fix-cycle",
         "worktree.adopted",
         "worktree.merge_executed",
-        "worktree.merge_requested",
         "worktree.orphan_detected",
         "worktree.released",
         "worktree.remove.executed",
@@ -582,7 +536,7 @@
     },
     {
       "tier": "substrate",
-      "eventCount": 39,
+      "eventCount": 37,
       "events": [
         "branch.delete.executed",
         "branch.delete.requested",
@@ -599,8 +553,6 @@
         "feedback.recorded",
         "invariant.amended",
         "invariant.authored",
-        "merge.executing_started",
-        "merge.retry_attempt",
         "onboard.executed",
         "onboard.requested",
         "orchestrate.intent_executed",

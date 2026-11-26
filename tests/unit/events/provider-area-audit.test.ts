@@ -85,7 +85,7 @@ describe('provider-area audit', () => {
 
     const audit = auditProviderAreas(census);
     expect(audit.subjectCount, 'no capability registration was assessed').toBeGreaterThan(40);
-    expect(audit.measuredCount, 'no subject had a measured append site').toBeGreaterThan(25);
+    expect(audit.measuredCount, 'no subject had a measured append site').toBeGreaterThan(21);
 
     expect(
       audit.contradictions
