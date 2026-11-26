@@ -7,7 +7,7 @@
     "testFiles": 1407,
     "parsedFiles": 1363,
     "shellFiles": 44,
-    "cases": 15730,
+    "cases": 15731,
     "dynamicTitles": 316,
     "unparseableFiles": 0
   },
@@ -68839,7 +68839,7 @@
         },
         {
           "suite": "projectStateToFacts — reads real legacy state",
-          "name": "derives task completion from real state and projects no merge readiness fact",
+          "name": "derives task completion from real state and projects the retired merge readiness facts as false",
           "dynamic": false
         },
         {
@@ -88881,6 +88881,11 @@
         {
           "suite": "settle moves the phase on one plain edge",
           "name": "Settle_ALogEndingInMergePending_MovesFromDelegate",
+          "dynamic": false
+        },
+        {
+          "suite": "settle moves the phase on one plain edge",
+          "name": "Settle_ACapsuleThatPinsTheMergePendingDetour_MovesFromDelegateToReview",
           "dynamic": false
         },
         {

@@ -459,6 +459,7 @@ function teamDisbandedOk(
  * The synthesis policy defaults to `'on-request'`, because an empty sentinel deadlocks the default oneshot flow.
  * `planReview.revisionsExhausted` uses the injected cap, so the IR has one authority for the cap.
  * Its count comes from `_events` through `tallyPlanRevisions`, the same count that the legacy guard reads.
+ * The two retired merge-pending facts are always false, so an old pinned detour edge never admits.
  */
 export function projectStateToFacts(
   state: Record<string, unknown>,
@@ -526,6 +527,8 @@ export function projectStateToFacts(
   fields['reviews.anyFailed'] = reviews.anyFailed;
   fields['reviews.requiredSatisfied'] = reviews.requiredSatisfied;
 
+  fields['mergePending.entryReady'] = false;
+  fields['mergePending.exitReady'] = false;
   fields['team.disbandedOk'] = teamDisbandedOk(events);
 
   const revisionCount = tallyPlanRevisions(events).revisions;

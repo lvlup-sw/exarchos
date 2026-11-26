@@ -189,8 +189,8 @@ describe('projectStateToFacts — reads real legacy state', () => {
     expect(failed.fields['reviews.anyFailed']).toBe(true);
   });
 
-  /** The machine has no merge substate, so a worktree completion projects no merge readiness fact. */
-  it('derives task completion from real state and projects no merge readiness fact', () => {
+  /** The machine has no merge substate, so a worktree completion projects each retired merge readiness fact as false. */
+  it('derives task completion from real state and projects the retired merge readiness facts as false', () => {
     const tasks = projectStateToFacts({
       tasks: [{ status: 'complete' }, { status: 'complete' }],
     });
@@ -201,7 +201,14 @@ describe('projectStateToFacts — reads real legacy state', () => {
       _events: [{ type: 'task.completed', data: { worktree: '.worktrees/t1' } }],
     });
     expect(entry.events).toContain('task.completed');
-    expect(Object.keys(entry.fields).filter((field) => field.startsWith('mergePending.'))).toEqual([]);
+    expect(entry.fields['mergePending.entryReady']).toBe(false);
+    expect(entry.fields['mergePending.exitReady']).toBe(false);
+
+    const landed = projectStateToFacts({
+      mergeOrchestrator: { phase: 'completed' },
+      _events: [{ type: 'task.completed', data: { worktree: '.worktrees/t1' } }, { type: 'merge.executed', data: {} }],
+    });
+    expect(landed.fields['mergePending.exitReady']).toBe(false);
   });
 });
 

@@ -69,7 +69,12 @@ export type DecideOutcome =
 const DERIVED_FACT_PREFIXES: readonly string[] = ['tasks.', 'reviews.', 'team.', 'cleanup.'];
 
 /** The derived facts outside the derived prefixes. */
-const DERIVED_FACT_NAMES: readonly string[] = ['planReview.revisionsExhausted', 'artifacts.planNonEmpty'];
+const DERIVED_FACT_NAMES: readonly string[] = [
+  'planReview.revisionsExhausted',
+  'artifacts.planNonEmpty',
+  'mergePending.entryReady',
+  'mergePending.exitReady',
+];
 
 /** The declared facts that the projection derives. A false leaf of one of them adds nothing to `expectedShape`. */
 const DERIVED_FACT_FIELDS: ReadonlySet<string> = new Set(
