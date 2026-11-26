@@ -74,6 +74,9 @@ const WORKTREE_PROVISIONING_REFUSAL = {
 const WORKTREE_PROVISIONERS: readonly { readonly action: string; readonly cli: readonly string[]; readonly mcp: Record<string, unknown> }[] = [
   { action: 'setup_worktree', cli: ['--repo-root', '.', '--task-id', 'T1', '--task-name', 'retired'], mcp: { repoRoot: '.', taskId: 'T1', taskName: 'retired' } },
   { action: 'prune_worktrees', cli: ['--repo-root', '.', '--dry-run', 'false'], mcp: { repoRoot: '.', dryRun: false } },
+  { action: 'acquire_worktree', cli: ['--repo-root', '.', '--worktree-id', 'W1'], mcp: { repoRoot: '.', worktreeId: 'W1' } },
+  { action: 'release_worktree', cli: ['--worktree-id', 'W1'], mcp: { worktreeId: 'W1' } },
+  { action: 'reconcile_worktrees', cli: [], mcp: {} },
 ];
 
 /** The refusal of a retired local merge action. It keeps the closed code of the provider writers, and its message names the harness landing. */
@@ -242,9 +245,6 @@ it.runIf(process.platform === 'linux')('RetiredAction_PackagedMcp_RefusesBeforeS
           arguments: { action: read.action, ...read.mcp, featureId: 'retired-mutation', notARegisteredField: true },
         }, { timeout: 35_000 })));
         expect(readRefused).toMatchObject(PROVIDER_READ_REFUSAL);
-      }
-      for (const name of ['acquire_worktree', 'release_worktree', 'reconcile_worktrees']) {
-        expect(JSON.stringify(listed)).toContain(name);
       }
       for (const provisioner of WORKTREE_PROVISIONERS) {
         expect(JSON.stringify(listed)).not.toContain(provisioner.action);
