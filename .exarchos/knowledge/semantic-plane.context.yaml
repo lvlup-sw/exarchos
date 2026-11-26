@@ -1015,6 +1015,7 @@ decisions:
       The effect census charges each module that imports utils/process.ts and names runCommandSync, spawnCommand, spawnCommandSync or spawnHarnessChild. The integration suite and static analysis gates, the post-merge test run, the approved-check executor and the npx skills fallback of the skills installer each have their own rule.
     known: >-
       The census still does not charge the consumer of another re-exported primitive, an injected client or a computed global access.
+      The cast census baseline falls from 1494 to 1490 with the four casts of the deleted module.
     status: "Committed on codex/1928-s6-boundary-proof."
 
 build_order:
