@@ -172,7 +172,7 @@ describe('handleReviewDiff', () => {
       if (argsArr[0] === 'branch') return 'my-branch\n';
 
       if (argsArr[0] === 'diff') {
-        const diffSpec = argsArr[1] as string;
+        const diffSpec = argsArr.at(-1) ?? '';
         if (diffSpec.includes('...')) {
           throw new Error('unknown revision');
         }

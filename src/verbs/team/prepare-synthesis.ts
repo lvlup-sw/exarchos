@@ -7,6 +7,7 @@ import { execSync, execFileSync } from 'node:child_process';
 import type { ToolResult } from '../../format.js';
 import type { EventStore } from '../../events/store.js';
 import { runCommandSync } from '../../utils/process.js';
+import { END_OF_OPTIONS, isSafeRevision } from '../../utils/git-revision.js';
 import { resolveRunnableCommand, type RunnableCommand } from '../../config/test-runtime-resolver.js';
 import { resolveWorkflowState } from '../resolve-state.js';
 import { emitGateEvent } from '../gates/gate-utils.js';
@@ -163,7 +164,7 @@ function detectDefaultBranch(repoRoot: string): string {
       stdio: ['pipe', 'pipe', 'pipe'],
     }).trim();
     const branch = ref.replace('refs/remotes/origin/', '');
-    return /^[a-zA-Z0-9/_.-]+$/.test(branch) ? branch : 'main';
+    return /^[a-zA-Z0-9/_.-]+$/.test(branch) && isSafeRevision(branch) ? branch : 'main';
   } catch {
     return 'main';
   }
@@ -172,7 +173,7 @@ function detectDefaultBranch(repoRoot: string): string {
 function verifyStack(repoRoot: string): StackResult {
   try {
     const baseBranch = detectDefaultBranch(repoRoot);
-    const output = execSync(`git log --oneline --graph ${baseBranch}..HEAD`, {
+    const output = execSync(`git log --oneline --graph ${END_OF_OPTIONS} ${baseBranch}..HEAD`, {
       cwd: repoRoot,
       encoding: 'buffer',
       timeout: 15_000,
@@ -255,7 +256,7 @@ export function documentLegBlocks(result: DocumentLegResult): boolean {
 function changedFilesAgainstBase(repoRoot: string): string[] | null {
   try {
     const baseBranch = detectDefaultBranch(repoRoot);
-    const output = execFileSync('git', ['diff', '--name-only', `${baseBranch}...HEAD`], {
+    const output = execFileSync('git', ['diff', '--name-only', END_OF_OPTIONS, `${baseBranch}...HEAD`], {
       cwd: repoRoot,
       encoding: 'buffer',
       timeout: 15_000,

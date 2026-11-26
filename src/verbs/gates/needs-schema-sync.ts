@@ -6,6 +6,7 @@
 import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import type { ToolResult } from '../../format.js';
+import { END_OF_OPTIONS, isSafeRevision } from '../../utils/git-revision.js';
 
 interface NeedsSchemaSyncArgs {
   readonly repoRoot: string;
@@ -47,15 +48,15 @@ function getChangedFilesFromGit(
   repoRoot: string,
   baseBranch: string,
 ): readonly string[] {
-  const diffSpecs = [
-    `${baseBranch}...HEAD`,
-    `${baseBranch} HEAD`,
-    baseBranch,
+  const diffSpecs: readonly (readonly string[])[] = [
+    [`${baseBranch}...HEAD`],
+    [baseBranch, 'HEAD'],
+    [baseBranch],
   ];
 
   for (const spec of diffSpecs) {
     try {
-      const args = ['diff', '--name-only', ...spec.split(' ')];
+      const args = ['diff', '--name-only', END_OF_OPTIONS, ...spec];
       const output = execFileSync('git', args, {
         encoding: 'utf-8',
         cwd: repoRoot,
@@ -125,6 +126,15 @@ export function handleNeedsSchemaSync(args: NeedsSchemaSyncArgs): ToolResult {
     const diffContent = readFileSync(args.diffFile, 'utf-8');
     changedFiles = getChangedFilesFromDiff(diffContent);
   } else {
+    if (!isSafeRevision(baseBranch)) {
+      return {
+        success: false,
+        error: {
+          code: 'INVALID_INPUT',
+          message: 'baseBranch must be a git revision: not empty, no leading dash, no whitespace',
+        },
+      };
+    }
     try {
       changedFiles = getChangedFilesFromGit(args.repoRoot, baseBranch);
     } catch (err: unknown) {

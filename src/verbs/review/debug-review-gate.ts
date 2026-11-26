@@ -7,6 +7,7 @@ import { execFileSync } from 'node:child_process';
 import { runCommandSync } from '../../utils/process.js';
 import { existsSync } from 'node:fs';
 import type { ToolResult } from '../../format.js';
+import { END_OF_OPTIONS, isSafeRevision } from '../../utils/git-revision.js';
 import { resolveRunnableCommand } from '../../config/test-runtime-resolver.js';
 import { matchesTestName } from '../../config/verification-profile.js';
 import type { EventStore } from '../../events/store.js';
@@ -78,6 +79,16 @@ function executeDebugReviewGate(args: DebugReviewGateArgs): ToolResult {
     return {
       success: false,
       error: { code: 'INVALID_INPUT', message: 'baseBranch is required' },
+    };
+  }
+
+  if (!isSafeRevision(args.baseBranch)) {
+    return {
+      success: false,
+      error: {
+        code: 'INVALID_INPUT',
+        message: 'baseBranch must be a git revision: not empty, no leading dash, no whitespace',
+      },
     };
   }
 
@@ -172,7 +183,7 @@ function getChangedFiles(repoRoot: string, baseBranch: string): string[] | null 
   try {
     const output = execFileSync(
       'git',
-      ['diff', '--name-only', `${baseBranch}...HEAD`],
+      ['diff', '--name-only', END_OF_OPTIONS, `${baseBranch}...HEAD`],
       { cwd: repoRoot, encoding: 'utf-8' },
     );
     return output
@@ -183,7 +194,7 @@ function getChangedFiles(repoRoot: string, baseBranch: string): string[] | null 
     try {
       const output = execFileSync(
         'git',
-        ['diff', '--name-only', baseBranch, 'HEAD'],
+        ['diff', '--name-only', END_OF_OPTIONS, baseBranch, 'HEAD'],
         { cwd: repoRoot, encoding: 'utf-8' },
       );
       return output
