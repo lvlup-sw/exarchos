@@ -117,10 +117,16 @@ describe('the stored-shape decision of the verification profile', () => {
     expect(bindingDecision?.decision).toContain('__segment_input_bindings_v1__');
     expect(bindingDecision?.decision).toContain('zero event rows');
     expect(decisions.filter(entry => entry.date === '2026-11-14')).toHaveLength(2);
-    expect(decisions.at(-1)?.source).toContain('canonical spec SHA256 0745ea007c909168f8fe55be9f1e5aef22fe1a78da75ead1faa406f82c260632');
-    expect(decisions.at(-1)?.decision).toContain('exarchos-prepare-8-vcs');
-    expect(decisions.at(-1)?.decision).toContain('settle-integration:');
-    expect(decisions.at(-1)?.decision).toContain('SCHEMA_VERSION stays 6');
+    const integrationDecision = decisions.find((entry) => entry.date === '2026-11-20');
+    expect(integrationDecision?.source).toContain('canonical spec SHA256 0745ea007c909168f8fe55be9f1e5aef22fe1a78da75ead1faa406f82c260632');
+    expect(integrationDecision?.decision).toContain('exarchos-prepare-8-vcs');
+    expect(integrationDecision?.decision).toContain('settle-integration:');
+    expect(integrationDecision?.decision).toContain('SCHEMA_VERSION stays 6');
+    const phaseSetDecision = decisions.at(-1);
+    expect(phaseSetDecision?.date).toBe('2026-11-25');
+    expect(phaseSetDecision?.decision).toContain('merge-pending');
+    expect(phaseSetDecision?.decision).toContain('SCHEMA_VERSION stays 6');
+    expect(phaseSetDecision?.shapes.WorkflowStateSchema).not.toBe(integrationDecision?.shapes.WorkflowStateSchema);
     expect(Object.keys(SettlementBundleV1Schema.shape.integration.unwrap().shape).sort()).toEqual([
       'attemptBinding', 'observedAt', 'ref', 'suiteEvidenceDigest', 'tip',
     ]);
