@@ -118,7 +118,7 @@ const LIFECYCLE_VIEW_DECLARATIONS: readonly BuiltinActionDraft[] = [
     name: 'wait',
     surface: 'worktree',
     description:
-      "Block until an event-log predicate holds; PURE CONSUMER — emits NO events, never hangs (structured WAIT_TIMEOUT on expiry). Feature-scoped (needs featureId, pick one): phase resolves on entering the target phase (already-passed ⇒ immediate; a failed/cancelled terminal first ⇒ WAIT_FAILED); status resolves on the requested terminal (completed/failed/cancelled; a DIFFERENT terminal ⇒ WAIT_FAILED); operation <surface> is the S-6 predicate for feature-scoped surfaces (merge, mutation), resolving when the unpaired executing_started gains its registry terminal by instance key (none in flight ⇒ immediate; launch/prune ⇒ INVALID_INPUT → use until). Worktree scope: until:'merge' (default) awaits the serialized merge on integrationRef, until:'idle' awaits prune-idle; timeoutMs bounds it. Use for: gating on a phase/status/operation/merge/idle condition. Do NOT use for: a snapshot (use ps/inspect); running a merge (the harness lands branches with its own tools).",
+      "Block until an event-log predicate holds; PURE CONSUMER — emits NO events, never hangs (structured WAIT_TIMEOUT on expiry). Feature-scoped (needs featureId, pick one): phase resolves on entering the target phase (already-passed ⇒ immediate; a failed/cancelled terminal first ⇒ WAIT_FAILED); status resolves on the requested terminal (completed/failed/cancelled; a DIFFERENT terminal ⇒ WAIT_FAILED); operation <surface> is the S-6 predicate for feature-scoped surfaces (merge, mutation), resolving when the unpaired executing_started gains its registry terminal by instance key (none in flight ⇒ immediate; launch/prune ⇒ INVALID_INPUT → use until). Worktree scope reads only historical worktrees@v1 rows, because no action takes a merge lease or a prune claim now: until:'merge' (default) awaits an old serialized-merge terminal on integrationRef, until:'idle' an old prune-idle; timeoutMs bounds it. Use for: gating on a phase/status/operation/merge/idle condition. Do NOT use for: a snapshot (use ps/inspect); running a merge (the harness lands branches with its own tools).",
     schema: z.object({
       /**
        * The target of a feature-scoped predicate (`phase`, `status`, `operation`). The `until`
@@ -138,7 +138,8 @@ const LIFECYCLE_VIEW_DECLARATIONS: readonly BuiltinActionDraft[] = [
       integrationRef: z.string().min(1).optional(),
       /**
        * The worktree-scope selector. `merge` polls for the serialized-merge terminal, and `idle`
-       * polls until the prune liveness pair clears. `wait` has no `scope` field.
+       * polls until the prune liveness pair clears. Both read only historical `worktrees@v1` rows,
+       * because no action takes a merge lease or a prune claim now. `wait` has no `scope` field.
        */
       until: z.enum(['merge', 'idle']).optional(),
       /**
