@@ -60,7 +60,10 @@ export interface InstallStepDeps {
   readonly version?: string;
   /** Replaces the bridge call. Default is a dynamic import of `lifecycle/install-skills-bridge.js`. */
   readonly runSkillsInstall?: (opts: SkillsInstallOpts) => Promise<void>;
-  /** The rename migration. It runs before the skills install, so old and new names never exist together. Default {@link defaultRunMigrate}. */
+  /**
+   * The rename migration. It runs after a local skill set is found and before its copy, so old and new names never exist together.
+   * A refused install does not run it. Default {@link defaultRunMigrate}.
+   */
   readonly runMigrate?: (ctx: ApplyCtx) => void;
 }
 
@@ -93,6 +96,8 @@ export interface SkillsInstallOpts {
   readonly version?: string;
   /** Always true from the onboard step, so `installSkills` refuses and never runs `npx skills add`. */
   readonly localSourceOnly: true;
+  /** Runs once a local skill set is found, before its copy. See `InstallSkillsOpts.beforeLocalCopy`. */
+  readonly beforeLocalCopy?: () => void;
 }
 
 /**
@@ -125,6 +130,7 @@ async function defaultRunSkillsInstall(opts: SkillsInstallOpts): Promise<void> {
     ...(opts.platform ? { platform: opts.platform } : {}),
     ...(opts.version ? { version: opts.version } : {}),
     localSourceOnly: opts.localSourceOnly,
+    ...(opts.beforeLocalCopy ? { beforeLocalCopy: opts.beforeLocalCopy } : {}),
   };
 
   await bridge.runInstallSkills(
@@ -575,7 +581,7 @@ function defaultRunMigrate(deps: InstallStepDeps): (ctx: ApplyCtx) => void {
 
 /**
  * Builds the {@link ApplyCtx.installStep} hook over the injected {@link InstallStepDeps}.
- * The returned function runs the migration and the local skills copy. It does not read `step`.
+ * The returned function runs the local skills copy, and the migration just before the copy. It does not read `step`.
  * The skills copy defaults to `atomicCopyTreeSync`, which stages the tree and swaps it in with a rename.
  * An interrupted copy then leaves no half-populated skill directory, and a second onboard run converges.
  * The install scope defaults to `'project'` under `ctx.repoRoot`.
@@ -588,8 +594,6 @@ export function makeInstallStep(
     const homeDir = deps.homeDir ?? (() => homedir());
     const runMigrate = deps.runMigrate ?? defaultRunMigrate(deps);
     const registerMcp = deps.registerMcp ?? NOOP_REGISTER_MCP;
-
-    runMigrate(ctx);
 
     const skillsSourceOverridden = deps.resolveSkillsSource !== undefined;
     const aliasesSourceOverridden = deps.resolveAliasesSource !== undefined;
@@ -614,6 +618,7 @@ export function makeInstallStep(
       ...(deps.platform ? { platform: deps.platform } : {}),
       ...(deps.version ? { version: deps.version } : {}),
       localSourceOnly: true,
+      beforeLocalCopy: () => runMigrate(ctx),
     });
   };
 }

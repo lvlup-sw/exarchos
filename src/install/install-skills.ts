@@ -111,6 +111,11 @@ export interface InstallSkillsOpts {
    */
   localSourceOnly?: boolean;
   /**
+   * Runs once a local skill set for the runtime is found, before the first copy.
+   * The onboard step runs its rename migration here, so a refused install leaves the installed skills unchanged.
+   */
+  beforeLocalCopy?: () => void;
+  /**
    * Recursive directory copy for the local-copy path (see `skillsSource`).
    * The default wraps `fs.cpSync(src, dest, { recursive: true })`.
    */
@@ -1182,6 +1187,7 @@ export async function installSkills(opts: InstallSkillsOpts): Promise<void> {
       const nativeDir = expandTilde(runtime.skillsInstallPath, home);
       const canonicalDir = resolveCanonicalSkillsDir(scope, home, projectRoot);
 
+      opts.beforeLocalCopy?.();
       log(`Installing ${set.length} skill${set.length === 1 ? '' : 's'} → ${nativeDir}`);
       copySkillSetToDir(set, nativeDir, copyDir);
       placeCanonicalSkillSet(set, canonicalDir, nativeDir, platform, copyDir, symlink);

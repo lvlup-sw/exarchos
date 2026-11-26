@@ -196,6 +196,47 @@ describe('installStep (local skills copy)', () => {
   });
 
   /**
+   * The rename migration removes old skill directories, so it must not run when the install refuses.
+   * With no local source the step refuses and the migration does not run. With a local source the migration runs once, before the first copy.
+   */
+  it('Install_MigrationRunsOnlyBeforeALocalCopy_NeverOnARefusal', async () => {
+    const fx = await createFixture();
+    vi.stubEnv('PATH', path.join(fx.base, 'no-bin'));
+    try {
+      const skillsSource = await seedSkillsSource(fx);
+      const order: string[] = [];
+      const deps: InstallStepDeps = {
+        agent: 'claude',
+        runtimes: [
+          { name: 'claude', skillsInstallPath: path.join(fx.home, '.claude', 'skills') } as never,
+        ],
+        homeDir: () => fx.home,
+        copyDir: () => { order.push('copy'); },
+        registerMcp: () => {},
+        log: () => {},
+        errLog: () => {},
+        runMigrate: () => { order.push('migrate'); },
+      };
+      const step = installPlanStep();
+      const ctx = applyCtx(fx);
+
+      await expect(makeInstallStep({ ...deps, resolveSkillsSource: () => undefined })(step, ctx)).rejects.toThrow(
+        /No local skills source was found for runtime "claude"/,
+      );
+      expect(order).toEqual([]);
+
+      await makeInstallStep({ ...deps, resolveSkillsSource: () => skillsSource })(step, ctx);
+      expect(order[0]).toBe('migrate');
+      expect(order.filter((entry) => entry === 'migrate')).toHaveLength(1);
+      expect(order.slice(1).every((entry) => entry === 'copy')).toBe(true);
+      expect(order.length).toBeGreaterThan(1);
+    } finally {
+      vi.unstubAllEnvs();
+      await cleanup(fx);
+    }
+  });
+
+  /**
    * The GENERATE step of the reconciler owns MCP registration. The default `registerMcp` of
    * `installSkills` writes `~/.claude.json`, so the install step must pass a no-op, or claude
    * repos register twice. The test injects no `registerMcp`. It captures the function that the
