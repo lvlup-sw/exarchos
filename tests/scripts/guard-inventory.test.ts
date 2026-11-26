@@ -1263,15 +1263,15 @@ describe('Shell parsing units the indirection rests on', () => {
   });
 });
 
+/**
+ * The live entries that a rewrite source can hold. The lvlup-sw CI contract fixes `scripts/ci/`
+ * for the Buildkite steps. The old `scripts/` tree had no `ci/` or `README.md`, so no
+ * citation in the frozen spec can name a path in them.
+ */
+const LIVE_IN_REWRITE_SOURCE: Record<string, readonly string[]> = { 'scripts/': ['README.md', 'ci'] };
+
 describe('Historical spec paths resolve against the current tree', () => {
   const onDisk = (p: string): boolean => existsSync(join(REPO_ROOT, p));
-
-  /**
-   * The live entries a rewrite source may hold. The lvlup-sw CI contract fixes `scripts/ci/`
-   * for the Buildkite steps. The old `scripts/` tree had no `ci/` or `README.md`, so no
-   * citation in the frozen spec can name a path in them.
-   */
-  const LIVE_IN_REWRITE_SOURCE: Record<string, readonly string[]> = { 'scripts/': ['README.md', 'ci'] };
 
   /**
    * The spec of channel 2 is frozen, so only these rewrites keep its file lists on real artifacts.
