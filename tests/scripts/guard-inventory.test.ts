@@ -23,6 +23,7 @@ import {
   GUARD_EXEMPTIONS,
   GUARD_SUITE_ROOTS,
   HISTORICAL_PATH_REWRITES,
+  SPEC_FALLBACK,
   resolveHistoricalPath,
   SHELL_INTERPRETERS,
   auditGuardInventory,
@@ -1262,18 +1263,39 @@ describe('Shell parsing units the indirection rests on', () => {
   });
 });
 
+/**
+ * The live entries that a rewrite source can hold. The lvlup-sw CI contract fixes `scripts/ci/`
+ * for the Buildkite steps. The old `scripts/` tree had no `ci/` or `README.md`, so no
+ * citation in the frozen spec can name a path in them.
+ */
+const LIVE_IN_REWRITE_SOURCE: Record<string, readonly string[]> = { 'scripts/': ['README.md', 'ci'] };
+
 describe('Historical spec paths resolve against the current tree', () => {
   const onDisk = (p: string): boolean => existsSync(join(REPO_ROOT, p));
 
   /**
    * The spec of channel 2 is frozen, so only these rewrites keep its file lists on real artifacts.
-   * Each source path must be absent, or the rule can shadow a live path.
+   * Each source path must be absent, or hold only the live entries listed above, or the rule
+   * can shadow a live path.
    * Each target must exist, or the rule resolves nothing. The catch-all target is the repository root.
    */
   it('GuardInventory_HistoricalPathRewrites_AllResolve', () => {
     expect(HISTORICAL_PATH_REWRITES.length).toBeGreaterThan(0);
+    const spec = readFileSync(join(REPO_ROOT, SPEC_FALLBACK), 'utf8');
     for (const [from, to] of HISTORICAL_PATH_REWRITES) {
-      expect(onDisk(from), `rewrite source ${from} still exists — it is not historical`).toBe(false);
+      const live = LIVE_IN_REWRITE_SOURCE[from];
+      if (live === undefined) {
+        expect(onDisk(from), `rewrite source ${from} still exists — it is not historical`).toBe(false);
+      } else {
+        expect(readdirSync(join(REPO_ROOT, from)).sort(), `rewrite source ${from} holds an unlisted entry`).toEqual(
+          [...live].sort(),
+        );
+        for (const entry of live) {
+          expect(spec.includes(`${from}${entry}`), `the spec cites ${from}${entry}, which the live tree shadows`).toBe(
+            false,
+          );
+        }
+      }
       if (to === '') continue;
       expect(onDisk(to), `rewrite target ${to} (from ${from}) does not exist`).toBe(true);
     }

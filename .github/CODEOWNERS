@@ -1,18 +1,22 @@
 # Default owner
-* @reedsalus
+* @rsalus
 
 # Product source
-src/ @reedsalus
+src/ @rsalus
 
 # Repo automation: gates, build/publish scripts, conformance suite, lint rules
-tools/ @reedsalus
+tools/ @rsalus
 
 # Authored content, and the generated trees rendered from it
-content/ @reedsalus
-rendered/ @reedsalus
+content/ @rsalus
+rendered/ @rsalus
 
 # The single test tree
-tests/ @reedsalus
+tests/ @rsalus
 
 # Policy data, including the comment policy and its exemptions
-.exarchos/ @reedsalus
+.exarchos/ @rsalus
+
+# The Buildkite pull request pipeline and the scripts it runs: the gate itself
+.buildkite/ @rsalus
+scripts/ci/ @rsalus

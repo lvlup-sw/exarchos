@@ -16,8 +16,8 @@ const REPO_ROOT = path.resolve(import.meta.dirname, '../..');
 
 /**
  * The directories that carry the structure of the repository. The first six are that
- * structure. `binding` and `hooks` are here because a consumer outside this repository
- * requires each path.
+ * structure. `binding`, `hooks` and `scripts` are here because a consumer outside this
+ * repository requires each path.
  */
 const ALLOWED_DIRS: Record<string, string> = {
   src: 'The shipped product source.',
@@ -28,11 +28,13 @@ const ALLOWED_DIRS: Record<string, string> = {
   docs: 'The two documents that describe the system, the mount point for the relocated ones, and the published site skeleton.',
   binding: 'Harness binding descriptors.',
   hooks: 'Plugin-root hooks/, required at this path by the plugin contract.',
+  scripts: 'The scripts/ci/ steps of the Buildkite pull request pipeline, at the path the lvlup-sw CI contract fixes.',
 };
 
 /** Classified dot-directories. Tooling homes, not repository structure. */
 const ALLOWED_DOT_DIRS: Record<string, string> = {
   '.github': 'Workflows, CODEOWNERS, issue templates.',
+  '.buildkite': 'The Buildkite pull request pipeline, read from main by the lvlup-sw admission build.',
   '.agents': 'Skills vendored for every agent that works on this repository. Codex reads `.agents/skills`.',
   '.claude': 'Claude Code harness config and worktrees.',
   '.claude-plugin': 'Plugin packaging manifest.',
