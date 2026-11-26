@@ -242,41 +242,6 @@ register({
 });
 
 register({
-  phase: 'merge-pending',
-  workflowType: 'feature',
-  skill: 'merge-orchestrator',
-  skillRef: '@skills/merge-orchestrator/SKILL.md',
-  tools: [
-    {
-      tool: 'exarchos_event',
-      action: 'append',
-      purpose:
-        'Record the harness landing of the worktree task with one merge.executed row, keyed by taskId and mergeSha',
-    },
-    {
-      tool: 'exarchos_workflow',
-      action: 'get',
-      purpose: 'Read mergeOrchestrator state to detect a prior terminal phase',
-    },
-    {
-      tool: 'exarchos_event',
-      action: 'query',
-      purpose: 'Reconstruct merge timeline from merge.preflight/executed/recovered events',
-    },
-  ],
-  events: phaseEventInstructions('merge-pending'),
-  autoEmittedEvents: phaseRuntimeEmissions('merge-pending'),
-  transitionCriteria:
-    'merge.executed → delegate (next worktree) | merge.recovered / merge.aborted → delegate (drop back, mergeOrchestrator terminal)',
-  guardPrerequisites:
-    "mergeOrchestrator.phase ∉ {completed, rolled-back, aborted} AND latest task.completed carries a worktree association",
-  validationScripts: [],
-  humanCheckpoint: false,
-  compactGuidance:
-    'Harness landing handoff. Land the accepted head of the worktree task on the integration branch with the git of your harness, from the clean integration worktree: git merge --ff-only <accepted head>, or git merge --no-ff <accepted head> when the integration branch advanced. Check git merge-base --is-ancestor first, and skip a head that landed already. Never rebase or squash an accepted head. Exarchos runs no merge. After the landing, record it with exarchos_event append of one merge.executed row (taskId, sourceBranch, targetBranch, mergeSha = integration tip after, rollbackSha = integration tip before), with idempotencyKey <taskId>:<mergeSha>. Use exarchos_event describe before the first append. HSM exits merge-pending back to delegate on that row. NOT a remote PR merge — the harness owns that in synthesize. Full guidance: @skills/merge-orchestrator/SKILL.md.',
-});
-
-register({
   phase: 'review',
   workflowType: 'feature',
   skill: 'review',

@@ -18,7 +18,7 @@ Read PR, CI and review state with your own tools: `gh` or the GitHub MCP server 
 The coordinator creates each PR, enables auto-merge, merges and posts each comment through its harness, outside governance.
 If your tools cannot do a read or the harness cannot do a write, stop and report. Do not fall back to an Exarchos action.
 
-> **Not to be confused with the integration merge.** This skill merges user-facing PRs on `main` through the harness of the coordinator, a remote operation. During delegation the coordinator lands each accepted head on the integration branch through its harness (`@skills/delegate/SKILL.md`). A stream parked in `merge-pending` follows `@skills/merge-orchestrator/SKILL.md`. Synthesize lands no integration commit.
+> **Not to be confused with the integration merge.** This skill merges user-facing PRs on `main` through the harness of the coordinator, a remote operation. During delegation the coordinator lands each accepted head on the integration branch through its harness (`@skills/delegate/SKILL.md`). Settle observes each landing by ancestry. Synthesize lands no integration commit.
 
 ## Overview
 

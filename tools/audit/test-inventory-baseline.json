@@ -4,11 +4,11 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1411,
-    "parsedFiles": 1367,
+    "testFiles": 1407,
+    "parsedFiles": 1363,
     "shellFiles": 44,
-    "cases": 15737,
-    "dynamicTitles": 312,
+    "cases": 15705,
+    "dynamicTitles": 315,
     "unparseableFiles": 0
   },
   "unparseable": [],
@@ -4910,7 +4910,7 @@
         },
         {
           "suite": "action-contract next_actions — allow-only registry advertisements",
-          "name": "NextActions_MergePending_RehydrateTopology_PublishesNoMergeOrchestrate",
+          "name": "NextActions_OldMergeState_RehydrateTopology_PublishesNoMergeOrchestrate",
           "dynamic": false
         },
         {
@@ -11002,7 +11002,7 @@
         },
         {
           "suite": "F.4 — ComputeNextActions per-workflow-type schema round-trip",
-          "name": "ComputeNextActions_MergePending_WithOrchestratorPending_EmitsOnlyTheDelegateReturn",
+          "name": "ComputeNextActions_DelegateWithAnOldPendingMergeState_EmitsOnlyTheReviewEdge",
           "dynamic": false
         }
       ]
@@ -11438,22 +11438,6 @@
         {
           "suite": "Roots featureId inference is gated on the receiving schema (#1838)",
           "name": "Dispatch_EventAppendUnderResolvingRoots_IsNotRefusedForInjectedFeatureId",
-          "dynamic": false
-        }
-      ]
-    },
-    "tests/outcome/runbook-merge-orchestration.test.ts": {
-      "file": "tests/outcome/runbook-merge-orchestration.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "MERGE_ORCHESTRATION runbook outcome (#1363)",
-          "name": "Runbook_MergePendingPhase_ReturnsHarnessLandingSequence",
-          "dynamic": false
-        },
-        {
-          "suite": "MERGE_ORCHESTRATION runbook outcome (#1363)",
-          "name": "Runbook_OtherPhases_StillPopulated",
           "dynamic": false
         }
       ]
@@ -12020,17 +12004,6 @@
         {
           "suite": "parity: exarchos workflow rehydrate — CLI ↔ MCP",
           "name": "workflowRehydrate_replayedEvents_reconstructEqualProjection",
-          "dynamic": false
-        }
-      ]
-    },
-    "tests/process/saga-merge-detour.test.ts": {
-      "file": "tests/process/saga-merge-detour.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "#1208 — task.completed{worktreePath} auto-detours to merge-pending",
-          "name": "next_actions offers no merge_orchestrate, and a recorded merge.executed row exits merge-pending",
           "dynamic": false
         }
       ]
@@ -37852,11 +37825,6 @@
         },
         {
           "suite": "computeNextActions (T040, DR-8)",
-          "name": "computeNextActions_MergePendingPhase_OffersOnlyTheDelegateReturn",
-          "dynamic": false
-        },
-        {
-          "suite": "computeNextActions (T040, DR-8)",
           "name": "computeNextActions_MergeOrchestratorCompleted_OmitsMergeOrchestrate",
           "dynamic": false
         },
@@ -37868,11 +37836,6 @@
         {
           "suite": "computeNextActions (T040, DR-8)",
           "name": "computeNextActions_MergeOrchestratorAborted_OmitsMergeOrchestrate",
-          "dynamic": false
-        },
-        {
-          "suite": "computeNextActions (T040, DR-8)",
-          "name": "mergePendingDetour_TaskCompletedWithWorktreePath_OffersNoMergeOrchestrateVerb",
           "dynamic": false
         },
         {
@@ -38063,7 +38026,7 @@
         },
         {
           "suite": "nextActionsFromResult — shape recognition",
-          "name": "offers only the delegate return from shape 2 when phase is merge-pending",
+          "name": "offers only the review edge from shape 2 when an old merge state is pending",
           "dynamic": false
         },
         {
@@ -38118,7 +38081,7 @@
         },
         {
           "suite": "nextActionsFromResult — shape recognition > #1238 ResultDataSchema discriminated union",
-          "name": "NextActionsFromResult_RehydrationDocWithExecutingMergePhase_StillOffersTheDelegateReturn",
+          "name": "NextActionsFromResult_RehydrationDocWithExecutingMergePhase_StillOffersTheReviewEdge",
           "dynamic": false
         },
         {
@@ -38138,7 +38101,7 @@
         },
         {
           "suite": "nextActionsFromResult — #1374 cross-boundary pin (reducer ⇒ reader)",
-          "name": "NextActions_FromReducerProjectedRehydrationDoc_AfterWorktreeBearingTaskCompleted_OffersTheDelegateReturn",
+          "name": "NextActions_FromReducerProjectedRehydrationDoc_AfterWorktreeBearingTaskCompleted_OffersTheReviewEdge",
           "dynamic": false
         },
         {
@@ -38727,93 +38690,6 @@
         {
           "suite": "assertReducerImmutable",
           "name": "Reducer_DeepFrozenInput_DoesNotMutate",
-          "dynamic": false
-        }
-      ]
-    },
-    "tests/unit/projections/merge-orchestrator/index.test.ts": {
-      "file": "tests/unit/projections/merge-orchestrator/index.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "merge-orchestrator barrel registration (Wave 2B.4)",
-          "name": "MergeOrchestratorReducer_RegistersOnBarrelImport",
-          "dynamic": false
-        }
-      ]
-    },
-    "tests/unit/projections/merge-orchestrator/reducer.test.ts": {
-      "file": "tests/unit/projections/merge-orchestrator/reducer.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "mergeOrchestratorReducer — identity (Wave 2B.2, DR-1)",
-          "name": "MergeOrchestratorReducer_IdentityIsCanonical",
-          "dynamic": false
-        },
-        {
-          "suite": "mergeOrchestratorReducer — identity (Wave 2B.2, DR-1)",
-          "name": "MergeOrchestratorReducer_NoEvents_ReturnsInitialState",
-          "dynamic": false
-        },
-        {
-          "suite": "mergeOrchestratorReducer.apply — phase transitions (Wave 2B.2)",
-          "name": "Apply_MergePreflight_TransitionsToPreflight",
-          "dynamic": false
-        },
-        {
-          "suite": "mergeOrchestratorReducer.apply — phase transitions (Wave 2B.2)",
-          "name": "Apply_MergePreflight_CapturesFailureReason",
-          "dynamic": false
-        },
-        {
-          "suite": "mergeOrchestratorReducer.apply — phase transitions (Wave 2B.2)",
-          "name": "Apply_MergeRequested_TransitionsToRequested",
-          "dynamic": false
-        },
-        {
-          "suite": "mergeOrchestratorReducer.apply — phase transitions (Wave 2B.2)",
-          "name": "Apply_MergeExecuted_TransitionsToExecuted",
-          "dynamic": false
-        },
-        {
-          "suite": "mergeOrchestratorReducer.apply — phase transitions (Wave 2B.2)",
-          "name": "Apply_MergeRollback_TransitionsToRecovering",
-          "dynamic": false
-        },
-        {
-          "suite": "mergeOrchestratorReducer.apply — phase transitions (Wave 2B.2)",
-          "name": "Apply_MergeRecovered_AdvancesToRecovering_WithoutLegacyRollback",
-          "dynamic": false
-        },
-        {
-          "suite": "mergeOrchestratorReducer.apply — phase transitions (Wave 2B.2)",
-          "name": "Apply_MergeRollback_FoldsRecoveryErrorDiscriminator",
-          "dynamic": false
-        },
-        {
-          "suite": "mergeOrchestratorReducer.apply — phase transitions (Wave 2B.2)",
-          "name": "Apply_MergeRollback_RejectsUnrecognisedRecoveryError",
-          "dynamic": false
-        },
-        {
-          "suite": "mergeOrchestratorReducer.apply — phase transitions (Wave 2B.2)",
-          "name": "Apply_MergeRollback_AnyPhaseTransitionsToRecovering",
-          "dynamic": false
-        },
-        {
-          "suite": "mergeOrchestratorReducer.apply — phase transitions (Wave 2B.2)",
-          "name": "Apply_MergeCompleted_TransitionsToCompleted",
-          "dynamic": false
-        },
-        {
-          "suite": "mergeOrchestratorReducer.apply — phase transitions (Wave 2B.2)",
-          "name": "MergeOrchestratorReducer_IsImmutable",
-          "dynamic": false
-        },
-        {
-          "suite": "mergeOrchestratorReducer.apply — phase transitions (Wave 2B.2)",
-          "name": "Apply_UnknownEvent_ReturnsStateUnchanged",
           "dynamic": false
         }
       ]
@@ -39769,73 +39645,38 @@
           "dynamic": false
         },
         {
-          "suite": "rehydration reducer — worktree auto-detour (#1208)",
-          "name": "Rehydration_TaskCompletedWithWorktreePath_StampsMergePending",
+          "suite": "rehydration reducer — no merge substate",
+          "name": "Rehydration_TaskCompletedWith_%s_KeepsThePhase",
           "dynamic": false
         },
         {
-          "suite": "rehydration reducer — worktree auto-detour (#1208)",
-          "name": "Rehydration_TaskCompletedWithWorktree_StampsMergePending",
-          "dynamic": false
+          "suite": "rehydration reducer — no merge substate",
+          "name": "<dynamic-case-1>",
+          "dynamic": true
         },
         {
-          "suite": "rehydration reducer — worktree auto-detour (#1208)",
+          "suite": "rehydration reducer — no merge substate",
           "name": "Rehydration_TaskCompletedNoWorktree_LeavesPhaseUntouched",
           "dynamic": false
         },
         {
-          "suite": "rehydration reducer — worktree auto-detour (#1208)",
-          "name": "Rehydration_TaskCompletedWithWorktreeOnRefactorWorkflow_DoesNotDetour",
+          "suite": "rehydration reducer — no merge substate",
+          "name": "Rehydration_TaskCompletedWithWorktreeOnRefactorWorkflow_KeepsThePhase",
           "dynamic": false
         },
         {
-          "suite": "rehydration reducer — worktree auto-detour (#1208)",
-          "name": "Rehydration_TaskCompletedWithWorktreeFeatureOutsideDelegate_DoesNotDetour",
+          "suite": "rehydration reducer — no merge substate",
+          "name": "Rehydration_%s_InReview_KeepsThePhaseAndTheSequence",
           "dynamic": false
         },
         {
-          "suite": "rehydration reducer — worktree auto-detour (#1208)",
-          "name": "Rehydration_MergeExecuted_RevertsPhaseAndStampsTerminal",
-          "dynamic": false
+          "suite": "rehydration reducer — no merge substate",
+          "name": "<dynamic-case-2>",
+          "dynamic": true
         },
         {
-          "suite": "rehydration reducer — worktree auto-detour (#1208)",
-          "name": "Rehydration_MergeRollback_RevertsPhaseAndStampsRolledBack",
-          "dynamic": false
-        },
-        {
-          "suite": "rehydration reducer — worktree auto-detour (#1208)",
-          "name": "Rehydration_MergeAborted_RevertsPhaseAndStampsAborted",
-          "dynamic": false
-        },
-        {
-          "suite": "rehydration reducer — worktree auto-detour (#1208)",
-          "name": "Rehydration_MergeTerminalEventWithoutPriorPending_NoOps",
-          "dynamic": false
-        },
-        {
-          "suite": "rehydration reducer — worktree auto-detour (#1208)",
-          "name": "Rehydration_TaskCompletedWithWhitespaceWorktree_DoesNotDetour",
-          "dynamic": false
-        },
-        {
-          "suite": "rehydration reducer — worktree auto-detour (#1208)",
-          "name": "Rehydration_TaskCompletedWithDifferentTaskActivePending_DoesNotClobberMergeOrchestrator",
-          "dynamic": false
-        },
-        {
-          "suite": "rehydration reducer — worktree auto-detour (#1208)",
-          "name": "Rehydration_TaskCompletedAfterTerminalForOtherTask_StampsForNewTask",
-          "dynamic": false
-        },
-        {
-          "suite": "rehydration reducer — worktree auto-detour (#1208)",
-          "name": "Rehydration_RefoldedTerminalMergeEvent_IsNoOp",
-          "dynamic": false
-        },
-        {
-          "suite": "rehydration reducer — worktree auto-detour (#1208)",
-          "name": "Rehydration_RefoldedSameTaskCompleted_DoesNotRegressTerminalMerge",
+          "suite": "rehydration reducer — no merge substate",
+          "name": "Rehydration_TaskCompletedWithWhitespaceWorktree_KeepsThePhase",
           "dynamic": false
         },
         {
@@ -46769,7 +46610,7 @@
         },
         {
           "suite": "Decision runbooks",
-          "name": "Runbook_MergePending_TemplateVarsExpand",
+          "name": "Runbook_NoMergePendingRunbook_Remains",
           "dynamic": false
         },
         {
@@ -46912,11 +46753,6 @@
         {
           "suite": "Runbook definitions",
           "name": "PlanCloseout_HasThreeSteps_TwoBlockingGatesFirst",
-          "dynamic": false
-        },
-        {
-          "suite": "Runbook definitions",
-          "name": "Runbook_PhaseMergePending_ReturnsPopulatedSteps",
           "dynamic": false
         },
         {
@@ -68004,7 +67840,7 @@
         },
         {
           "suite": "shared-IR coverage (exit-proof a support)",
-          "name": "covers all six phase kinds across the IR edges (cutover-gate coverage)",
+          "name": "covers all five phase kinds across the IR edges (cutover-gate coverage)",
           "dynamic": false
         },
         {
@@ -68132,7 +67968,7 @@
         },
         {
           "suite": "CutoverGate_PhaseKinds",
-          "name": "covers all six phase kinds",
+          "name": "covers all five phase kinds",
           "dynamic": false
         },
         {
@@ -68913,7 +68749,7 @@
         },
         {
           "suite": "projectStateToFacts — reads real legacy state",
-          "name": "derives task completion and merge-pending readiness from real state",
+          "name": "derives task completion from real state and projects no merge readiness fact",
           "dynamic": false
         },
         {
@@ -72043,13 +71879,8 @@
         },
         {
           "suite": "bootstrap prefix routing",
-          "name": "Bootstrap_UnsupportedPrefix_%s_Refuses",
+          "name": "Bootstrap_UnsupportedPrefix_SYNTHESIZE_Refuses",
           "dynamic": false
-        },
-        {
-          "suite": "bootstrap prefix routing",
-          "name": "<dynamic-case-1>",
-          "dynamic": true
         },
         {
           "suite": "bootstrap prefix routing",
@@ -72103,7 +71934,7 @@
         },
         {
           "suite": "bootstrap prefix routing",
-          "name": "<dynamic-case-2>",
+          "name": "<dynamic-case-1>",
           "dynamic": true
         },
         {
@@ -72113,7 +71944,7 @@
         },
         {
           "suite": "bootstrap prefix routing",
-          "name": "<dynamic-case-3>",
+          "name": "<dynamic-case-2>",
           "dynamic": true
         },
         {
@@ -72123,7 +71954,7 @@
         },
         {
           "suite": "bootstrap prefix routing",
-          "name": "<dynamic-case-4>",
+          "name": "<dynamic-case-3>",
           "dynamic": true
         },
         {
@@ -72153,7 +71984,7 @@
         },
         {
           "suite": "bootstrap frozen entry association",
-          "name": "<dynamic-case-5>",
+          "name": "<dynamic-case-4>",
           "dynamic": true
         },
         {
@@ -77507,33 +77338,13 @@
           "dynamic": false
         },
         {
-          "suite": "Feature workflow merge-pending substate",
-          "name": "exposes EXCLUDED_MERGE_PHASES as a reusable constant",
+          "suite": "Feature workflow without the merge-pending substate",
+          "name": "featureHsm_HasNoMergePendingState",
           "dynamic": false
         },
         {
-          "suite": "Feature workflow merge-pending substate",
-          "name": "featureHsm_TaskCompletedWithWorktree_TransitionsToMergePending",
-          "dynamic": false
-        },
-        {
-          "suite": "Feature workflow merge-pending substate",
-          "name": "featureHsm_TaskCompletedWithoutWorktree_DoesNotTransitionToMergePending",
-          "dynamic": false
-        },
-        {
-          "suite": "Feature workflow merge-pending substate",
-          "name": "featureHsm_MergeCompletedEvent_LeavesMergePendingState",
-          "dynamic": false
-        },
-        {
-          "suite": "Feature workflow merge-pending substate",
-          "name": "featureHsm_MergeRecoveredEvent_LeavesMergePendingState",
-          "dynamic": false
-        },
-        {
-          "suite": "Feature workflow merge-pending substate",
-          "name": "featureHsm_TaskCompletedWithWorktree_DoesNotTransitionWhenMergeCompleted",
+          "suite": "Feature workflow without the merge-pending substate",
+          "name": "featureHsm_TaskCompletedWithWorktree_HasNoMergePendingTarget",
           "dynamic": false
         },
         {
@@ -86306,7 +86117,7 @@
         },
         {
           "suite": "the authored built-in definitions against the golden",
-          "name": "AuthoredDefinition_TheProjection_HoldsFiveDefinitionsAnd51Edges",
+          "name": "AuthoredDefinition_TheProjection_HoldsFiveDefinitionsAnd49Edges",
           "dynamic": false
         }
       ]
@@ -86525,7 +86336,7 @@
       "cases": [
         {
           "suite": "the admission IR that derives from the built-in definitions",
-          "name": "DerivedIR_TheEdges_Are51In12_16_17_4_2",
+          "name": "DerivedIR_TheEdges_Are49In10_16_17_4_2",
           "dynamic": false
         },
         {
@@ -88104,7 +87915,7 @@
         },
         {
           "suite": "the comparator of the two guard inputs",
-          "name": "CompareGuardInputs_ATerminalMergePhaseOnOneSide_IsMergeOrchestrator",
+          "name": "CompareGuardInputs_AMergeStateDriftOfAnOldDocument_ChangesNoFact",
           "dynamic": false
         },
         {
@@ -88196,13 +88007,23 @@
         },
         {
           "suite": "the corpus agreement of the ledger fold and the state document",
-          "name": "CorpusAgreement_TheCases_Are131In102_6_23",
+          "name": "<dynamic-case-1>",
+          "dynamic": true
+        },
+        {
+          "suite": "the corpus agreement of the ledger fold and the state document",
+          "name": "CorpusAgreement_TheCases_Are127In98_6_23",
           "dynamic": false
         },
         {
           "suite": "the corpus agreement of the ledger fold and the state document",
           "name": "CorpusAgreement_%s_EachSideGivesTheRecordedVerdict",
           "dynamic": false
+        },
+        {
+          "suite": "the corpus agreement of the ledger fold and the state document",
+          "name": "<dynamic-case-2>",
+          "dynamic": true
         },
         {
           "suite": "the corpus agreement of the ledger fold and the state document",
@@ -88336,11 +88157,6 @@
         {
           "suite": "the guard fold and the document side",
           "name": "DocumentGuardInput_KeepsEachDocumentFieldAndTakesTheEventsFromTheRows",
-          "dynamic": false
-        },
-        {
-          "suite": "the guard fold and the document side",
-          "name": "FoldGuardInput_OnTheStorePath_MergePendingEntryDeniesACompletionWithAWorktree",
           "dynamic": false
         },
         {

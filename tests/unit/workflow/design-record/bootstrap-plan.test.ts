@@ -17,7 +17,7 @@ const BASE_TRANSITION = { fromStepId: 'scope', toStepId: 'build', transitionId: 
 const EMPTY_EDGE = { category: 'route-condition', obligation: { kind: 'none' } } as const;
 const PLAN_GATES = ['check_task_decomposition', 'check_plan_coverage', 'spec_coverage_check',
   'check_provenance_chain', 'generate_traceability'];
-type EntryKind = 'PLAN' | 'GATHER' | 'REVIEW' | 'SYNTHESIZE' | 'MERGE';
+type EntryKind = 'PLAN' | 'GATHER' | 'REVIEW' | 'SYNTHESIZE';
 
 /** The authored user fixture passes the real registration rules before planning. */
 function checked(raw: unknown): ExarchosDefinition {
@@ -106,8 +106,8 @@ describe('bootstrap prefix routing', () => {
     expectRefusal(prefixInput('release-check', userPrefix(['PLAN', 'REVIEW'])), 'PHASE_NOT_PREPARABLE');
   });
 
-  it.each(['SYNTHESIZE', 'MERGE'] as const)('Bootstrap_UnsupportedPrefix_%s_Refuses', (kind) => {
-    expectRefusal(prefixInput('release-check', userPrefix([kind])), 'PHASE_NOT_PREPARABLE');
+  it('Bootstrap_UnsupportedPrefix_SYNTHESIZE_Refuses', () => {
+    expectRefusal(prefixInput('release-check', userPrefix(['SYNTHESIZE'])), 'PHASE_NOT_PREPARABLE');
   });
 
   it('Bootstrap_SingleAgentImplement_Refuses', () => {

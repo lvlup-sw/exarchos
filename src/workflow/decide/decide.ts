@@ -66,7 +66,7 @@ export type DecideOutcome =
   | { readonly kind: 'stay'; readonly from: string; readonly verdicts: readonly EdgeVerdict[] };
 
 /** The field prefixes of the derived facts. No agent writes a derived fact. */
-const DERIVED_FACT_PREFIXES: readonly string[] = ['tasks.', 'reviews.', 'team.', 'mergePending.', 'cleanup.'];
+const DERIVED_FACT_PREFIXES: readonly string[] = ['tasks.', 'reviews.', 'team.', 'cleanup.'];
 
 /** The derived facts outside the derived prefixes. */
 const DERIVED_FACT_NAMES: readonly string[] = ['planReview.revisionsExhausted', 'artifacts.planNonEmpty'];

@@ -40,9 +40,9 @@ describe('the gate table projects the contract', () => {
   });
 
   /**
-   * `BEFORE_THE_CONTRACT` holds the six gate rows from before the contract and the `merge-pending` row, and no other phase has a gate row.
+   * `BEFORE_THE_CONTRACT` holds the six gate rows from before the contract, and no other phase has a gate row.
    * A row must change only by a deliberate edit here, in the same commit as the contract change, and never by drift in the derivation.
-   * The `merge-pending` row came with the retirement of the local merge action: the coordinator records the harness landing with `merge.executed`.
+   * The `merge-pending` row left with the merge substate, because settle observes each harness landing by ancestry.
    * The delegation rows omit `task.assigned`, because the runtime appends it in `prepare` and `prepare_delegation`.
    * Those phases disclose it in `runtimeEmits`.
    */
@@ -70,7 +70,6 @@ describe('the gate table projects the contract', () => {
       ],
       synthesize: ['team.spawned', 'team.disbanded', 'shepherd.iteration'],
       'overhaul-update-docs': ['team.spawned', 'team.disbanded'],
-      'merge-pending': ['merge.executed'],
     };
     for (const [phase, row] of Object.entries(BEFORE_THE_CONTRACT)) {
       expect(PHASE_EXPECTED_EVENTS[phase], phase).toEqual(row);

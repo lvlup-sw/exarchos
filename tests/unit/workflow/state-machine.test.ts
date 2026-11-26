@@ -14,7 +14,7 @@ import type {
   WorkflowTypeSummary,
   HSMDefinition,
 } from '../../../src/workflow/state-machine.js';
-import { EXCLUDED_MERGE_PHASES, createFeatureHSM, createRefactorHSM } from '../../../src/workflow/hsm-definitions.js';
+import { createFeatureHSM, createRefactorHSM } from '../../../src/workflow/hsm-definitions.js';
 import { EVENT_DATA_SCHEMAS, isBuiltInEventType } from '../../../src/events/schemas.js';
 import { buildHsmEventData } from '../../../src/workflow/hsm-transition-guard.js';
 import { mapInternalToExternalType } from '../../../src/workflow/events.js';
@@ -391,144 +391,27 @@ describe('executeTransition resolve-then-freeze (DR-13)', () => {
   });
 });
 
-describe('Feature workflow merge-pending substate', () => {
-  it('exposes EXCLUDED_MERGE_PHASES as a reusable constant', () => {
-    expect(EXCLUDED_MERGE_PHASES).toBeInstanceOf(Set);
-    expect(EXCLUDED_MERGE_PHASES.has('completed')).toBe(true);
-    expect(EXCLUDED_MERGE_PHASES.has('rolled-back')).toBe(true);
-    expect(EXCLUDED_MERGE_PHASES.has('aborted')).toBe(true);
-    expect(EXCLUDED_MERGE_PHASES.has('pending')).toBe(false);
-    expect(EXCLUDED_MERGE_PHASES.has('executing')).toBe(false);
+/**
+ * The feature machine has no merge substate. The harness lands each task head and settle observes it,
+ * so no guard reads a worktree completion or a merge row.
+ */
+describe('Feature workflow without the merge-pending substate', () => {
+  it('featureHsm_HasNoMergePendingState', () => {
+    const hsm = getHSMDefinition('feature');
+    expect(Object.keys(hsm.states)).not.toContain('merge-pending');
+    expect(hsm.transitions.filter((t) => t.from === 'merge-pending' || t.to === 'merge-pending')).toEqual([]);
   });
 
-  it('featureHsm_TaskCompletedWithWorktree_TransitionsToMergePending', () => {
+  /** A worktree completion gives no path to a merge substate, so the transition is refused. */
+  it('featureHsm_TaskCompletedWithWorktree_HasNoMergePendingTarget', () => {
     const hsm = getHSMDefinition('feature');
     const state = {
       phase: 'delegate',
-      _events: [
-        {
-          type: 'task.completed',
-          data: {
-            taskId: 'T01',
-            worktree: '/path/to/worktree',
-          },
-        },
-      ],
-    };
-    const result = executeTransition(hsm, state, 'merge-pending');
-    expect(result.success).toBe(true);
-    expect(result.newPhase).toBe('merge-pending');
-  });
-
-  /** A `task.completed` event without `worktree` or `worktreePath` fails the merge-pending entry guard. */
-  it('featureHsm_TaskCompletedWithoutWorktree_DoesNotTransitionToMergePending', () => {
-    const hsm = getHSMDefinition('feature');
-    const state = {
-      phase: 'delegate',
-      _events: [
-        {
-          type: 'task.completed',
-          data: {
-            taskId: 'T01',
-          },
-        },
-      ],
+      _events: [{ type: 'task.completed', data: { taskId: 'T01', worktree: '/path/to/worktree' } }],
     };
     const result = executeTransition(hsm, state, 'merge-pending');
     expect(result.success).toBe(false);
-    expect(result.errorCode).toBe('GUARD_FAILED');
-  });
-
-  /**
-   * The completion row is reserved, so the failure names no state shape for `update`. It names the
-   * gated writer as a call for the next task to complete. A repeat call for the same task is
-   * deduplicated and writes no row.
-   */
-  it('featureHsm_TaskCompletedWithoutWorktree_SuggestsTaskCompleteForTheNextTask', () => {
-    const hsm = getHSMDefinition('feature');
-    const state = {
-      featureId: 'feat-merge',
-      phase: 'delegate',
-      _events: [{ type: 'task.completed', data: { taskId: 'T01' } }],
-    };
-    const result = executeTransition(hsm, state, 'merge-pending');
-    expect(result.success).toBe(false);
-    expect(result.errorCode).toBe('GUARD_FAILED');
-    expect(result.guardExpectedShape).toBeUndefined();
-    expect(result.guardSuggestedFix).toEqual({
-      tool: 'exarchos_orchestrate',
-      params: {
-        action: 'task_complete',
-        featureId: 'feat-merge',
-        taskId: '<next-task-id>',
-        result: { worktree: '<worktree-path>' },
-      },
-    });
-    expect(result.errorMessage).toContain('Give result.worktree when the next task completes.');
-    expect(result.errorMessage).toContain('is deduplicated and writes no row');
-  });
-
-  it('featureHsm_MergeCompletedEvent_LeavesMergePendingState', () => {
-    const hsm = getHSMDefinition('feature');
-    const state = {
-      phase: 'merge-pending',
-      mergeOrchestrator: { phase: 'completed' },
-      _events: [
-        {
-          type: 'task.completed',
-          data: { taskId: 'T01', worktree: '/path/to/worktree' },
-        },
-        {
-          type: 'merge.executed',
-          data: { taskId: 'T01' },
-        },
-      ],
-    };
-    const result = executeTransition(hsm, state, 'delegate');
-    expect(result.success).toBe(true);
-    expect(result.newPhase).toBe('delegate');
-  });
-
-  /**
-   * A `merge.recovered` event lets the workflow leave merge-pending.
-   * The state has no terminal `mergeOrchestrator.phase`, so only the event can pass the guard.
-   */
-  it('featureHsm_MergeRecoveredEvent_LeavesMergePendingState', () => {
-    const hsm = getHSMDefinition('feature');
-    const state = {
-      phase: 'merge-pending',
-      _events: [
-        {
-          type: 'task.completed',
-          data: { taskId: 'T01', worktree: '/path/to/worktree' },
-        },
-        {
-          type: 'merge.recovered',
-          data: { taskId: 'T01', recoveryPointSha: 'abc123', reason: 'timeout' },
-        },
-      ],
-    };
-    const result = executeTransition(hsm, state, 'delegate');
-    expect(result.success).toBe(true);
-    expect(result.newPhase).toBe('delegate');
-  });
-
-  /** A terminal `mergeOrchestrator.phase` blocks a new entry into merge-pending, even after a `task.completed` with a worktree. */
-  it('featureHsm_TaskCompletedWithWorktree_DoesNotTransitionWhenMergeCompleted', () => {
-    const hsm = getHSMDefinition('feature');
-    const state = {
-      phase: 'delegate',
-      mergeOrchestrator: { phase: 'completed' },
-      _events: [
-        {
-          type: 'task.completed',
-          data: { taskId: 'T01', worktree: '/path/to/worktree' },
-        },
-      ],
-    };
-    const result = executeTransition(hsm, state, 'merge-pending');
-    expect(result.success).toBe(false);
-    expect(result.errorCode).toBe('GUARD_FAILED');
+    expect(result.newPhase).toBeUndefined();
   });
 });
 

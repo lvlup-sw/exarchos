@@ -45,7 +45,7 @@ const COMPOSITE_IDS: readonly string[] = [
 ];
 
 /** The number of transitions of the five built-in machines together. */
-const BUILT_IN_TRANSITIONS = 51;
+const BUILT_IN_TRANSITIONS = 49;
 
 /** An object literal of a transition with a quoted source state, on one line or on more lines. */
 const TRANSITION_LITERAL = /\{\s*from:\s*['"]/;

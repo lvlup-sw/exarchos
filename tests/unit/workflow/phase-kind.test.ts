@@ -28,7 +28,6 @@ describe('KIND_OBLIGATIONS', () => {
     expect(Object.keys(KIND_OBLIGATIONS).sort()).toEqual([
       'GATHER',
       'IMPLEMENT',
-      'MERGE',
       'PLAN',
       'REVIEW',
       'SYNTHESIZE',

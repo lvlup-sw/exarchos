@@ -293,27 +293,6 @@ export const GUARD_CLASSIFICATIONS: Readonly<Record<string, GuardClassificationE
         'equivalent to validation-passed in implementation.',
     },
 
-    'merge-pending-entry': {
-      id: 'merge-pending-entry',
-      category: 'admission-requirement',
-      rationale:
-        'Composite guard (hsm-definitions.ts): certifies that the most recent task.completed ' +
-        'event carries a worktree association (data.worktree or data.worktreePath) AND the ' +
-        'mergeOrchestrator has not already terminated (not in EXCLUDED_MERGE_PHASES). ' +
-        'Guards delegate→merge-pending auto-trigger.',
-    },
-
-    'merge-pending-exit': {
-      id: 'merge-pending-exit',
-      category: 'admission-requirement',
-      rationale:
-        'Composite guard (hsm-definitions.ts): certifies that a terminal merge event ' +
-        '(merge.executed, merge.rollback, merge.recovered, or merge.aborted) follows the ' +
-        'latest task.completed in the event stream, OR that mergeOrchestrator.phase is ' +
-        'terminal. Guards merge-pending→delegate. Cycle-scoped to prevent stale prior-cycle ' +
-        'events from prematurely exiting merge-pending.',
-    },
-
     'revisions-exhausted': {
       id: 'revisions-exhausted',
       category: 'bounded-loop-rule',

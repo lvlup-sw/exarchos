@@ -92,11 +92,10 @@ describe('the comparator of the two guard inputs', () => {
 
     const comparison = compared(build(), build());
 
-    expect(outEdges).toHaveLength(2);
+    expect(outEdges).toHaveLength(1);
     expect(comparison.edges).toHaveLength(outEdges.length + 1);
     expect(comparison.edges).toEqual([
       { transitionId: 'delegate->review', to: 'review', document: 'allow', fold: 'allow' },
-      { transitionId: 'delegate->merge-pending', to: 'merge-pending', document: 'deny', fold: 'deny' },
       { transitionId: 'cleanup', to: 'completed', document: 'deny', fold: 'deny' },
     ]);
     expect(comparison.workflowType).toBe('feature');
@@ -199,20 +198,19 @@ describe('the comparator of the two guard inputs', () => {
     expect(comparison.agrees).toBe(false);
   });
 
-  /** A terminal merge phase on the fold side gives `merge-orchestrator`, on the exit fact and on the exit verdict. */
-  it('CompareGuardInputs_ATerminalMergePhaseOnOneSide_IsMergeOrchestrator', () => {
-    const document = featureInput('merge-pending', { mergeOrchestrator: { phase: 'executing' } });
-    const fold = featureInput('merge-pending', { mergeOrchestrator: { phase: 'completed' } });
+  /**
+   * The machine has no merge substate, so no fact reads the merge state. A drift of the merge state of an
+   * old document changes no fact and no verdict, and the two inputs agree.
+   */
+  it('CompareGuardInputs_AMergeStateDriftOfAnOldDocument_ChangesNoFact', () => {
+    const document = featureInput('delegate', { mergeOrchestrator: { phase: 'executing' } });
+    const fold = featureInput('delegate', { mergeOrchestrator: { phase: 'completed' } });
 
     const comparison = compared(document, fold);
 
-    expect(comparison.differences).toEqual([{ key: 'mergePending.exitReady', document: false, fold: true }]);
-    expect(comparison.edges).toEqual([
-      { transitionId: 'merge-pending->delegate', to: 'delegate', document: 'deny', fold: 'allow' },
-      { transitionId: 'cleanup', to: 'completed', document: 'deny', fold: 'deny' },
-    ]);
-    expect(comparison.classes).toEqual(['merge-orchestrator']);
-    expect(comparison.agrees).toBe(false);
+    expect(comparison.differences).toEqual([]);
+    expect(comparison.classes).toEqual([]);
+    expect(comparison.agrees).toBe(true);
   });
 
   /** A plan artifact in the document only gives `unexplained`. A drift of the workflow type gives `unexplained` too. */

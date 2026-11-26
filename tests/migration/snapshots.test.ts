@@ -159,11 +159,11 @@ describe('task 025 — per-runtime snapshot baselines', () => {
   }
 
   /**
-   * Guards the total count. 16 procedural skills render one time to `standard`, and 3
-   * orchestration skills render for each of 6 runtimes: 16 + 18 = 34.
+   * Guards the total count. 15 procedural skills render one time to `standard`, and 3
+   * orchestration skills render for each of 6 runtimes: 15 + 18 = 33.
    */
   it('Snapshots_AllSkillsAllRuntimes_SetCardinality', () => {
-    expect(allFiles.length).toBe(34);
+    expect(allFiles.length).toBe(33);
   });
 
   for (const runtime of RENDER_DIRS) {

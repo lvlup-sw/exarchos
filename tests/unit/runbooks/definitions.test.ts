@@ -17,7 +17,6 @@ import {
   PLAN_CLOSEOUT,
   PLAN_COVERAGE_CHECK,
   PHASE_COMPRESSION,
-  MERGE_ORCHESTRATION,
   ALL_RUNBOOKS,
 } from '../../../src/runbooks/definitions.js';
 
@@ -153,7 +152,7 @@ describe('Runbook definitions', () => {
   });
 
   it('AllRunbooks_Count', () => {
-    expect(ALL_RUNBOOKS).toHaveLength(19);
+    expect(ALL_RUNBOOKS).toHaveLength(18);
   });
 
   /** The harness opens the pull request, so no runbook compiles synthesis closeout or names a provider writer. */
@@ -177,27 +176,6 @@ describe('Runbook definitions', () => {
       'stop',
       'continue',
     ]);
-  });
-
-  /**
-   * `MERGE_ORCHESTRATION` is the runbook of the `merge-pending` phase. The harness checks and lands
-   * the accepted head, the coordinator appends one `merge.executed` row, and the workflow moves back
-   * to `delegate`. No step calls the retired `merge_orchestrate`, and only the transition auto-emits.
-   */
-  it('Runbook_PhaseMergePending_ReturnsPopulatedSteps', () => {
-    expect(MERGE_ORCHESTRATION).toBeDefined();
-    expect(MERGE_ORCHESTRATION.id).toBe('merge-orchestration');
-    expect(MERGE_ORCHESTRATION.phase).toBe('merge-pending');
-    expect(MERGE_ORCHESTRATION.steps.map((step) => `${step.tool}.${step.action}`)).toEqual([
-      'native:bash.git_is_ancestor',
-      'native:bash.git_merge',
-      'exarchos_event.append',
-      'exarchos_workflow.transition',
-    ]);
-    expect(MERGE_ORCHESTRATION.autoEmits).toEqual(['workflow.transition']);
-    expect(MERGE_ORCHESTRATION.steps[2].params?.type).toBe('merge.executed');
-    expect(MERGE_ORCHESTRATION.steps[3].params?.target).toBe('delegate');
-    expect(MERGE_ORCHESTRATION.steps.some((step) => step.action === 'merge_orchestrate')).toBe(false);
   });
 
   it('TaskClassification_HasCorrectPhase_Delegate', () => {

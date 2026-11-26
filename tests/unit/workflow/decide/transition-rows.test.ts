@@ -85,8 +85,8 @@ function readGolden(): unknown {
 /** The key form of a phase row that the legacy transition guard appended: the feature, the event, the edge and the document version. */
 const LEGACY_TRANSITION_KEY = /^[^:]+:(transition|phase\.exited|phase\.entered|compound-entry|compound-exit|fix-cycle|plan-revision|cancel|cleanup):[^:]+:[^:]+:\d+$/;
 
-/** The valid targets of the fold phase `delegate` of a feature, which the one denial gains. */
-const DELEGATE_VALID_TARGETS: readonly string[] = ['review', 'merge-pending', 'cancelled', 'completed'];
+/** The valid targets of the fold phase `delegate` of a feature, which the one denial gains. The machine has no merge substate. */
+const DELEGATE_VALID_TARGETS: readonly string[] = ['review', 'cancelled', 'completed'];
 
 /** The name of the one denied scenario. */
 const DENIED_SCENARIO = 'feature delegate -> review denied with a pending task';

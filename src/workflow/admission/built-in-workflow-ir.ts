@@ -98,8 +98,6 @@ export const FACT_DECLARATION: EdgeConditionDeclaration = {
     'investigation.escalate': 'boolean',
     'resolution.directPush': 'boolean',
     'cleanup.mergeVerified': 'boolean',
-    'mergePending.entryReady': 'boolean',
-    'mergePending.exitReady': 'boolean',
     'team.disbandedOk': 'boolean',
     /**
      * This fact and the next two come from config. `projectStateToFacts` resolves them from the state that the legacy guard reads.

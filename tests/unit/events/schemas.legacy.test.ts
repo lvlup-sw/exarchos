@@ -486,11 +486,12 @@ describe('EventTypes', () => {
 
   /**
    * `PhaseBlockedKindSchema` is an inline copy of the `PhaseKind` union. The keys of
-   * `KIND_OBLIGATIONS` are that union, so the test pins the schema to them.
+   * `KIND_OBLIGATIONS` are that union, so the test pins the schema to them. The schema also holds
+   * the retired `MERGE` kind of the merge substate, so a stored row of that kind still parses.
    */
   it('PhaseBlockedKind_MatchesPhaseKindUnion', () => {
     expect([...PhaseBlockedKindSchema.options].sort()).toEqual(
-      Object.keys(KIND_OBLIGATIONS).sort(),
+      [...Object.keys(KIND_OBLIGATIONS), 'MERGE'].sort(),
     );
   });
 

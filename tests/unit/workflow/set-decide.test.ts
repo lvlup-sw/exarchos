@@ -508,7 +508,7 @@ describe('the transition handler decides on the ledger fold', () => {
 
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe('GUARD_FAILED');
-    expect(result.error?.validTargets).toEqual(['review', 'merge-pending', 'cancelled', 'completed']);
+    expect(result.error?.validTargets).toEqual(['review', 'cancelled', 'completed']);
   });
 
   /** A live oneshot `synthesize -> completed` reads no cleanup evidence on the fold, so the explicit edge denies and no cleanup row lands. */

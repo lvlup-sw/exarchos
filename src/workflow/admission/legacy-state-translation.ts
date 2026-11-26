@@ -159,19 +159,6 @@ const FAILED_STATUSES: ReadonlySet<string> = new Set([
   'failed',
   'needs_fixes',
 ]);
-const TERMINAL_MERGE_EVENTS: ReadonlySet<string> = new Set([
-  'merge.executed',
-  'merge.rollback',
-  'merge.recovered',
-  'merge.aborted',
-]);
-const TERMINAL_MERGE_ORCHESTRATOR_PHASES: ReadonlySet<string> = new Set([
-  'completed',
-  'rolled-back',
-  'recovered',
-  'aborted',
-  'failed',
-]);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return (
@@ -447,52 +434,6 @@ function summarizeTasks(state: Record<string, unknown>): TaskSummary {
   return { count, allComplete };
 }
 
-function eventDataHasWorktree(event: Record<string, unknown>): boolean {
-  const data = event['data'];
-  if (!isRecord(data)) return false;
-  return nonEmptyString(data['worktree']) || nonEmptyString(data['worktreePath']);
-}
-
-function lastTaskCompletedIndex(
-  events: readonly Record<string, unknown>[],
-): number {
-  for (let i = events.length - 1; i >= 0; i -= 1) {
-    const ev = events[i];
-    if (ev !== undefined && eventType(ev) === 'task.completed') return i;
-  }
-  return -1;
-}
-
-function mergePendingEntryReady(
-  events: readonly Record<string, unknown>[],
-): boolean {
-  const idx = lastTaskCompletedIndex(events);
-  if (idx < 0) return false;
-  const ev = events[idx];
-  return ev !== undefined && eventDataHasWorktree(ev);
-}
-
-function mergePendingExitReady(
-  state: Record<string, unknown>,
-  events: readonly Record<string, unknown>[],
-): boolean {
-  const orchestratorPhase = readPath(state, 'mergeOrchestrator.phase');
-  if (
-    typeof orchestratorPhase === 'string' &&
-    TERMINAL_MERGE_ORCHESTRATOR_PHASES.has(orchestratorPhase)
-  ) {
-    return true;
-  }
-  const idx = lastTaskCompletedIndex(events);
-  const scanFrom = idx < 0 ? 0 : idx + 1;
-  for (let i = scanFrom; i < events.length; i += 1) {
-    const ev = events[i];
-    const t = ev === undefined ? undefined : eventType(ev);
-    if (t !== undefined && TERMINAL_MERGE_EVENTS.has(t)) return true;
-  }
-  return false;
-}
-
 /** True when no team was spawned (subagent-only mode), or when a team disbanded. */
 function teamDisbandedOk(
   events: readonly Record<string, unknown>[],
@@ -585,8 +526,6 @@ export function projectStateToFacts(
   fields['reviews.anyFailed'] = reviews.anyFailed;
   fields['reviews.requiredSatisfied'] = reviews.requiredSatisfied;
 
-  fields['mergePending.entryReady'] = mergePendingEntryReady(events);
-  fields['mergePending.exitReady'] = mergePendingExitReady(state, events);
   fields['team.disbandedOk'] = teamDisbandedOk(events);
 
   const revisionCount = tallyPlanRevisions(events).revisions;
@@ -1281,8 +1220,6 @@ function adjudicateEdgeDecisionFromFacts(
  */
 export const EVENT_DERIVED_FACTS: ReadonlySet<string> = Object.freeze(
   new Set([
-    'mergePending.entryReady',
-    'mergePending.exitReady',
     'team.disbandedOk',
     'planReview.revisionCount',
     'planReview.revisionsExhausted',

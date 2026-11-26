@@ -733,31 +733,6 @@ export const PHASE_COMPRESSION: RunbookDefinition = {
   autoEmits: [],
 };
 
-export const MERGE_ORCHESTRATION: RunbookDefinition = {
-  id: 'merge-orchestration',
-  phase: 'merge-pending',
-  description: 'Land the accepted head of a worktree task through the harness, then record the landing with a merge.executed row.',
-  steps: [
-    { tool: 'native:bash', action: 'git_is_ancestor', onFail: 'stop',
-      note: 'git merge-base --is-ancestor <accepted head> <targetBranch>. Exit 0: the head landed already, so skip the landing. Exit 1: land it. Any other exit: stop and report.' },
-    { tool: 'native:bash', action: 'git_merge', onFail: 'stop',
-      note: 'From the clean integration worktree, capture the integration tip as rollbackSha, then git merge --ff-only <accepted head>, or git merge --no-ff <accepted head> when the integration branch advanced. Never rebase or squash an accepted head.' },
-    { tool: 'exarchos_event', action: 'append', onFail: 'stop',
-      params: { type: 'merge.executed' },
-      note: 'Record the landing: taskId, sourceBranch, targetBranch, mergeSha (integration tip after), rollbackSha (integration tip before), idempotencyKey <taskId>:<mergeSha>.' },
-    { tool: 'exarchos_workflow', action: 'transition',
-      params: { target: 'delegate' }, onFail: 'continue',
-      note: 'The merge.executed row admits the exit from merge-pending back to delegate.' },
-  ],
-  /** `stream` and `event` cover the required fields of the `event.append` step. */
-  templateVars: ['featureId', 'taskId', 'sourceBranch', 'targetBranch', 'stream', 'event'],
-  /**
-   * The `merge.executed` row comes from the `params.type` of an `event.append` step, not from the
-   * `autoEmits` of an action, so this list does not name it.
-   */
-  autoEmits: ['workflow.transition'],
-};
-
 export const ALL_RUNBOOKS: readonly RunbookDefinition[] = [
   TASK_COMPLETION,
   QUALITY_EVALUATION,
@@ -777,5 +752,4 @@ export const ALL_RUNBOOKS: readonly RunbookDefinition[] = [
   PLAN_CLOSEOUT,
   PLAN_COVERAGE_CHECK,
   PHASE_COMPRESSION,
-  MERGE_ORCHESTRATION,
 ];

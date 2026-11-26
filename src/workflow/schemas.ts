@@ -67,7 +67,6 @@ export const FEATURE_PHASES = [
   'plan',
   'plan-review',
   'delegate',
-  'merge-pending',
   'review',
   'synthesize',
   'completed',
@@ -75,12 +74,20 @@ export const FEATURE_PHASES = [
   'blocked',
 ] as const;
 
+/** The phase that each retired feature phase of a persisted state reads as. */
+const RETIRED_FEATURE_PHASES: Readonly<Record<string, (typeof FEATURE_PHASES)[number]>> = {
+  ideate: 'plan',
+  'merge-pending': 'delegate',
+};
+
 /**
- * Feature workflows start at `plan` and never produce `ideate`.
- * The schema reads a persisted `ideate` phase as `plan`, so a historical feature state still parses.
+ * Feature workflows start at `plan` and never produce `ideate`. The feature machine has no
+ * `merge-pending` substate, because the harness lands each task head and settle observes it.
+ * The schema reads a persisted `ideate` phase as `plan` and a persisted `merge-pending` phase as
+ * `delegate`, so a historical feature state still parses.
  */
 export const FeaturePhaseSchema = z.preprocess(
-  (val) => (val === 'ideate' ? 'plan' : val),
+  (val) => (typeof val === 'string' && Object.hasOwn(RETIRED_FEATURE_PHASES, val) ? RETIRED_FEATURE_PHASES[val] : val),
   z.enum(FEATURE_PHASES),
 );
 

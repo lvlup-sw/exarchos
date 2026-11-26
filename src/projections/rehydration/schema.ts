@@ -54,8 +54,8 @@ export const PhasePlaybookSchema = z
   .nullable();
 
 /**
- * Merge orchestrator state on the envelope. It records the landing state of the pending worktree task without an event store query.
- * The reducer sets it on a `task.completed` with a worktree. `merge.executed`, `merge.recovered`, `merge.rollback` and `merge.aborted` update it.
+ * Merge orchestrator state of an old envelope. The retired merge substate wrote it for the pending worktree task.
+ * The reducer writes it no longer, but a stored envelope can hold it, so the schema still reads it.
  */
 export const RehydrationMergeOrchestratorSchema = z.object({
   /** The task that owns the worktree merge. */
@@ -72,7 +72,7 @@ export const WorkflowStateSchema = z.object({
   featureId: z.string(),
   phase: z.string(),
   workflowType: z.string(),
-  /** Absent until the reducer folds a `task.completed` with a worktree. */
+  /** Present only in an old envelope. The reducer writes it no longer. */
   mergeOrchestrator: RehydrationMergeOrchestratorSchema.optional(),
 });
 

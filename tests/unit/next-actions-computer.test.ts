@@ -61,32 +61,13 @@ describe('computeNextActions (T040, DR-8)', () => {
   });
 
   /**
-   * The harness lands the task branch, and a recorded `merge.executed` row admits the exit. Thus
-   * `merge-pending` offers only its HSM edge back to `delegate`, and never the retired `merge_orchestrate`.
-   */
-  it('computeNextActions_MergePendingPhase_OffersOnlyTheDelegateReturn', () => {
-    const hsm = getHSMDefinition('feature');
-    const state = {
-      phase: 'merge-pending',
-      workflowType: 'feature',
-      mergeOrchestrator: { phase: 'pending', taskId: 'T11' },
-      featureId: 'feat-x',
-    };
-
-    const actions = computeNextActions(state, hsm);
-
-    expect(actions.map((a) => a.verb)).toEqual(['delegate']);
-    expect(actions.find((a) => a.verb === 'merge_orchestrate')).toBeUndefined();
-  });
-
-  /**
-   * A merge orchestrator phase in `EXCLUDED_MERGE_PHASES` means that the merge is over, so the
-   * verb must not surface again. The `merge-pending` entry guard reads the same constant.
+   * The merge orchestrator state of an old document offers no `merge_orchestrate` verb. The action
+   * is retired, and the machine has no merge substate.
    */
   it('computeNextActions_MergeOrchestratorCompleted_OmitsMergeOrchestrate', () => {
     const hsm = getHSMDefinition('feature');
     const state = {
-      phase: 'merge-pending',
+      phase: 'delegate',
       workflowType: 'feature',
       mergeOrchestrator: { phase: 'completed', taskId: 'T11' },
       featureId: 'feat-x',
@@ -101,7 +82,7 @@ describe('computeNextActions (T040, DR-8)', () => {
   it('computeNextActions_MergeOrchestratorRolledBack_OmitsMergeOrchestrate', () => {
     const hsm = getHSMDefinition('feature');
     const state = {
-      phase: 'merge-pending',
+      phase: 'delegate',
       workflowType: 'feature',
       mergeOrchestrator: { phase: 'rolled-back', taskId: 'T11' },
       featureId: 'feat-x',
@@ -116,7 +97,7 @@ describe('computeNextActions (T040, DR-8)', () => {
   it('computeNextActions_MergeOrchestratorAborted_OmitsMergeOrchestrate', () => {
     const hsm = getHSMDefinition('feature');
     const state = {
-      phase: 'merge-pending',
+      phase: 'delegate',
       workflowType: 'feature',
       mergeOrchestrator: { phase: 'aborted', taskId: 'T11' },
       featureId: 'feat-x',
@@ -126,44 +107,6 @@ describe('computeNextActions (T040, DR-8)', () => {
 
     const merge = actions.find((a) => a.verb === 'merge_orchestrate');
     expect(merge).toBeUndefined();
-  });
-
-  /**
-   * The test joins the two ends of the merge detour. A `task.completed` event with a
-   * `worktreePath` lets the `delegate` to `merge-pending` transition pass. The computer then
-   * offers the return to `delegate`, and no `merge_orchestrate` verb.
-   *
-   * The computer gets the phase that the HSM returned, not a literal, so a different landing
-   * phase fails.
-   */
-  it('mergePendingDetour_TaskCompletedWithWorktreePath_OffersNoMergeOrchestrateVerb', () => {
-    const hsm = getHSMDefinition('feature');
-
-    const initial = {
-      phase: 'delegate',
-      workflowType: 'feature',
-      featureId: 'feat-x',
-      _events: [
-        {
-          type: 'task.completed',
-          data: { taskId: 'T11', worktreePath: '/tmp/.worktrees/feat-x-T11' },
-        },
-      ],
-    };
-
-    const transition = executeTransition(hsm, initial, 'merge-pending');
-    expect(transition.success).toBe(true);
-    expect(transition.newPhase).toBe('merge-pending');
-
-    const transitioned = {
-      ...initial,
-      phase: transition.newPhase!,
-    };
-
-    const actions = computeNextActions(transitioned, hsm);
-
-    expect(actions.find((a) => a.verb === 'merge_orchestrate')).toBeUndefined();
-    expect(actions.map((a) => a.verb)).toContain('delegate');
   });
 });
 
@@ -553,12 +496,12 @@ describe('computeNextActions — admission-derived affordances (DR-9, T-13)', ()
   });
 
   /**
-   * The event log decides `delegate` to `merge-pending`. A payload with no `_events` cannot deny
-   * the edge, so the verb stays with an `undecidable` hint.
+   * The event log decides the team half of `delegate` to `review`. A payload with no `_events` cannot
+   * deny the edge when each task is complete, so the verb stays with an `undecidable` hint.
    */
   it('NextActions_EventGatedEdge_WithoutEventLog_IsAdvertisedAsUndecidable', () => {
     const hsm = getHSMDefinition('feature');
-    const edge = getEdgeIR('feature', 'delegate', 'merge-pending');
+    const edge = getEdgeIR('feature', 'delegate', 'review');
     expect(edge).toBeDefined();
     expect(edgeDependsOnEventLog(edge!)).toBe(true);
 
@@ -568,19 +511,19 @@ describe('computeNextActions — admission-derived affordances (DR-9, T-13)', ()
       workflowType: 'feature',
       updatedAt: EVALUATED_AT,
       artifacts: {},
-      tasks: [],
+      tasks: [{ id: 't1', status: 'complete' }],
       reviews: {},
     };
-    const merge = computeNextActions(
+    const review = computeNextActions(
       {
         phase: 'delegate',
         workflowType: 'feature',
         admission: admissionFor(state),
       },
       hsm,
-    ).find((a) => a.verb === 'merge-pending');
-    expect(merge).toBeDefined();
-    expect(merge?.hint).toContain('undecidable');
+    ).find((a) => a.verb === 'review');
+    expect(review).toBeDefined();
+    expect(review?.hint).toContain('undecidable');
   });
 
   /**

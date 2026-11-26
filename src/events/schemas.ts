@@ -297,8 +297,8 @@ export const EventTypes = [
   'dispatch.classified',
   'merge.preflight',
   /**
-   * The durable intent, recorded before the GitHub merge call runs. The `merge-orchestrator@v1`
-   * projection folds it as the move into the `requested` phase.
+   * The durable intent, recorded before the GitHub merge call of the retired merge executor ran.
+   * Old logs hold it, and no reader folds it now.
    */
   'merge.requested',
   'merge.executed',
@@ -2134,7 +2134,8 @@ export const PhaseContractMissingData = z.object({
 /**
  * The closed phase-kind set, a copy of `PhaseKind` in `workflow/phase-kind.ts`. It is inlined
  * because `phase-kind.ts` pulls in resolvers that the event store must not depend on. A drift-guard
- * test pins it to `KIND_OBLIGATIONS`.
+ * test pins it to `KIND_OBLIGATIONS`. It also holds `MERGE`, the kind of the retired merge substate,
+ * so a stored row of that kind still parses.
  */
 export const PhaseBlockedKindSchema = z.enum([
   'IMPLEMENT',

@@ -173,18 +173,18 @@ describe('action-contract next_actions — allow-only registry advertisements', 
     expect(isRegistryAdvertisement(hostOwned)).toBe(true);
   });
 
-  /** A rehydrate envelope in `merge-pending` publishes the return to `delegate` and no retired `merge_orchestrate`. */
-  it('NextActions_MergePending_RehydrateTopology_PublishesNoMergeOrchestrate', () => {
+  /** A rehydrate envelope in `delegate` with an old pending merge state publishes the edge to `review` and no retired `merge_orchestrate`. */
+  it('NextActions_OldMergeState_RehydrateTopology_PublishesNoMergeOrchestrate', () => {
     const result = ok({
       workflowState: {
         featureId: 'p2-detour',
-        phase: 'merge-pending',
+        phase: 'delegate',
         workflowType: 'feature',
         mergeOrchestrator: { taskId: '001', phase: 'pending' },
       },
     });
     const { control, registry } = nextActionEnvelopesFromResult(result);
-    expect(control.map((a) => a.verb)).toEqual(['delegate']);
+    expect(control.map((a) => a.verb)).toEqual(['review']);
     expect(registry).toEqual([]);
     expect(advertisedFromWrap(result.data)).toEqual([]);
   });

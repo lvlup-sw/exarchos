@@ -189,7 +189,8 @@ describe('projectStateToFacts — reads real legacy state', () => {
     expect(failed.fields['reviews.anyFailed']).toBe(true);
   });
 
-  it('derives task completion and merge-pending readiness from real state', () => {
+  /** The machine has no merge substate, so a worktree completion projects no merge readiness fact. */
+  it('derives task completion from real state and projects no merge readiness fact', () => {
     const tasks = projectStateToFacts({
       tasks: [{ status: 'complete' }, { status: 'complete' }],
     });
@@ -199,13 +200,8 @@ describe('projectStateToFacts — reads real legacy state', () => {
     const entry = projectStateToFacts({
       _events: [{ type: 'task.completed', data: { worktree: '.worktrees/t1' } }],
     });
-    expect(entry.fields['mergePending.entryReady']).toBe(true);
     expect(entry.events).toContain('task.completed');
-
-    const noWorktree = projectStateToFacts({
-      _events: [{ type: 'task.completed', data: {} }],
-    });
-    expect(noWorktree.fields['mergePending.entryReady']).toBe(false);
+    expect(Object.keys(entry.fields).filter((field) => field.startsWith('mergePending.'))).toEqual([]);
   });
 });
 

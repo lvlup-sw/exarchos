@@ -348,7 +348,6 @@ describe('serializePlaybooks', () => {
 
     const expectedPhases = [
       'plan', 'plan-review', 'delegate',
-      'merge-pending',
       'review', 'synthesize', 'completed', 'cancelled', 'blocked',
     ];
     for (const phase of expectedPhases) {

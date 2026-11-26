@@ -36,14 +36,6 @@
     },
     {
       "kind": "skill",
-      "stepId": "merge-pending",
-      "stepName": "merge-pending",
-      "isTerminal": false,
-      "runtime": "exarchos",
-      "stepType": "MERGE"
-    },
-    {
-      "kind": "skill",
       "stepId": "synthesize",
       "stepName": "synthesize",
       "isTerminal": false,
@@ -104,18 +96,6 @@
       "transitionId": "delegate->review",
       "fromStepId": "delegate",
       "toStepId": "review",
-      "isDefault": false
-    },
-    {
-      "transitionId": "delegate->merge-pending",
-      "fromStepId": "delegate",
-      "toStepId": "merge-pending",
-      "isDefault": false
-    },
-    {
-      "transitionId": "merge-pending->delegate",
-      "fromStepId": "merge-pending",
-      "toStepId": "delegate",
       "isDefault": false
     },
     {
@@ -212,8 +192,7 @@
         "groupId": "implementation",
         "members": [
           "delegate",
-          "review",
-          "merge-pending"
+          "review"
         ],
         "initial": "delegate",
         "maxFixCycles": 3,
@@ -321,32 +300,6 @@
                 "value": true
               }
             ]
-          }
-        }
-      },
-      "delegate->merge-pending": {
-        "guardId": "merge-pending-entry",
-        "category": "admission-requirement",
-        "obligation": {
-          "kind": "gate",
-          "gateId": "merge-pending-entry",
-          "presence": {
-            "kind": "factEquals",
-            "field": "mergePending.entryReady",
-            "value": true
-          }
-        }
-      },
-      "merge-pending->delegate": {
-        "guardId": "merge-pending-exit",
-        "category": "admission-requirement",
-        "obligation": {
-          "kind": "gate",
-          "gateId": "merge-pending-exit",
-          "presence": {
-            "kind": "factEquals",
-            "field": "mergePending.exitReady",
-            "value": true
           }
         }
       },

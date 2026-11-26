@@ -50,14 +50,14 @@ describe('F.4 — ComputeNextActions per-workflow-type schema round-trip', () =>
   });
 
   /**
-   * The harness lands the task branch, so `merge-pending` adds no `merge_orchestrate` verb. Its only
-   * action is the HSM return to `delegate`, and it must parse with the `NextAction` schema.
+   * The harness lands the task branch, so the merge state of an old document adds no `merge_orchestrate`
+   * verb. The only action of `delegate` is the HSM edge to `review`, and it must parse with the `NextAction` schema.
    */
-  it('ComputeNextActions_MergePending_WithOrchestratorPending_EmitsOnlyTheDelegateReturn', () => {
+  it('ComputeNextActions_DelegateWithAnOldPendingMergeState_EmitsOnlyTheReviewEdge', () => {
     const hsm = getHSMDefinition('feature');
     const result = computeNextActions(
       {
-        phase: 'merge-pending',
+        phase: 'delegate',
         workflowType: 'feature',
         mergeOrchestrator: { phase: 'pending', taskId: 'T1' },
       },
@@ -65,6 +65,6 @@ describe('F.4 — ComputeNextActions per-workflow-type schema round-trip', () =>
     );
     const parsed = z.array(NextActionSchema).safeParse(result);
     expect(parsed.success).toBe(true);
-    expect(result.map((a) => a.verb)).toEqual(['delegate']);
+    expect(result.map((a) => a.verb)).toEqual(['review']);
   });
 });

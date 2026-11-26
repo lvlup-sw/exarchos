@@ -5,11 +5,6 @@ export const ALL_PHASES: ReadonlySet<string> = new Set([
   'plan',
   'plan-review',
   'delegate',
-  /**
-   * The substate of `delegate` while the landing of a worktree task is pending. It must be in this
-   * set, so phase-gated actions stay available in it.
-   */
-  'merge-pending',
   'review',
   'synthesize',
   /** Debug workflow. */

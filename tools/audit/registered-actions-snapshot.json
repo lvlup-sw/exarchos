@@ -482,7 +482,8 @@
     {
       "type": "merge.completed",
       "lifecycle": "retired",
-      "tier": "capability"
+      "tier": "substrate",
+      "rationale": "operation-record"
     },
     {
       "type": "merge.executed",

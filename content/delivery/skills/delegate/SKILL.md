@@ -697,7 +697,7 @@ For the full transition table, consult `@skills/checkpoint/references/phase-tran
 
 ### Worktree-Bearing Tasks
 
-A completion row that names a worktree does not move the workflow through `merge-pending`. The `delegate` → `merge-pending` edge reads event data that the fold does not hold, so the edge does not admit on the fold. The settle move goes from `delegate` to `review` directly, and the coordinator lands each worktree after the move (Step 4).
+A completion row that names a worktree does not change the phase. The feature workflow has no merge phase: the settle move goes from `delegate` to `review` directly, and the coordinator lands each worktree after the move (Step 4). Settle observes each landing by ancestry.
 
 **Land it through the harness.** The coordinator lands each settled worktree itself, with the git of its harness, one worktree at a time, in dependency order. The normal path makes no Exarchos call for a landing and appends no `merge.executed` event.
 

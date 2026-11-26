@@ -944,6 +944,18 @@ decisions:
       Ten suites whose only subject is deleted are retired rows of the test inventory oracle, and the acquire_worktree adoption cases of the observational callers suite leave with their subject. The measured floors and the contract authority lock move in their own commits.
     status: "Committed on codex/1928-s5-worktrees-merges-cancel."
 
+  - date: "2026-11-25"
+    source: "Reed, 2026-11-25"
+    decision: >-
+      The merge-pending detour (C5) is deleted. The feature definition has no merge-pending step, no delegate to merge-pending edge and no return edge, and the merge-pending-entry and merge-pending-exit guards and their mergePending facts are gone. The MERGE phase kind leaves with its only phase.
+      The merge-orchestrator@v1 projection, the merge-orchestration runbook, the merge-pending playbook and phase-event row, and the merge-orchestrator skill are deleted. The harness lands each accepted task head, and settle observes the landing by ancestry.
+      The rehydration reducer no longer moves the phase on a worktree task.completed or on any merge event. A persisted merge-pending phase reads as delegate.
+    known: >-
+      The merge.* event schemas stay as history, and the workflow-state view still folds the stored merge rows. merge.executed stays active and workflow-local, because prepare reads it for a blocker that a squash or a rebase landed. merge.completed lost its only reader and is a retired operation record now. The phase.blocked schema keeps the MERGE kind, so a stored row still parses.
+      This removes the code of #1991 and #1992. A user definition with a MERGE step type no longer loads. INV-14 now references the delegate skill, so the invariant-catalog digest moves and the contract authority lock is re-approved in its own commit.
+      The built-in golden, the transition corpus and the counts that derive from the feature machine drop the merge-pending cases.
+    status: "Committed on codex/1928-s5-worktrees-merges-cancel."
+
 build_order:
   original: "kernel -> capsule contract -> prepare/settle -> one runtime adapter -> divergence loop -> #1249 laws -> second adapter"
   legs:

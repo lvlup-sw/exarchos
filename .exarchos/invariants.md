@@ -393,7 +393,7 @@ invariants:
       - "git documentation — `git merge --abort`, `git reset --keep`:
         https://git-scm.com/docs/git-reset"
     references:
-      - content/delivery/skills/merge-orchestrator/references/recovery-runbook.md
+      - content/delivery/skills/delegate/SKILL.md
       - lvlup-sw/docs:exarchos/docs/architecture/runtime.md#§5
 
   - id: INV-15

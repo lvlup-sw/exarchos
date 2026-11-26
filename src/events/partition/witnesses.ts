@@ -109,9 +109,9 @@ export const GOVERNANCE_WITNESSES: Readonly<Record<string, AuthorityWitness>> = 
     arm: 'projection-fold',
     evidence: ['src/projections/views/workflow-state-projection.ts'],
     because:
-      'The canonical workflow-state fold consumes it, and the merge-pending exit guard reads the ' +
-      'folded merge state. The coordinator records each harness landing with it, so dropping it ' +
-      'leaves a workflow parked in merge-pending.',
+      'The canonical workflow-state fold consumes it, and prepare reads it as the landing of a ' +
+      'blocker that a squash or a rebase landed. Dropping it makes prepare refuse that blocker ' +
+      'with BASE_UNRESOLVED.',
   },
   'merge.requested': {
     arm: 'charter-pin',

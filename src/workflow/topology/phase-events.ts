@@ -157,16 +157,6 @@ export const PHASE_EVENT_CONTRACTS: Readonly<Record<string, PhaseEventContract>>
     expects: [TEAM_SPAWNED, TEAM_DISBANDED],
     runtimeEmits: [],
   },
-  'merge-pending': {
-    expects: [
-      {
-        type: 'merge.executed',
-        when: 'After the harness lands the accepted head of the worktree task on the integration branch',
-        fields: ['taskId', 'sourceBranch', 'targetBranch', 'mergeSha', 'rollbackSha'],
-      },
-    ],
-    runtimeEmits: [],
-  },
   implementing: {
     expects: [],
     runtimeEmits: [

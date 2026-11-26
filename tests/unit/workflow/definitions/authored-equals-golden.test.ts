@@ -23,7 +23,7 @@ const GOLDEN_PATH = path.resolve(
 const PROJECTION = definitionsFromGolden(fs.readFileSync(GOLDEN_PATH, 'utf8'));
 
 /** The number of edges of each built-in type, in roster order. */
-const EDGE_COUNTS = [12, 16, 17, 4, 2];
+const EDGE_COUNTS = [10, 16, 17, 4, 2];
 
 /** True when the value is a plain JSON object. */
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -45,14 +45,14 @@ describe('the authored built-in definitions against the golden', () => {
   });
 
   /**
-   * The projection holds the five built-in types in roster order, with 51 edges in the order 12, 16, 17, 4, 2.
+   * The projection holds the five built-in types in roster order, with 49 edges in the order 10, 16, 17, 4, 2.
    * The edge keys of each loaded definition are the kernel transition ids in the same order.
    */
-  it('AuthoredDefinition_TheProjection_HoldsFiveDefinitionsAnd51Edges', () => {
+  it('AuthoredDefinition_TheProjection_HoldsFiveDefinitionsAnd49Edges', () => {
     expect(Object.keys(PROJECTION)).toEqual(BUILT_IN_WORKFLOW_TYPES);
     const counts = BUILT_IN_WORKFLOW_TYPES.map((type) => projectedEdgeKeys(type).length);
     expect(counts).toEqual(EDGE_COUNTS);
-    expect(counts.reduce((sum, count) => sum + count, 0)).toBe(51);
+    expect(counts.reduce((sum, count) => sum + count, 0)).toBe(49);
     for (const type of BUILT_IN_WORKFLOW_TYPES) {
       const definition = builtInDefinition(type);
       const transitionIds = definition.transitions.map((transition) => transition.transitionId);

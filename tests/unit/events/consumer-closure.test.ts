@@ -18,7 +18,6 @@ import { BUILTIN_VIEW_NAMES } from '../../../src/projections/views/registry.js';
 import { rehydrationReducer } from '../../../src/projections/rehydration/reducer.js';
 import { workflowStateReducer } from '../../../src/projections/workflow-state/reducer.js';
 import { taskStoreReducer } from '../../../src/projections/taskstore/reducer.js';
-import { mergeOrchestratorReducer } from '../../../src/projections/merge-orchestrator/reducer.js';
 import { nextActionReducer } from '../../../src/projections/next-action/reducer.js';
 import { createWorktreesReducer } from '../../../src/verbs/worktree/projections/worktrees.js';
 
@@ -33,7 +32,6 @@ function liveConsumerPopulation(): ReadonlySet<string> {
     rehydrationReducer.id,
     workflowStateReducer.id,
     taskStoreReducer.id,
-    mergeOrchestratorReducer.id,
     nextActionReducer.id,
     createWorktreesReducer().id,
   ]);
