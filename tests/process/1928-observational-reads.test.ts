@@ -148,12 +148,12 @@ it.runIf(process.platform === 'linux')('ObservationalReads_Unprovisioned_Resolve
     expect(firstRead).toMatchObject({ success: true });
     expect(secondRead).toMatchObject({ success: false, error: { code: 'DIFF_FAILED' } });
     const calls = await lines(f.logs.first);
-    expect(calls[0]).toMatch(/^first --no-lazy-fetch --no-replace-objects --no-optional-locks --no-pager --version$/);
+    expect(calls[0]).toMatch(/^first --no-replace-objects --no-optional-locks --no-pager --version$/);
     const reads = calls.slice(1);
     expect(reads.length).toBeGreaterThan(0);
     const repo = await realpath(f.repo);
     for (const read of reads) {
-      expect(read).toContain('first --no-lazy-fetch --no-replace-objects --no-optional-locks --no-pager -c core.fsmonitor=false -c core.hooksPath=/dev/null');
+      expect(read).toContain('first --no-replace-objects --no-optional-locks --no-pager -c core.fsmonitor=false -c core.hooksPath=/dev/null');
       expect(read).toContain(`--git-dir=${repo}/.git --work-tree=${repo} `);
     }
     expect(reads.some(read => / diff --stat --no-ext-diff --no-textconv [0-9a-f]{40} [0-9a-f]{40} --$/.exec(read) !== null)).toBe(true);
@@ -235,7 +235,7 @@ const CONVERTED_CALLERS: readonly (readonly string[])[] = [
 ];
 
 /** The safe flags that start each constrained read of the fixture repository, after the shim label. */
-const SAFE_READ_PREFIX = '--no-lazy-fetch --no-replace-objects --no-optional-locks --no-pager -c core.fsmonitor=false -c core.hooksPath=/dev/null '
+const SAFE_READ_PREFIX = '--no-replace-objects --no-optional-locks --no-pager -c core.fsmonitor=false -c core.hooksPath=/dev/null '
   + '-c gc.auto=0 -c maintenance.auto=false -c core.commitGraph=false -c protocol.allow=never ';
 
 /** Run the converted callers through the packaged CLI in a workflow of the fixture, and give each envelope. */

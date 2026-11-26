@@ -557,13 +557,13 @@ describe('the mock-boundary diff and the prepare-synthesis changed files', () =>
 
 /** The safe flags that start each constrained read, before the explicit directories. */
 const SAFE_FLAGS = [
-  '--no-lazy-fetch', '--no-replace-objects', '--no-optional-locks', '--no-pager',
+  '--no-replace-objects', '--no-optional-locks', '--no-pager',
   '-c', 'core.fsmonitor=false', '-c', `core.hooksPath=${devNull}`, '-c', 'gc.auto=0',
   '-c', 'maintenance.auto=false', '-c', 'core.commitGraph=false', '-c', 'protocol.allow=never',
 ];
 
 /** The capability probe of the constrained reader. */
-const VERSION_PROBE = ['--no-lazy-fetch', '--no-replace-objects', '--no-optional-locks', '--no-pager', '--version'].join(' ');
+const VERSION_PROBE = ['--no-replace-objects', '--no-optional-locks', '--no-pager', '--version'].join(' ');
 
 /** The subcommands that the converted callers can run through the constrained reader. */
 const CONSTRAINED_SUBCOMMANDS = new Set(['merge-base', 'diff', 'rev-parse', 'symbolic-ref', 'worktree', 'cat-file', 'ls-tree', 'ls-files']);

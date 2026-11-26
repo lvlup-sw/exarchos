@@ -25,7 +25,7 @@ describe('packaged S7 DAG races', () => {
       try { ready = await barrier.wait(); } finally { await process.stop(); }
       const tree = string(f.trees.get('T-01'));
       const gitDir = await f.git(['-C', tree, 'rev-parse', '--absolute-git-dir']);
-      expect(ready.argv).toEqual(['--no-lazy-fetch', '--no-replace-objects', '--no-optional-locks', '--no-pager',
+      expect(ready.argv).toEqual(['--no-replace-objects', '--no-optional-locks', '--no-pager',
         '-c', 'core.fsmonitor=false', '-c', `core.hooksPath=${devNull}`, '-c', 'gc.auto=0', '-c', 'maintenance.auto=false',
         '-c', 'core.commitGraph=false', '-c', 'protocol.allow=never', `--git-dir=${gitDir}`, `--work-tree=${tree}`, 'symbolic-ref', '--quiet', 'HEAD']);
       expect(ready.rows).toMatchObject([{ type: 'admission.evidence-recorded', data: { evidence: { verdict: 'pass' } } },

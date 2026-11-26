@@ -64,6 +64,34 @@ async function snapshot(root: string): Promise<Record<string, string>> {
 afterEach(async () => { for (const root of roots.splice(0)) await rmrfAsync(root); });
 
 describe('constrained Git structural reader', () => {
+  /**
+   * Git before 2.44 refuses the `--no-lazy-fetch` flag. A shim that refuses it as that Git does must still serve every read.
+   * Each start must carry `GIT_NO_LAZY_FETCH=1`, so Git 2.44 and later still stops a lazy fetch.
+   */
+  it.runIf(process.platform !== 'win32')('GitBeforeTheLazyFetchFlag_ServesEveryReadWithTheEnvironmentGuard', async () => {
+    const f = await fixture();
+    const log = join(f.root, 'old-git.log');
+    const shim = join(f.root, 'old-git');
+    await writeFile(shim, [
+      '#!/bin/sh',
+      'for arg in "$@"; do',
+      '  if [ "$arg" = "--no-lazy-fetch" ]; then echo "unknown option: --no-lazy-fetch" >&2; exit 129; fi',
+      'done',
+      `printf '%s\\n' "\${GIT_NO_LAZY_FETCH:-unset}" >> '${log}'`,
+      `exec '${gitExecutable}' "$@"`,
+      '',
+    ].join('\n'));
+    await chmod(shim, 0o755);
+
+    const observer = await createGitObserver(shim);
+    const selected = await observer.checkout(f.input);
+
+    expect(selected).toMatchObject({ kind: 'observed', value: { checkout: f.linked, branch: 'refs/heads/task', head: f.head } });
+    const guards = (await readFile(log, 'utf8')).split('\n').filter(Boolean);
+    expect(guards.length).toBeGreaterThan(1);
+    expect(new Set(guards)).toEqual(new Set(['1']));
+  });
+
   it('LinkedRegistration_ExactCoordinatesAndImmutableAncestry', async () => {
     const f = await fixture(); const before = await snapshot(f.repository);
     const selected = await f.observer.checkout(f.input);

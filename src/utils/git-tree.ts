@@ -350,6 +350,9 @@ export function constrainedCommitId(value: string): string {
 /**
  * Supply a closed structural read capability with pinned executable and isolated Git process options.
  * Each read has a closed argument vector: the safe flags, the explicit directories, then validated operands.
+ * `GIT_NO_LAZY_FETCH` stops a lazy fetch on Git 2.44 and later. Older Git does not know the `--no-lazy-fetch` flag, so the reader sets the variable instead.
+ * On any Git version, `protocol.allow=never` refuses every transport, so a lazy fetch cannot reach a remote.
+ *
  * The listings and the full diff return bytes up to their own bound. An output above a bound fails, so no read truncates.
  */
 export async function createConstrainedGitReads(executable: string) {
@@ -360,18 +363,18 @@ export async function createConstrainedGitReads(executable: string) {
   const nullFile = process.platform === 'win32' ? 'NUL' : '/dev/null';
   const env: NodeJS.ProcessEnv = {
     GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_SYSTEM: nullFile, GIT_CONFIG_GLOBAL: nullFile,
-    GIT_TERMINAL_PROMPT: '0', GIT_OPTIONAL_LOCKS: '0', GIT_NO_REPLACE_OBJECTS: '1',
+    GIT_TERMINAL_PROMPT: '0', GIT_OPTIONAL_LOCKS: '0', GIT_NO_REPLACE_OBJECTS: '1', GIT_NO_LAZY_FETCH: '1',
     LC_ALL: 'C', LANG: 'C',
     ...(process.platform === 'win32' && process.env.SystemRoot ? { SystemRoot: process.env.SystemRoot } : {}),
   };
   const options = { env, encoding: 'utf8', timeout: 30_000, maxBuffer: 1024 * 1024, windowsHide: true } satisfies Parameters<typeof execute>[2];
-  const version = await execute(git, ['--no-lazy-fetch', '--no-replace-objects', '--no-optional-locks', '--no-pager', '--version'], options);
+  const version = await execute(git, ['--no-replace-objects', '--no-optional-locks', '--no-pager', '--version'], options);
   if (!/^git version \d+\.\d+(?:\.[\w.-]+)?\s*$/.test(String(version.stdout))) throw new Error('Unsupported Git capability response');
 
   function argv(gitDir: string, checkout: string, args: readonly string[]): string[] {
     if (!isAbsolute(gitDir) || !isAbsolute(checkout)) throw new Error('Explicit absolute Git directories are required');
     return [
-      '--no-lazy-fetch', '--no-replace-objects', '--no-optional-locks', '--no-pager',
+      '--no-replace-objects', '--no-optional-locks', '--no-pager',
       '-c', 'core.fsmonitor=false', '-c', `core.hooksPath=${nullFile}`, '-c', 'gc.auto=0',
       '-c', 'maintenance.auto=false', '-c', 'core.commitGraph=false', '-c', 'protocol.allow=never',
       `--git-dir=${gitDir}`, `--work-tree=${checkout}`, ...args,

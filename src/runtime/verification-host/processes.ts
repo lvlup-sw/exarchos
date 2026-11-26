@@ -48,7 +48,7 @@ export async function recheckVerification(authorized: AuthorizedVerification): P
 
 function immutableGitArgs(authorized: AuthorizedVerification, operands: readonly string[]): string[] {
   return [
-    '--no-lazy-fetch', '--no-replace-objects', '--no-optional-locks', '--no-pager',
+    '--no-replace-objects', '--no-optional-locks', '--no-pager',
     '-c', 'core.fsmonitor=false', '-c', 'core.hooksPath=/dev/null', '-c', 'gc.auto=0',
     '-c', 'maintenance.auto=false', '-c', 'protocol.allow=never',
     `--git-dir=${authorized.resource.gitDir}`, `--work-tree=${authorized.resource.checkout}`, ...operands,
@@ -57,7 +57,7 @@ function immutableGitArgs(authorized: AuthorizedVerification, operands: readonly
 
 const immutableGitEnvironment = {
   GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_SYSTEM: '/dev/null', GIT_CONFIG_GLOBAL: '/dev/null',
-  GIT_TERMINAL_PROMPT: '0', GIT_OPTIONAL_LOCKS: '0', GIT_NO_REPLACE_OBJECTS: '1', LC_ALL: 'C', LANG: 'C',
+  GIT_TERMINAL_PROMPT: '0', GIT_OPTIONAL_LOCKS: '0', GIT_NO_REPLACE_OBJECTS: '1', GIT_NO_LAZY_FETCH: '1', LC_ALL: 'C', LANG: 'C',
 };
 
 /** Read exact objects using an explicit Git directory and no worktree callbacks. */
