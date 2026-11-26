@@ -13,9 +13,9 @@ import path from 'node:path';
 
 /**
  * True when a process with `pid` is alive. `process.kill(pid, 0)` checks existence
- * and permission without a signal. A throw (`ESRCH` or `EPERM`) counts as not
- * alive, because a PID that this user cannot signal now belongs to a process of
- * another user.
+ * and permission without a signal. `EPERM` means that the process exists and this
+ * user cannot signal it, so it counts as alive. Any other throw, such as `ESRCH`,
+ * counts as not alive.
  *
  * Caveats: `kill(pid, 0)` sees only the current PID namespace, so lock attribution
  * across containers that share a state directory is not reliable. The kernel also
@@ -26,8 +26,8 @@ export function isPidAlive(pid: number): boolean {
   try {
     process.kill(pid, 0);
     return true;
-  } catch {
-    return false;
+  } catch (error) {
+    return error instanceof Error && 'code' in error && error.code === 'EPERM';
   }
 }
 
