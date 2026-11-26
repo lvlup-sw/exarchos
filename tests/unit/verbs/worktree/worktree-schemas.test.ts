@@ -1,7 +1,9 @@
-// Each `surface: 'worktree'` action advertises a typed `outputSchema`, not
-// `EnvelopeSchema(z.unknown())`. Each schema accepts the real handler output, so
-// the MCP adapter does not replace a real result with an `INTERNAL_ERROR`. Six
-// actions carry the "Use for" and "Do NOT use for" guidance.
+/**
+ * Each `surface: 'worktree'` read action advertises a typed `outputSchema`, not
+ * `EnvelopeSchema(z.unknown())`. Each schema accepts the real handler output, so
+ * the MCP adapter does not replace a real result with an `INTERNAL_ERROR`. The three
+ * read actions carry the "Use for" and "Do NOT use for" guidance.
+ */
 
 import { describe, it, expect, afterEach } from 'vitest';
 import { mkdtemp } from 'node:fs/promises';
@@ -16,25 +18,10 @@ import { TOOL_REGISTRY, type ToolAction } from '../../../../src/registry.js';
 import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
 import { envelopeDataSchemaIsTyped } from '../../../../src/verbs/worktree/schemas.js';
 import {
-  handleAcquireWorktree,
-  handleReleaseWorktree,
   handleViewWorktrees,
   handleViewPs,
   handleViewWait,
 } from '../../../../src/verbs/worktree/handlers.js';
-import type { GitWorktreeProbe } from '../../../../src/verbs/worktree/manager.js';
-import type { ProcessSource } from '../../../../src/verbs/worktree/pure/process-identity.js';
-
-const EMPTY_PROBE: GitWorktreeProbe = {
-  listWorktrees: () => [],
-  verifyHead: () => ({ head: null, upstream: null, mutable: false, reason: 'head-unresolved' }),
-};
-
-const FIXED_SOURCE: ProcessSource = {
-  getStartTime: () => ({ status: 'present', startedAt: 'fixed-start' }),
-};
-
-const DETERMINISTIC_DEPS = { gitProbe: EMPTY_PROBE, processSource: FIXED_SOURCE };
 
 function surfaceActions(): ToolAction[] {
   return TOOL_REGISTRY.flatMap((t) => t.actions).filter((a) => a.surface === 'worktree');
@@ -59,11 +46,11 @@ async function createArm(): Promise<Arm> {
 }
 
 describe('worktree surface — typed outputSchema registration (DR-1)', () => {
-  /** The roster pins the six marked actions, so a lost marker fails the test. */
+  /** The roster pins the three marked read actions, so a lost marker fails the test. */
   it('WorktreeSurface_EveryMarkedAction_RegistersTypedOutputSchema', () => {
     const actions = surfaceActions();
     expect(actions.map((a) => a.name).sort()).toEqual(
-      ['acquire_worktree', 'ps', 'reconcile_worktrees', 'release_worktree', 'wait', 'worktrees'],
+      ['ps', 'wait', 'worktrees'],
     );
     for (const action of actions) {
       expect(
@@ -73,9 +60,9 @@ describe('worktree surface — typed outputSchema registration (DR-1)', () => {
     }
   });
 
-  it('WorktreeActions_SixActions_CarryDoNotUseForGuidance', () => {
-    const six = ['acquire_worktree', 'release_worktree', 'reconcile_worktrees', 'ps', 'wait', 'worktrees'];
-    for (const name of six) {
+  it('WorktreeActions_ThreeReadActions_CarryDoNotUseForGuidance', () => {
+    const reads = ['ps', 'wait', 'worktrees'];
+    for (const name of reads) {
       const action = findSurfaceAction(name);
       expect(action.description, `${name} must carry "Use for:"`).toContain('Use for:');
       expect(action.description, `${name} must carry "Do NOT use for:"`).toContain('Do NOT use for:');
@@ -102,36 +89,19 @@ describe('worktree surface — real handler output validates against schema (DR-
    */
   it('WorktreeActions_RealHandlerOutput_SafeParsesAgainstSchema — success payloads', async () => {
     const arm = await nextArm();
-    const repoRoot = arm.stateDir;
 
     const cases: ReadonlyArray<{ name: string; result: ToolResult }> = [
       {
-        name: 'acquire_worktree',
-        result: await handleAcquireWorktree(
-          { repoRoot, worktreeId: '/tmp/wlm6-schema-wt' },
-          arm.ctx,
-          DETERMINISTIC_DEPS,
-        ),
-      },
-      {
-        name: 'release_worktree',
-        result: await handleReleaseWorktree(
-          { worktreeId: '/tmp/wlm6-schema-wt' },
-          arm.ctx,
-          DETERMINISTIC_DEPS,
-        ),
-      },
-      {
         name: 'worktrees',
-        result: await handleViewWorktrees({}, arm.ctx, DETERMINISTIC_DEPS),
+        result: await handleViewWorktrees({}, arm.ctx),
       },
       {
         name: 'ps',
-        result: await handleViewPs({}, arm.ctx, DETERMINISTIC_DEPS),
+        result: await handleViewPs({}, arm.ctx),
       },
       {
         name: 'wait',
-        result: await handleViewWait({ until: 'idle', timeoutMs: 1000 }, arm.ctx, DETERMINISTIC_DEPS),
+        result: await handleViewWait({ until: 'idle', timeoutMs: 1000 }, arm.ctx),
       },
     ];
 
@@ -157,9 +127,7 @@ describe('worktree surface — real handler output validates against schema (DR-
     const arm = await nextArm();
 
     const cases: ReadonlyArray<{ name: string; result: ToolResult }> = [
-      { name: 'acquire_worktree', result: await handleAcquireWorktree({}, arm.ctx, DETERMINISTIC_DEPS) },
-      { name: 'release_worktree', result: await handleReleaseWorktree({}, arm.ctx, DETERMINISTIC_DEPS) },
-      { name: 'wait', result: await handleViewWait({ until: 'merge' }, arm.ctx, DETERMINISTIC_DEPS) },
+      { name: 'wait', result: await handleViewWait({ until: 'merge' }, arm.ctx) },
     ];
 
     for (const c of cases) {

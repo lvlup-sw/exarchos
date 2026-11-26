@@ -1,6 +1,6 @@
 /**
- * Typed output schemas for the `surface: 'worktree'` actions. Each success `data` schema follows
- * the real handler return in `handlers.ts`. The shared
+ * Typed output schemas for the `surface: 'worktree'` read actions. Each success `data` schema
+ * follows the real handler return in `handlers.ts`. The shared
  * `ErrorEnvelopeSchema` inside {@link EnvelopeSchema} models the error branch. The MCP adapter
  * replaces output that fails its `outputSchema` with an `INTERNAL_ERROR`. A schema stricter than
  * the real output thus breaks production. For this reason, every data object uses `.passthrough()`,
@@ -53,25 +53,6 @@ const InFlightPruneSchema = z
   })
   .passthrough();
 
-/** `acquire_worktree` success — adopt-then-reserve outcome (`handleAcquireWorktree`). */
-const AcquireWorktreeData = z
-  .object({
-    worktreeId: z.string(),
-    path: z.string(),
-    featureId: z.string().nullable(),
-    reserved: z.boolean(),
-    adopted: z.boolean(),
-  })
-  .passthrough();
-
-/** `release_worktree` success — the released-claim outcome (`handleReleaseWorktree`). */
-const ReleaseWorktreeData = z
-  .object({
-    worktreeId: z.string(),
-    released: z.boolean(),
-  })
-  .passthrough();
-
 /** One folded workflow-summary row (mirrors `projections/views/lifecycle/workflow-fold.ts`
  *  `WorkflowFoldRow`) — the `ps` scope:'workflow'|'all' workflows section. */
 const WorkflowFoldRowSchema = z
@@ -103,7 +84,7 @@ const InFlightOperationSchema = z
  *   - `workflow`: `workflows` and `workflowCount`.
  *   - `all`, the default: the `workflow` fields plus `operations` and `operationCount`.
  * The `workflow` and `all` shapes echo `scope`. No shape carries every field, so every field is
- * optional. The reconcile results are in {@link ReconcileWorktreesData}.
+ * optional.
  */
 const PsData = z
   .object({
@@ -118,27 +99,6 @@ const PsData = z
     workflowCount: z.number().optional(),
     operations: z.array(InFlightOperationSchema).optional(),
     operationCount: z.number().optional(),
-  })
-  .passthrough();
-
-/**
- * `reconcile_worktrees` success: the findings of the three reconcile passes, then the in-flight
- * columns after the passes. This action has one shape, so every field is required.
- */
-const ReconcileWorktreesData = z
-  .object({
-    /** Reservation reclaim: released (owner dead, path free) + orphans (owner dead, path held). */
-    probe: z.record(z.string(), z.unknown()),
-    /** Phantom-launch heal: an in-flight launch whose supervisor is provably dead. */
-    reconcile: z.record(z.string(), z.unknown()),
-    /** Crash-mid-merge heal: a stranded merge lease whose holder is provably dead. */
-    mergeReconcile: z.record(z.string(), z.unknown()),
-    inFlight: z.array(InFlightMergeSchema),
-    count: z.number(),
-    launches: z.array(WorktreeEntrySchema),
-    launchCount: z.number(),
-    prunes: z.array(InFlightPruneSchema),
-    pruneCount: z.number(),
   })
   .passthrough();
 
@@ -177,10 +137,7 @@ const WorktreesData = z
   })
   .passthrough();
 
-export const AcquireWorktreeOutputSchema = EnvelopeSchema(AcquireWorktreeData);
-export const ReleaseWorktreeOutputSchema = EnvelopeSchema(ReleaseWorktreeData);
 export const PsOutputSchema = EnvelopeSchema(PsData);
-export const ReconcileWorktreesOutputSchema = EnvelopeSchema(ReconcileWorktreesData);
 export const WaitOutputSchema = EnvelopeSchema(WaitData);
 export const WorktreesOutputSchema = EnvelopeSchema(WorktreesData);
 

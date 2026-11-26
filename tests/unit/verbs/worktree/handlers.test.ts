@@ -1,6 +1,8 @@
-// Handler-level contract tests for the worktree lifecycle that the dispatch parity suite does not pin.
-// They cover the all-or-nothing owner override, exclusive-ownership rejections, and the `ps`, `wait`, and reconcile surfaces.
-// The tests run over a real EventStore, and most of them inject fake git, process, and clock seams.
+/**
+ * Handler-level tests for the worktree read views: `worktrees`, the worktree scope of `ps`, and the
+ * `until` scope of `wait`. Each test seeds rows of old logs on the singleton `worktrees` stream, because
+ * no code writes that stream now. The tests run over a real EventStore with fake clock seams.
+ */
 
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import { mkdtemp } from 'node:fs/promises';
@@ -11,46 +13,11 @@ import { EventStore } from '../../../../src/events/store.js';
 import type { DispatchContext } from '../../../../src/dispatch/core/dispatch.js';
 import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
 import { handleView } from '../../../../src/projections/views/composite.js';
-import {
-  handleAcquireWorktree,
-  handleReconcileWorktrees,
-  handleReleaseWorktree,
-  handleViewWorktrees,
-} from '../../../../src/verbs/worktree/handlers.js';
-import { WORKTREES_STREAM, type GitWorktreeProbe } from '../../../../src/verbs/worktree/manager.js';
-import type { ProcessSource, StartTimeProbe } from '../../../../src/verbs/worktree/pure/process-identity.js';
-import type { ProcessTableSource, ProcessRecord } from '../../../../src/verbs/worktree/pure/probe.js';
+import { WORKTREES_STREAM, handleViewWorktrees } from '../../../../src/verbs/worktree/handlers.js';
 import type { InFlightMerge, InFlightPrune, WorktreeEntry } from '../../../../src/verbs/worktree/projections/worktrees.js';
-import { emitLaunchExecutingStarted, emitLaunchExecuted } from '../../../../src/runtime/launcher/liveness.js';
 import { callCli, callMcp } from '../../parity-harness.js';
 import { extractSchemaFields } from '../../../../src/adapters/cli/schema-to-flags.js';
 import { TOOL_REGISTRY } from '../../../../src/registry.js';
-
-/** Empty probe — adopt observes zero on-disk worktrees, no git spawn. */
-const EMPTY_PROBE: GitWorktreeProbe = {
-  listWorktrees: () => [],
-  verifyHead: () => ({
-    head: null,
-    upstream: null,
-    mutable: false,
-    reason: 'head-unresolved',
-  }),
-};
-
-/** Fixed, present create-time so reserve is byte-stable and OS-free. */
-const FIXED_SOURCE: ProcessSource = {
-  getStartTime: (): StartTimeProbe => ({ status: 'present', startedAt: 'fixed-start' }),
-};
-
-/**
- * A ProcessSource whose create-time probe never resolves, as on a platform without the probe tool or permission.
- * The derived reservation owner must then fall back to `null`, never `''`.
- */
-const UNRESOLVABLE_SOURCE: ProcessSource = {
-  getStartTime: (): StartTimeProbe => ({ status: 'unknown' }),
-};
-
-const DEPS = { gitProbe: EMPTY_PROBE, processSource: FIXED_SOURCE };
 
 interface Arm {
   readonly stateDir: string;
@@ -75,142 +42,6 @@ afterEach(async () => {
     const arm = arms.pop();
     if (arm) await rmrfAsync(arm.stateDir);
   }
-});
-
-/** `ownerPid` and `ownerStartedAt` must come together or not at all. With neither, the handler derives both. */
-describe('resolveOwner all-or-nothing (acquire_worktree)', () => {
-  const baseArgs = { repoRoot: '/tmp/wlm-h-repo', worktreeId: '/tmp/wlm-h-wt' };
-
-  it('AcquireWorktree_PartialOwnerOverride_OnlyPid_Rejected', async () => {
-    const arm = await createArm();
-    const result = await handleAcquireWorktree(
-      { ...baseArgs, ownerPid: 4242 },
-      arm.ctx,
-      DEPS,
-    );
-    expect(result.success).toBe(false);
-    expect(result.error?.code).toBe('INVALID_INPUT');
-    expect(result.error?.message).toMatch(/together/i);
-  });
-
-  it('AcquireWorktree_PartialOwnerOverride_OnlyStartedAt_Rejected', async () => {
-    const arm = await createArm();
-    const result = await handleAcquireWorktree(
-      { ...baseArgs, ownerStartedAt: 'boot-4242' },
-      arm.ctx,
-      DEPS,
-    );
-    expect(result.success).toBe(false);
-    expect(result.error?.code).toBe('INVALID_INPUT');
-    expect(result.error?.message).toMatch(/together/i);
-  });
-
-  it('AcquireWorktree_BothOwnerFields_Accepted', async () => {
-    const arm = await createArm();
-    const result = await handleAcquireWorktree(
-      { ...baseArgs, ownerPid: 4242, ownerStartedAt: 'boot-4242' },
-      arm.ctx,
-      DEPS,
-    );
-    expect(result.success).toBe(true);
-    expect((result.data as { reserved?: boolean }).reserved).toBe(true);
-  });
-
-  it('AcquireWorktree_NeitherOwnerField_DerivesBoth_Accepted', async () => {
-    const arm = await createArm();
-    const result = await handleAcquireWorktree(baseArgs, arm.ctx, DEPS);
-    expect(result.success).toBe(true);
-    expect((result.data as { reserved?: boolean }).reserved).toBe(true);
-  });
-});
-
-describe('DR-5 null-ready ownerStartedAt (acquire_worktree)', () => {
-  /**
-   * With an unresolvable create time, the reservation must store `ownerStartedAt` as `null`, not `''`.
-   * The `worktree.reserved` schema rejects `''` through `.min(1)`.
-   * The reserve succeeds, the event carries `null`, and the folded projection agrees.
-   */
-  it('Reserve_UnresolvableCreateTime_StoresNullNeverEmptyString', async () => {
-    const arm = await createArm();
-
-    const result = await handleAcquireWorktree(
-      { repoRoot: '/tmp/wlm-h-repo', worktreeId: '/tmp/wlm-h-nullstart' },
-      arm.ctx,
-      { gitProbe: EMPTY_PROBE, processSource: UNRESOLVABLE_SOURCE },
-    );
-
-    expect(result.success).toBe(true);
-    expect((result.data as { reserved?: boolean }).reserved).toBe(true);
-
-    const events = await arm.ctx.eventStore.query(WORKTREES_STREAM);
-    const reserved = events.filter((e) => e.type === 'worktree.reserved');
-    expect(reserved).toHaveLength(1);
-    expect(reserved[0].data?.ownerStartedAt).toBeNull();
-    expect(reserved[0].data?.ownerStartedAt).not.toBe('');
-
-    const view = await handleViewWorktrees({}, arm.ctx, {});
-    const worktrees = (view.data as { worktrees: WorktreeEntry[] }).worktrees;
-    const entry = worktrees.find((w) => w.worktreeId === '/tmp/wlm-h-nullstart');
-    expect(entry?.state).toBe('reserved');
-    expect(entry?.ownerStartedAt).toBeNull();
-  });
-});
-
-describe('exclusive ownership (acquire/release handlers)', () => {
-  /** Live owner 100 holds the worktree, so owner 200 cannot claim it. */
-  it('AcquireWorktree_AlreadyReservedByLiveOwner_ReturnsReservedError', async () => {
-    const arm = await createArm();
-    const args = {
-      repoRoot: '/tmp/wlm-h-repo',
-      worktreeId: '/tmp/wlm-h-held',
-      ownerPid: 100,
-      ownerStartedAt: 'boot-100',
-    };
-    const liveSource: ProcessSource = {
-      getStartTime: (pid): StartTimeProbe =>
-        pid === 100 ? { status: 'present', startedAt: 'boot-100' } : { status: 'absent' },
-    };
-    const first = await handleAcquireWorktree(args, arm.ctx, {
-      gitProbe: EMPTY_PROBE,
-      processSource: liveSource,
-    });
-    expect(first.success).toBe(true);
-
-    const second = await handleAcquireWorktree(
-      { ...args, ownerPid: 200, ownerStartedAt: 'boot-200' },
-      arm.ctx,
-      { gitProbe: EMPTY_PROBE, processSource: liveSource },
-    );
-    expect(second.success).toBe(false);
-    expect(second.error?.code).toBe('WORKTREE_RESERVED');
-  });
-
-  /** Owner 200 cannot release the live reservation of owner 100. */
-  it('ReleaseWorktree_ForeignLiveOwner_ReturnsOwnedByOtherError', async () => {
-    const arm = await createArm();
-    const liveSource: ProcessSource = {
-      getStartTime: (pid): StartTimeProbe =>
-        pid === 100 ? { status: 'present', startedAt: 'boot-100' } : { status: 'absent' },
-    };
-    await handleAcquireWorktree(
-      {
-        repoRoot: '/tmp/wlm-h-repo',
-        worktreeId: '/tmp/wlm-h-owned',
-        ownerPid: 100,
-        ownerStartedAt: 'boot-100',
-      },
-      arm.ctx,
-      { gitProbe: EMPTY_PROBE, processSource: liveSource },
-    );
-
-    const release = await handleReleaseWorktree(
-      { worktreeId: '/tmp/wlm-h-owned', ownerPid: 200, ownerStartedAt: 'boot-200' },
-      arm.ctx,
-      { gitProbe: EMPTY_PROBE, processSource: liveSource },
-    );
-    expect(release.success).toBe(false);
-    expect(release.error?.code).toBe('WORKTREE_OWNED_BY_OTHER');
-  });
 });
 
 /** Seed a CLAIM (`worktree.merge_requested`) directly on the singleton stream. */
@@ -243,7 +74,7 @@ async function seedMergeExecuted(
   );
 }
 
-/** Seed a CLAIM (`prune.executing_started`) — a live prune_worktrees GC pass. */
+/** Seed a CLAIM (`prune.executing_started`) of a pass of the retired prune GC. */
 async function seedPruneStarted(
   arm: Arm,
   p: { operationId: string; repoRoot: string; holderPid: number; holderStartedAt: string },
@@ -267,14 +98,14 @@ async function seedPruneExecuted(
   );
 }
 
-/** Seed a reservation (`worktree.reserved`) for a worktree owned by a PID. */
+/** Seed a reservation (`worktree.reserved`) of an old log for a worktree owned by a PID. */
 async function seedReserved(
   arm: Arm,
   r: {
     worktreeId: string;
     path: string;
     ownerPid: number;
-    ownerStartedAt: string;
+    ownerStartedAt: string | null;
     operationId: string;
   },
 ): Promise<void> {
@@ -295,14 +126,34 @@ async function seedReserved(
   );
 }
 
+/** Seed the launch claim (`launch.executing_started`) that the retired launcher wrote. */
+async function seedLaunchStarted(
+  arm: Arm,
+  l: { worktreeId: string; holderPid: number; holderStartedAt: string },
+): Promise<void> {
+  await arm.ctx.eventStore.append(
+    WORKTREES_STREAM,
+    { type: 'launch.executing_started', data: { ...l, instanceId: l.worktreeId } },
+    { idempotencyKey: `launch.executing_started:${l.worktreeId}` },
+  );
+}
+
+/** Seed the launch terminal (`launch.executed`) that the retired launcher wrote. */
+async function seedLaunchExecuted(arm: Arm, l: { worktreeId: string; exitCode: number }): Promise<void> {
+  await arm.ctx.eventStore.append(
+    WORKTREES_STREAM,
+    { type: 'launch.executed', data: { ...l, instanceId: l.worktreeId } },
+    { idempotencyKey: `launch.executed:${l.worktreeId}` },
+  );
+}
+
 /**
  * Each `ps` call passes `scope: 'worktree'`, the scope that returns the worktree liveness fold.
  * The `ps` calls go through `handleView`, so a missing routing arm fails them.
- * Fake process tables and an identity `realpath` keep the tests free of OS process scans.
  */
 describe('ps — in-flight liveness read (DR-4)', () => {
-  /** `ps` lists an in-flight merge from events and never reads the process table. */
-  it('HandleView_Ps_ListsInFlightFromInFlightMerges_NoProcessScan', async () => {
+  /** `ps` lists an in-flight merge from the rows of an old log and appends nothing. */
+  it('HandleView_Ps_ListsInFlightFromInFlightMerges_AppendsNothing', async () => {
     const arm = await createArm();
     await seedMergeRequested(arm, {
       integrationRef: 'main',
@@ -311,73 +162,21 @@ describe('ps — in-flight liveness read (DR-4)', () => {
       holderPid: 4242,
       holderStartedAt: 'boot-4242',
     });
+    const before = (await arm.ctx.eventStore.query(WORKTREES_STREAM)).length;
 
-    const listSpy = vi.fn((): readonly ProcessRecord[] => []);
-    const table: ProcessTableSource = { list: listSpy };
-
-    const result = await handleView({ action: 'ps', scope: 'worktree' }, arm.ctx, {
-      processTableSource: table,
-      realpath: (p) => p,
-    });
+    const result = await handleView({ action: 'ps', scope: 'worktree' }, arm.ctx);
 
     expect(result.success).toBe(true);
     const data = result.data as { inFlight: InFlightMerge[]; count: number };
     expect(data.count).toBe(1);
     expect(data.inFlight[0].integrationRef).toBe('main');
     expect(data.inFlight[0].sourceBranch).toBe('feat/x');
-    expect(listSpy).not.toHaveBeenCalled();
+    expect((await arm.ctx.eventStore.query(WORKTREES_STREAM)).length).toBe(before);
   });
 
   /**
-   * Owners 555 and 666 are absent from the process table, so they are dead.
-   * PID 777 is alive with its cwd inside the orphan worktree, so that worktree gets `worktree.orphan_detected`.
-   * The released worktree has no occupant, so it gets `worktree.released`.
-   * `selfPid` 999999 is not in the table, so its ancestry is only itself and 777 counts as a foreign occupant.
-   */
-  it('ReconcileWorktrees_DeadOwners_ReleasedAndOrphanedEmitted', async () => {
-    const arm = await createArm();
-    await seedReserved(arm, {
-      worktreeId: '/wlm/released-wt',
-      path: '/wlm/released-wt',
-      ownerPid: 555,
-      ownerStartedAt: 'b555',
-      operationId: 'op-rel',
-    });
-    await seedReserved(arm, {
-      worktreeId: '/wlm/orphan-wt',
-      path: '/wlm/orphan-wt',
-      ownerPid: 666,
-      ownerStartedAt: 'b666',
-      operationId: 'op-orph',
-    });
-
-    const table: ProcessTableSource = {
-      list: () => [{ pid: 777, ppid: 1, cwd: '/wlm/orphan-wt/sub', startTime: 'b777' }],
-    };
-
-    const result = await handleReconcileWorktrees({}, arm.ctx, {
-      processTableSource: table,
-      realpath: (p) => p,
-      selfPid: 999999,
-    });
-
-    expect(result.success).toBe(true);
-    const data = result.data as {
-      probe: { released: string[]; orphaned: string[]; probed: number };
-    };
-    expect(data.probe.probed).toBe(2);
-    expect(data.probe.released).toContain('/wlm/released-wt');
-    expect(data.probe.orphaned).toContain('/wlm/orphan-wt');
-
-    const events = await arm.ctx.eventStore.query(WORKTREES_STREAM);
-    const types = events.map((e) => e.type);
-    expect(types).toContain('worktree.released');
-    expect(types).toContain('worktree.orphan_detected');
-  });
-
-  /**
-   * The launcher reserves its worktree, and then a child starts.
-   * `ps` shows the launch from events with no process scan, and clears it after `launch.executed` folds.
+   * The retired launcher reserved its worktree, and then a child started.
+   * `ps` shows the launch from the old rows, and clears it after `launch.executed` folds.
    */
   it('HandleView_Ps_SurfacesInFlightLaunches_ClearedByTerminal', async () => {
     const arm = await createArm();
@@ -388,17 +187,13 @@ describe('ps — in-flight liveness read (DR-4)', () => {
       ownerStartedAt: 'boot-4242',
       operationId: 'op-launch',
     });
-    await emitLaunchExecutingStarted(arm.ctx.eventStore, {
+    await seedLaunchStarted(arm, {
       worktreeId: '/wlm/launch-wt',
       holderPid: 7777,
       holderStartedAt: 'boot-7777',
     });
 
-    const listSpy = vi.fn((): readonly ProcessRecord[] => []);
-    const inFlightResult = await handleView({ action: 'ps', scope: 'worktree' }, arm.ctx, {
-      processTableSource: { list: listSpy },
-      realpath: (p) => p,
-    });
+    const inFlightResult = await handleView({ action: 'ps', scope: 'worktree' }, arm.ctx);
     expect(inFlightResult.success).toBe(true);
     const inFlightData = inFlightResult.data as {
       launches: WorktreeEntry[];
@@ -410,15 +205,9 @@ describe('ps — in-flight liveness read (DR-4)', () => {
       holderPid: 7777,
       holderStartedAt: 'boot-7777',
     });
-    expect(listSpy).not.toHaveBeenCalled();
 
-    await emitLaunchExecuted(arm.ctx.eventStore, {
-      worktreeId: '/wlm/launch-wt',
-      exitCode: 0,
-    });
-    const clearedResult = await handleView({ action: 'ps', scope: 'worktree' }, arm.ctx, {
-      realpath: (p) => p,
-    });
+    await seedLaunchExecuted(arm, { worktreeId: '/wlm/launch-wt', exitCode: 0 });
+    const clearedResult = await handleView({ action: 'ps', scope: 'worktree' }, arm.ctx);
     const clearedData = clearedResult.data as {
       launches: WorktreeEntry[];
       launchCount: number;
@@ -428,13 +217,10 @@ describe('ps — in-flight liveness read (DR-4)', () => {
   });
 
   /**
-   * The supervisor died with no teardown, so no `launch.executed` exists and `ps` folds the launch as in-flight.
-   * A supported, empty process table makes the holder provably dead. `ps` is a read and leaves the phantom alone.
-   * The reconcile runs the reservation reclaim and writes one `launch.executed` in the same call.
-   * Its response must report the launch column after the heal, so a healed phantom is not also in-flight.
-   * The test calls the handler directly, because the orchestrate composite does not pass the process-table seam.
+   * The supervisor died with no teardown, so no `launch.executed` exists. `ps` is a read. No action
+   * heals the entry, so the launch reads as in flight on every call and the stream gains no row.
    */
-  it('ReconcileWorktrees_PhantomLaunch_HealedToTerminal', async () => {
+  it('HandleView_Ps_PhantomLaunch_StaysInFlightAndHealsNothing', async () => {
     const arm = await createArm();
     await seedReserved(arm, {
       worktreeId: '/wlm/phantom-launch-wt',
@@ -443,52 +229,41 @@ describe('ps — in-flight liveness read (DR-4)', () => {
       ownerStartedAt: 'boot-8881',
       operationId: 'op-phantom',
     });
-    await emitLaunchExecutingStarted(arm.ctx.eventStore, {
+    await seedLaunchStarted(arm, {
       worktreeId: '/wlm/phantom-launch-wt',
       holderPid: 8882,
       holderStartedAt: 'boot-8882',
     });
+    const before = (await arm.ctx.eventStore.query(WORKTREES_STREAM)).length;
 
-    const table: ProcessTableSource = { list: () => [], isSupported: () => true };
+    const first = await handleView({ action: 'ps', scope: 'worktree' }, arm.ctx);
+    const second = await handleView({ action: 'ps', scope: 'worktree' }, arm.ctx);
 
-    const before = (await arm.ctx.eventStore.query(WORKTREES_STREAM)).filter(
-      (e) => e.type === 'launch.executed',
-    );
-    expect(before).toHaveLength(0);
+    expect((first.data as { launchCount: number }).launchCount).toBe(1);
+    expect((second.data as { launchCount: number }).launchCount).toBe(1);
+    expect((await arm.ctx.eventStore.query(WORKTREES_STREAM)).length).toBe(before);
+  });
+});
 
-    const psBefore = await handleView({ action: 'ps', scope: 'worktree' }, arm.ctx, {
-      processTableSource: table,
-      realpath: (p) => p,
+/** The `worktrees` view folds old reservation rows and keeps a null create time as `null`. */
+describe('worktrees — governed set read of old logs', () => {
+  it('HandleViewWorktrees_ReservedRowWithNullStartTime_FoldsNullNeverEmptyString', async () => {
+    const arm = await createArm();
+    await seedReserved(arm, {
+      worktreeId: '/tmp/wlm-h-nullstart',
+      path: '/tmp/wlm-h-nullstart',
+      ownerPid: 4242,
+      ownerStartedAt: null,
+      operationId: 'op-null',
     });
-    expect((psBefore.data as { launchCount: number }).launchCount).toBe(1);
 
-    const result = await handleReconcileWorktrees({}, arm.ctx, {
-      processTableSource: table,
-      realpath: (p) => p,
-      selfPid: 999999,
-    });
+    const view = await handleViewWorktrees({}, arm.ctx);
 
-    expect(result.success).toBe(true);
-    const data = result.data as {
-      reconcile: { reconciled: string[]; leftInFlight: string[]; probed: number };
-      probe: { probed: number };
-      launches: unknown[];
-      launchCount: number;
-    };
-    expect(data.probe).toBeDefined();
-    expect(data.reconcile.reconciled).toContain('/wlm/phantom-launch-wt');
-
-    expect(data.launchCount).toBe(0);
-    expect(data.launches).toHaveLength(0);
-
-    const after = (await arm.ctx.eventStore.query(WORKTREES_STREAM)).filter(
-      (e) => e.type === 'launch.executed',
-    );
-    expect(after).toHaveLength(1);
-    expect(after[0].data?.worktreeId).toBe('/wlm/phantom-launch-wt');
-
-    const cleared = await handleView({ action: 'ps', scope: 'worktree' }, arm.ctx, { realpath: (p) => p });
-    expect((cleared.data as { launchCount: number }).launchCount).toBe(0);
+    expect(view.success).toBe(true);
+    const worktrees = (view.data as { worktrees: WorktreeEntry[] }).worktrees;
+    const entry = worktrees.find((w) => w.worktreeId === '/tmp/wlm-h-nullstart');
+    expect(entry?.state).toBe('reserved');
+    expect(entry?.ownerStartedAt).toBeNull();
   });
 });
 
@@ -579,7 +354,7 @@ describe('wait — caller-bounded merge-terminal poll (DR-4)', () => {
   });
 
   /** The injected sleep clears the slot on the first poll, so the wait creates no real `setTimeout` or `setInterval`. */
-  it('Manager_NoBackgroundTimer_SetIntervalSpyZeroCalls', async () => {
+  it('Wait_NoBackgroundTimer_SetIntervalSpyZeroCalls', async () => {
     const arm = await createArm();
     await seedMergeRequested(arm, {
       integrationRef: 'main',
@@ -616,7 +391,7 @@ describe('wait — caller-bounded merge-terminal poll (DR-4)', () => {
 
 /** The `worktrees@v1` projection folds the `prune.executing_started` and `prune.executed` pair into `inFlightPrunes`. */
 describe('ps — in-flight prune surface (DR-3)', () => {
-  /** `ps` lists the in-flight prune from the fold without reading the process table, and clears it after the terminal folds. */
+  /** `ps` lists the in-flight prune from the fold, and clears it after the terminal folds. */
   it('PruneWorktrees_InFlight_VisibleViaPs', async () => {
     const arm = await createArm();
     await seedPruneStarted(arm, {
@@ -626,11 +401,7 @@ describe('ps — in-flight prune surface (DR-3)', () => {
       holderStartedAt: 'boot-4242',
     });
 
-    const listSpy = vi.fn((): readonly ProcessRecord[] => []);
-    const result = await handleView({ action: 'ps', scope: 'worktree' }, arm.ctx, {
-      processTableSource: { list: listSpy },
-      realpath: (p) => p,
-    });
+    const result = await handleView({ action: 'ps', scope: 'worktree' }, arm.ctx);
 
     expect(result.success).toBe(true);
     const data = result.data as { prunes: InFlightPrune[]; pruneCount: number };
@@ -638,10 +409,9 @@ describe('ps — in-flight prune surface (DR-3)', () => {
     expect(data.prunes[0].operationId).toBe('op-prune');
     expect(data.prunes[0].repoRoot).toBe('/wlm/repo');
     expect(data.prunes[0].holderPid).toBe(4242);
-    expect(listSpy).not.toHaveBeenCalled();
 
     await seedPruneExecuted(arm, { operationId: 'op-prune', deletedCount: 0 });
-    const cleared = await handleView({ action: 'ps', scope: 'worktree' }, arm.ctx, { realpath: (p) => p });
+    const cleared = await handleView({ action: 'ps', scope: 'worktree' }, arm.ctx);
     const clearedData = cleared.data as { prunes: InFlightPrune[]; pruneCount: number };
     expect(clearedData.pruneCount).toBe(0);
     expect(clearedData.prunes).toEqual([]);

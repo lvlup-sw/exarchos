@@ -660,7 +660,7 @@ describe('TOOL_REGISTRY', () => {
     it('should have 71 actions for task management, review triage, gate checks, validation handlers, runbooks, agent spec, oneshot/pruning, onboard (DR-2 task 011), doctor, VCS, classify_review_items (#1159), merge_orchestrate (DR-MO-1), check_integration_suite (#1329), check_invariant_conformance (DR-3), invariants_scaffold/invariants_add (invariants-catalog-wizard P2), check_contract_drift + check_mock_boundary (verification-ladder slice 1), and composite actions', () => {
       const composite = findComposite('exarchos_orchestrate');
       expect(composite).toBeDefined();
-      expect(composite!.actions).toHaveLength(69);
+      expect(composite!.actions).toHaveLength(66);
 
       const actionNames = composite!.actions.map((a) => a.name);
       expect(actionNames).toEqual(
@@ -716,8 +716,6 @@ describe('TOOL_REGISTRY', () => {
           'check_invariant_conformance',
           'invariants_scaffold',
           'invariants_add',
-          'acquire_worktree',
-          'release_worktree',
           'check_exploration_depth',
         ]),
       );
@@ -1066,8 +1064,7 @@ describe('TOOL_REGISTRY', () => {
     /**
      * Each action must declare an `outputSchema` with a `parse` method, which is the shape that `validateAction` requires.
      * Each core annotation field must have the correct type.
-     * `ps` appends nothing, so its annotation must be read-only.
-     * `reconcile_worktrees` appends its repairs and converges on a repeat, so it is `local-mutation` and idempotent.
+     * `ps` and `wait` append nothing, so their annotations must be read-only.
      */
     it('Registry_NewActions_DeclareOutputSchemaAndCoreAnnotations', () => {
       for (const [tool, name] of NEW_ACTIONS) {
@@ -1112,11 +1109,6 @@ describe('TOOL_REGISTRY', () => {
       expect(ps!.annotations!.readOnly).toBe(true);
       expect(ps!.annotations!.destructive).toBe(false);
       expect(wait!.annotations!.readOnly).toBe(true);
-      const reconcile = findAction('exarchos_orchestrate', 'reconcile_worktrees');
-      expect(reconcile!.annotations!.safety).toBe('local-mutation');
-      expect(reconcile!.annotations!.readOnly).toBe(false);
-      expect(reconcile!.annotations!.idempotent).toBe(true);
-      expect(reconcile!.annotations!.destructive).toBe(false);
     });
 
     /**
@@ -2692,9 +2684,7 @@ const EXPECTED_EFFECTIVE_BUDGETS: Readonly<Record<string, number>> = {
   'exarchos_orchestrate.verify_delegation_saga': 2000,
   'exarchos_orchestrate.post_delegation_check': 2000,
   'exarchos_orchestrate.reconcile_state': 2000,
-  'exarchos_orchestrate.reconcile_worktrees': 2000,
   'exarchos_orchestrate.stack_place': 2000,
-  'exarchos_orchestrate.reconcile_worktrees': 2000,
   'exarchos_orchestrate.stack_place': 2000,
   'exarchos_orchestrate.pre_synthesis_check': 2000,
   'exarchos_orchestrate.check_polish_scope': 2000,
@@ -2714,8 +2704,6 @@ const EXPECTED_EFFECTIVE_BUDGETS: Readonly<Record<string, number>> = {
   'exarchos_orchestrate.invariants_scaffold': 2000,
   'exarchos_orchestrate.invariants_add': 2000,
   'exarchos_orchestrate.invariants_amend': 2000,
-  'exarchos_orchestrate.acquire_worktree': 2000,
-  'exarchos_orchestrate.release_worktree': 2000,
   'exarchos_orchestrate.cutover_readiness': 2000,
   'exarchos_orchestrate.cutover_decide': 2000,
   'exarchos_orchestrate.execute_intent': 1000,
@@ -3009,10 +2997,6 @@ describe('Task 022 — registry schema batch (DR-1/DR-3/DR-8)', () => {
     'exarchos_event.describe': {
       eventTypes: { 'task.assigned': { schema: { type: 'object' }, source: 'model', isBuiltIn: true } },
     },
-    'exarchos_orchestrate.acquire_worktree': {
-      worktreeId: 'wt', path: '/tmp/wt', featureId: null, reserved: true, adopted: true,
-    },
-    'exarchos_orchestrate.release_worktree': { worktreeId: 'wt', released: true },
     'exarchos_view.telemetry': {
       session: { start: '2026-01-01T00:00:00Z', totalInvocations: 0, totalTokens: 0 },
       tools: [], hints: [],
@@ -3022,10 +3006,6 @@ describe('Task 022 — registry schema batch (DR-1/DR-3/DR-8)', () => {
       inFlight: [], count: 0, launches: [], launchCount: 0, prunes: [], pruneCount: 0,
     },
     'exarchos_view.wait': { resolved: true, waitedMs: 5 },
-    'exarchos_orchestrate.reconcile_worktrees': {
-      probe: {}, reconcile: {}, mergeReconcile: {},
-      inFlight: [], count: 0, launches: [], launchCount: 0, prunes: [], pruneCount: 0,
-    },
     'exarchos_orchestrate.stack_place': {
       streamId: 'f', sequence: 1, type: 'stack.position-filled',
     },
@@ -3261,7 +3241,7 @@ describe('Task 022 — registry schema batch (DR-1/DR-3/DR-8)', () => {
      */
     it('every typed-output action validates a {summary,counts,firstPage} capped envelope', () => {
       const actions = typedOutputActions();
-      expect(actions.length).toBe(34);
+      expect(actions.length).toBe(31);
       for (const { tool, action } of actions) {
         const parsed = action.outputSchema.safeParse(cappedEnvelope());
         expect(
@@ -3555,7 +3535,6 @@ describe('Task 022 — registry schema batch (DR-1/DR-3/DR-8)', () => {
     /**
      * More than one action can declare one event, and that is conforming.
      * The test names that set of events, so the property has a denominator.
-     * An event with two routes to one meaning, such as `worktree.released`, has a declaration for each route.
      * `task.completed` is not in the set: `settle` runs `task_complete` as a leaf and does not declare the events of its leaves.
      * The workflow transition, settlement and bootstrap actions declare phase moves with owner `workflow`.
      *
@@ -3582,7 +3561,6 @@ describe('Task 022 — registry schema batch (DR-1/DR-3/DR-8)', () => {
         'task.assigned',
         'workflow.started',
         'workflow.transition',
-        'worktree.released',
       ]);
 
       const violations: string[] = [];
@@ -3759,18 +3737,20 @@ describe('the closed retired-action table', () => {
       'exarchos_orchestrate.prune_worktrees',
       'exarchos_orchestrate.merge_orchestrate',
       'exarchos_orchestrate.serialize_merge',
+      'exarchos_orchestrate.acquire_worktree',
+      'exarchos_orchestrate.release_worktree',
+      'exarchos_orchestrate.reconcile_worktrees',
     ]);
     expect(new Set(RETIRED_ACTIONS.filter((entry) => entry.action !== 'mutation-adequacy' && entry.action !== 'check_test_adequacy').map((entry) => entry.code))).toEqual(new Set(['PROVIDER_WRITE_RETIRED', 'PROVIDER_READ_RETIRED']));
-    expect(RETIRED_ACTIONS.filter((entry) => entry.code === 'PROVIDER_WRITE_RETIRED').map((entry) => entry.action)).toEqual(['create_pr', 'merge_pr', 'add_pr_comment', 'create_issue', 'setup_worktree', 'prune_worktrees', 'merge_orchestrate', 'serialize_merge']);
+    expect(RETIRED_ACTIONS.filter((entry) => entry.code === 'PROVIDER_WRITE_RETIRED').map((entry) => entry.action)).toEqual(['create_pr', 'merge_pr', 'add_pr_comment', 'create_issue', 'setup_worktree', 'prune_worktrees', 'merge_orchestrate', 'serialize_merge', 'acquire_worktree', 'release_worktree', 'reconcile_worktrees']);
     expect(RETIRED_ACTIONS.filter((entry) => entry.action === 'merge_orchestrate' || entry.action === 'serialize_merge').map((entry) => entry.message)).toEqual([
       'Exarchos retires local merges. The harness lands the task branch on the integration branch with its own tools, and the coordinator records that landing with a merge.executed event.',
       'Exarchos retires local merges. The harness lands the task branch on the integration branch with its own tools, and the coordinator records that landing with a merge.executed event.',
     ]);
     expect(RETIRED_ACTIONS.filter((entry) => entry.topLevel !== undefined).map((entry) => [entry.action, entry.topLevel])).toEqual([['merge_orchestrate', 'merge-orchestrate']]);
-    expect(RETIRED_ACTIONS.filter((entry) => entry.action === 'setup_worktree' || entry.action === 'prune_worktrees').map((entry) => entry.message)).toEqual([
-      'Exarchos retires worktree provisioning. The harness creates task worktrees and removes them from disk with its own tools.',
-      'Exarchos retires worktree provisioning. The harness creates task worktrees and removes them from disk with its own tools.',
-    ]);
+    expect(RETIRED_ACTIONS.filter((entry) => ['setup_worktree', 'prune_worktrees', 'acquire_worktree', 'release_worktree', 'reconcile_worktrees'].includes(entry.action)).map((entry) => entry.message)).toEqual(
+      Array.from({ length: 5 }, () => 'Exarchos retires worktree provisioning. The harness creates task worktrees and removes them from disk with its own tools.'),
+    );
     expect(RETIRED_ACTIONS.filter((entry) => entry.code === 'PROVIDER_READ_RETIRED').map((entry) => entry.action)).toEqual(['check_ci', 'list_prs', 'get_pr_comments', 'check_pr_comments', 'check_coderabbit', 'validate_pr_stack', 'assess_stack']);
     for (const entry of RETIRED_ACTIONS) {
       const tool = TOOL_REGISTRY.find((candidate) => candidate.name === entry.tool);

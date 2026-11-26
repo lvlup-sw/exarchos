@@ -70,7 +70,6 @@ export interface UnverifiableActionEmission {
  * and `execution.settled` commit through `decideOnce`, which is not an `.append(...)`
  * call. The phase rows of a settle move, `phase.entered` and `phase.exited`, commit the same way.
  * Bootstrap group entries also commit through the atomic prepared batch.
- * The worktree adoption, reservation and release rows commit through `decide` or carry a runtime type.
  * The scan does not see them.
  *
  * SHRINK-ONLY. A row is stale when its append resolves, or when no edge declares the
@@ -98,11 +97,6 @@ export const UNRESOLVED_ACTION_EVENT_ALLOWANCE: readonly string[] = Object.freez
   'workflow.rehydrated',
   'workflow.started',
   'workflow.transition',
-  'worktree.adopted',
-  'worktree.merge_executed',
-  'worktree.orphan_detected',
-  'worktree.released',
-  'worktree.reserved',
 ]);
 
 export interface EmitterClosureResult {

@@ -14,7 +14,6 @@ import { reviewOpsActions } from './review-ops.js';
 import { lifecycleOpsActions } from './lifecycle-ops.js';
 import { onboardingActions } from './onboarding.js';
 import { invariantActions } from './invariants.js';
-import { worktreeActions } from './worktree.js';
 import { cutoverActions } from './cutover.js';
 import { executeActions } from './execute.js';
 import { prepareActions } from './prepare.js';
@@ -29,7 +28,6 @@ export const orchestrateActions: readonly BuiltinToolAction[] = [
   ...lifecycleOpsActions,
   ...onboardingActions,
   ...invariantActions,
-  ...worktreeActions,
   ...cutoverActions,
   ...executeActions,
   ...prepareActions,

@@ -368,9 +368,9 @@ export const EventTypes = [
   'worktree.remove.requested',
   'worktree.remove.executed',
   /**
-   * The lease and ownership half of worktree lifecycle management. These four events share one payload
-   * shape. Worktree deletion reuses the `worktree.remove.*` pair, so no `worktree.pruned` type exists.
-   * The idempotency key is `<eventType>:<operationId>`.
+   * The lease and ownership half of the retired worktree lifecycle manager. These four events share
+   * one payload shape. The idempotency key is `<eventType>:<operationId>`. The harness owns worktree
+   * ownership now, so no code appends them. The schemas stay, so stored logs replay the same.
    */
   'worktree.adopted',
   'worktree.reserved',
@@ -381,7 +381,7 @@ export const EventTypes = [
    * the claim: the operation and the live process that hold the right to merge `sourceBranch` into
    * `integrationRef`. `worktree.merge_executed` is the release, with the terminal outcome. The only
    * discriminator is `operationId`, so two concurrent merges onto one `integrationRef` get distinct
-   * keys. The claim goes through the `decide` seam, and the release is a plain keyed append.
+   * keys. No code appends either event now. The schemas stay, so stored logs replay the same.
    */
   'worktree.merge_requested',
   'worktree.merge_executed',
@@ -389,9 +389,8 @@ export const EventTypes = [
    * The launcher pairs. The retired launcher appended `worktree.create.*` as the intent and terminal
    * pair for its top-level worktree. It is separate from `worktree.created`, which needs a `taskId`
    * and a `branch`. `launch.executing_started` records the live child process (`holderPid` and
-   * `holderStartedAt`). `launch.executed` records that the child process exited, and
-   * `reconcile_worktrees` still appends it for a dead historical launch. The schemas stay, so stored
-   * logs replay the same.
+   * `holderStartedAt`). `launch.executed` records that the child process exited. No code appends
+   * these events now, but stored logs replay the same.
    */
   'worktree.create.requested',
   'worktree.create.executed',
@@ -1882,7 +1881,7 @@ export const BranchDeleteExecutedData = z.object({
 /**
  * The durable intent before `git worktree remove`. The idempotency check filters `git worktree list`.
  *
- * `worktreeId` is the optional canonical projection key that `WorktreeManager` stamps. The
+ * `worktreeId` is the optional canonical projection key that the retired worktree manager stamped. The
  * `worktrees@v1` reducer drops the entry by this key and calls no `realpath()` at fold time. So the
  * cold rebuild is deterministic from the event log alone. An older event without it falls back to a
  * canonical form of `worktreePath`.

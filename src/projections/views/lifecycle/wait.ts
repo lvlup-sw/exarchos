@@ -30,8 +30,8 @@ import {
 } from '../../../events/liveness-registry.js';
 import { resolveWorkflowState } from '../../../verbs/resolve-state.js';
 import { getHSMDefinition } from '../../../workflow/state-machine.js';
-import { DEFAULT_WAIT_TIMEOUT_MS } from '../../../verbs/worktree/manager.js';
 import {
+  DEFAULT_WAIT_TIMEOUT_MS,
   handleWorktreeUntilWait,
   type WorktreeViewDeps,
 } from '../../../verbs/worktree/handlers.js';

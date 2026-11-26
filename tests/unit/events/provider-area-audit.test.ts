@@ -36,12 +36,10 @@ const MEASURED_CONTRADICTIONS: readonly string[] = Object.freeze([]);
  * current vocabulary is correct.
  *
  * The list must only shrink. The entries are the dispatch wrapper (`projections/telemetry/`), the
- * process hooks (`lifecycle/`, `runtime/launcher/`) and one handler tree (`review/`). To remove an
+ * process hooks (`lifecycle/`) and one handler tree (`review/`). To remove an
  * entry, move the append into an area that a provider owns. Do not widen the vocabulary.
  */
 const MEASURED_UNGOVERNED: readonly string[] = Object.freeze([
-  'launch.executed -> runtime/launcher/liveness.ts',
-  'launch.executing_started -> runtime/launcher/liveness.ts',
   'review.routed -> review/tools.ts',
   'subagent.tokens_used -> lifecycle/subagent-stop.ts',
   'tool.action_errored -> projections/telemetry/middleware.ts',

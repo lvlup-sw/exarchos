@@ -4,10 +4,10 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1421,
-    "parsedFiles": 1377,
+    "testFiles": 1411,
+    "parsedFiles": 1367,
     "shellFiles": 44,
-    "cases": 15824,
+    "cases": 15737,
     "dynamicTitles": 312,
     "unparseableFiles": 0
   },
@@ -4943,22 +4943,6 @@
         {
           "suite": "registered-actions snapshot denominator",
           "name": "RegisteredActionsSnapshot_EqualsLiveRegistry",
-          "dynamic": false
-        }
-      ]
-    },
-    "tests/acceptance/action-contract-vcs-replay.test.ts": {
-      "file": "tests/acceptance/action-contract-vcs-replay.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "merge VCS worktree action contracts",
-          "name": "Registry_MergeVcsWorktreeActions_HaveCompleteContracts",
-          "dynamic": false
-        },
-        {
-          "suite": "merge VCS worktree action contracts",
-          "name": "Registry_NonIdempotentMutations_RequireClaimsOrRejectReplay",
           "dynamic": false
         }
       ]
@@ -10255,7 +10239,7 @@
         },
         {
           "suite": "ledger-only cancellation",
-          "name": "CancelLedger_AWorktreeReservation_StaysUntilARelease",
+          "name": "CancelLedger_AWorktreeReservationOfAnOldLog_StaysOutstanding",
           "dynamic": false
         }
       ]
@@ -10626,36 +10610,6 @@
         {
           "suite": "constrained observational reads: the outcome of each site",
           "name": "ReviewAndPolishScope_RefusedLoadedConfig_GiveDiffFailed",
-          "dynamic": false
-        },
-        {
-          "suite": "constrained observational reads: acquire_worktree adoption",
-          "name": "AcquireWorktree_ReadableStaleAndOutsideCheckout_KeepTheirOutcomes",
-          "dynamic": false
-        },
-        {
-          "suite": "constrained observational reads: acquire_worktree adoption",
-          "name": "AcquireWorktree_UnreadableListingCauses_RefuseWithNoEvent",
-          "dynamic": false
-        },
-        {
-          "suite": "constrained observational reads: acquire_worktree adoption",
-          "name": "AcquireWorktree_MidLineHeaders_RefuseWithNoEvent",
-          "dynamic": false
-        },
-        {
-          "suite": "constrained observational reads: acquire_worktree adoption",
-          "name": "AcquireWorktree_ShallowRepository_DecidedAndUndecidedOutcomes",
-          "dynamic": false
-        },
-        {
-          "suite": "constrained observational reads: acquire_worktree adoption",
-          "name": "AcquireWorktree_OwnConfigWorktreeBranchSection_GivesHeadUnresolved",
-          "dynamic": false
-        },
-        {
-          "suite": "constrained observational reads: acquire_worktree adoption",
-          "name": "AcquireWorktree_MainWorktreeConfigWorktree_DoesNotMoveALinkedUpstream",
           "dynamic": false
         }
       ]
@@ -28395,7 +28349,7 @@
       "cases": [
         {
           "suite": "DR-2 liveness emitters",
-          "name": "OneLiveEmitterAndTheStoredMergeMutationAndPrunePairs_CarryCanonicalInstanceIdAdditively",
+          "name": "TheStoredLaunchMergeMutationAndPrunePairs_CarryCanonicalInstanceIdAdditively",
           "dynamic": false
         }
       ]
@@ -30938,7 +30892,7 @@
         },
         {
           "suite": "harness-launcher event schemas (DR-2)",
-          "name": "EmissionRegistry_LaunchPairAuto_CreatePairRetired_SchemasKept",
+          "name": "EmissionRegistry_LaunchAndCreatePairsRetired_SchemasKept",
           "dynamic": false
         },
         {
@@ -48930,48 +48884,6 @@
         {
           "suite": "FileVersionLedger (P03-08 durable anti-rollback)",
           "name": "Ledger_CorruptFile_FailsClosed",
-          "dynamic": false
-        }
-      ]
-    },
-    "tests/unit/runtime/launcher/launch-reconcile.test.ts": {
-      "file": "tests/unit/runtime/launcher/launch-reconcile.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "phantom-launch reconciler (DR-6)",
-          "name": "Reconcile_DeadHolderStartedNoExecuted_EmitsTerminal",
-          "dynamic": false
-        },
-        {
-          "suite": "phantom-launch reconciler (DR-6)",
-          "name": "Reconcile_OneTerminalAppendFails_OthersStillReconciled",
-          "dynamic": false
-        },
-        {
-          "suite": "phantom-launch reconciler (DR-6)",
-          "name": "Reconcile_LiveHolder_LeftInFlight",
-          "dynamic": false
-        },
-        {
-          "suite": "phantom-launch reconciler (DR-6)",
-          "name": "Reconcile_OnDemandOnly_NoPolling",
-          "dynamic": false
-        }
-      ]
-    },
-    "tests/unit/runtime/launcher/liveness.test.ts": {
-      "file": "tests/unit/runtime/launcher/liveness.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "launcher liveness emitters (DR-2)",
-          "name": "Liveness_EmitsStartedAndExecuted",
-          "dynamic": false
-        },
-        {
-          "suite": "launcher liveness emitters (DR-2)",
-          "name": "Liveness_TerminalSeam_Idempotent",
           "dynamic": false
         }
       ]
@@ -67311,7 +67223,7 @@
       "cases": [
         {
           "suite": "worktree dispatch routing (WLM foundation, task 008)",
-          "name": "Dispatch_ThreeOrchestrateActions_RouteThroughHandleOrchestrate_NotUnknownAction",
+          "name": "Dispatch_ThreeRetiredOrchestrateActions_AbsentAndRefusedByTheClosedTable",
           "dynamic": false
         },
         {
@@ -67346,48 +67258,8 @@
       "runner": "vitest:root",
       "cases": [
         {
-          "suite": "resolveOwner all-or-nothing (acquire_worktree)",
-          "name": "AcquireWorktree_PartialOwnerOverride_OnlyPid_Rejected",
-          "dynamic": false
-        },
-        {
-          "suite": "resolveOwner all-or-nothing (acquire_worktree)",
-          "name": "AcquireWorktree_PartialOwnerOverride_OnlyStartedAt_Rejected",
-          "dynamic": false
-        },
-        {
-          "suite": "resolveOwner all-or-nothing (acquire_worktree)",
-          "name": "AcquireWorktree_BothOwnerFields_Accepted",
-          "dynamic": false
-        },
-        {
-          "suite": "resolveOwner all-or-nothing (acquire_worktree)",
-          "name": "AcquireWorktree_NeitherOwnerField_DerivesBoth_Accepted",
-          "dynamic": false
-        },
-        {
-          "suite": "DR-5 null-ready ownerStartedAt (acquire_worktree)",
-          "name": "Reserve_UnresolvableCreateTime_StoresNullNeverEmptyString",
-          "dynamic": false
-        },
-        {
-          "suite": "exclusive ownership (acquire/release handlers)",
-          "name": "AcquireWorktree_AlreadyReservedByLiveOwner_ReturnsReservedError",
-          "dynamic": false
-        },
-        {
-          "suite": "exclusive ownership (acquire/release handlers)",
-          "name": "ReleaseWorktree_ForeignLiveOwner_ReturnsOwnedByOtherError",
-          "dynamic": false
-        },
-        {
           "suite": "ps — in-flight liveness read (DR-4)",
-          "name": "HandleView_Ps_ListsInFlightFromInFlightMerges_NoProcessScan",
-          "dynamic": false
-        },
-        {
-          "suite": "ps — in-flight liveness read (DR-4)",
-          "name": "ReconcileWorktrees_DeadOwners_ReleasedAndOrphanedEmitted",
+          "name": "HandleView_Ps_ListsInFlightFromInFlightMerges_AppendsNothing",
           "dynamic": false
         },
         {
@@ -67397,7 +67269,12 @@
         },
         {
           "suite": "ps — in-flight liveness read (DR-4)",
-          "name": "ReconcileWorktrees_PhantomLaunch_HealedToTerminal",
+          "name": "HandleView_Ps_PhantomLaunch_StaysInFlightAndHealsNothing",
+          "dynamic": false
+        },
+        {
+          "suite": "worktrees — governed set read of old logs",
+          "name": "HandleViewWorktrees_ReservedRowWithNullStartTime_FoldsNullNeverEmptyString",
           "dynamic": false
         },
         {
@@ -67417,7 +67294,7 @@
         },
         {
           "suite": "wait — caller-bounded merge-terminal poll (DR-4)",
-          "name": "Manager_NoBackgroundTimer_SetIntervalSpyZeroCalls",
+          "name": "Wait_NoBackgroundTimer_SetIntervalSpyZeroCalls",
           "dynamic": false
         },
         {
@@ -67438,98 +67315,6 @@
         {
           "suite": "wait — until: 'idle' CLI/MCP flag parity (DR-3, task-021)",
           "name": "WaitSchema_UntilIdleFlag_ParityCliMcp",
-          "dynamic": false
-        }
-      ]
-    },
-    "tests/unit/verbs/worktree/manager.adopt.test.ts": {
-      "file": "tests/unit/verbs/worktree/manager.adopt.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "WorktreeManager.adopt (real git + real event store)",
-          "name": "Adopt_HarnessOrHandMadeWorktree_AdoptedWithoutManagerCreating",
-          "dynamic": false
-        },
-        {
-          "suite": "WorktreeManager.adopt (real git + real event store)",
-          "name": "Adopt_NoHarnessSpecificCreationAssumption",
-          "dynamic": false
-        },
-        {
-          "suite": "WorktreeManager.adopt (real git + real event store)",
-          "name": "Adopt_HandMadeWorktree_RecordsFeatureIdNull",
-          "dynamic": false
-        },
-        {
-          "suite": "WorktreeManager.adopt (real git + real event store)",
-          "name": "Adopt_StaleAfterExternalPush_ReverifiesHeadBeforeMutation",
-          "dynamic": false
-        },
-        {
-          "suite": "WorktreeManager.adopt (real git + real event store)",
-          "name": "Released_WorktreeIsGcEligible_NotRecycledIntoPool",
-          "dynamic": false
-        },
-        {
-          "suite": "WorktreeManager.adopt (real git + real event store)",
-          "name": "Reconcile_RealGitProbePlusReplay_EqualsFreshEventLogReplay",
-          "dynamic": false
-        }
-      ]
-    },
-    "tests/unit/verbs/worktree/manager.reconcile.test.ts": {
-      "file": "tests/unit/verbs/worktree/manager.reconcile.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "WorktreeManager (real event store)",
-          "name": "Reserve_AppendsToWorktreesStream_WithOperationIdKey",
-          "dynamic": false
-        },
-        {
-          "suite": "WorktreeManager (real event store)",
-          "name": "Reserve_ConcurrentDifferentOwners_OneWins_NoDoubleReserve",
-          "dynamic": false
-        },
-        {
-          "suite": "WorktreeManager (real event store)",
-          "name": "Reserve_AlreadyReservedByLiveOwner_RejectsSecondClaim",
-          "dynamic": false
-        },
-        {
-          "suite": "WorktreeManager (real event store)",
-          "name": "Release_ForeignLiveOwner_Rejected_LeavesReservationIntact",
-          "dynamic": false
-        },
-        {
-          "suite": "WorktreeManager (real event store)",
-          "name": "Reconcile_DeadOwner_EmitsReleasedExactlyOnce",
-          "dynamic": false
-        },
-        {
-          "suite": "WorktreeManager (real event store)",
-          "name": "Reconcile_LiveOwnerPidAndStartedAtMatch_NeverReleases",
-          "dynamic": false
-        },
-        {
-          "suite": "WorktreeManager (real event store)",
-          "name": "Reconcile_RepeatedRun_IsIdempotent",
-          "dynamic": false
-        },
-        {
-          "suite": "WorktreeManager (real event store)",
-          "name": "Reservation_LeavesNoAdvisoryLockFile",
-          "dynamic": false
-        },
-        {
-          "suite": "WorktreeManager (real event store)",
-          "name": "ReserveRelease_WritesNoJsonSideFile",
-          "dynamic": false
-        },
-        {
-          "suite": "WorktreeManager (real event store)",
-          "name": "Reconcile_ConcurrentSameWorktree_StreamLockSerializes_NoDoubleRelease",
           "dynamic": false
         }
       ]
@@ -67655,77 +67440,6 @@
         }
       ]
     },
-    "tests/unit/verbs/worktree/pure/ownership.test.ts": {
-      "file": "tests/unit/verbs/worktree/pure/ownership.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "reservationLiveness",
-          "name": "LiveOwner_PidPresentAndStartedAtMatches_IsAlive",
-          "dynamic": false
-        },
-        {
-          "suite": "reservationLiveness",
-          "name": "DeadOwner_PidAbsent_IsDead",
-          "dynamic": false
-        },
-        {
-          "suite": "reservationLiveness",
-          "name": "ReusedPid_CreateTimeMismatch_IsDead",
-          "dynamic": false
-        },
-        {
-          "suite": "reservationLiveness",
-          "name": "ProbeFailed_IsUnknown_NotDead",
-          "dynamic": false
-        },
-        {
-          "suite": "reservationLiveness",
-          "name": "IncompleteOwner_NullPid_IsTreatedAsDead",
-          "dynamic": false
-        },
-        {
-          "suite": "reservationLiveness",
-          "name": "IncompleteOwner_NullStartedAt_IsTreatedAsDead",
-          "dynamic": false
-        },
-        {
-          "suite": "reservationLiveness",
-          "name": "ReservationLiveness_NullOwnerStartedAt_TreatedFailClosed",
-          "dynamic": false
-        },
-        {
-          "suite": "reservationLiveness",
-          "name": "NonReservedState_IsDead",
-          "dynamic": false
-        },
-        {
-          "suite": "selectDeadReservations",
-          "name": "SelectsOnlyDeadReservedEntries_LeavesLiveAndNonReserved",
-          "dynamic": false
-        },
-        {
-          "suite": "selectDeadReservations",
-          "name": "LiveOwner_NeverSelected",
-          "dynamic": false
-        },
-        {
-          "suite": "selectDeadReservations",
-          "name": "PreservesIterationOrder",
-          "dynamic": false
-        },
-        {
-          "suite": "selectDeadReservations",
-          "name": "EmptyInput_ReturnsEmpty",
-          "dynamic": false
-        },
-        {
-          "suite": "selectDeadReservations",
-          "name": "ProbeFailedOwner_IsNotReleased_ButAbsentOwnerIs",
-          "dynamic": false
-        }
-      ]
-    },
     "tests/unit/verbs/worktree/pure/path-containment.test.ts": {
       "file": "tests/unit/verbs/worktree/pure/path-containment.test.ts",
       "runner": "vitest:root",
@@ -67777,184 +67491,6 @@
         }
       ]
     },
-    "tests/unit/verbs/worktree/pure/probe.test.ts": {
-      "file": "tests/unit/verbs/worktree/pure/probe.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "protectedAncestry",
-          "name": "walks the full pid -> ppid chain and terminates at a cycle",
-          "dynamic": false
-        },
-        {
-          "suite": "probeWorktreeUsage",
-          "name": "Probe_SelfRootedCwd_ExcludedFromInUseSet",
-          "dynamic": false
-        },
-        {
-          "suite": "probeWorktreeUsage",
-          "name": "Probe_OwnerAncestryChain_FullyProtected",
-          "dynamic": false
-        },
-        {
-          "suite": "probeWorktreeUsage",
-          "name": "Probe_SymlinkedWorktreePath_ContainmentMatches",
-          "dynamic": false
-        },
-        {
-          "suite": "probeWorktreeUsage",
-          "name": "Probe_ForeignCwdRealpathEacces_IsOutsideTheWorktree",
-          "dynamic": false
-        },
-        {
-          "suite": "probeWorktreeUsage",
-          "name": "Probe_WorktreePathErrorAndOtherForeignCodes_Rethrow",
-          "dynamic": false
-        },
-        {
-          "suite": "probeReservations",
-          "name": "Probe_DeadOwner_ReportedReleasable",
-          "dynamic": false
-        },
-        {
-          "suite": "probeReservations",
-          "name": "Probe_UnsupportedPlatformTable_FailsClosed_NeverReleasable",
-          "dynamic": false
-        },
-        {
-          "suite": "probeWorktrees (composite)",
-          "name": "live occupancy vetoes a dead-owner release (orphan-candidate only when truly free)",
-          "dynamic": false
-        },
-        {
-          "suite": "probeWorktrees (composite)",
-          "name": "Probe_UnsupportedTable_OwnerUnknown_NotReleasableNorOrphan",
-          "dynamic": false
-        },
-        {
-          "suite": "probeWorktrees (composite)",
-          "name": "reports ownerLiveness \"none\" for an unreserved worktree",
-          "dynamic": false
-        },
-        {
-          "suite": "probeLaunchHolders (DR-6)",
-          "name": "reconciles a dead supervisor holder, holds a live one",
-          "dynamic": false
-        },
-        {
-          "suite": "probeLaunchHolders (DR-6)",
-          "name": "holds a launch whose holder identity was never captured (null)",
-          "dynamic": false
-        },
-        {
-          "suite": "probeLaunchHolders (DR-6)",
-          "name": "Probe_UnsupportedPlatformTable_FailsClosed_NeverReconcilable",
-          "dynamic": false
-        },
-        {
-          "suite": "makeDefaultProcessTableSource (win32 process source — DR-5)",
-          "name": "ProcessSource_Win32_ResolvesCwdAndCreateTime",
-          "dynamic": false
-        },
-        {
-          "suite": "makeDefaultProcessTableSource (win32 process source — DR-5)",
-          "name": "ProcessSource_UnsupportedPlatform_ReturnsUnknownFailClosed",
-          "dynamic": false
-        },
-        {
-          "suite": "makeDefaultProcessTableSource (win32 process source — DR-5)",
-          "name": "WinLiveness_BeforeFirstList_IsUnsupported",
-          "dynamic": false
-        },
-        {
-          "suite": "makeDefaultProcessTableSource (win32 process source — DR-5)",
-          "name": "WinLiveness_ReaderThrows_FailsClosed",
-          "dynamic": false
-        },
-        {
-          "suite": "makeDefaultProcessTableSource (win32 process source — DR-5)",
-          "name": "WinLiveness_ReaderReturnsNoRows_FailsClosed",
-          "dynamic": false
-        },
-        {
-          "suite": "makeDefaultProcessTableSource (win32 process source — DR-5)",
-          "name": "WinLiveness_SupportFollowsMostRecentSnapshot",
-          "dynamic": false
-        },
-        {
-          "suite": "makeDefaultProcessTableSource (win32 process source — DR-5)",
-          "name": "Win32ProcessTable_Parses_SkipsMalformed_KeepsEmptyCwd_PreservesSpaces",
-          "dynamic": false
-        }
-      ]
-    },
-    "tests/unit/verbs/worktree/pure/process-identity.test.ts": {
-      "file": "tests/unit/verbs/worktree/pure/process-identity.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "ownerLiveness",
-          "name": "ProcessIdentity_PidAbsentOrStartedAtMismatch_ReportsDead",
-          "dynamic": false
-        },
-        {
-          "suite": "ownerLiveness",
-          "name": "ProcessIdentity_PidPresentAndStartedAtMatches_ReportsAlive",
-          "dynamic": false
-        },
-        {
-          "suite": "ownerLiveness",
-          "name": "ProcessIdentity_ProbeCouldNotRun_ReportsUnknown_NotDead",
-          "dynamic": false
-        },
-        {
-          "suite": "ownerLiveness",
-          "name": "ProcessIdentity_CreateTime_ResolvesOnLinuxMacWindows",
-          "dynamic": false
-        },
-        {
-          "suite": "resolveStartedAt",
-          "name": "ResolveStartedAt_UnresolvableOrEmpty_ReturnsNullNeverEmptyString",
-          "dynamic": false
-        },
-        {
-          "suite": "resolveStartedAt",
-          "name": "ResolveStartedAt_PresentNonEmpty_ReturnsCreateTimeVerbatim",
-          "dynamic": false
-        },
-        {
-          "suite": "defaultProcessSource",
-          "name": "short-circuits non-positive PIDs to absent without any OS access",
-          "dynamic": false
-        }
-      ]
-    },
-    "tests/unit/verbs/worktree/recovery.test.ts": {
-      "file": "tests/unit/verbs/worktree/recovery.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "DR-3 — crash-mid-merge reconciled from the reconcile_worktrees production entry",
-          "name": "CrashedMerge_RecoveredFromProductionEntryPoint_ExactlyOneTerminalEvent",
-          "dynamic": false
-        },
-        {
-          "suite": "DR-3 — crash-mid-merge reconciled from the reconcile_worktrees production entry",
-          "name": "CrashedMerge_LiveHolder_ReconcileLeavesLeaseInFlight_FailClosed",
-          "dynamic": false
-        },
-        {
-          "suite": "DR-12 — unsupported process table fails closed (REV-H1)",
-          "name": "ProbeAndReclaim_UnsupportedTable_EmitsNoEvents",
-          "dynamic": false
-        },
-        {
-          "suite": "probeAndReclaim — per-entry fault isolation",
-          "name": "ProbeAndReclaim_OneReleaseAppendThrows_RemainingStillReclaimed",
-          "dynamic": false
-        }
-      ]
-    },
     "tests/unit/verbs/worktree/worktree-schemas.test.ts": {
       "file": "tests/unit/verbs/worktree/worktree-schemas.test.ts",
       "runner": "vitest:root",
@@ -67966,7 +67502,7 @@
         },
         {
           "suite": "worktree surface — typed outputSchema registration (DR-1)",
-          "name": "WorktreeActions_SixActions_CarryDoNotUseForGuidance",
+          "name": "WorktreeActions_ThreeReadActions_CarryDoNotUseForGuidance",
           "dynamic": false
         },
         {
@@ -78083,37 +77619,6 @@
         {
           "suite": "plan-review bound retirement is edge-scoped (WLM-6 DR-2, task 005)",
           "name": "Delegate_FixCycleLoop_Unchanged",
-          "dynamic": false
-        }
-      ]
-    },
-    "tests/unit/workflow/state-retry.test.ts": {
-      "file": "tests/unit/workflow/state-retry.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "DR-2 retry contract — plain append surface is not retry-wrapped",
-          "name": "EventAppendHandlers_NotWrappedInWithStateRetry",
-          "dynamic": false
-        },
-        {
-          "suite": "withStateRetry — Wave 4 / Task 4.1",
-          "name": "WithStateRetry_RetriesOnConcurrencyError",
-          "dynamic": false
-        },
-        {
-          "suite": "withStateRetry — Wave 4 / Task 4.1",
-          "name": "WithStateRetry_RetriesOnStorageBusyError",
-          "dynamic": false
-        },
-        {
-          "suite": "withStateRetry — Wave 4 / Task 4.1",
-          "name": "WithStateRetry_ExhaustsAfterMaxAttempts_ForConcurrencyError",
-          "dynamic": false
-        },
-        {
-          "suite": "withStateRetry — Wave 4 / Task 4.1",
-          "name": "WithStateRetry_ExhaustsAfterMaxAttempts_ForStorageBusyError",
           "dynamic": false
         }
       ]

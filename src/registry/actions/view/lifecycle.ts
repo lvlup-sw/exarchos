@@ -64,7 +64,7 @@ const LIFECYCLE_VIEW_DECLARATIONS: readonly BuiltinActionDraft[] = [
     name: 'worktrees',
     surface: 'worktree',
     description:
-      'List the governed worktree set — the live worktrees@v1 projection (each entry: worktreeId, path, featureId, lifecycle state, owner pid/start-time). Read-only; emits no events. DR-3 bounded output: omitting limit caps the item count deterministically and, if the capped page would still blow the output-token budget, returns a counts-by-state summary + first page instead of per-item detail; narrow with limit/offset. Use for: inspecting which worktrees are governed and their reservation/orphan state. Do NOT use for: claiming or freeing a worktree (use acquire_worktree / release_worktree); the in-flight merge/prune liveness set (use ps).',
+      'List the governed worktree set — the live worktrees@v1 projection (each entry: worktreeId, path, featureId, lifecycle state, owner pid/start-time). Read-only; emits no events. DR-3 bounded output: omitting limit caps the item count deterministically and, if the capped page would still blow the output-token budget, returns a counts-by-state summary + first page instead of per-item detail; narrow with limit/offset. Use for: inspecting which worktrees are governed and their reservation/orphan state. Do NOT use for: claiming, freeing or removing a worktree (the harness owns worktree setup, ownership and removal with its own tools); the in-flight merge/prune liveness set (use ps).',
     schema: z.object({
       /**
        * The same coerced base types as `pipeline`, so the MCP flattener sees one shape for the
@@ -80,13 +80,13 @@ const LIFECYCLE_VIEW_DECLARATIONS: readonly BuiltinActionDraft[] = [
   },
   /**
    * The liveness reads. `ps` lists the in-flight operations, and `wait` blocks until a predicate
-   * holds. Both are read-only. `exarchos_orchestrate.reconcile_worktrees` does the heals.
+   * holds. Both are read-only, and no action heals an entry whose holder died.
    */
   {
     name: 'ps',
     surface: 'worktree',
     description:
-      "Scope-parameterized process-plane lister composing three folds (DR-3). scope:'all' (DEFAULT) returns a workflows section (every tracked workflow: featureId, workflowType, phase, status, age) PLUS an operations section (every IN-FLIGHT liveness instance across merge/launch/mutation/prune — a started-without-terminal pair, surface-generic). scope:'workflow' returns the workflows section only; filter it with status/phase/workflowType and all:true to include terminal workflows. scope:'worktree' returns the WLM-6 worktrees@v1 inFlightMerges/launches/inFlightPrunes fold. READ-ONLY on every scope: emits no events and heals nothing, so an in-flight entry whose holder has died still reads as in-flight here. Use for: a snapshot of what workflows exist and what operations are in flight. Do NOT use for: reconciling dead holders or reclaiming orphaned worktrees (use exarchos_orchestrate reconcile_worktrees — the former probe:true path); the governed worktree set (use worktrees); blocking until a condition holds (use wait).",
+      "Scope-parameterized process-plane lister composing three folds (DR-3). scope:'all' (DEFAULT) returns a workflows section (every tracked workflow: featureId, workflowType, phase, status, age) PLUS an operations section (every IN-FLIGHT liveness instance across merge/launch/mutation/prune — a started-without-terminal pair, surface-generic). scope:'workflow' returns the workflows section only; filter it with status/phase/workflowType and all:true to include terminal workflows. scope:'worktree' returns the WLM-6 worktrees@v1 inFlightMerges/launches/inFlightPrunes fold. READ-ONLY on every scope: emits no events and heals nothing, so an in-flight entry whose holder has died still reads as in-flight here. Use for: a snapshot of what workflows exist and what operations are in flight. Do NOT use for: reconciling dead holders or reclaiming orphaned worktrees (the harness owns worktree lifecycle; Exarchos heals nothing); the governed worktree set (use worktrees); blocking until a condition holds (use wait).",
     schema: z.object({
       /**
        * The process-plane axis. `pipeline` and `ps` share one `scope` field. `ps` accepts `all`,

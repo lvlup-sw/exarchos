@@ -61,16 +61,8 @@ import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as nodePath from 'node:path';
 import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
-import { WORKTREES_STREAM } from '../../../../src/verbs/worktree/manager.js';
-import {
-  emitLaunchExecutingStarted,
-  emitLaunchExecuted,
-} from '../../../../src/runtime/launcher/liveness.js';
+import { WORKTREES_STREAM } from '../../../../src/verbs/worktree/handlers.js';
 import type { WorktreeEntry } from '../../../../src/verbs/worktree/projections/worktrees.js';
-import type {
-  ProcessRecord,
-  ProcessTableSource,
-} from '../../../../src/verbs/worktree/pure/probe.js';
 import { isolatedSync } from '../../../../tools/test-helpers/spawn.js';
 
 const STATE_DIR = '/tmp/test-state';
@@ -881,30 +873,35 @@ describe('ps — launcher-session liveness (DR-7, Task 018)', () => {
     );
   }
 
+  async function seedLaunch(
+    ctx: DispatchContext,
+    type: 'launch.executing_started' | 'launch.executed',
+    data: Record<string, unknown> & { worktreeId: string },
+  ): Promise<void> {
+    await ctx.eventStore.append(
+      WORKTREES_STREAM,
+      { type, data: { ...data, instanceId: data.worktreeId } },
+      { idempotencyKey: `${type}:${data.worktreeId}` },
+    );
+  }
+
   /**
-   * The launcher reserves the worktree first, and then `launch.executing_started`
-   * records the claim of the child. `ps` is a pure read and must not list
-   * processes, so the process table is a spy. After `launch.executed`, the launch
-   * column and its hint clear.
+   * The retired launcher reserved the worktree first, and then `launch.executing_started`
+   * recorded the claim of the child. `ps` is a pure read of those rows. After
+   * `launch.executed`, the launch column and its hint clear.
    */
   it('psView_LauncherSpawnedSession_AnswersFromLaunchEventsAlone', async () => {
     const ctx = await makeLiveCtx();
     const worktreeId = '/wlm/launch-018-wt';
 
     await seedReserved(ctx, worktreeId);
-    await emitLaunchExecutingStarted(ctx.eventStore, {
+    await seedLaunch(ctx, 'launch.executing_started', {
       worktreeId,
       holderPid: 7777,
       holderStartedAt: 'boot-7777',
     });
 
-    const listSpy = vi.fn((): readonly ProcessRecord[] => []);
-    const table: ProcessTableSource = { list: listSpy };
-
-    const inFlight = await handleView({ action: 'ps', scope: 'worktree' }, ctx, {
-      processTableSource: table,
-      realpath: (p) => p,
-    });
+    const inFlight = await handleView({ action: 'ps', scope: 'worktree' }, ctx);
 
     expect(inFlight.success).toBe(true);
     const inFlightData = inFlight.data as {
@@ -917,7 +914,6 @@ describe('ps — launcher-session liveness (DR-7, Task 018)', () => {
       holderPid: 7777,
       holderStartedAt: 'boot-7777',
     });
-    expect(listSpy).not.toHaveBeenCalled();
 
     const affordances = (inFlight.next_actions ?? []) as ReadonlyArray<{
       verb?: string;
@@ -928,8 +924,8 @@ describe('ps — launcher-session liveness (DR-7, Task 018)', () => {
     );
     expect(launchHint, 'ps must surface the launcher-liveness affordance').toBeDefined();
 
-    await emitLaunchExecuted(ctx.eventStore, { worktreeId, exitCode: 0 });
-    const cleared = await handleView({ action: 'ps', scope: 'worktree' }, ctx, { realpath: (p) => p });
+    await seedLaunch(ctx, 'launch.executed', { worktreeId, exitCode: 0 });
+    const cleared = await handleView({ action: 'ps', scope: 'worktree' }, ctx);
     const clearedData = cleared.data as {
       launches: WorktreeEntry[];
       launchCount: number;

@@ -34,7 +34,7 @@ vi.mock('child_process', async () => {
 import { executeCompensation, type CompensationOptions } from '../../../src/workflow/compensation.js';
 import { acquireCancelOwnership } from '../../../src/workflow/cancel-process-manager.js';
 import { EventStore } from '../../../src/events/store.js';
-import { WORKTREES_STREAM } from '../../../src/verbs/worktree/manager.js';
+import { WORKTREES_STREAM } from '../../../src/verbs/worktree/handlers.js';
 import { createWorktreesReducer } from '../../../src/verbs/worktree/projections/worktrees.js';
 import type { WorkflowEvent } from '../../../src/events/schemas.js';
 import { rmrfAsync } from '../../../tools/test-helpers/temp-dir.js';
@@ -285,7 +285,7 @@ describe('ledger-only compensation', () => {
 
   /**
    * The cancel appends no worktree or branch removal row, and it does not touch the `worktrees` stream.
-   * A reservation stays outstanding, so only `release_worktree` or `reconcile_worktrees` clears it.
+   * A reservation of an old log stays outstanding, because no Exarchos action clears it now.
    */
   it('Compensation_WorktreeReservation_StaysOutstanding', async () => {
     const state = stateWithEachResource();

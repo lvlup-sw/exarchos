@@ -86,6 +86,12 @@ export const RETIRED_ACTIONS: readonly RetiredAction[] = Object.freeze([
     code: PROVIDER_WRITE_RETIRED,
     message: MERGE_LANDING_MESSAGE,
   }),
+  ...['acquire_worktree', 'release_worktree', 'reconcile_worktrees'].map((action) => Object.freeze({
+    tool: 'exarchos_orchestrate',
+    action,
+    code: PROVIDER_WRITE_RETIRED,
+    message: WORKTREE_PROVISIONING_MESSAGE,
+  })),
 ]);
 
 /** The row that a call of `tool` with `args` names, or undefined when `args` names no retired action. */

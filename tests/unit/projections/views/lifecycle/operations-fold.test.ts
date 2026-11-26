@@ -22,7 +22,7 @@ import {
 import type { EventType } from '../../../../../src/events/schemas.js';
 import { EventStore } from '../../../../../src/events/store.js';
 import { rmrfAsync } from '../../../../../tools/test-helpers/temp-dir.js';
-import { WORKTREES_STREAM } from '../../../../../src/verbs/worktree/manager.js';
+import { WORKTREES_STREAM } from '../../../../../src/verbs/worktree/handlers.js';
 
 describe('OperationsFold — generic in-flight operations (DR-3)', () => {
   it('OperationsFold_StartedWithoutTerminal_ListedInFlight', () => {

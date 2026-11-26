@@ -238,6 +238,16 @@ const RETIRED_TEST_FILES: ReadonlyArray<{ path: string; subject: string }> = [
   { path: 'tests/unit/review/providers/human.test.ts', subject: 'src/review/providers/human.ts' },
   { path: 'tests/unit/review/providers/sentry.test.ts', subject: 'src/review/providers/sentry.ts' },
   { path: 'tests/unit/review/providers/unknown.test.ts', subject: 'src/review/providers/unknown.ts' },
+  { path: 'tests/unit/verbs/worktree/manager.adopt.test.ts', subject: 'src/verbs/worktree/manager.ts' },
+  { path: 'tests/unit/verbs/worktree/manager.reconcile.test.ts', subject: 'src/verbs/worktree/manager.ts' },
+  { path: 'tests/unit/verbs/worktree/recovery.test.ts', subject: 'src/verbs/worktree/merge-lease-reconciler.ts' },
+  { path: 'tests/unit/verbs/worktree/pure/ownership.test.ts', subject: 'src/verbs/worktree/pure/ownership.ts' },
+  { path: 'tests/unit/verbs/worktree/pure/probe.test.ts', subject: 'src/verbs/worktree/pure/probe.ts' },
+  { path: 'tests/unit/verbs/worktree/pure/process-identity.test.ts', subject: 'src/verbs/worktree/pure/process-identity.ts' },
+  { path: 'tests/unit/runtime/launcher/launch-reconcile.test.ts', subject: 'src/runtime/launcher/launch-reconcile.ts' },
+  { path: 'tests/unit/runtime/launcher/liveness.test.ts', subject: 'src/runtime/launcher/liveness.ts' },
+  { path: 'tests/acceptance/action-contract-vcs-replay.test.ts', subject: 'src/registry/actions/orchestrate/worktree.ts' },
+  { path: 'tests/unit/workflow/state-retry.test.ts', subject: 'src/workflow/state-retry.ts' },
 ];
 
 describe('test inventory', () => {

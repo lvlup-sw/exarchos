@@ -14,7 +14,7 @@ import type { DispatchContext } from '../../../../../src/dispatch/core/dispatch.
 import type { WorkflowEvent } from '../../../../../src/events/schemas.js';
 import type { WorkflowState } from '../../../../../src/workflow/types.js';
 import { rmrfAsync } from '../../../../../tools/test-helpers/temp-dir.js';
-import { WORKTREES_STREAM } from '../../../../../src/verbs/worktree/manager.js';
+import { WORKTREES_STREAM } from '../../../../../src/verbs/worktree/handlers.js';
 import type { WorktreeViewDeps } from '../../../../../src/verbs/worktree/handlers.js';
 import type { InFlightMerge } from '../../../../../src/verbs/worktree/projections/worktrees.js';
 import { handleView } from '../../../../../src/projections/views/composite.js';
@@ -322,9 +322,8 @@ describe('ps scope:"worktree" — WLM-6 capabilities preserved (consumed, not du
   });
 
   /**
-   * `reconcile_worktrees` heals a merge lease whose holder is dead. `ps` must not heal it. `ps`
-   * reports the log, and the log shows the merge in flight until an event ends it. The empty
-   * process table makes every holder read as dead, and the result still has no `probe` block.
+   * No action heals a merge lease whose holder is dead, and `ps` must not heal it. `ps` reports the
+   * log, and the log shows the merge in flight until an event ends it. The result has no `probe` block.
    */
   it('Ps_WorktreeScope_DeadHolder_StaysInFlightUnhealed', async () => {
     const { ctx } = await createRealArm();
@@ -340,7 +339,7 @@ describe('ps scope:"worktree" — WLM-6 capabilities preserved (consumed, not du
     const result = await handleViewPs(
       { scope: 'worktree' },
       ctx,
-      { processTableSource: { list: () => [] }, realpath: (p) => p, now: () => NOW_MS },
+      { now: () => NOW_MS },
     );
     expect(result.success).toBe(true);
     const data = result.data as { count: number; probe?: unknown };

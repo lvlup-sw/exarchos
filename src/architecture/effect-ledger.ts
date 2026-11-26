@@ -723,7 +723,7 @@ function registerLedger(): readonly EffectOwnershipRule[] {
       'filesystem',
       'workflow/',
       'workflow-fs',
-      'state writes guarded by state-retry',
+      'state writes guarded by version checks',
       'workflow compensation reverses partial writes',
     ),
     rule(

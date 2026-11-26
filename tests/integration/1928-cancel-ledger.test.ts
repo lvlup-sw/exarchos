@@ -14,7 +14,7 @@ import type { WorkflowEvent } from '../../src/events/schemas.js';
 import { handleCancel } from '../../src/workflow/cancel.js';
 import { handleInit } from '../../src/workflow/tools.js';
 import { allocatePhaseAttemptId } from '../../src/workflow/phase-attempt-id.js';
-import { WORKTREES_STREAM, WorktreeManager } from '../../src/verbs/worktree/manager.js';
+import { WORKTREES_STREAM } from '../../src/verbs/worktree/handlers.js';
 import { createWorktreesReducer } from '../../src/verbs/worktree/projections/worktrees.js';
 import { makeTempDir, rmrfAsync } from '../../tools/test-helpers/temp-dir.js';
 import { execFileAsync } from '../../tools/test-helpers/spawn.js';
@@ -231,8 +231,11 @@ describe('ledger-only cancellation', () => {
     expect(rows.some((row) => row.type === 'workflow.compensation')).toBe(false);
   });
 
-  /** A cancel leaves the reservation of a workflow worktree outstanding. `release_worktree` then clears it. */
-  it('CancelLedger_AWorktreeReservation_StaysUntilARelease', async () => {
+  /**
+   * A cancel leaves the reservation row of an old log outstanding. It appends no row to the `worktrees`
+   * stream, and the reservation still folds with its owner, because the harness owns worktree removal.
+   */
+  it('CancelLedger_AWorktreeReservationOfAnOldLog_StaysOutstanding', async () => {
     const { stateDir, store } = await openStore();
     const resources: Resources = {
       integrationBranch: 'integrate/reserved',
@@ -241,20 +244,30 @@ describe('ledger-only cancellation', () => {
       taskBranch: 'task/reserved',
     };
     await seedWorkflow(stateDir, store, resources);
-    const manager = new WorktreeManager({ eventStore: store, realpath: (value) => value });
-    const owner = { ownerPid: process.pid, ownerStartedAt: 'fixture-start' };
-    const reserved = await manager.reserve({ worktreeId: resources.worktreePath, path: resources.worktreePath, featureId: FEATURE_ID, ...owner });
-    expect(reserved.reserved).toBe(true);
+    await store.append(
+      WORKTREES_STREAM,
+      {
+        type: 'worktree.reserved',
+        data: {
+          worktreeId: resources.worktreePath,
+          path: resources.worktreePath,
+          featureId: FEATURE_ID,
+          ownerPid: process.pid,
+          ownerStartedAt: 'fixture-start',
+          operationId: 'op-reserved',
+        },
+      },
+      { idempotencyKey: 'worktree.reserved:op-reserved' },
+    );
     const reducer = createWorktreesReducer((value) => value);
-    const live = async () => (await store.query(WORKTREES_STREAM)).reduce((acc, row) => reducer.apply(acc, row), reducer.initial);
+    const rowsBefore = (await store.query(WORKTREES_STREAM)).length;
 
     const result = await handleCancel({ featureId: FEATURE_ID }, stateDir, store);
 
     expect(result.success).toBe(true);
-    expect((await live()).worktrees[resources.worktreePath]).toMatchObject({ featureId: FEATURE_ID, ownerPid: process.pid });
-
-    const released = await manager.release(resources.worktreePath, owner);
-    expect(released.released).toBe(true);
-    expect((await live()).worktrees[resources.worktreePath]?.ownerPid ?? null).toBeNull();
+    const rows = await store.query(WORKTREES_STREAM);
+    expect(rows.length).toBe(rowsBefore);
+    const live = rows.reduce((acc, row) => reducer.apply(acc, row), reducer.initial);
+    expect(live.worktrees[resources.worktreePath]).toMatchObject({ featureId: FEATURE_ID, ownerPid: process.pid });
   });
 });

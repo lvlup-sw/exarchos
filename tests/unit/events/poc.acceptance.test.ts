@@ -27,7 +27,6 @@ const EXPECTED_CONSUMERS = [
   'src/storage/sqlite/schema.ts',
   'src/storage/sqlite/statements.ts',
   'src/storage/sqlite/wire-types.ts',
-  'src/verbs/worktree/merge-lease-reconciler.ts',
   /** The admission chokepoint appends its decision and the lifecycle event in one transaction. */
   'src/workflow/admission/transition-command.ts',
 ] as const;

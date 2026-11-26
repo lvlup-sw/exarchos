@@ -74,11 +74,6 @@ import { handleDoctor } from './doctor/index.js';
 import { handleOnboard } from './onboard/index.js';
 import { handleStackPlace } from './stack/tools.js';
 import {
-  handleAcquireWorktree,
-  handleReleaseWorktree,
-  handleReconcileWorktrees,
-} from './worktree/handlers.js';
-import {
   handleCutoverDecide,
   handleCutoverReadiness,
 } from './gates/cutover-readiness.js';
@@ -118,14 +113,6 @@ function privateTermsRemoved(inner: ActionHandler): ActionHandler {
 /** Wraps a typed handler as an ActionHandler. The handler reads the args as its own type. */
 function adapt<T>(handler: (args: T, stateDir: string) => Promise<ToolResult>): ActionHandler {
   return (args, stateDir) => handler(args as unknown as T, stateDir);
-}
-
-/** Wraps a typed handler that receives (args, ctx: DispatchContext). */
-function adaptCtx<T>(handler: (args: T, ctx: DispatchContext) => Promise<ToolResult>): ActionHandler {
-  return async (args, _stateDir, ctx) => {
-    if (!ctx) throw new Error('DispatchContext required for this handler');
-    return handler(args as unknown as T, ctx);
-  };
 }
 
 /** Wraps a typed handler that takes only args (no stateDir) and can be sync or async. */
@@ -441,14 +428,6 @@ export const ACTION_HANDLERS: Readonly<Record<string, ActionHandler>> = {
   prune_stale_workflows: handlePruneStaleWorkflows as ActionHandler,
   request_synthesize: adaptArgsWithStateDirAndEventStore(handleRequestSynthesize),
   finalize_oneshot: adaptArgsWithStateDirAndEventStore(handleFinalizeOneshot),
-  /**
-   * Worktree lifecycle action. Each handler delegates to the in-process `WorktreeManager` over `ctx.eventStore`.
-   * The third handler parameter is a test seam, left at its default. The read action, `worktrees`, is on `exarchos_view`.
-   */
-  acquire_worktree: adaptCtx(handleAcquireWorktree),
-  release_worktree: adaptCtx(handleReleaseWorktree),
-  /** Runs the three ground-truth reconcile passes. A read verb carries no writes, so this action declares the events that the passes append. */
-  reconcile_worktrees: adaptCtx(handleReconcileWorktrees),
   /** Records a stack position and appends `stack.position-filled`. Its registration names this tool as the effect provider. */
   stack_place: adaptWithEventStore(handleStackPlace),
   /**

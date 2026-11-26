@@ -931,6 +931,19 @@ decisions:
       ProviderAdapter and ReviewAdapterRegistry stay in review/types.ts as type-only contracts with no implementation. The observational originUrl read in utils/git-tree.ts has no caller now. vcs/mutation-owner.ts still has no production importer. The cast census baseline falls from 1546 to 1509.
     status: "Committed on codex/1928-s5-worktrees-merges-cancel."
 
+  - date: "2026-11-25"
+    source: "Reed, 2026-11-25"
+    decision: >-
+      The worktree lifecycle manager is deleted. acquire_worktree, release_worktree and reconcile_worktrees leave the registry, and the closed retired-action table refuses each with PROVIDER_WRITE_RETIRED and the worktree provisioning message that names the harness, before any claim, row or process.
+      WorktreeManager, the merge-lease reconciler, the process probe, the process identity and ownership modules, and the launcher launch-reconcile and liveness modules are deleted. state-retry.ts lost its last importer with them and is deleted too. No Exarchos module starts ps, powershell or another process-table read now.
+      The worktrees, ps and wait views read the worktrees@v1 projection of old logs only. They append nothing and heal nothing.
+      isPidAlive reads EPERM from process.kill as a live process, because the state-store sweep and the check executor still call it.
+    known: >-
+      worktree.adopted, worktree.reserved, worktree.released, worktree.orphan_detected, worktree.merge_executed, launch.executing_started and launch.executed are retired as emissions. Their schemas, the liveness registry, the worktrees@v1 projection and the ps and wait reads stay, so old logs read the same.
+      This removes the code of #2008, #2074 item 3 and #1633 items 1 and 3. Reservations in old logs stay outstanding, because no action clears them.
+      Ten suites whose only subject is deleted are retired rows of the test inventory oracle, and the acquire_worktree adoption cases of the observational callers suite leave with their subject. The measured floors and the contract authority lock move in their own commits.
+    status: "Committed on codex/1928-s5-worktrees-merges-cancel."
+
 build_order:
   original: "kernel -> capsule contract -> prepare/settle -> one runtime adapter -> divergence loop -> #1249 laws -> second adapter"
   legs:

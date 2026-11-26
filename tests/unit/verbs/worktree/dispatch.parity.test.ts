@@ -20,6 +20,7 @@ import type { DispatchContext, CompositeHandler } from '../../../../src/dispatch
 import { stubCompositeHandler } from '../../../../src/dispatch/core/dispatch.js';
 import type { ToolResult } from '../../../../src/format.js';
 import { TOOL_REGISTRY, validateAction, type ToolAction } from '../../../../src/registry.js';
+import { retiredActionOf } from '../../../../src/registry/retired-actions.js';
 import { EnvelopeSchema } from '../../../../src/contract/schemas/envelope.js';
 import {
   callCli as harnessCallCli,
@@ -31,44 +32,23 @@ import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
 import { handleOrchestrate } from '../../../../src/verbs/composite.js';
 import { handleView } from '../../../../src/projections/views/composite.js';
 import {
-  handleAcquireWorktree,
-  handleReleaseWorktree,
-  handleReconcileWorktrees,
   handleViewWorktrees,
   handleViewPs,
   handleViewWait,
   type WorktreeViewDeps,
 } from '../../../../src/verbs/worktree/handlers.js';
 import { envelopeDataSchemaIsTyped } from '../../../../src/verbs/worktree/schemas.js';
-import type { GitWorktreeProbe } from '../../../../src/verbs/worktree/manager.js';
-import type { ProcessSource } from '../../../../src/verbs/worktree/pure/process-identity.js';
 
-/** Empty probe — `adopt` observes zero on-disk worktrees, no git. */
-const EMPTY_PROBE: GitWorktreeProbe = {
-  listWorktrees: () => [],
-  verifyHead: () => ({ head: null, upstream: null, mutable: false, reason: 'head-unresolved' }),
-};
-
-/** Fixed create-time fingerprint so `reserve` is byte-stable across arms. */
-const FIXED_SOURCE: ProcessSource = {
-  getStartTime: () => ({ status: 'present', startedAt: 'fixed-start' }),
-};
-
-const DETERMINISTIC_DEPS = { gitProbe: EMPTY_PROBE, processSource: FIXED_SOURCE };
 /** `ps`/`wait` seams: fixed clock so `waitedMs` folds to a deterministic 0. */
-const VIEW_DEPS: WorktreeViewDeps = { gitProbe: EMPTY_PROBE, processSource: FIXED_SOURCE, now: () => 1000 };
+const VIEW_DEPS: WorktreeViewDeps = { now: () => 1000 };
 
 /**
  * Fixed arguments for each surface action.
  * The assertions iterate the registry, so a new surface action needs only an entry here.
  */
 const FIXTURE_ARGS: Readonly<Record<string, Record<string, unknown>>> = {
-  acquire_worktree: { repoRoot: '/tmp/wlm-parity-repo', worktreeId: '/tmp/wlm-parity-wt' },
-  release_worktree: { worktreeId: '/tmp/wlm-parity-wt' },
   worktrees: {},
   ps: {},
-  /** This mutation takes no parameters. On an empty store each pass finds nothing to heal, so the run has no side effects. */
-  reconcile_worktrees: {},
   /** `until: 'idle'` resolves at once on an empty store, and the fixed clock gives `waitedMs` 0. */
   wait: { until: 'idle', timeoutMs: 1000 },
 };
@@ -91,32 +71,11 @@ function surfaceActions(): ToolAction[] {
   return surfaceEntries().map((e) => e.action);
 }
 
-/**
- * Forwards each orchestrate surface action to its handler with fixed deps.
- * `reconcile_worktrees` takes `WorktreeViewDeps`, so it gets `VIEW_DEPS` and its fixed clock for a byte-stable envelope.
- */
-const orchestrateStub: CompositeHandler = async (args, ctx): Promise<ToolResult> => {
-  const { action, ...rest } = args;
-  switch (action) {
-    case 'acquire_worktree':
-      return handleAcquireWorktree(rest, ctx, DETERMINISTIC_DEPS);
-    case 'release_worktree':
-      return handleReleaseWorktree(rest, ctx, DETERMINISTIC_DEPS);
-    case 'reconcile_worktrees':
-      return handleReconcileWorktrees(rest, ctx, VIEW_DEPS);
-    default:
-      return {
-        success: false,
-        error: { code: 'UNEXPECTED_ACTION', message: `worktree parity stub: unexpected orchestrate action "${String(action)}"` },
-      };
-  }
-};
-
 const viewStub: CompositeHandler = async (args, ctx): Promise<ToolResult> => {
   const { action, ...rest } = args;
   switch (action) {
     case 'worktrees':
-      return handleViewWorktrees(rest, ctx, DETERMINISTIC_DEPS);
+      return handleViewWorktrees(rest, ctx);
     case 'ps':
       return handleViewPs(rest, ctx, VIEW_DEPS);
     case 'wait':
@@ -159,23 +118,23 @@ describe('worktree dispatch routing (WLM foundation, task 008)', () => {
     vi.restoreAllMocks();
   });
 
-  it('Dispatch_ThreeOrchestrateActions_RouteThroughHandleOrchestrate_NotUnknownAction', async () => {
+  /**
+   * The three worktree lifecycle writes are retired. Each has no registry entry, the closed table refuses
+   * it with `PROVIDER_WRITE_RETIRED` and a message that names the harness, and no route appends a row.
+   */
+  it('Dispatch_ThreeRetiredOrchestrateActions_AbsentAndRefusedByTheClosedTable', async () => {
     const arm = await createArm('wlm-dispatch-orch-');
     arms.push(arm);
-    const repoRoot = arm.stateDir;
-
-    const acquire = await handleOrchestrate({ action: 'acquire_worktree', repoRoot, worktreeId: '/tmp/wlm-wt-a' }, arm.ctx);
-    expect(acquire.error?.code).not.toBe('UNKNOWN_ACTION');
-    expect(acquire.success).toBe(true);
-
-    const release = await handleOrchestrate({ action: 'release_worktree', worktreeId: '/tmp/wlm-wt-a' }, arm.ctx);
-    expect(release.error?.code).not.toBe('UNKNOWN_ACTION');
-    expect(release.success).toBe(true);
-
-    const reconcile = await handleOrchestrate({ action: 'reconcile_worktrees' }, arm.ctx);
-    expect(reconcile.error?.code).not.toBe('UNKNOWN_ACTION');
-    expect(reconcile.success).toBe(true);
-    expect(((reconcile.data as { count?: number }) ?? {}).count).toBe(0);
+    const orchestrate = TOOL_REGISTRY.find((t) => t.name === 'exarchos_orchestrate');
+    for (const action of ['acquire_worktree', 'release_worktree', 'reconcile_worktrees']) {
+      expect(orchestrate?.actions.some((a) => a.name === action), action).toBe(false);
+      const row = retiredActionOf('exarchos_orchestrate', { action });
+      expect(row?.code, action).toBe('PROVIDER_WRITE_RETIRED');
+      expect(row?.message, action).toContain('The harness');
+      const result = await handleOrchestrate({ action, repoRoot: arm.stateDir, worktreeId: '/tmp/wlm-wt-a' }, arm.ctx);
+      expect(result.success, action).toBe(false);
+    }
+    expect(await arm.ctx.eventStore.query('worktrees')).toEqual([]);
   });
 
   it('Dispatch_WorktreesAction_RouteThroughHandleView_NotUnknownAction', async () => {
@@ -205,10 +164,7 @@ describe('worktree surface conformance (registry-driven, DR-1)', () => {
       'exarchos_workflow',
     ]);
     expect(surfaceActions().map((a) => a.name).sort()).toEqual([
-      'acquire_worktree',
       'ps',
-      'reconcile_worktrees',
-      'release_worktree',
       'wait',
       'worktrees',
     ]);
@@ -245,10 +201,7 @@ describe('worktree surface conformance (registry-driven, DR-1)', () => {
    * Both envelopes must also pass the typed `outputSchema`.
    */
   it('WorktreeSurface_EveryMarkedAction_HasTypedSchemaAndParity', async () => {
-    const restore: Array<() => void> = [
-      stubCompositeHandler('exarchos_orchestrate', orchestrateStub),
-      stubCompositeHandler('exarchos_view', viewStub),
-    ];
+    const restore: Array<() => void> = [stubCompositeHandler('exarchos_view', viewStub)];
     const arms: Arm[] = [];
     try {
       for (const { tool, cliAlias, action } of surfaceEntries()) {
