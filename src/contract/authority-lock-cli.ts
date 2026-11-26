@@ -170,13 +170,21 @@ const LOCK_NOTE =
   'deleted merge orchestrator module: INV-10 references the liveness registry, INV-13 keeps the ' +
   'atomic appender, and INV-14 references the recovery runbook of the merge-orchestrator skill. ' +
   'No invariant summary, dimension, enforcement mode or audit prompt changed. All other ' +
-  'authority pins remain unchanged.';
+  'authority pins remain unchanged.' +
+  ' RE-APPROVED for #1928 S5 under Reed\'s decision of 2026-11-25 to delete the worktree ' +
+  'lifecycle manager, pre-approved for the authority lock: exarchos_orchestrate.acquire_worktree, ' +
+  'release_worktree and reconcile_worktrees are the removed ActionIds. The closed retired-action ' +
+  'table refuses a call of each before dispatch, with the code PROVIDER_WRITE_RETIRED and the ' +
+  'worktree provisioning message that names the harness. All other authority pins remain unchanged.';
 
 /**
  * The approver that the freeze records for the current snapshot. Change it at each new approval, so
  * the lockfile records who approved and not the tool.
  */
 export const CURRENT_APPROVER =
+  'Delegated Claude worker (#1928 S5 worktree lifecycle manager deletion under Reed\'s decision ' +
+  'of 2026-11-25, pre-approved for the authority lock; for Reed review at the pull request). ' +
+  'Previously: ' +
   'Delegated Claude worker (#1928 S5 T-36 local merge retirement under the slice plan that ' +
   'Reed approved, 2026-11-23; for Reed re-approval at the pull request). Previously: ' +
   'Delegated Claude worker (#1928 S5 T-35 worktree provisioning retirement under the slice ' +
