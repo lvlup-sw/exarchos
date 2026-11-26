@@ -51,9 +51,8 @@ export const REPORT_COUPLING_SEED: Readonly<Record<string, ReportCouplingSeedEnt
     'comment.posted': { owner: 'workflow:feature', expires: '2027-02-28' },
     'comment.resolved': { owner: 'workflow:feature', expires: '2027-02-28' },
     /**
-     * The harness landing row. The coordinator appends one `merge.executed` row after the harness
-     * lands a worktree task, because no local merge handler appends it now. #1927 removes this
-     * entry with the merge-pending phase.
+     * The blocker recovery row. The normal harness landing appends no `merge.executed` row.
+     * The coordinator appends one only to record a blocker that landed by a squash or a rebase, and prepare reads it.
      */
     'merge.executed': { owner: 'workflow:feature', expires: '2027-02-28' },
     'merge.requested': { owner: 'workflow:feature', expires: '2027-02-28' },

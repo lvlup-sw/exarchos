@@ -14,7 +14,7 @@
 
 /**
  * The sha256 key-set digest of 26 event types. 25 came from `censusReportCoupling().reportCoupled` on 2026-08-07.
- * The owner approved one addition on 2026-11-23: `merge.executed`, the harness landing row.
+ * The owner pre-approved one addition on 2026-11-25: `merge.executed`, the row that records a blocker landed by a squash or a rebase.
  * `reportCouplingSeedDigest` in `report-coupling-census.ts` computes it from the seed ids and the retired ids.
  * Each audit recomputes it the same way.
  */
