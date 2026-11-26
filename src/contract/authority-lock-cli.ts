@@ -175,13 +175,21 @@ const LOCK_NOTE =
   'lifecycle manager, pre-approved for the authority lock: exarchos_orchestrate.acquire_worktree, ' +
   'release_worktree and reconcile_worktrees are the removed ActionIds. The closed retired-action ' +
   'table refuses a call of each before dispatch, with the code PROVIDER_WRITE_RETIRED and the ' +
-  'worktree provisioning message that names the harness. All other authority pins remain unchanged.';
+  'worktree provisioning message that names the harness. All other authority pins remain unchanged.' +
+  ' RE-APPROVED for #1928 S5 under Reed\'s decision of 2026-11-25 to delete the merge-pending ' +
+  'detour, pre-approved for the authority lock: the `invariant-catalog` digest moves because INV-14 ' +
+  'references the delegate skill, whose rollback runs git merge --abort, in place of the deleted ' +
+  'recovery runbook of the merge-orchestrator skill. No ActionId, invariant summary, dimension, ' +
+  'enforcement mode or audit prompt changed. All other authority pins remain unchanged.';
 
 /**
  * The approver that the freeze records for the current snapshot. Change it at each new approval, so
  * the lockfile records who approved and not the tool.
  */
 export const CURRENT_APPROVER =
+  'Delegated Claude worker (#1928 S5 merge-pending detour deletion under Reed\'s decision of ' +
+  '2026-11-25, pre-approved for the authority lock; for Reed review at the pull request). ' +
+  'Previously: ' +
   'Delegated Claude worker (#1928 S5 worktree lifecycle manager deletion under Reed\'s decision ' +
   'of 2026-11-25, pre-approved for the authority lock; for Reed review at the pull request). ' +
   'Previously: ' +
