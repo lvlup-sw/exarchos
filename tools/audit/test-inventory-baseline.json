@@ -7,8 +7,8 @@
     "testFiles": 1407,
     "parsedFiles": 1363,
     "shellFiles": 44,
-    "cases": 15705,
-    "dynamicTitles": 315,
+    "cases": 15708,
+    "dynamicTitles": 316,
     "unparseableFiles": 0
   },
   "unparseable": [],
@@ -66391,6 +66391,21 @@
         {
           "suite": "handlePruneStaleWorkflows",
           "name": "handlePrune_ApplyAfterDryRun_Succeeds",
+          "dynamic": false
+        },
+        {
+          "suite": "handlePruneStaleWorkflows",
+          "name": "handlePrune_ApplyAfter_%s_RejectsWithDryRunRequired",
+          "dynamic": false
+        },
+        {
+          "suite": "handlePruneStaleWorkflows",
+          "name": "<dynamic-case-1>",
+          "dynamic": true
+        },
+        {
+          "suite": "handlePruneStaleWorkflows",
+          "name": "handlePrune_EachRun_AppendsAMarkedRecord_AlsoUnderSkip",
           "dynamic": false
         },
         {

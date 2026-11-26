@@ -219,6 +219,25 @@ export function selectPruneCandidates(
 /** The commit window, in hours, for `hasRecentCommits`. The handler args cannot change it. */
 const RECENT_COMMITS_WINDOW_HOURS = 24;
 
+/** How long a dry run admits a later apply run under `requireDryRun`, in milliseconds. */
+export const DRY_RUN_WINDOW_MS = 60 * 60 * 1000;
+
+/**
+ * True when `rows` hold a `prune.diagnostics` record that a dry run marked, at most
+ * {@link DRY_RUN_WINDOW_MS} before `now` and not after it. A record of an apply run, an old record
+ * with no mark, and a record with no readable timestamp do not count.
+ */
+export function hasRecentDryRun(rows: readonly unknown[], now: Date): boolean {
+  return rows.some((row) => {
+    if (typeof row !== 'object' || row === null || !('type' in row) || !('timestamp' in row) || !('data' in row)) return false;
+    if (row.type !== 'prune.diagnostics' || typeof row.timestamp !== 'string') return false;
+    const { data } = row;
+    if (typeof data !== 'object' || data === null || !('dryRun' in data) || data.dryRun !== true) return false;
+    const age = now.getTime() - Date.parse(row.timestamp);
+    return age >= 0 && age <= DRY_RUN_WINDOW_MS;
+  });
+}
+
 /**
  * The handler args. Each field is optional: `dryRun` defaults to true, `force` (skip the safeguard)
  * to false, `includeOneShot` to true, and `now` to the current time.
@@ -593,8 +612,9 @@ async function prunePruneCandidate(
  * The `prune_stale_workflows` handler. It lists workflows, adds the second staleness signals, selects
  * candidates, and caps them at `maxBatchSize`, most stale first. A dry run returns the candidates without `pruned`.
  * Apply mode runs the safeguard unless `force` is set, cancels each candidate that passes, and appends `workflow.pruned`.
- * Apply mode needs the event store, so no cancel happens without an audit trail. With `requireDryRun`,
- * it also needs a `prune.diagnostics` event on `_prune`, and a failed query skips that check.
+ *
+ * Apply mode needs the event store. With `requireDryRun`, it needs a marked dry-run record ({@link hasRecentDryRun}).
+ * Each run appends its marked `prune.diagnostics` record.
  *
  * `malformedHandling` is `report` (the default), `include` (malformed entries with a `featureId` become
  * candidates with infinite staleness), or `skip` (no diagnostics). The handler logs a warning for malformed
@@ -647,17 +667,17 @@ export async function handlePruneStaleWorkflows(
         ctx.eventStore as unknown as {
           query: (
             streamId: string,
-            filters: { type: string; limit: number },
+            filters: { type: string },
           ) => Promise<unknown[]>;
         }
-      ).query('_prune', { type: 'prune.diagnostics', limit: 1 });
-      if (!Array.isArray(recentDiagnostics) || recentDiagnostics.length === 0) {
+      ).query('_prune', { type: 'prune.diagnostics' });
+      if (!Array.isArray(recentDiagnostics) || !hasRecentDryRun(recentDiagnostics, now)) {
         return {
           success: false,
           error: {
             code: 'DRY_RUN_REQUIRED',
             message:
-              'Apply mode requires a prior dry-run. Run with dryRun: true first.',
+              'Apply mode requires a prior dry-run in the last hour. Run with dryRun: true first.',
           },
         };
       }
@@ -794,15 +814,16 @@ export async function handlePruneStaleWorkflows(
         };
 
 
-  if (ctx?.eventStore && diagnostics) {
+  if (ctx?.eventStore) {
     await ctx.eventStore
       .append('_prune', {
         type: 'prune.diagnostics',
         data: {
-          malformedCount: diagnostics.malformedCount,
-          candidateCount: diagnostics.candidateCount,
-          malformedEntries: diagnostics.malformedEntries,
-          ...(diagnostics.advisory ? { advisory: diagnostics.advisory } : {}),
+          malformedCount: diagnostics?.malformedCount ?? malformed.length,
+          candidateCount: diagnostics?.candidateCount ?? candidates.length,
+          malformedEntries: diagnostics?.malformedEntries ?? [],
+          ...(diagnostics?.advisory ? { advisory: diagnostics.advisory } : {}),
+          dryRun,
         },
       })
       .catch(() => {

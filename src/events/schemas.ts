@@ -2521,6 +2521,11 @@ export const PruneDiagnosticsData = z.object({
     }),
   ),
   advisory: z.string().optional(),
+  /**
+   * True on the record of a dry run, and false on the record of an apply run. The `requireDryRun`
+   * guard accepts only a record with `true`. An old record has no field, so the guard refuses it.
+   */
+  dryRun: z.boolean().optional(),
 });
 
 /** The paired terminal of a pass of the retired `prune_worktrees` action. Old logs still hold it. */

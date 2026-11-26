@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
   selectPruneCandidates,
   handlePruneStaleWorkflows,
+  DRY_RUN_WINDOW_MS,
   type WorkflowListEntry,
   type PruneHandlerDeps,
   type PruneSafeguards,
@@ -1760,16 +1761,9 @@ describe('handlePruneStaleWorkflows', () => {
     expect(result.error?.message).toContain('dry-run');
   });
 
-  it('handlePrune_ApplyAfterDryRun_Succeeds', async () => {
+  function guardedApply(rows: readonly unknown[]) {
     const append = vi.fn().mockResolvedValue({ sequence: 1, type: 'workflow.pruned' });
-    const query = vi.fn().mockResolvedValue([
-      {
-        type: 'prune.diagnostics',
-        data: { malformedCount: 0, candidateCount: 1 },
-        timestamp: new Date().toISOString(),
-        sequence: 1,
-      },
-    ]);
+    const query = vi.fn().mockResolvedValue(rows);
     const ctx = {
       eventStore: { append, query },
       projectConfig: {
@@ -1787,15 +1781,80 @@ describe('handlePruneStaleWorkflows', () => {
         { featureId: 'a', lastActivityTimestamp: staleIso(30_000) },
       ]),
     );
+    return { append, ctx: ctx as unknown as Parameters<typeof handlePruneStaleWorkflows>[2], deps };
+  }
+
+  function diagnosticsRow(minutesBefore: number, data: Record<string, unknown>) {
+    return {
+      type: 'prune.diagnostics',
+      data: { malformedCount: 0, candidateCount: 1, malformedEntries: [], ...data },
+      timestamp: new Date(Date.parse(NOW_ISO) - minutesBefore * 60_000).toISOString(),
+      sequence: 1,
+    };
+  }
+
+  /** A record that a dry run marked ten minutes earlier admits the apply run. */
+  it('handlePrune_ApplyAfterDryRun_Succeeds', async () => {
+    const { ctx, deps } = guardedApply([diagnosticsRow(10, { dryRun: true })]);
 
     const result = await handlePruneStaleWorkflows(
       { dryRun: false, now: NOW_ISO },
       STATE_DIR,
-      ctx as unknown as Parameters<typeof handlePruneStaleWorkflows>[2],
+      ctx,
       deps,
     );
 
     expect(result.success).toBe(true);
+  });
+
+  /**
+   * An apply run appends its own record. Its record leaves the guard closed, and an old record with no
+   * mark does the same. A marked record outside the window does too, so the apply run is refused.
+   */
+  it.each([
+    ['an apply record', diagnosticsRow(5, { dryRun: false })],
+    ['an unmarked old record', diagnosticsRow(5, {})],
+    ['a marked record older than the window', diagnosticsRow(DRY_RUN_WINDOW_MS / 60_000 + 1, { dryRun: true })],
+    ['a marked record from the future', diagnosticsRow(-5, { dryRun: true })],
+  ])('handlePrune_ApplyAfter_%s_RejectsWithDryRunRequired', async (_label, row) => {
+    const { ctx, deps } = guardedApply([row]);
+
+    const result = await handlePruneStaleWorkflows(
+      { dryRun: false, now: NOW_ISO },
+      STATE_DIR,
+      ctx,
+      deps,
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('DRY_RUN_REQUIRED');
+    expect(deps.cancelSpy).not.toHaveBeenCalled();
+  });
+
+  /** The two record kinds carry their mark, and a dry run with `malformedHandling: 'skip'` still appends its marked record. */
+  it('handlePrune_EachRun_AppendsAMarkedRecord_AlsoUnderSkip', async () => {
+    const { append, ctx } = makeEventStoreStub();
+    const skipCtx = {
+      ...ctx,
+      projectConfig: {
+        prune: { maxBatchSize: 25, phaseExclusions: [], malformedHandling: 'skip' as const, requireDryRun: false },
+      },
+    };
+    const deps = makeDeps();
+    deps.listSpy.mockResolvedValue(
+      makeListResult([
+        { featureId: 'a', lastActivityTimestamp: staleIso(30_000) },
+      ]),
+    );
+
+    await handlePruneStaleWorkflows({ dryRun: true, now: NOW_ISO }, STATE_DIR, skipCtx as unknown as Parameters<typeof handlePruneStaleWorkflows>[2], deps);
+    await handlePruneStaleWorkflows({ dryRun: false, now: NOW_ISO }, STATE_DIR, skipCtx as unknown as Parameters<typeof handlePruneStaleWorkflows>[2], deps);
+
+    const marks = append.mock.calls
+      .map((call: unknown[]) => call[1] as { type: string; data: Record<string, unknown> })
+      .filter((envelope) => envelope.type === 'prune.diagnostics')
+      .map((envelope) => envelope.data.dryRun);
+    expect(marks).toEqual([true, false]);
   });
 
   /**
