@@ -436,7 +436,11 @@ export const verificationActions: readonly BuiltinToolAction[] = [
     annotations: LOCAL_MUTATION,
   }, {
     ensures: declared({ source: 'durable-evidence', when: 'always', evidenceType: 'gate' }),
-    needs: declared('fs:read'),
+    /**
+     * The post-implementation phase runs the probe command of the verification profile in `repoRoot`.
+     * That command comes from the checked tree, so a caller without `shell:exec` cannot start it.
+     */
+    needs: declared('fs:read', 'shell:exec'),
     resources: declared(
       { kind: 'stream', selector: 'featureId' },
       { kind: 'path', selector: 'planFile' },
