@@ -439,7 +439,7 @@ function valueBoundSpawnEntry(masked: string): string | undefined {
     }
   }
   for (const namespace of masked.matchAll(NAMESPACE_IMPORT_RE)) {
-    const local = (namespace[1] ?? '').replace(/\$/g, '\\$');
+    const local = (namespace[1] ?? '').replace(/[\\^$.*+?()[\]{}|]/g, '\\$&');
     const read = new RegExp(`(?<![\\w$])${local}\\s*\\.\\s*(${PROCESS_PRIMITIVE_SPAWNERS.join('|')})(?![\\w$])`).exec(masked);
     if (read !== null) return read[1];
   }
