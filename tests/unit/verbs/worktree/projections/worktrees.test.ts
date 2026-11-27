@@ -1166,3 +1166,151 @@ describe('worktrees@v1 registration guard (DR-1)', () => {
     }
   });
 });
+
+/**
+ * Keys that name an `Object.prototype` member. A plain-object index by such a
+ * key returns an inherited value, so the fold must read own properties only.
+ */
+const PROTOTYPE_KEYS = ['constructor', '__proto__', 'toString', 'hasOwnProperty'] as const;
+
+/** The fold treats a key named like an `Object.prototype` member as an ordinary key. */
+describe('worktreesReducer.apply — prototype-named keys', () => {
+  /** A launch claim for an absent entry is a no-op, also when the key names an inherited member. */
+  it.each(PROTOTYPE_KEYS)('WorktreesReducer_LaunchStarted_PrototypeKey_%s_NoPhantomEntry', (key) => {
+    const reducer = createWorktreesReducer(identityRealpath);
+    const started = buildEvent({
+      type: 'launch.executing_started',
+      data: { worktreeId: key, holderPid: 7, holderStartedAt: 'boot-7' },
+    });
+    const next = reducer.apply(reducer.initial, started);
+    expect(next).toBe(reducer.initial);
+    expect(Object.keys(next.worktrees)).toEqual([]);
+
+    const executed = buildEvent({ type: 'launch.executed', data: { worktreeId: key } });
+    expect(reducer.apply(reducer.initial, executed)).toBe(reducer.initial);
+  });
+
+  /** A lifecycle event for a prototype-named worktree creates an own entry and carries no inherited launch. */
+  it.each(PROTOTYPE_KEYS)('WorktreesReducer_Adopted_PrototypeKey_%s_FoldsOwnEntry', (key) => {
+    const reducer = createWorktreesReducer(identityRealpath);
+    const adopted = reducer.apply(
+      reducer.initial,
+      buildEvent({
+        type: 'worktree.adopted',
+        sequence: 1,
+        data: { worktreeId: key, path: '/srv/wt/x', featureId: 'feat-x', operationId: 'op-1' },
+      }),
+    );
+    expect(Object.hasOwn(adopted.worktrees, key)).toBe(true);
+    expect(Object.values(adopted.worktrees)).toHaveLength(1);
+    const entry = Object.values(adopted.worktrees)[0];
+    expect(entry?.worktreeId).toBe(key);
+    expect(entry?.state).toBe('adopted');
+    expect(entry && 'launch' in entry).toBe(false);
+    expect(Object.getPrototypeOf(adopted.worktrees)).toBe(Object.prototype);
+  });
+
+  /** A merge claim on a prototype-named ref folds as an own claim and its paired release clears it. */
+  it.each(PROTOTYPE_KEYS)('WorktreesReducer_MergePair_PrototypeKey_%s_FoldsAndClears', (key) => {
+    const reducer = createWorktreesReducer(identityRealpath);
+    const releaseFirst = buildEvent({
+      type: 'worktree.merge_executed',
+      data: { integrationRef: key, operationId: 'op-m', sourceBranch: 'feat/x' },
+    });
+    expect(reducer.apply(reducer.initial, releaseFirst)).toBe(reducer.initial);
+
+    const claimed = reducer.apply(
+      reducer.initial,
+      buildEvent({
+        type: 'worktree.merge_requested',
+        sequence: 1,
+        data: {
+          integrationRef: key,
+          operationId: 'op-m',
+          sourceBranch: 'feat/x',
+          holderPid: 9,
+          holderStartedAt: 'boot-9',
+        },
+      }),
+    );
+    expect(Object.hasOwn(claimed.inFlightMerges, key)).toBe(true);
+    expect(Object.values(claimed.inFlightMerges).map((m) => m.operationId)).toEqual(['op-m']);
+    expect(Object.getPrototypeOf(claimed.inFlightMerges)).toBe(Object.prototype);
+
+    const cleared = reducer.apply(claimed, { ...releaseFirst, sequence: 2 } as WorkflowEvent);
+    expect(Object.hasOwn(cleared.inFlightMerges, key)).toBe(false);
+    expect(Object.values(cleared.inFlightMerges)).toEqual([]);
+  });
+});
+
+/** Removing a sibling key keeps a `__proto__` entry as an own entry in each projection map. */
+describe('worktreesReducer.apply — `__proto__` entry survives a sibling removal', () => {
+  /** The release of `main` leaves the `__proto__` merge claim in place. */
+  it('WorktreesReducer_MergeRelease_SiblingOfProtoKey_KeepsProtoClaim', () => {
+    const reducer = createWorktreesReducer(identityRealpath);
+    const claim = (integrationRef: string, sequence: number): WorkflowEvent =>
+      buildEvent({
+        type: 'worktree.merge_requested',
+        sequence,
+        data: { integrationRef, operationId: `op-${integrationRef}`, sourceBranch: 'feat/x' },
+      });
+    const state = [
+      claim('__proto__', 1),
+      claim('main', 2),
+      buildEvent({
+        type: 'worktree.merge_executed',
+        sequence: 3,
+        data: { integrationRef: 'main', operationId: 'op-main', sourceBranch: 'feat/x' },
+      }),
+    ].reduce((acc, ev) => reducer.apply(acc, ev), reducer.initial);
+    expect(Object.hasOwn(state.inFlightMerges, '__proto__')).toBe(true);
+    expect(Object.values(state.inFlightMerges).map((m) => m.integrationRef)).toEqual(['__proto__']);
+    expect(Object.getPrototypeOf(state.inFlightMerges)).toBe(Object.prototype);
+  });
+
+  /** The remove of `WT_A` leaves the `__proto__` worktree entry in place. */
+  it('WorktreesReducer_RemoveExecuted_SiblingOfProtoKey_KeepsProtoEntry', () => {
+    const reducer = createWorktreesReducer(identityRealpath);
+    const adopt = (worktreeId: string, sequence: number): WorkflowEvent =>
+      buildEvent({
+        type: 'worktree.adopted',
+        sequence,
+        data: { worktreeId, path: worktreeId, featureId: null, operationId: `op-${sequence}` },
+      });
+    const state = [
+      adopt('__proto__', 1),
+      adopt(WT_A, 2),
+      buildEvent({
+        type: 'worktree.remove.executed',
+        sequence: 3,
+        data: { worktreeId: WT_A, worktreePath: WT_A },
+      }),
+    ].reduce((acc, ev) => reducer.apply(acc, ev), reducer.initial);
+    expect(Object.hasOwn(state.worktrees, '__proto__')).toBe(true);
+    expect(Object.keys(state.worktrees)).toEqual(['__proto__']);
+    expect(Object.getPrototypeOf(state.worktrees)).toBe(Object.prototype);
+  });
+
+  /** The terminal of `op-b` leaves the `__proto__` prune pass in place. */
+  it('WorktreesReducer_PruneExecuted_SiblingOfProtoKey_KeepsProtoPass', () => {
+    const reducer = createWorktreesReducer(identityRealpath);
+    const start = (operationId: string, sequence: number): WorkflowEvent =>
+      buildEvent({
+        type: 'prune.executing_started',
+        sequence,
+        data: { operationId, repoRoot: '/srv/repo' },
+      });
+    const state = [
+      start('__proto__', 1),
+      start('op-b', 2),
+      buildEvent({
+        type: 'prune.executed',
+        sequence: 3,
+        data: { operationId: 'op-b', deletedCount: 0 },
+      }),
+    ].reduce((acc, ev) => reducer.apply(acc, ev), reducer.initial);
+    expect(Object.hasOwn(state.inFlightPrunes, '__proto__')).toBe(true);
+    expect(Object.keys(state.inFlightPrunes)).toEqual(['__proto__']);
+    expect(Object.getPrototypeOf(state.inFlightPrunes)).toBe(Object.prototype);
+  });
+});
