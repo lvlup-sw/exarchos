@@ -627,7 +627,10 @@ async function inDisposableCopies<T>(
 /** The terms of the workspace of one attempt. */
 type AttemptTerms = Pick<ApprovedCheckRequest, 'plan' | 'workspace' | 'revert' | 'coordinate' | 'legTimeoutMs'>;
 
-/** The live run of one claimed attempt. It builds the workspace, runs the body and checks the live checkout after the run. */
+/**
+ * The live run of one claimed attempt. It builds the workspace, runs the body and checks the live checkout after the run.
+ * A direct call starts from a clean tree. A segment call checks the tree after the run when the tree was clean before it, so a leg that writes the checkout is seen.
+ */
 async function runAttempt<T>(
   request: AttemptTerms, read: Extract<CheckoutRead, { kind: 'observed' }>, body: (session: CheckSession) => Promise<T>,
 ): Promise<{ readonly value: T; readonly observation: CheckObservation }> {
@@ -635,6 +638,7 @@ async function runAttempt<T>(
   const timeoutMs = legTimeout(request.legTimeoutMs);
   let value: T;
   let root = read.checkout;
+  const cleanBefore = request.coordinate === undefined || await cleanAt(read);
   if (request.workspace === 'disposable-copy') {
     const source = { checkout: read.checkout, gitDir: read.gitDir, repository: read.repository, head: read.head, reads: read.reads.observer.reads };
     value = await inDisposableCopies(source, request.revert, (copy, images) => {
@@ -644,7 +648,7 @@ async function runAttempt<T>(
   } else {
     value = await body(liveSession(request.plan, read.checkout, headOnly(read.checkout), read.checkout, timeoutMs, {}, legs));
   }
-  const unchanged = request.coordinate !== undefined || await cleanAt(read);
+  const unchanged = !cleanBefore || await cleanAt(read);
   return { value, observation: { version: 1, root, legs, tree: unchanged ? 'unchanged' : 'changed' } };
 }
 

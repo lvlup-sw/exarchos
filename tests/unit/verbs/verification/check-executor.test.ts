@@ -4,7 +4,7 @@
  *
  * @oracle-sources: ../../../../src/verbs/verification/check-executor.ts, real child processes, marker files that a leg writes outside the checkout
  */
-import { appendFile, mkdir, readFile, writeFile } from 'node:fs/promises';
+import { appendFile, mkdir, readFile, realpath, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -239,6 +239,22 @@ describe('claims, replay and incomplete attempts', () => {
     expect(outcomes.retried).toMatchObject({ kind: 'ran', replayed: false, attempt: 2 });
     expect(outcomes.replayed).toMatchObject({ kind: 'ran', replayed: true, attempt: 2 });
     expect(await markerLines('crash')).toBe(2);
+  }, CASE_TIMEOUT_MS);
+
+  /** A segment check of a clean bound checkout that changes the checkout gives the same refusal as a direct check. */
+  it('CheckExecutor_ASegmentLegThatChangesACleanCheckout_IsRefused', async () => {
+    const plan = nodePlan(`require('node:fs').appendFileSync('value.txt', 'changed\\n'); ${markerScript('segment-changes')}`);
+    const head = (await execFileAsync('git', ['-C', worktree, 'rev-parse', 'HEAD'])).trim();
+    const repository = (await execFileAsync('git', ['-C', worktree, 'rev-parse', '--path-format=absolute', '--git-common-dir'])).trim();
+    const coordinate: ApprovedCheckRequest['coordinate'] = {
+      protocolVersion: '1', taskId: 'task-segment',
+      capsule: { workflowId: 'feat-executor', definitionVersion: 'd'.repeat(64), designVersion: 'design-v1', capsuleVersion: 1 },
+      repository: await realpath(repository), rootBaseCommit: head, diffBaseCommit: head, observedHeadCommit: head, blockers: [],
+    };
+    const outcome = await runAsTrustedCaller(root, () => runApprovedCheck(requestOf(plan, { coordinate }), everyLeg(plan)));
+
+    expect(outcome).toMatchObject({ kind: 'refused', reason: expect.stringContaining('changed the working directory') });
+    expect(await markerLines('segment-changes')).toBe(1);
   }, CASE_TIMEOUT_MS);
 
   /** A check that changes the checkout gives a refusal, and its replay gives the same refusal. */
