@@ -5,8 +5,10 @@
  * the version forms, the hook commands, `run-tests` and `verify-worktree-boundary`. Claude Code
  * runs the hooks on every session event and every subagent write, so a change to the entry must
  * keep these answers. Each test spawns the binary that `ensureBinaryBuilt` builds from this tree.
+ * `HOME` is a scratch directory, so no configuration of the real machine can change a verdict.
  */
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { devNull } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -20,23 +22,26 @@ const REPO_ROOT = findRepoRoot(fileURLToPath(new URL('.', import.meta.url)));
 let binaryPath: string;
 let scratch: string;
 let stateDir: string;
+let home: string;
 
 beforeAll(async () => {
   ({ binaryPath } = await ensureBinaryBuilt(REPO_ROOT));
   scratch = makeTempDir('fast-paths-');
   stateDir = join(scratch, 'state');
+  home = join(scratch, 'home');
   mkdirSync(stateDir, { recursive: true });
+  mkdirSync(home, { recursive: true });
 }, 120_000);
 
 afterAll(async () => {
   await rmrfAsync(scratch);
 });
 
-/** Runs the binary with an isolated state directory, and returns its exit code and output. */
+/** Runs the binary with an isolated state directory and home directory, and returns its exit code and output. */
 async function run(args: string[], options: { input?: string; cwd?: string } = {}) {
   const result = await spawnAsync(binaryPath, args, {
     cwd: options.cwd ?? scratch,
-    env: { ...process.env, WORKFLOW_STATE_DIR: stateDir },
+    env: { ...process.env, WORKFLOW_STATE_DIR: stateDir, HOME: home, USERPROFILE: home },
     input: options.input ?? '',
     timeout: 30_000,
   });
@@ -79,14 +84,37 @@ describe('fast paths of the compiled binary', () => {
     expect((JSON.parse(result.stdout) as { error: { code: string } }).error.code).toBe('MISSING_SESSION_ID');
   });
 
-  /** `run-tests` runs the test command of `.exarchos.yml` and returns its exit code. */
-  it('RunTests_FixtureCommand_ReturnsItsExitCode', async () => {
+  /**
+   * With no verifier provisioning, `run-tests` runs the resolved command in the local executor and exits with the child exit code.
+   * A working directory that is not a checkout root refuses with exit 77.
+   * A program that does not start gives no verdict with exit 75.
+   * No outcome exits 78.
+   */
+  it('RunTests_NoVerifierProvisioning_RunsLocallyAndKeepsExits77And75', async () => {
     const project = join(scratch, 'project');
     mkdirSync(project, { recursive: true });
-    writeFileSync(join(project, 'exit3.mjs'), 'process.exit(3);\n');
+    const marker = join(scratch, 'ran');
+    writeFileSync(join(project, 'exit3.mjs'), `import { writeFileSync } from 'node:fs';\nwriteFileSync(${JSON.stringify(marker)}, 'ran');\nprocess.exit(3);\n`);
     writeFileSync(join(project, '.exarchos.yml'), 'test: node exit3.mjs\n');
-    const result = await run(['run-tests'], { cwd: project });
-    expect(result.status).toBe(3);
+    const env = { ...process.env, GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: devNull, GIT_AUTHOR_NAME: 'Fixture', GIT_AUTHOR_EMAIL: 'fixture@example.invalid',
+      GIT_COMMITTER_NAME: 'Fixture', GIT_COMMITTER_EMAIL: 'fixture@example.invalid' };
+
+    const unregistered = await run(['run-tests'], { cwd: project });
+    expect(unregistered.status).toBe(77);
+    expect(existsSync(marker)).toBe(false);
+
+    for (const args of [['init', '-q', '-b', 'main'], ['add', '.'], ['commit', '-q', '-m', 'fixture']]) {
+      await spawnAsync('git', args, { cwd: project, env });
+    }
+    const ran = await run(['run-tests'], { cwd: project });
+    expect(ran.status, ran.stderr).toBe(3);
+    expect(existsSync(marker)).toBe(true);
+
+    writeFileSync(join(project, '.exarchos.yml'), 'test: exarchos-fixture-missing-program\n');
+    await spawnAsync('git', ['commit', '-q', '-am', 'a missing program'], { cwd: project, env });
+    const missing = await run(['run-tests'], { cwd: project });
+    expect(missing.status).toBe(75);
+    expect(missing.stderr).not.toContain('Provision the verifier');
   });
 
   /** The PreToolUse guard blocks a write outside the worktree with exit 2. */

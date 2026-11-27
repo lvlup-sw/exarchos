@@ -4,6 +4,7 @@
  * A repository overrides the seeds with `verification.boundaryChecks`, and the capsule pins the resolved checks.
  *
  * Each leg runs one check of the profile through {@link runBoundaryCheck}. The adapter of the check picks the report reader and the report label.
+ * {@link planBoundaryCheck} separates the report readers from the synchronous runner, so the verifier can run the command and reduce its report.
  * The module reads the runner types and the cause lists of static analysis as types only, so it forms no runtime cycle with that gate.
  */
 
@@ -109,9 +110,37 @@ export interface BoundaryLintInput {
   readonly projectConfigError?: ExarchosConfigLoadFailure | undefined;
   /**
    * Finds the dependency-cruiser bin for `repoRoot`. The default is {@link findLocalDepcruise}.
-   * A test injects a lookup to run a chosen bin.
+   * A test injects a lookup to run a chosen bin, and the verifier injects its pinned closure entry.
    */
   readonly findDepcruise?: ((repoRoot: string) => string | undefined) | undefined;
+  /** The root that a leg detail names. The verifier reads a private image and names the registered checkout. The default is `repoRoot`. */
+  readonly displayRoot?: string | undefined;
+}
+
+/**
+ * One planned leg. A settled leg has its verdict without a process.
+ * A run leg names one command, a reader of its complete result, and the verdict of a command that did not start.
+ */
+export type BoundaryPlan<Result> =
+  | { readonly kind: 'settled'; readonly result: Result }
+  | {
+      readonly kind: 'run';
+      readonly bin: string;
+      readonly args: readonly string[];
+      readonly classify: (result: CommandResult) => Result;
+      readonly notStarted: (message: string) => Result;
+    };
+
+/** Runs a planned leg once through the injected synchronous runner. */
+function executeBoundaryPlan<Result>(plan: BoundaryPlan<Result>, runCommand: RunCommandFn, cwd: string): Result {
+  if (plan.kind === 'settled') return plan.result;
+  let result: CommandResult;
+  try {
+    result = runCommand(plan.bin, plan.args, { cwd });
+  } catch (err: unknown) {
+    return plan.notStarted(err instanceof Error ? err.message : String(err));
+  }
+  return plan.classify(result);
 }
 
 /** A count of modules above zero. Only {@link positiveCount} gives one, so a value of this type is never 0. */
@@ -491,34 +520,14 @@ function cruiserRerunFlags(flags: readonly string[]): readonly string[] {
 }
 
 /**
- * Runs `node_modules/.bin/depcruise --validate <config> --output-type json`, or the argv of a check, over the `ownership.firstParty` roots.
- * The program `depcruise` resolves to the installed bin, so a missing install never fetches a package. Each other program runs as the argv names it.
- * The detail of each verdict names each glob that widens the scan, names no path, or is negated.
- * The adapter reads the JSON report, not the exit code, because 256 errors wrap to exit 0.
- * - No check and no config: `NOT_CONFIGURED`, and depcruise does not run. A check whose config is absent: `FAIL`.
- * - A project `.exarchos.yml` that does not load, or a pinned scope that does not resolve: `FAIL` with its cause, and depcruise does not run.
- * - `summary.error` above 0: `FAIL` with the violations. 0 with modules checked: `PASS` with the count.
- * - No complete report and no fault outside the repository, such as a config error with exit 1: `FAIL`.
- * - No source root, no installed bin, a runner fault, a signal, a heap exhaustion, or zero modules checked: `NO_VERDICT` with its cause.
+ * The FAIL of a leg with an `ownership.firstParty` scope that cannot be read.
+ * The causes are a project config that does not load and a pinned scope that does not resolve.
+ * It gives `undefined` when the scope can be read. The governor applies it to a verdict of the verifier too.
  */
-export function runBoundaryLint(input: BoundaryLintInput): BoundaryLintResult {
-  const {
-    repoRoot,
-    runCommand,
-    firstPartyGlobs = DEFAULT_FIRST_PARTY_GLOBS,
-    findDepcruise = findLocalDepcruise,
-    unresolvedScope,
-    projectConfigError,
-  } = input;
-
-  const check = input.check ?? seededCruiserCheck(repoRoot);
-  if (check === undefined) {
-    return { status: 'NOT_CONFIGURED', detail: `no ${BOUNDARY_CONFIG_FILENAMES[0]} in repo root` };
-  }
-  if (pathKind(repoRoot, check.config) === undefined) {
-    return { status: 'FAIL', cause: 'config-or-usage', detail: missingConfigDetail(check, repoRoot) };
-  }
-
+export function projectScopeFailure(
+  projectConfigError: ExarchosConfigLoadFailure | undefined,
+  unresolvedScope: string | undefined,
+): BoundaryLintResult | undefined {
   if (projectConfigError !== undefined) {
     return {
       status: 'FAIL',
@@ -530,7 +539,6 @@ export function runBoundaryLint(input: BoundaryLintInput): BoundaryLintResult {
         'Correct the file or the cause of the read error, then run the gate again',
     };
   }
-
   if (unresolvedScope !== undefined) {
     return {
       status: 'FAIL',
@@ -538,14 +546,44 @@ export function runBoundaryLint(input: BoundaryLintInput): BoundaryLintResult {
       detail: `the leg has no ownership.firstParty scope and does not scan the default roots in its place. ${unresolvedScope}`,
     };
   }
+  return undefined;
+}
+
+/**
+ * Plans the boundary lint with no process: the settled verdict, or the bin, the argv and the report reader of the scan.
+ * The scope, the config and the bin lookup read `repoRoot`. The reader classifies the complete result of the command.
+ */
+export function planBoundaryLint(input: Omit<BoundaryLintInput, 'runCommand'>): BoundaryPlan<BoundaryLintResult> {
+  const {
+    repoRoot,
+    firstPartyGlobs = DEFAULT_FIRST_PARTY_GLOBS,
+    findDepcruise = findLocalDepcruise,
+    unresolvedScope,
+    projectConfigError,
+  } = input;
+  const shownRoot = input.displayRoot ?? repoRoot;
+
+  const check = input.check ?? seededCruiserCheck(repoRoot);
+  if (check === undefined) {
+    return { kind: 'settled', result: { status: 'NOT_CONFIGURED', detail: `no ${BOUNDARY_CONFIG_FILENAMES[0]} in repo root` } };
+  }
+  if (pathKind(repoRoot, check.config) === undefined) {
+    return { kind: 'settled', result: { status: 'FAIL', cause: 'config-or-usage', detail: missingConfigDetail(check, shownRoot) } };
+  }
+
+  const scopeFailure = projectScopeFailure(projectConfigError, unresolvedScope);
+  if (scopeFailure !== undefined) return { kind: 'settled', result: scopeFailure };
 
   const scope = firstPartyScanRoots(repoRoot, firstPartyGlobs);
   if (scope.roots.length === 0) {
-    return boundaryNoVerdict(
-      'no-source-root',
-      `no ownership.firstParty source root exists (${firstPartyGlobs.join(', ')})`,
-      undefined,
-    );
+    return {
+      kind: 'settled',
+      result: boundaryNoVerdict(
+        'no-source-root',
+        `no ownership.firstParty source root exists (${firstPartyGlobs.join(', ')})`,
+        undefined,
+      ),
+    };
   }
   const note = scopeNote(scope);
 
@@ -553,25 +591,31 @@ export function runBoundaryLint(input: BoundaryLintInput): BoundaryLintResult {
   const installed = program === DEPCRUISE_PROGRAM;
   const bin = installed ? findDepcruise(repoRoot) : program;
   if (bin === undefined) {
-    return boundaryNoVerdict(
-      'missing-tool',
-      `no node_modules/.bin/${depcruiseBinName(process.platform)} in ${repoRoot} or in a parent directory. ` +
-        'Install dependency-cruiser in the repository, for example with npm install --save-dev dependency-cruiser. ' +
-        'The gate does not fetch it from the registry',
-      note,
-    );
+    return {
+      kind: 'settled',
+      result: boundaryNoVerdict(
+        'missing-tool',
+        `no node_modules/.bin/${depcruiseBinName(process.platform)} in ${shownRoot} or in a parent directory. ` +
+          'Install dependency-cruiser in the repository, for example with npm install --save-dev dependency-cruiser. ' +
+          'The gate does not fetch it from the registry',
+        note,
+      ),
+    };
   }
 
   const shownProgram = installed ? path.relative(repoRoot, bin) || bin : bin;
   const rerun = [shownProgram, ...cruiserRerunFlags(flags), ...scope.roots].join(' ');
-  let result: CommandResult;
-  try {
-    result = runCommand(bin, [...flags, ...scope.roots], { cwd: repoRoot });
-  } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : String(err);
-    return boundaryNoVerdict('did-not-start', `the tool did not start (${message})`, note);
-  }
+  return {
+    kind: 'run',
+    bin,
+    args: [...flags, ...scope.roots],
+    notStarted: (message) => boundaryNoVerdict('did-not-start', `the tool did not start (${message})`, note),
+    classify: (result) => classifyCruiserRun(result, note, rerun),
+  };
+}
 
+/** Reads the complete result of one dependency-cruiser scan. The JSON report, not the exit code, decides the verdict. */
+function classifyCruiserRun(result: CommandResult, note: string | undefined, rerun: string): BoundaryLintResult {
   const fault = processFault(result);
   if (fault !== undefined) return boundaryNoVerdict(fault.cause, fault.text, note);
 
@@ -615,6 +659,21 @@ export function runBoundaryLint(input: BoundaryLintInput): BoundaryLintResult {
   };
 }
 
+/**
+ * Runs `node_modules/.bin/depcruise --validate <config> --output-type json`, or the argv of a check, over the `ownership.firstParty` roots.
+ * The program `depcruise` resolves to the installed bin, so a missing install never fetches a package. Each other program runs as the argv names it.
+ * The detail of each verdict names each glob that widens the scan, names no path, or is negated.
+ * The adapter reads the JSON report, not the exit code, because 256 errors wrap to exit 0.
+ * - No check and no config: `NOT_CONFIGURED`, and depcruise does not run. A check whose config is absent: `FAIL`.
+ * - A project `.exarchos.yml` that does not load, or a pinned scope that does not resolve: `FAIL` with its cause, and depcruise does not run.
+ * - `summary.error` above 0: `FAIL` with the violations. 0 with modules checked: `PASS` with the count.
+ * - No complete report and no fault outside the repository, such as a config error with exit 1: `FAIL`.
+ * - No source root, no installed bin, a runner fault, a signal, a heap exhaustion, or zero modules checked: `NO_VERDICT` with its cause.
+ */
+export function runBoundaryLint(input: BoundaryLintInput): BoundaryLintResult {
+  return executeBoundaryPlan(planBoundaryLint(input), input.runCommand, input.repoRoot);
+}
+
 /** Candidate taint-ruleset filenames, in resolution order. */
 const TAINT_RULESET_FILENAMES: readonly string[] = [
   '.semgrep/no-raw-io-into-core.yml',
@@ -639,6 +698,8 @@ export interface RawIoTaintInput {
    * filters in the ruleset narrow the real surface.
    */
   readonly coreSources?: readonly string[];
+  /** The root that a leg detail names. The default is `repoRoot`. */
+  readonly displayRoot?: string | undefined;
 }
 
 /**
@@ -734,25 +795,36 @@ function seededTaintCheck(repoRoot: string): BoundaryCheck | undefined {
  *   repository gives no verdict. The `--quiet` flag hides the messages of semgrep, so an engine fault can come here.
  */
 export function runRawIoTaint(input: RawIoTaintInput): RawIoTaintResult {
-  const { repoRoot, runCommand, coreSources = ['.'] } = input;
+  return executeBoundaryPlan(planRawIoTaint(input), input.runCommand, input.repoRoot);
+}
+
+/** Plans the taint leg with no process: the settled verdict, or the argv of semgrep and the reader of its exit. */
+export function planRawIoTaint(input: Omit<RawIoTaintInput, 'runCommand'>): BoundaryPlan<RawIoTaintResult> {
+  const { repoRoot, coreSources = ['.'] } = input;
 
   const check = input.check ?? seededTaintCheck(repoRoot);
   if (check === undefined) {
-    return { status: 'NOT_CONFIGURED', detail: `no ${TAINT_RULESET_FILENAMES[0]} in repo` };
+    return { kind: 'settled', result: { status: 'NOT_CONFIGURED', detail: `no ${TAINT_RULESET_FILENAMES[0]} in repo` } };
   }
   if (pathKind(repoRoot, check.config) === undefined) {
-    return { status: 'FAIL', cause: 'ruleset-or-usage', detail: missingConfigDetail(check, repoRoot) };
+    return {
+      kind: 'settled',
+      result: { status: 'FAIL', cause: 'ruleset-or-usage', detail: missingConfigDetail(check, input.displayRoot ?? repoRoot) },
+    };
   }
 
   const [program = '', ...flags] = check.command.argv;
-  let result: CommandResult;
-  try {
-    result = runCommand(program, [...flags, ...coreSources], { cwd: repoRoot });
-  } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : String(err);
-    return taintNoVerdict('did-not-start', `semgrep not available (${message})`);
-  }
+  return {
+    kind: 'run',
+    bin: program,
+    args: [...flags, ...coreSources],
+    notStarted: (message) => taintNoVerdict('did-not-start', `semgrep not available (${message})`),
+    classify: (result) => classifyTaintRun(result, check, coreSources),
+  };
+}
 
+/** Reads the exit of one semgrep run. Exit 0 passes, exit 1 is a finding, and only a known outside fault gives no verdict. */
+function classifyTaintRun(result: CommandResult, check: BoundaryCheck, coreSources: readonly string[]): RawIoTaintResult {
   const fault = processFault(result);
   if (fault !== undefined) return taintNoVerdict(fault.cause, fault.text);
 
@@ -806,16 +878,37 @@ export interface BoundaryLeg {
   readonly result: BoundaryLintResult | RawIoTaintResult;
 }
 
+/** One planned boundary check with the report label and the adapter that reads it. */
+export type PlannedBoundaryLeg =
+  | { readonly adapter: 'dependency-cruiser'; readonly name: string; readonly plan: BoundaryPlan<BoundaryLintResult> }
+  | { readonly adapter: 'semgrep-taint'; readonly name: string; readonly plan: BoundaryPlan<RawIoTaintResult> };
+
+/**
+ * Plans one check of the profile through the adapter that it names, with no process.
+ * The taint leg gets neither the scope nor the project config error, so a config that does not load fails only the boundary lint.
+ */
+export function planBoundaryCheck(
+  check: BoundaryCheck,
+  input: Omit<BoundaryCheckInput, 'runCommand'> & Pick<BoundaryLintInput, 'findDepcruise' | 'displayRoot'>,
+): PlannedBoundaryLeg {
+  switch (check.adapter) {
+    case 'dependency-cruiser':
+      return { adapter: check.adapter, name: BOUNDARY_LINT_NAME, plan: planBoundaryLint({ ...input, check }) };
+    case 'semgrep-taint':
+      return {
+        adapter: check.adapter,
+        name: BOUNDARY_TAINT_NAME,
+        plan: planRawIoTaint({ repoRoot: input.repoRoot, check, displayRoot: input.displayRoot }),
+      };
+  }
+}
+
 /**
  * Runs one check of the profile through the adapter that it names. The adapter gives the report label and the report reader.
  * The taint leg gets neither the scope nor the project config error, so a config that does not load fails only the boundary lint.
  */
 export function runBoundaryCheck(check: BoundaryCheck, input: BoundaryCheckInput): BoundaryLeg {
-  const { repoRoot, runCommand } = input;
-  switch (check.adapter) {
-    case 'dependency-cruiser':
-      return { name: BOUNDARY_LINT_NAME, result: runBoundaryLint({ ...input, check }) };
-    case 'semgrep-taint':
-      return { name: BOUNDARY_TAINT_NAME, result: runRawIoTaint({ repoRoot, runCommand, check }) };
-  }
+  const planned = planBoundaryCheck(check, input);
+  const result = executeBoundaryPlan<BoundaryLintResult | RawIoTaintResult>(planned.plan, input.runCommand, input.repoRoot);
+  return { name: planned.name, result };
 }

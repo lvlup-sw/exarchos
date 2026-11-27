@@ -10,7 +10,7 @@ import type { ToolResult } from '../../format.js';
 import type { EventStore } from '../../events/store.js';
 import { createEvidenceSubject } from '../../workflow/admission/evidence-subject.js';
 import { runPhaseGateWithEvidence } from './gate-runner.js';
-import { getDiff, requireGateEvent, sameOperationGateKey } from './gate-utils.js';
+import { readConstrainedDiff, requireGateEvent, sameOperationGateKey } from './gate-utils.js';
 import { checkWorkflowDeterminism } from '../pure/workflow-determinism.js';
 
 interface WorkflowDeterminismArgs {
@@ -29,6 +29,7 @@ export async function handleWorkflowDeterminism(
   args: WorkflowDeterminismArgs,
   stateDir: string,
   eventStore: EventStore,
+  gitPath?: string,
 ): Promise<ToolResult> {
   if (!args.featureId) {
     return {
@@ -49,24 +50,26 @@ export async function handleWorkflowDeterminism(
         { gate: 'workflow-determinism', phase: 'review' },
       ),
     providerInput: args,
-    executeProvider: async () => executeWorkflowDeterminism(args, eventStore),
+    executeProvider: async () => executeWorkflowDeterminism(args, eventStore, gitPath),
   });
 }
 
 async function executeWorkflowDeterminism(
   args: WorkflowDeterminismArgs,
   eventStore: EventStore,
+  gitPath: string | undefined,
 ): Promise<ToolResult> {
   const repoRoot = args.repoRoot || process.cwd();
   const baseBranch = args.baseBranch || 'main';
 
-  const diff = getDiff(repoRoot, baseBranch);
-  if (diff === null) {
+  const read = await readConstrainedDiff(gitPath, repoRoot, { kind: 'base', base: baseBranch });
+  if (read.kind === 'refused') {
     return {
       success: false,
-      error: { code: 'DIFF_ERROR', message: `Failed to get diff from git in ${repoRoot}` },
+      error: { code: 'DIFF_ERROR', message: `Failed to get diff from git in ${repoRoot}: ${read.reason}` },
     };
   }
+  const diff = read.diff;
   const tsResult = checkWorkflowDeterminism({ diffContent: diff });
 
   const passed = tsResult.status === 'pass';

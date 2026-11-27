@@ -111,10 +111,7 @@ const DISPOSITIONS = Object.freeze([
   ...[
     ['src/config/define.ts', 'guard-definition', 1],
     ['src/config/validation.ts', 'guard-definition', 1],
-    ['src/config/register.ts', 'legacy-custom-shell', 6],
-    ['src/config/guards.ts', 'legacy-custom-shell', 1],
-    ['src/workflow/state-machine.ts', 'legacy-custom-shell', 4],
-    ['src/workflow/hsm-transition-guard.ts', 'legacy-custom-shell', 2],
+    ['src/workflow/state-machine.ts', 'legacy-custom-shell', 2],
   ].map(([file, kind, count]) => ({
     file,
     kind,

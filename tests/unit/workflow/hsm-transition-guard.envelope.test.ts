@@ -1,6 +1,6 @@
 /**
  * Tests that each event from `DefaultHSMTransitionGuard.attempt` has the canonical envelope of `assertCanonicalEnvelope`.
- * The tests cover three paths: a success, a failed walk guard, and a failed registered custom guard.
+ * The tests cover three paths: a success, a failed walk guard, and a command guard that fails closed with no event.
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
@@ -11,10 +11,7 @@ import * as path from 'node:path';
 import { EventStore } from '../../../src/events/store.js';
 import { DefaultHSMTransitionGuard } from '../../../src/workflow/hsm-transition-guard.js';
 import { assertCanonicalEnvelope } from '../../../src/workflow/test-helpers/canonical-envelope.js';
-import {
-  registerCustomWorkflows,
-  clearRegisteredGuards,
-} from '../../../src/config/register.js';
+import { registerCustomWorkflows } from '../../../src/config/register.js';
 import { unregisterWorkflowType } from '../../../src/workflow/state-machine.js';
 import { unextendWorkflowTypeEnum } from '../../../src/workflow/schemas.js';
 import { rmrfAsync } from '../../../tools/test-helpers/temp-dir.js';
@@ -32,7 +29,6 @@ beforeEach(async () => {
 
 afterEach(async () => {
   await rmrfAsync(tempDir);
-  clearRegisteredGuards();
   try { unregisterWorkflowType(CUSTOM_WORKFLOW); } catch { }
   try { unextendWorkflowTypeEnum(CUSTOM_WORKFLOW); } catch { }
 });
@@ -95,10 +91,10 @@ describe('HsmTransitionGuard_AllEmittedEvents_HaveCanonicalEnvelope', () => {
   });
 
   /**
-   * `getRegisteredGuard` finds a guard by `<workflowType>:<guard id>`.
-   * The test registers a custom workflow whose guard runs `false`, which exits non-zero.
+   * A command guard does not run. The transition fails closed through the unregistered-guard path,
+   * which appends no guard event, so the stream stays empty.
    */
-  it('hsm-transition-guard.ts:429 — custom-async-guard failure event has canonical envelope', async () => {
+  it('hsm-transition-guard.ts — command guard fails closed and appends no guard event', async () => {
     registerCustomWorkflows({
       workflows: {
         [CUSTOM_WORKFLOW]: {
@@ -128,13 +124,10 @@ describe('HsmTransitionGuard_AllEmittedEvents_HaveCanonicalEnvelope', () => {
       eventStore: store,
     });
 
-    expect(result.ok).toBe(false);
+    expect(result).toMatchObject({ ok: false, reason: 'guard-failed', errorCode: 'GUARD_FAILED' });
 
     const events = await store.query(featureId);
-    const guardFailureEvents = events.filter(
-      (e) => e.type === 'workflow.guard-failed',
-    );
-    expect(guardFailureEvents.length).toBeGreaterThan(0);
-    assertCanonicalEnvelope(guardFailureEvents);
+    expect(events).toEqual([]);
+    assertCanonicalEnvelope(events);
   });
 });

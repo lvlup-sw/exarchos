@@ -13,11 +13,11 @@ metadata:
 
 ## VCS Provider
 
-This skill uses VCS operations through Exarchos MCP actions (`create_pr`, `merge_pr`, `list_prs`, `check_ci`, etc.).
-These actions automatically detect and route to the correct VCS provider (GitHub, GitLab, Azure DevOps).
-No `gh`/`glab`/`az` commands needed — the MCP server handles provider dispatch.
+The Exarchos read actions (`list_prs`, `check_ci`, `get_pr_comments`, `assess_stack`) detect the VCS provider (GitHub, GitLab, Azure DevOps) and route to it.
+Exarchos does no VCS write. The coordinator creates each PR, enables auto-merge, merges and posts each comment through its harness, outside governance.
+If the harness cannot do a write, stop and report. Do not fall back to an Exarchos action.
 
-> **Not to be confused with the integration merge.** This skill calls `merge_pr` to land a user-facing PR on `main` via the VCS provider — a remote operation. The upstream sibling is `serialize_merge` (`@skills/merge-orchestrator/SKILL.md`): the integration-merge path that holds a single-writer lease and composes a local `git merge` of a subagent worktree branch onto the integration branch during the `delegate → merge-pending → delegate` HSM loop (raw `merge_orchestrate` is that composed executor / the non-integration path). Synthesize never invokes `serialize_merge` or `merge_orchestrate`; merge-pending never invokes `merge_pr`.
+> **Not to be confused with the integration merge.** This skill merges user-facing PRs on `main` through the harness of the coordinator, a remote operation. During delegation the coordinator lands each accepted head on the integration branch through its harness (`@skills/delegate/SKILL.md`). A stream parked in `merge-pending` follows `@skills/merge-orchestrator/SKILL.md`. Synthesize lands no integration commit.
 
 ## Overview
 
@@ -117,34 +117,17 @@ exarchos:exarchos_orchestrate({
 })
 ```
 
-**Do NOT call `create_pr` until validation passes.** If validation fails, fix the body and re-validate.
+**Do NOT create the PR until validation passes.** If validation fails, fix the body and re-validate.
+
+`validate_pr_body` reports `intentGrounded` as advisory only. If the report says that the body is not grounded, add the intent from `artifacts.intent` to the body before the create.
 
 ### Step 3: Submit and Merge
 
-Create PRs using the validated body and enable auto-merge. For each branch in the stack (bottom-up):
+First run the [Idempotency](#idempotency) procedure for every head of the stack. It classifies each head as a reused open match, a recorded merged match, or a create candidate. If it stops, create no PR. Then do these steps for each head of the stack, bottom-up, in this order:
 
-```typescript
-// Create PR via VCS MCP action
-exarchos_orchestrate({
-  action: "create_pr",
-  base: "<parent-branch>",
-  head: "<branch>",
-  title: "<type>: <what>",
-  body: "<pr-body>"
-})
-
-// Enable auto-merge
-exarchos_orchestrate({
-  action: "merge_pr",
-  prId: "<number>",
-  strategy: "squash"
-})
-```
-
-After submission:
-1. **Apply benchmark label** -- If `verification.hasBenchmarks` is true, apply label: `gh pr edit <number> --add-label has-benchmarks`
-2. **Record PR URLs** -- Capture URLs via `exarchos_orchestrate({ action: "list_prs", state: "open" })`
-3. **Update state:**
+1. **Create** -- For a create candidate, the coordinator creates the PR through its harness, outside governance. It uses base `<parent-branch>`, head `<branch>`, the title `<type>: <what>` and the validated body file. For a reused open match, create no PR.
+2. **Record the PR URL** -- Record the URL that the harness returns as soon as it returns it, before auto-merge is enabled. Record the provider web URL exactly as the harness returns it, and do not normalize it. For a reused open match, record the URL of the single exact open match of the read filtered by head and base: `exarchos_orchestrate({ action: "list_prs", head: "<branch>", base: "<parent-branch>", state: "all" })`. Never record an unrecorded merged match. Never record an unfiltered list of open PRs, because it can hold unrelated PRs.
+3. **Update state** -- `update` replaces each array whole. Thus each write holds the full list of URLs recorded so far in both `artifacts.pr` and `synthesis.prUrl`, not only the new URL:
 
 ```typescript
 exarchos:exarchos_workflow({
@@ -154,6 +137,12 @@ exarchos:exarchos_workflow({
   }
 })
 ```
+
+A URL is recorded only after this `update` succeeds. After a lost `update` reply, send the same full list again before the next step.
+4. **Enable auto-merge** -- Only after the `update` succeeds, the coordinator enables auto-merge on the PR through its harness, outside governance, with the squash strategy.
+5. **Apply benchmark label** -- If `verification.hasBenchmarks` is true, apply label: `gh pr edit <number> --add-label has-benchmarks`
+
+If the harness cannot do one of these writes, stop and report. Do not fall back to an Exarchos action.
 
 For merge ordering strategy, see `references/merge-ordering.md`.
 
@@ -207,25 +196,42 @@ exarchos:exarchos_workflow({
 
 Then sync: `git fetch --prune` and reclaim worktrees.
 
-> **Worktree GC cadence — after synthesize (INV-12).** Once a workflow reaches
-> synthesis its governed worktrees are no longer needed, so this is the point to
-> reclaim them. Use the governed garbage-collector `prune_worktrees` rather than
-> ad-hoc `git worktree remove`: dry-run first (the default — reports candidates
-> + reclaimable bytes, deletes nothing), then re-invoke with `dryRun: false` to
-> apply.
-> ```typescript
-> exarchos:exarchos_orchestrate({ action: "prune_worktrees", repoRoot: "<repo-root>" })            // dry-run (default)
-> exarchos:exarchos_orchestrate({ action: "prune_worktrees", repoRoot: "<repo-root>", dryRun: false }) // apply
-> ```
-> The `next_actions` projection surfaces this same `prune_worktrees` dry-run
-> affordance once the workflow is parked in synthesis. The full apply flow lands
-> in `@skills/cleanup/SKILL.md`.
+> **Worktree reclamation — after the merge.** Once the PRs merge, the
+> coordinator removes the worktrees of this workflow through its harness,
+> outside governance. It removes only the worktrees that this workflow recorded,
+> skips one that is already removed, and never force-removes one with
+> uncommitted work: it resolves the reason first. The full rule is in
+> `@skills/cleanup/SKILL.md`.
 
 ## Idempotency
 
-`create_pr` is the **single authority** for "PR already exists" — do NOT pre-check `synthesis.prUrl` / `artifacts.pr` before deciding whether to create. Just call `create_pr`: it either returns the existing open PR for this `(head, base)` via its remote-recovery guard, or refuses with `PR_ALREADY_OWNED` when the workflow already owns a PR. Branch on that structured response instead of pre-checking.
+Exarchos has no PR-creation action, so no action decides that a PR already exists. The coordinator runs this procedure for every head of the stack before the harness creates any PR. It compares URLs as exact strings, in the `url` form that `list_prs` returns.
 
-The post-merge cleanup case is distinct from create-time idempotency and is NOT governed by `create_pr`: if the PR is already **merged**, transition to `completed` via `action: "transition"`, `target: "completed"` (the runtime rejects `updates.phase`; the canonical `transition` action runs the HSM guard and emits `workflow.transition`). This `completed` transition is normally owned by `cleanup` via `action: "cleanup"`; the bare phase-only transition is a manual-cleanup escape hatch.
+1. Read the PR URLs that `synthesis.prUrl` and `artifacts.pr` record.
+2. For each head, call `list_prs` with `head`, `base` and `state: "all"`. Keep each result whose `headRefName` equals the head and whose `baseRefName` equals the base.
+3. For each head, also call `list_prs` with `head` and `state: "all"`. The provider retargets a stacked PR to the base of its merged parent. Thus a recorded URL that this read shows into the base of a lower head of the stack is the match for this head.
+4. Compare `state` without case. `OPEN` is open and `MERGED` is merged. Any other value, `CLOSED` included, is a stop. An unknown state is never "no match".
+5. Classify each head:
+   - One open match is reused, recorded or not, and the harness creates no PR for it. An open PR carries the current tip of its head branch.
+   - One merged match counts only when `synthesis.prUrl` or `artifacts.pr` records its URL. A recorded merged match needs no new PR.
+   - A head with no match is a create candidate.
+6. Stop and report, and create no PR for any head, on one of these:
+   - a match that is closed and not merged
+   - more than one match for a head
+   - a recorded URL that no read for any head of the stack shows
+   - a failed read. A read with `page.hasMore: true` is a failed read, because `list_prs` returns at most 20 PRs, newest first.
+   - an unrecorded merged match into the same base
+   - an unrecorded open or merged PR for the head into another base
+   - a recorded PR for the head into another base that is not the base of a lower head of the stack
+   - a create candidate beside a head with a merged match
+7. When each head of the stack has a recorded merged match, take the merged-PR escape hatch below. An unrecorded merged match never takes the escape hatch.
+8. Otherwise the harness creates a PR for each create candidate only, bottom-up (Step 3).
+
+A merged match counts only when it is recorded. A merged PR carries only the tip of its head branch at merge time, and `list_prs` returns no head commit. The integration branch name can be used again (`synthesis.integrationBranch`, else the current branch, else the featureId). Thus an unrecorded merged match can be an old PR of another workflow. The workflow state record is the only proof that a merged PR belongs to this workflow.
+
+The user resolves the reason for each stop. A reused or long-lived branch can hold old closed or merged PRs, so the procedure stops on that branch until the user resolves it. A lower head can auto-merge before an upper head is created, for example after a failed create or after a lost reply before the record. The procedure then stops on the create candidate beside the merged head. Step 3 records each URL before it enables auto-merge, so only a human merge can make an unrecorded PR merged. If a reply is lost and a human then merges that PR, the procedure stops and opens no duplicate. The coordinator never records an unrecorded merged URL itself, not even to clear a stop. The user records that URL in the workflow state only after the user confirms that the PR holds the head commit of this workflow. Then run synthesize again.
+
+The post-merge case is distinct from create-time idempotency. When each head of the stack has a recorded merged match, transition to `completed` via `action: "transition"`, `target: "completed"` (the runtime rejects `updates.phase`; the canonical `transition` action runs the HSM guard and emits `workflow.transition`). The guard `pr-url-exists` checks only that a URL is present. Thus the escape hatch uses only the URLs that the workflow state recorded before the reads, and it records no new URL. This `completed` transition is normally owned by `cleanup` via `action: "cleanup"`; the bare phase-only transition is a manual-cleanup escape hatch.
 
 ## Direct Edits to Stack Branches
 
@@ -266,7 +272,7 @@ See `references/troubleshooting.md` for test failures, PR check failures, merge 
 
 For the full transition table, consult `@skills/checkpoint/references/phase-transitions.md`.
 
-**Quick reference:** The `synthesize` → `completed` transition requires guard `pr-url-exists` — write `synthesis.prUrl` or `artifacts.pr` with `update` before the `transition` call.
+**Quick reference:** The `synthesize` → `completed` transition requires guard `pr-url-exists` — write `synthesis.prUrl` or `artifacts.pr` with `update` before the `transition` call. On the merged-PR escape hatch, use only the URLs that the workflow state recorded before the Idempotency reads, and record no new URL.
 
 ### Schema Discovery
 

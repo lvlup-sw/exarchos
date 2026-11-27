@@ -112,10 +112,18 @@ describe('the stored-shape decision of the verification profile', () => {
       'acceptance', 'blockedBy', 'boundaryTouching', 'files', 'id', 'implements', 'instructions',
       'knowledgeSlice', 'parallelizable', 'riskTier', 'testFiles', 'testLayer', 'title',
     ]);
-    expect(decisions.at(-1)?.source).toContain('S7 revision 7 accepted A4');
-    expect(decisions.at(-1)?.decision).toContain('__segment_input_bindings_v1__');
-    expect(decisions.at(-1)?.decision).toContain('zero event rows');
+    const bindingDecision = decisions.filter(entry => entry.date === '2026-11-14').at(-1);
+    expect(bindingDecision?.source).toContain('S7 revision 7 accepted A4');
+    expect(bindingDecision?.decision).toContain('__segment_input_bindings_v1__');
+    expect(bindingDecision?.decision).toContain('zero event rows');
     expect(decisions.filter(entry => entry.date === '2026-11-14')).toHaveLength(2);
+    expect(decisions.at(-1)?.source).toContain('canonical spec SHA256 0745ea007c909168f8fe55be9f1e5aef22fe1a78da75ead1faa406f82c260632');
+    expect(decisions.at(-1)?.decision).toContain('exarchos-prepare-8-vcs');
+    expect(decisions.at(-1)?.decision).toContain('settle-integration:');
+    expect(decisions.at(-1)?.decision).toContain('SCHEMA_VERSION stays 6');
+    expect(Object.keys(SettlementBundleV1Schema.shape.integration.unwrap().shape).sort()).toEqual([
+      'attemptBinding', 'observedAt', 'ref', 'suiteEvidenceDigest', 'tip',
+    ]);
     expect(Object.keys(TaskCompletionArgs.shape).sort()).toEqual([
       'baseRef', 'boundaryTouching', 'branch', 'capsuleVersion', 'coordinate', 'result', 'riskTier', 'taskId', 'worktreePath',
     ]);

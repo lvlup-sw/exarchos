@@ -16,7 +16,8 @@ vi.mock('node:child_process', () => ({
   execFileSync: vi.fn(),
 }));
 
-vi.mock('../../../../src/verbs/gates/gate-runner.js', () => ({
+vi.mock('../../../../src/verbs/gates/gate-runner.js', async (importOriginal) => ({
+  ...await importOriginal<typeof import('../../../../src/verbs/gates/gate-runner.js')>(),
   runPhaseGateWithEvidence: (request: { readonly executeProvider: () => Promise<ToolResult> }) => request.executeProvider(),
 }));
 
@@ -30,6 +31,8 @@ import {
   type SpecCoverageCheckArgs,
 } from '../../../../src/verbs/gates/spec-coverage-check.js';
 import { rmrf } from '../../../../tools/test-helpers/temp-dir.js';
+import type { RunCommandFn } from '../../../../src/verbs/pure/static-analysis.js';
+import { fakeExecutor } from '../../../helpers/verification/check-executor.js';
 import {
   pinnedTestProfile,
   pinnedUnresolvedGlobProfile,
@@ -87,10 +90,22 @@ async function check(plan: string, extra: Partial<SpecCoverageCheckArgs> = {}): 
     { featureId: 'feat-spec-coverage-profile', planFile, repoRoot: root, ...extra },
     root,
     new EventStore(root),
+    fakeExecutor(execRunner).executor,
   );
   expect(result.success, JSON.stringify(result)).toBe(true);
   return CoverageDataSchema.parse(result.data);
 }
+
+/** A runner over the stubbed `execFileSync`. A throw with a numeric status is that exit, and any other throw is exit 1. */
+const execRunner: RunCommandFn = (cmd, args, options) => {
+  try {
+    vi.mocked(execFileSync)(cmd, [...args], options);
+    return { exitCode: 0, stdout: '', stderr: '' };
+  } catch (error) {
+    const status = typeof error === 'object' && error !== null && 'status' in error ? error.status : undefined;
+    return { exitCode: typeof status === 'number' ? status : 1, stdout: '', stderr: '' };
+  }
+};
 
 /** The program and the arguments of each run of the probe command. */
 function runs(): readonly (readonly [string, readonly string[] | undefined])[] {
@@ -326,5 +341,33 @@ describe('a term that is not resolved', () => {
       expect(data.reason).toContain('Capsule v4 pins this term');
     }
     expect(runs()).toEqual([]);
+  });
+});
+
+describe('spec coverage in the local executor', () => {
+  /**
+   * Planning and skipRun start no executor. A post-implementation run makes one request for the declared tests, read-only in the root.
+   * A refused request runs no probe and gives the refusal code.
+   */
+  it('SpecCoverage_TheDeclaredTests_RunOnlyInTheLocalExecutor', async () => {
+    writeFiles({ 'package.json': JSON.stringify({ scripts: { test: 'vitest' } }), 'src/a.test.ts': '' });
+    const planFile = join(root, 'plan.md');
+    writeFileSync(planFile, filesList(['src/a.test.ts']));
+    const fake = fakeExecutor(execRunner);
+    const call = (extra: Partial<SpecCoverageCheckArgs>, executor = fake.executor) => handleSpecCoverageCheck(
+      { featureId: 'feat-local-coverage', planFile, repoRoot: root, verificationProfile: pinnedTestProfile(1), ...extra },
+      root, new EventStore(root), executor,
+    );
+
+    expect(await call({ coveragePhase: 'plan' })).toMatchObject({ success: true, data: { phase: 'plan', passed: true } });
+    expect(await call({ coveragePhase: 'post-implementation', skipRun: true })).toMatchObject({ success: true, data: { passed: true } });
+    expect(fake.requests).toEqual([]);
+    expect(await call({ coveragePhase: 'post-implementation' })).toMatchObject({ success: true, data: { passed: true } });
+    expect(fake.requests).toHaveLength(1);
+    expect(fake.requests[0]).toMatchObject({ operation: 'spec-coverage', workspace: 'checkout', checkout: root, selection: ['src/a.test.ts'] });
+    expect(runs()).toHaveLength(1);
+    const refused = await call({ coveragePhase: 'post-implementation' }, fakeExecutor(execRunner, 'The working directory has uncommitted changes.').executor);
+    expect(refused).toMatchObject({ success: false, error: { code: 'LOCAL_CHECK_REFUSED' } });
+    expect(runs()).toHaveLength(1);
   });
 });

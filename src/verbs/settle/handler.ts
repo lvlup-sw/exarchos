@@ -53,7 +53,7 @@ import {
 import type { ToolResult } from '../../format.js';
 import { orchestrateLogger } from '../../logger.js';
 import { rowStatusByTask, foldGuardInput, foldWorkflowState } from '../../projections/guard-input/fold.js';
-import { canonicalPath, observeClaimedTree, observeImmutableClaimedTree } from '../../utils/git-tree.js';
+import { canonicalPath, observeClaimedTree, observeImmutableClaimedTree, processObservationalGitPath } from '../../utils/git-tree.js';
 import { evidenceArtifactResolver } from '../../workflow/admission/evidence-artifact.js';
 import { decide, type EdgeVerdict } from '../../workflow/decide/decide.js';
 import { compileDecideDefinition, type DecideDefinition, type DecideEdge } from '../../workflow/decide/edges.js';
@@ -82,6 +82,7 @@ import { resolveWorkflowState } from '../resolve-state.js';
 import {
   outcomeVerifies,
   adjudicateSettlement,
+  type IntegrationFailure,
   type ProposedDeviation,
   type SettlementClaim,
   type SettlementEvidence,
@@ -132,6 +133,10 @@ import {
   type SettlementUnresolvedTask,
   type SettlementVerificationTrace,
 } from './types.js';
+import { compilerPolicy } from '../../contract/capsule/compiler-policy.js';
+import { HostedAdequacyPending, hostedPendingResult } from '../gates/gate-runner.js';
+import { integrationAttemptIntact, integrationRefusal, runIntegrationAttempt, unresolvedIntegrationMessage } from './integration-attempts.js';
+import { observeIntegration } from './integration-observation.js';
 
 /** The runbook every accepted task's verification is compiled from. */
 const TASK_COMPLETION_INTENT = 'task-completion';
@@ -1128,7 +1133,7 @@ async function observeClaimedTrees(
   const { scope } = capsule.settlementContract;
   if (scope === undefined) return observed;
   const terms = capsule.settlementContract.taskVerification ?? {};
-  const observe = ctx.treeObserver ?? (capsule.provenance.compilerVersion === 'exarchos-prepare-8'
+  const observe = ctx.treeObserver ?? (compilerPolicy(capsule.provenance.compilerVersion).immutable
     ? observeImmutableClaimedTree : observeClaimedTree);
   for (const claim of claims) {
     const { worktreePath, branch } = claim.fields;
@@ -1188,7 +1193,14 @@ interface SettlementCall {
   readonly heldOrigin?: HeldOriginFence;
   inputs: SettlementInputs;
   checkout?: CheckoutReading;
+  /** The integration record of the attempt that the commit writes into the bundle. The integration gate sets it. */
+  integration?: IntegrationRecord | undefined;
+  /** True after the integration ref moved once in this call. A second move refuses, so the call never loops without bound. */
+  integrationMoved?: boolean;
 }
+
+/** The integration record of one settlement bundle. */
+type IntegrationRecord = NonNullable<SettlementBundleV1['integration']>;
 
 /** Compiles the segments of the tasks from the claims of the call, so each segment gets the same arguments on each run. */
 function compileFor(call: SettlementCall, taskIds: readonly string[]): CompiledSegments {
@@ -1271,7 +1283,7 @@ async function runCompiled(
   ctx: DispatchContext = call.ctx,
   replayOnly = false,
 ): Promise<ToolResult | undefined> {
-  const immutable = call.namedAuthority.capsule.provenance.compilerVersion === 'exarchos-prepare-8';
+  const immutable = compilerPolicy(call.namedAuthority.capsule.provenance.compilerVersion).immutable;
   const graph = call.inputs.capsule.graph;
   const byId = new Map(compiled.map(task => [task.taskId, task]));
   const ready = immutable ? taskGraphOrder(graph.tasks.map(task => task.taskId), graph.dependencies)
@@ -1290,7 +1302,7 @@ async function runCompiled(
         continue;
       }
     }
-    const execute = call.namedAuthority.capsule.provenance.compilerVersion === 'exarchos-prepare-8'
+    const execute = compilerPolicy(call.namedAuthority.capsule.provenance.compilerVersion).immutable
       ? { ...call.deps.execute, verificationInput: { authority: call.namedAuthority, outerOperationId: call.operationId,
         callerDigest: call.requestDigest, batchId: call.identity.batchId, round: call.inputs.round, replayOnly, ...(task.coordinate === undefined ? {} : { coordinate: task.coordinate }) } } : call.deps.execute;
     attempted += 1;
@@ -1437,15 +1449,15 @@ async function replayCommittedSegments(call: SettlementCall): Promise<ToolResult
   try {
     committed = [...completed]
     .filter((taskId) => backend.lookupOperationClaim(verificationOperationId(call.operationId, taskId)) !== undefined
-      || (call.namedAuthority.capsule.provenance.compilerVersion === 'exarchos-prepare-8'
+      || (compilerPolicy(call.namedAuthority.capsule.provenance.compilerVersion).immutable
         && backend.lookupSegmentInput(verificationOperationId(call.operationId, taskId)) !== undefined))
     .sort();
   } catch (error) {
-    if (call.namedAuthority.capsule.provenance.compilerVersion !== 'exarchos-prepare-8') throw error;
+    if (!compilerPolicy(call.namedAuthority.capsule.provenance.compilerVersion).immutable) throw error;
     return refused('SEGMENT_INPUT_REFUSED', error instanceof Error ? error.message : String(error));
   }
   if (committed.length === 0) return undefined;
-  if (call.namedAuthority.capsule.provenance.compilerVersion === 'exarchos-prepare-8') {
+  if (compilerPolicy(call.namedAuthority.capsule.provenance.compilerVersion).immutable) {
     const recovered: CompiledVerification[] = [];
     try {
       for (const taskId of committed) {
@@ -1474,7 +1486,7 @@ interface JudgedRead {
 
 /** Resolves accepted custody before judgement. Compatibility completion rows confer no standing. */
 async function acceptedStandingFor(call: SettlementCall, rows: readonly WorkflowEvent[]): Promise<void> {
-  if (call.inputs.capsule.provenance.compilerVersion !== 'exarchos-prepare-8') return;
+  if (!compilerPolicy(call.inputs.capsule.provenance.compilerVersion).immutable) return;
   const backend = call.ctx.eventStore.getAppender().ensureSqliteBackendSync();
   call.standingProofs.clear();
   const accepted = new Map<string, StandingProof>();
@@ -1586,6 +1598,8 @@ async function levelSettledComplete(
 async function settleAttempt(call: SettlementCall): Promise<ToolResult> {
   const warnings: string[] = [];
   const levelled = new Set<string>();
+  call.inputs = withoutIntegrationFailure(call.inputs);
+  call.integration = undefined;
   const first = await readAndJudge(call);
   if (first.judgement.revising.length > 0) checkRevisionRowsFold(first.rows);
   let judgement = first.judgement;
@@ -1606,7 +1620,134 @@ async function settleAttempt(call: SettlementCall): Promise<ToolResult> {
     const levelRefusal = await levelSettledComplete(call, judgement.alreadyComplete, levelled, warnings);
     if (levelRefusal !== undefined) return levelRefusal;
   }
+  if (compilerPolicy(call.namedAuthority.capsule.provenance.compilerVersion).integration
+    && judgement.verifies && judgement.verdict.acceptedTasks.length > 0) {
+    const gated = await integrationGate(call, judgement);
+    if (gated.kind === 'refused') return gated.result;
+    judgement = gated.judgement;
+  }
   return commitJudgement(call, judgement, warnings);
+}
+
+/** The inputs with no integration failure, so each attempt of a call judges its own integration tip. */
+function withoutIntegrationFailure(inputs: SettlementInputs): SettlementInputs {
+  if (inputs.integrationFailure === undefined) return inputs;
+  const { integrationFailure: _failure, ...rest } = inputs;
+  return rest;
+}
+
+/**
+ * The refusal of a compiler 8-vcs settlement whose capsule lacks its integration ref, scope or profile, or whose integration checkout is wrong.
+ * It comes after the terminal replay and before any claim, segment or record.
+ * The integration checkout is the checkout of the capsule scope. It must be registered on the integration ref, or the settlement refuses.
+ * The suite runs in the local executor, so no connector and no operator identity take part.
+ */
+async function integrationPrecheck(capsule: ExarchosCapsuleV1): Promise<ToolResult | undefined> {
+  if (!compilerPolicy(capsule.provenance.compilerVersion).integration) return undefined;
+  const { integration, scope, verificationProfile } = capsule.settlementContract;
+  if (integration === undefined || scope === undefined || verificationProfile === undefined) {
+    return integrationRefusal('The compiler 8-vcs capsule lacks its integration ref, scope or profile. Nothing was recorded.');
+  }
+  const gitPath = processObservationalGitPath();
+  if (gitPath === undefined) return integrationRefusal('No usable Git executable observes the integration checkout. Nothing was recorded.');
+  const observed = await observeIntegration(gitPath, scope, integration.ref, []);
+  if (observed.kind === 'refused') {
+    return integrationRefusal(`The integration checkout of the capsule scope does not hold ${integration.ref}: ${observed.reason}. Nothing was recorded.`);
+  }
+  return undefined;
+}
+
+/**
+ * The sorted unique heads that the integration tip must contain: each accepted-standing task of the capsule graph and each task that this judgement accepts.
+ * It returns undefined when an accepted task has no exact head, so the gate fails closed.
+ */
+function integrationHeads(call: SettlementCall, judgement: SettlementJudgement): string[] | undefined {
+  const graph = new Set(call.inputs.capsule.graph.tasks.map(task => task.taskId));
+  const heads = new Set<string>();
+  for (const [taskId, proof] of call.inputs.acceptedStanding ?? []) if (graph.has(taskId)) heads.add(proof.headCommit);
+  for (const taskId of judgement.verdict.acceptedTasks) {
+    const run = call.runs.get(taskId);
+    const head = run?.kind === 'ran' && run.outcome.kind === 'verified'
+      ? run.coordinate?.observedHeadCommit : call.inputs.acceptedStanding?.get(taskId)?.headCommit;
+    if (head === undefined) return undefined;
+    heads.add(head);
+  }
+  return [...heads].sort();
+}
+
+/** The outcome of the integration gate: the refusal of the call, or the judgement with the integration result of the captured tip. */
+type IntegrationGate =
+  | { readonly kind: 'refused'; readonly result: ToolResult }
+  | { readonly kind: 'judged'; readonly judgement: SettlementJudgement };
+
+/**
+ * Judge the integration tip of a compiler 8-vcs adjudication that accepts at least one task.
+ * More than 64 heads refuse before any read. Then the gate observes the tip of the pinned ref and the ancestry of each accepted head.
+ * An unmerged head or an unresolved suite gives the failure from that observation, with no suite run and no binding.
+ * A resolved suite runs one integration attempt for the same tip in the local executor. Only its terminal observation gives a verdict.
+ *
+ * Right before the commit, the gate observes the tip and the heads again and reads the binding again.
+ * A moved ref commits nothing and starts one fresh attempt, also when the move stopped the attempt. A second move in the call refuses as a pending result.
+ * The result goes into the judgement inputs, so the commit judges again with the same input. The record goes into the bundle.
+ */
+async function integrationGate(call: SettlementCall, judgement: SettlementJudgement): Promise<IntegrationGate> {
+  const capsule = call.namedAuthority.capsule;
+  const { integration, scope, verificationProfile } = capsule.settlementContract;
+  const gitPath = processObservationalGitPath();
+  if (integration === undefined || scope === undefined || verificationProfile === undefined) {
+    return { kind: 'refused', result: integrationRefusal('The integration gate lacks its pinned terms. Nothing was recorded.') };
+  }
+  if (gitPath === undefined) {
+    return { kind: 'refused', result: integrationRefusal('No usable Git executable observes the integration ref. Nothing was recorded.') };
+  }
+  const heads = integrationHeads(call, judgement);
+  if (heads === undefined) return { kind: 'refused', result: integrationRefusal('An accepted task has no exact head for the integration gate. Nothing was recorded.') };
+  if (heads.length > 64) {
+    return { kind: 'refused', result: integrationRefusal(`The integration subject binds at most 64 accepted heads, and this batch has ${heads.length}. Nothing was recorded.`) };
+  }
+  const bundles = call.deps.bundleStore ?? call.ctx.eventStore.bundleStore;
+  const ref = integration.ref;
+  for (;;) {
+    const first = await observeIntegration(gitPath, scope, ref, heads);
+    if (first.kind === 'refused') return { kind: 'refused', result: integrationRefusal(`The integration observation refused: ${first.reason}. Nothing was recorded.`) };
+    let failure: IntegrationFailure | undefined;
+    let bound: { readonly attemptId: string; readonly request: string; readonly evidenceDigest: string } | undefined;
+    let stopped: ToolResult | undefined;
+    if (first.unmerged.length > 0) {
+      failure = { ref, message: `the tip ${first.tip} does not contain the accepted head(s) ${first.unmerged.join(', ')}` };
+    } else if (verificationProfile.integration.command.state !== 'resolved') {
+      failure = { ref, message: unresolvedIntegrationMessage(scope, verificationProfile) };
+    } else {
+      const { outcome, binding } = await runIntegrationAttempt({ eventStore: call.ctx.eventStore, bundles, streamId: call.streamId,
+        outerOperationId: call.operationId, ref, tip: first.tip, heads, preparedDigest: capsuleDigest(capsule), scope, profile: verificationProfile });
+      if (outcome.kind === 'refused' || outcome.kind === 'pending') {
+        stopped = outcome.result;
+      } else if (binding === undefined) {
+        return { kind: 'refused', result: integrationRefusal('The integration attempt has no binding. Nothing was recorded.') };
+      } else {
+        bound = { attemptId: binding.attemptId, request: binding.request, evidenceDigest: outcome.evidenceDigest };
+        if (outcome.kind === 'failed') failure = { ref, message: outcome.message };
+      }
+    }
+    const final = await observeIntegration(gitPath, scope, ref, heads);
+    if (final.kind === 'refused') return { kind: 'refused', result: integrationRefusal(`The integration observation refused: ${final.reason}. Nothing was recorded.`) };
+    const moved = final.tip !== first.tip || canonicalJson(final.unmerged) !== canonicalJson(first.unmerged);
+    if (stopped !== undefined && !moved) return { kind: 'refused', result: stopped };
+    const intact = bound === undefined || await integrationAttemptIntact(call.ctx.eventStore, bundles, bound.attemptId, bound.request);
+    if (moved || !intact) {
+      if (call.integrationMoved === true) {
+        return { kind: 'refused', result: hostedPendingResult(new HostedAdequacyPending(
+          'The integration ref moved twice during this settle call. Nothing was recorded. Settle the same batch again.')) };
+      }
+      call.integrationMoved = true;
+      continue;
+    }
+    call.integration = { ref, tip: final.tip, observedAt: final.observedAt,
+      ...(bound === undefined ? {} : { attemptBinding: bound.attemptId, suiteEvidenceDigest: bound.evidenceDigest }) };
+    if (failure === undefined) return { kind: 'judged', judgement };
+    call.inputs = { ...call.inputs, integrationFailure: failure };
+    return { kind: 'judged', judgement: (await readAndJudge(call)).judgement };
+  }
 }
 
 /** The trigger of each row of a settle move. */
@@ -1711,7 +1852,7 @@ function phaseDecisionOf(input: PhaseDecisionInput): PhaseDecision {
     || canonicalJson(named.skipPhases ?? null) !== canonicalJson(latest.skipPhases ?? null)) {
     return notDecided('prepared-authority-mismatch');
   }
-  if (call.inputs.capsule.provenance.compilerVersion === 'exarchos-prepare-8'
+  if (compilerPolicy(call.inputs.capsule.provenance.compilerVersion).immutable
     && !latest.capsule.graph.tasks.every(task => {
       const run = call.runs.get(task.taskId);
       return run === undefined ? call.inputs.acceptedStanding?.has(task.taskId) === true
@@ -1731,12 +1872,12 @@ function phaseDecisionOf(input: PhaseDecisionInput): PhaseDecision {
   } catch {
     return notDecided('fold-failed');
   }
-  if (call.inputs.capsule.provenance.compilerVersion === 'exarchos-prepare-8') {
+  if (compilerPolicy(call.inputs.capsule.provenance.compilerVersion).immutable) {
     const statuses = rowStatusByTask(rows);
     if (!latest.capsule.graph.tasks.every(task => statuses.get(task.taskId) === 'complete')) return notDecided('outcome-does-not-move');
   }
   const from = typeof prior.phase === 'string' ? prior.phase : '';
-  if (!(call.inputs.capsule.provenance.compilerVersion === 'exarchos-prepare-8' ? latest.capsule : call.inputs.capsule).graph.tasks.every((task) => task.stepId === from)) return notDecided('off-batch-step');
+  if (!(compilerPolicy(call.inputs.capsule.provenance.compilerVersion).immutable ? latest.capsule : call.inputs.capsule).graph.tasks.every((task) => task.stepId === from)) return notDecided('off-batch-step');
   const decided = decide(def, guardInput, { kind: 'settle' });
   if (decided.kind === 'stay') {
     const admitted = decided.verdicts.filter((verdict) => verdict.verdict === 'allow').length;
@@ -1831,6 +1972,7 @@ async function commitJudgement(
     ...(round > 0 ? { round } : {}),
     adjudicated: verdict.adjudicated,
     verification: traces.map((trace) => bundleTraceOf(trace, runs.get(trace.taskId))),
+    ...(call.integration === undefined ? {} : { integration: call.integration }),
     settledAt,
   });
 
@@ -1918,7 +2060,7 @@ async function commitJudgement(
             if (!recheckPreparedAuthority(call.latestAuthority.selection, rows)) {
               throw new SettlementReadsChanged(batchLabel);
             }
-            if (call.namedAuthority.capsule.provenance.compilerVersion === 'exarchos-prepare-8') {
+            if (compilerPolicy(call.namedAuthority.capsule.provenance.compilerVersion).immutable) {
               const backend = ctx.eventStore.getAppender().ensureSqliteBackendSync();
               for (const [taskId, run] of runs) {
                 if (run.kind !== 'ran' || run.outcome.kind !== 'verified') continue;
@@ -2247,6 +2389,9 @@ export async function handleSettle(
     );
   }
 
+  const precheck = await integrationPrecheck(capsule);
+  if (precheck !== undefined) return precheck;
+
   const identity: SettledCapsuleIdentity = {
     workflowId: capsule.identity.workflowId,
     definitionVersion: capsule.identity.definitionVersion,
@@ -2270,7 +2415,7 @@ export async function handleSettle(
     let heldOrigin: HeldOriginFence | undefined;
     if (deciding) {
       let held: HeldBatchLookup;
-      if (capsule.provenance.compilerVersion === 'exarchos-prepare-8') {
+      if (compilerPolicy(capsule.provenance.compilerVersion).immutable) {
         try { held = await authenticatedHeldBatch(ctx, streamId, identity, deps.bundleStore ?? ctx.eventStore.bundleStore); }
         catch (error) { return (await replay()) ?? refused('CAPSULE_UNRESOLVED', `Held origin is unavailable or invalid: ${String(error)}`); }
       } else held = await heldBatch(ctx, streamId, identity, deps.bundleStore);
@@ -2316,7 +2461,7 @@ export async function handleSettle(
     const decided = (deviation: ProposedDeviation): 'accepted' | 'rejected' | undefined =>
       decidedOf.get(deviationIdOf(identity, deviation));
 
-    if (capsule.provenance.compilerVersion === 'exarchos-prepare-8') {
+    if (compilerPolicy(capsule.provenance.compilerVersion).immutable) {
       const shape = adjudicateSettlement(capsule, claims, deviations, { evidenceResolves: () => true });
       const invalidShape = shape.findings.filter(finding => ['unknown-task', 'duplicate-claim', 'undeclared-result-shape',
         'missing-field', 'field-type-mismatch', 'undeclared-field'].includes(finding.kind));
@@ -2324,7 +2469,7 @@ export async function handleSettle(
     }
 
     const reads = { pinnedSequence: pinned.sequence, cited: claims.flatMap((claim) => claim.evidence) };
-    const observations = capsule.provenance.compilerVersion === 'exarchos-prepare-8' ? new Map<string, ClaimedTree>()
+    const observations = compilerPolicy(capsule.provenance.compilerVersion).immutable ? new Map<string, ClaimedTree>()
       : await observeClaimedTrees(ctx, capsule, claims);
     let inputs: SettlementInputs = { capsule, claims, deviations, decided, round, evidenceChecks: new Map(), observations };
     if (deviations.some((deviation) => deviation.affectedTasks !== undefined)) {
@@ -2357,9 +2502,9 @@ export async function handleSettle(
     };
     const replayRefusal = await replayCommittedSegments(call);
     if (replayRefusal !== undefined) {
-      return capsule.provenance.compilerVersion === 'exarchos-prepare-8' ? (await replay()) ?? replayRefusal : replayRefusal;
+      return compilerPolicy(capsule.provenance.compilerVersion).immutable ? (await replay()) ?? replayRefusal : replayRefusal;
     }
-    if (capsule.provenance.compilerVersion === 'exarchos-prepare-8') {
+    if (compilerPolicy(capsule.provenance.compilerVersion).immutable) {
       try { await acceptedStandingFor(call, await ctx.eventStore.query(streamId)); }
       catch (error) {
         if (!(error instanceof SettlementStandingCorrupt)) throw error;
@@ -2372,7 +2517,7 @@ export async function handleSettle(
     for (let attempt = 1; attempt <= MAX_SETTLE_ATTEMPTS; attempt += 1) {
       try {
         const result = await settleAttempt(call);
-        if (!result.success && capsule.provenance.compilerVersion === 'exarchos-prepare-8') {
+        if (!result.success && compilerPolicy(capsule.provenance.compilerVersion).immutable) {
           return (await replay()) ?? result;
         }
         return result;

@@ -1,14 +1,13 @@
 /**
  * Shared helpers for gate handlers: git shell-outs, `gate.executed` appends, verdict
  * normalization, evidence references, `repoRoot` resolution, graduation modes, and skip
- * discriminants.
+ * discriminants. Provisioned routes read Git through the constrained helpers here.
  */
 
 import type { z } from 'zod';
 import type { TaskVerificationCoordinateSchema } from '../../contract/capsule/exarchos-capsule.js';
 import { execFileSync } from 'node:child_process';
 import { getDispatchContext } from '../../dispatch/dispatch-context.js';
-import { orchestrateLogger } from '../../logger.js';
 import type { EventStore } from '../../events/store.js';
 import type { ToolResult } from '../../format.js';
 import type { ResolvedProjectConfig } from '../../config/resolve.js';
@@ -23,6 +22,9 @@ import type { PhaseKind } from '../../workflow/phase-kind.js';
 import type { GitExec } from '../pure/execute-merge.js';
 import type { EvidenceArtifactReferenceV1 } from '../../workflow/admission/evidence-artifact.js';
 import type { AdmissionEvidenceRecorded } from '../../events/schemas.js';
+import { walkToRepoRoot } from '../../config/load-exarchos-config.js';
+import { createGitObserver, type ObservedCheckout } from '../../utils/git-observer.js';
+import { constrainedCommitId, processObservationalGitPath } from '../../utils/git-tree.js';
 
 /**
  * Output ceiling for the git shell-outs in this module. The Node default of 1 MiB raises
@@ -55,30 +57,68 @@ export const defaultGitExec: GitExec = (repoRoot, args) => {
   }
 };
 
+/** One constrained Git observer with one absolute Git path. */
+type GitObserver = Awaited<ReturnType<typeof createGitObserver>>;
+
+/** The current checkout of a provisioned call and the observer that read it, or the cause of a refused observation. */
+export type CurrentCheckoutRead =
+  | { readonly kind: 'observed'; readonly observer: GitObserver; readonly checkout: ObservedCheckout }
+  | { readonly kind: 'refused'; readonly reason: string };
+
 /**
- * Returns the unified diff from `baseBranch` to HEAD, or null on failure. It logs the failure
- * cause, because the callers report only a generic `DIFF_ERROR`.
+ * Observe the checkout that holds `repoRoot` with `gitPath`: the connector Git path or the process-wide Git path. The call climbs from `repoRoot` to the checkout root first, with no process.
+ * It builds one observer, so one call probes the Git executable once. An unusable Git path, a path outside a checkout and a refused observation refuse.
+ * The result is observation only. It never selects a verifier identity, resource or request subject.
  */
-export function getDiff(repoRoot: string, baseBranch: string): string | null {
+export async function observeCurrentCheckout(gitPath: string, repoRoot: string): Promise<CurrentCheckoutRead> {
+  const root = walkToRepoRoot(repoRoot);
+  if (root === null) return { kind: 'refused', reason: `No Git checkout holds ${repoRoot}` };
+  let observer: GitObserver;
   try {
-    return execFileSync(
-      'git',
-      ['diff', `${baseBranch}...HEAD`],
-      {
-        cwd: repoRoot,
-        encoding: 'utf-8',
-        timeout: 30_000,
-        maxBuffer: GIT_MAX_BUFFER_BYTES,
-        stdio: ['pipe', 'pipe', 'pipe'],
-      },
-    );
-  } catch (err) {
-    const e = err as { code?: string; status?: number; message?: string };
-    orchestrateLogger.warn(
-      { repoRoot, baseBranch, code: e.code, status: e.status, err: e.message },
-      'getDiff: git diff failed; the gate will report DIFF_ERROR',
-    );
-    return null;
+    observer = await createGitObserver(gitPath);
+  } catch (error) {
+    return { kind: 'refused', reason: error instanceof Error ? error.message : String(error) };
+  }
+  const current = await observer.current(root);
+  return current.kind === 'observed' ? { kind: 'observed', observer, checkout: current.value } : current;
+}
+
+/** The range of one constrained diff: a caller base name against the observed head, or two exact commits of a task coordinate. */
+export type ConstrainedDiffRange =
+  | { readonly kind: 'base'; readonly base: string }
+  | { readonly kind: 'commits'; readonly baseCommit: string; readonly headCommit: string };
+
+/** The full diff of one constrained read and the head it ends at, or the cause of a refused read. */
+export type ConstrainedDiffRead =
+  | { readonly kind: 'diff'; readonly diff: string; readonly head: string }
+  | { readonly kind: 'refused'; readonly reason: string };
+
+/**
+ * Read a full diff through the constrained reader. A failed read refuses and never gives an empty diff.
+ * The `gitPath` of the dispatch context selects the Git executable. Only an undefined `gitPath` selects the process-wide Git path, and an empty path refuses.
+ * No Git on the process-wide path refuses, and the read never starts a bare `git` name.
+ *
+ * A base range takes the merge base of the resolved caller base and the observed head, then diffs from it to the head.
+ * This is the meaning of `base...HEAD`. No merge base refuses, and the read never falls back to a two-dot diff.
+ * A commits range checks that both commits exist in the selected repository, diffs them and never reads the current head as a side.
+ */
+export async function readConstrainedDiff(gitPath: string | undefined, repoRoot: string, range: ConstrainedDiffRange): Promise<ConstrainedDiffRead> {
+  const selected = gitPath === undefined ? processObservationalGitPath() : gitPath;
+  if (selected === undefined) return { kind: 'refused', reason: 'No usable Git executable for the observational read' };
+  const observed = await observeCurrentCheckout(selected, repoRoot);
+  if (observed.kind === 'refused') return observed;
+  const { observer, checkout } = observed;
+  try {
+    if (range.kind === 'commits') {
+      for (const id of [range.baseCommit, range.headCommit]) await observer.reads.requireCommit(checkout.gitDir, checkout.checkout, id);
+      return { kind: 'diff', diff: await observer.reads.fullDiff(checkout.gitDir, checkout.checkout, range.baseCommit, range.headCommit), head: range.headCommit };
+    }
+    const base = await observer.base(checkout, range.base);
+    if (base.kind === 'refused') return base;
+    const mergeBase = constrainedCommitId((await observer.reads.mergeBase(checkout.gitDir, checkout.checkout, base.value, checkout.head)).trim());
+    return { kind: 'diff', diff: await observer.reads.fullDiff(checkout.gitDir, checkout.checkout, mergeBase, checkout.head), head: checkout.head };
+  } catch (error) {
+    return { kind: 'refused', reason: error instanceof Error ? error.message : String(error) };
   }
 }
 

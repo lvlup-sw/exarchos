@@ -27,7 +27,6 @@ const ALLOWED_CLOSURE = new Set([
   'src/index.ts',
   'src/logger.ts',
   'src/utils/paths.ts',
-  'src/utils/process.ts',
   'src/adapters/cli/version.ts',
   'src/adapters/cli/hooks.ts',
 ]);

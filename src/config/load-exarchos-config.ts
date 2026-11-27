@@ -1,6 +1,5 @@
-import { existsSync, readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
-import { execSync } from 'node:child_process';
+import { existsSync, lstatSync, readFileSync, realpathSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
 import { parse as parseYaml } from 'yaml';
 import { FullExarchosConfigSchema, type FullExarchosConfig } from './yaml-schema.js';
 import {
@@ -29,21 +28,40 @@ export interface LoadResult {
 export interface LoadOptions {
   /**
    * Test hook that returns the git repo root for a path, or `null` outside a git repo.
-   * Defaults to `git rev-parse --show-toplevel`.
+   * Defaults to {@link walkToRepoRoot}, which starts no process.
    */
   findRepoRoot?: (start: string) => string | null;
 }
 
-function defaultFindRepoRoot(start: string): string | null {
+/** True when `entry` is a `.git` directory, or a `.git` file whose content starts with `gitdir:`. */
+function isGitMarker(entry: string): boolean {
   try {
-    const out = execSync('git rev-parse --show-toplevel', {
-      cwd: start,
-      encoding: 'utf-8',
-      stdio: ['pipe', 'pipe', 'pipe'],
-    }).trim();
-    return out || null;
+    const info = lstatSync(entry);
+    if (info.isDirectory()) return true;
+    return info.isFile() && readFileSync(entry, 'utf-8').startsWith('gitdir:');
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Returns the top level of the git work tree that holds `start`, or `null` outside one. It starts no process.
+ * It walks up from the real path of `start` to the first directory with a `.git` directory or a `gitdir:` file.
+ * The result is the real path with forward slashes, the same path that `git rev-parse --show-toplevel` gives.
+ * It ignores `GIT_DIR` and `GIT_WORK_TREE` on purpose, so the environment cannot move the config root.
+ */
+export function walkToRepoRoot(start: string): string | null {
+  let dir: string;
+  try {
+    dir = realpathSync(resolve(start));
   } catch {
     return null;
+  }
+  for (;;) {
+    if (isGitMarker(join(dir, '.git'))) return dir.replace(/\\/g, '/');
+    const parent = dirname(dir);
+    if (parent === dir) return null;
+    dir = parent;
   }
 }
 
@@ -73,7 +91,7 @@ export type ExarchosConfigOutcome =
  * neither location has a config file.
  */
 function findConfigFile(worktreePath: string, options?: LoadOptions): string | null {
-  const findRepoRoot = options?.findRepoRoot ?? defaultFindRepoRoot;
+  const findRepoRoot = options?.findRepoRoot ?? walkToRepoRoot;
 
   const worktreeAbs = resolve(worktreePath);
   const worktreeCfg = resolve(worktreeAbs, CONFIG_FILENAME);

@@ -17,10 +17,10 @@ import { randomUUID } from 'node:crypto';
 import type { EventStore } from '../../events/store.js';
 import type { WorkflowEvent } from '../../events/schemas.js';
 import { withStateRetry } from '../../workflow/state-retry.js';
+import { spawnCommandSync } from '../../utils/process.js';
 import {
   WorktreeManager,
   WORKTREES_STREAM,
-  defaultGitRunner,
   parseWorktreeListPorcelain,
   type GitRunner,
   type ReservationOwner,
@@ -43,6 +43,32 @@ import {
 export const CREATE_REQUESTED = 'worktree.create.requested';
 /** The terminal event for the creation of a launcher top-level worktree. It shares the stem of the intent. */
 export const CREATE_EXECUTED = 'worktree.create.executed';
+
+/**
+ * The Git runner of the launcher. The launcher is the harness authority, so it owns this writer runner.
+ * The constrained observational reader of the governor does not apply to these harness writes.
+ * It runs `git` with an argument vector, a 30 second timeout and no shell.
+ * A missing exit status reads 1, and an empty stderr reads the spawn error message.
+ */
+export const launcherGitRunner: GitRunner = {
+  run(
+    args: readonly string[],
+    cwd: string,
+  ): { status: number; stdout: string; stderr: string } {
+    const result = spawnCommandSync('git', args, {
+      cwd,
+      encoding: 'utf-8',
+      timeout: 30_000,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    const stderr = result.stderr ?? '';
+    return {
+      status: result.status ?? 1,
+      stdout: result.stdout ?? '',
+      stderr: stderr || (result.error?.message ?? ''),
+    };
+  },
+};
 
 /** The containment guard seam, with the shape of {@link guardWorktreeContainment}. Tests inject it to spy on the order of the guard and the add. */
 export type ContainmentGuard = (
@@ -71,7 +97,7 @@ export interface CreateLauncherWorktreeInput {
 export interface CreateLauncherWorktreeDeps {
   /**
    * The git seam for the worktree git calls (`git worktree add` and the registration precheck).
-   * Tests inject it to record the argument vectors. Defaults to {@link defaultGitRunner}.
+   * Tests inject it to record the argument vectors. Defaults to {@link launcherGitRunner}.
    */
   readonly gitRunner?: GitRunner;
   /** The WLM manager whose `reserve` records ownership. Defaults to a fresh one. */
@@ -135,7 +161,7 @@ export async function createLauncherWorktree(
   input: CreateLauncherWorktreeInput,
   deps: CreateLauncherWorktreeDeps = {},
 ): Promise<CreateLauncherWorktreeResult> {
-  const gitRunner = deps.gitRunner ?? defaultGitRunner;
+  const gitRunner = deps.gitRunner ?? launcherGitRunner;
   const realpath = deps.realpath ?? defaultRealpath;
   const guard = deps.guard ?? guardWorktreeContainment;
   const processSource = deps.processSource ?? defaultProcessSource;
@@ -226,7 +252,7 @@ export async function recoverPendingCreations(
   repoRoot: string,
   deps: RecoverPendingCreationsDeps = {},
 ): Promise<RecoveredCreation[]> {
-  const gitRunner = deps.gitRunner ?? defaultGitRunner;
+  const gitRunner = deps.gitRunner ?? launcherGitRunner;
   const realpath = deps.realpath ?? defaultRealpath;
   const rebuildAddArgs =
     deps.rebuildAddArgs ??

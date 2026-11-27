@@ -2,8 +2,9 @@
  * The label of the worktree baseline comes from the registry. The test command of a package-manager profile or of a
  * toolchain row takes the `projectType` of that profile or row. A refusal names the markers of the registry.
  *
- * Each case writes a real root in a temporary directory. It mocks `node:child_process`, as the handler suite does,
- * so no git and no test command runs.
+ * Each case writes a real root with an empty `.git` directory in a temporary directory, so the process-free climb finds a worktree.
+ * The lifecycle check of the local executor is a stub, so each case reads the label of a stubbed test leg.
+ * It mocks `node:child_process`, as the handler suite does, so no git and no test command runs.
  *
  * @oracle-sources: ../../../../src/config/toolchains.ts, the seven labels of the gate at the base commit written here as literals
  */
@@ -14,13 +15,24 @@ vi.mock('node:child_process', () => ({
   execFileSync: vi.fn(),
 }));
 
+vi.mock('../../../../src/verbs/verification/lifecycle-check.js', () => ({
+  admitLifecycleLegs: vi.fn(async () => [
+    { name: 'test', kind: 'command', run: { argv: ['test'], end: 'exited', exitCode: 0, stdout: 'passed\n', stderr: '' } },
+  ]),
+}));
+
 import { execFileSync } from 'node:child_process';
-import { writeFileSync } from 'node:fs';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 
 import { BUILTIN_TOOLCHAINS } from '../../../../src/config/toolchains.js';
 import { handleVerifyWorktreeBaseline } from '../../../../src/verbs/gates/verify-worktree-baseline.js';
+import { admitLifecycleLegs } from '../../../../src/verbs/verification/lifecycle-check.js';
+import type { EventStore } from '../../../../src/events/store.js';
 import { makeTempDir, rmrf } from '../../../../tools/test-helpers/temp-dir.js';
+
+/** The event store of each call. The lifecycle check is a stub, so no case reads it. */
+const store = { query: vi.fn(), append: vi.fn() } as unknown as EventStore;
 
 /** The state directory of the handler. The handler does not read it. */
 const STATE_DIR = '/tmp/worktree-baseline-label-state';
@@ -61,6 +73,7 @@ const roots: string[] = [];
 function makeRoot(files: Readonly<Record<string, string>>): string {
   const root = makeTempDir('worktree-baseline-label-');
   roots.push(root);
+  mkdirSync(path.join(root, '.git'));
   for (const [name, content] of Object.entries(files)) writeFileSync(path.join(root, name), content);
   return root;
 }
@@ -82,7 +95,7 @@ function baselineLabel(data: unknown): BaselineLabel {
 
 /** Runs the baseline at a root and returns its label. */
 async function labelAt(root: string): Promise<BaselineLabel> {
-  const result = await handleVerifyWorktreeBaseline({ worktreePath: root }, STATE_DIR);
+  const result = await handleVerifyWorktreeBaseline({ worktreePath: root }, STATE_DIR, store);
   expect(result.success, JSON.stringify(result.error)).toBe(true);
   return baselineLabel(result.data);
 }
@@ -90,6 +103,7 @@ async function labelAt(root: string): Promise<BaselineLabel> {
 describe('the label of the worktree baseline', () => {
   afterEach(() => {
     vi.mocked(execFileSync).mockReset();
+    vi.mocked(admitLifecycleLegs).mockClear();
     for (const root of roots.splice(0)) rmrf(root);
   });
 
@@ -98,15 +112,14 @@ describe('the label of the worktree baseline', () => {
    * Before the label came from the registry, the command had no label and got `Override`.
    */
   it('VerifyWorktreeBaseline_AGoRepository_GetsTheLabelOfItsRegistryRow', async () => {
-    vi.mocked(execFileSync).mockReturnValue('ok  \texample.com/app\t0.01s\n');
     const root = makeRoot({ 'go.mod': 'module example.com/app\n\ngo 1.22\n' });
 
     const label = await labelAt(root);
 
     expect(label.testCommand).toBe('go test ./...');
     expect(label.projectType).toBe('Go');
-    const run = vi.mocked(execFileSync).mock.calls.find((call) => String(call[0]).replace(/\.(?:cmd|exe)$/, '') === 'go');
-    expect(run?.[1]).toEqual(['test', './...']);
+    expect(vi.mocked(admitLifecycleLegs).mock.calls[0]?.[0].legs).toEqual([{ kind: 'command', argv: ['go', 'test', './...'] }]);
+    expect(execFileSync).not.toHaveBeenCalled();
   });
 
   /**
@@ -114,8 +127,6 @@ describe('the label of the worktree baseline', () => {
    * A command of a toolchain row gets the `projectType` of that row.
    */
   it('VerifyWorktreeBaseline_TheLabel_ComesFromTheRegistry', async () => {
-    vi.mocked(execFileSync).mockReturnValue('passed\n');
-
     for (const { command, label, files } of LABELLED_ROOTS) {
       const found = await labelAt(makeRoot(files));
       const row = BUILTIN_TOOLCHAINS.find((toolchain) => toolchain.commands.test === command);
@@ -128,11 +139,10 @@ describe('the label of the worktree baseline', () => {
 
   /** A root with no test command is refused, and the refusal names each marker of the built-in toolchains, such as `go.mod`. */
   it('VerifyWorktreeBaseline_TheRefusal_NamesTheMarkersOfTheRegistry', async () => {
-    vi.mocked(execFileSync).mockReturnValue('');
     const root = makeRoot({ 'README.md': '# app\n' });
     const markers = BUILTIN_TOOLCHAINS.flatMap((toolchain) => toolchain.markers);
 
-    const result = await handleVerifyWorktreeBaseline({ worktreePath: root }, STATE_DIR);
+    const result = await handleVerifyWorktreeBaseline({ worktreePath: root }, STATE_DIR, store);
 
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe('UNKNOWN_PROJECT_TYPE');

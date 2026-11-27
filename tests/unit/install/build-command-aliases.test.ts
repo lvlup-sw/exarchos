@@ -209,11 +209,8 @@ describe('buildCommandAliases — alias file shape', () => {
   it('multi-skill commands name every mapped skill in order (review)', () => {
     const aliasDir = emitOpencode();
     const review = readFileSync(join(aliasDir, 'review.md'), 'utf8');
-    expect(review).toContain('`mutation-adequacy`');
     expect(review).toContain('`review`');
-    expect(review.indexOf('`mutation-adequacy`')).toBeLessThan(
-      review.indexOf('`review`'),
-    );
+    expect(review).not.toContain('`mutation-adequacy`');
     expect(review).toContain('$ARGUMENTS');
   });
 

@@ -10,6 +10,7 @@ import { loadPreparedCustody, selectPreparedAuthority } from '../../workflow/cap
 import { PreparedDetailOutputSchema, ReadPreparedCapsuleArguments } from './schemas.js';
 import { estimateOutputTokens } from '../../dispatch/core/economy.js';
 import { PREPARE_ECONOMY_BUDGET_TOKENS, preparedDetailCarrier, preparedDetailItems, type PreparedDetailMetadata } from './economy.js';
+import { compilerPolicy } from '../../contract/capsule/compiler-policy.js';
 
 /** Returns a typed refusal without publishing any workflow fact. */
 function refusal(code: string, message: string): ToolResult { return { success: false, error: { code, message } }; }
@@ -32,7 +33,7 @@ export async function handleReadPreparedCapsule(raw: Record<string, unknown>, _s
       return refusal('PREPARED_DETAIL_UNAVAILABLE', 'The named prepared record does not match its historical authority.');
     }
     const authority = await loadPreparedCustody(selection, ctx.eventStore.bundleStore);
-    if (authority.capsule.provenance.compilerVersion !== 'exarchos-prepare-8') {
+    if (!compilerPolicy(authority.capsule.provenance.compilerVersion).immutable) {
       return refusal('PREPARED_DETAIL_UNAVAILABLE', 'This historical compiler did not store complete task contexts.');
     }
     const items = preparedDetailItems(authority.capsule);

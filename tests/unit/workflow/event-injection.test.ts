@@ -11,7 +11,7 @@ import { EventStore } from '../../../src/events/store.js';
 import { handlePrepareReview } from '../../../src/verbs/team/prepare-review.js';
 import { registerWorkflowType, unregisterWorkflowType } from '../../../src/workflow/state-machine.js';
 import { extendWorkflowTypeEnum, unextendWorkflowTypeEnum } from '../../../src/workflow/schemas.js';
-import { registerCustomWorkflows, clearRegisteredGuards } from '../../../src/config/register.js';
+import { registerCustomWorkflows } from '../../../src/config/register.js';
 import { rmrfAsync } from '../../../tools/test-helpers/temp-dir.js';
 import { closeOpenDatabases } from '../../../src/storage/__shims__/bun-sqlite-node.js';
 
@@ -137,12 +137,16 @@ describe('handleSet_CustomGuardExecution', () => {
   const CUSTOM_TYPE = 'guarded-deploy';
 
   afterEach(() => {
-    clearRegisteredGuards();
     try { unextendWorkflowTypeEnum(CUSTOM_TYPE); } catch { }
     try { unregisterWorkflowType(CUSTOM_TYPE); } catch { }
   });
 
-  it('HandleSet_CustomGuardPasses_TransitionSucceeds', async () => {
+  /**
+   * A command guard that exits 0 still blocks the transition, because command guards do not run.
+   * The command writes a marker file, and the marker stays absent.
+   */
+  it('HandleSet_CommandGuard_FailsClosedWithoutRunningTheCommand', async () => {
+    const marker = path.join(tmpDir, 'guard-ran');
     registerCustomWorkflows({
       workflows: {
         [CUSTOM_TYPE]: {
@@ -152,7 +156,7 @@ describe('handleSet_CustomGuardExecution', () => {
             { from: 'build', to: 'deploy', event: 'build-done', guard: 'check-build' },
           ],
           guards: {
-            'check-build': { command: 'exit 0' },
+            'check-build': { command: `node -e "require('node:fs').writeFileSync(process.argv[1], 'ran')" ${JSON.stringify(marker)}` },
           },
         },
       },
@@ -166,15 +170,13 @@ describe('handleSet_CustomGuardExecution', () => {
       null,
     );
 
-    expect(result.success).toBe(true);
-    const data = result.data as Record<string, unknown>;
-    expect(data.phase).toBe('deploy');
+    expect(result).toMatchObject({ success: false, error: { code: 'GUARD_FAILED' } });
+    expect(result.error?.message).toContain('is not registered');
+    expect(result.error?.message).toContain('Command guards do not run');
+    await expect(fs.access(marker)).rejects.toMatchObject({ code: 'ENOENT' });
   });
 
-  /**
-   * The failing guard command is only `exit 1`. A `;`-chained command does not chain under
-   * cmd.exe, so its exit code becomes 0 on Windows.
-   */
+  /** A failing command guard blocks the transition through the same fail-closed path. */
   it('HandleSet_CustomGuardFails_TransitionBlocked', async () => {
     registerCustomWorkflows({
       workflows: {
@@ -269,7 +271,6 @@ describe('handleSet_CustomGuardExecution', () => {
     const data = result.data as Record<string, unknown>;
     expect(data.phase).toBe('plan-review');
 
-    clearRegisteredGuards();
     try { unextendWorkflowTypeEnum(EXT_TYPE); } catch { }
     try { unregisterWorkflowType(EXT_TYPE); } catch { }
   });

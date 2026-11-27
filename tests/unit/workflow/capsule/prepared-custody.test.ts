@@ -135,6 +135,22 @@ describe('prepared custody', () => {
     const missing = { ...original, capsule: { ...original.capsule, settlementContract: contract } };
     expect(() => verifyPreparedCustody(selected([prepared(missing)]), missing)).toThrow(/skip/i);
   });
+  /** Compiler 8-vcs requires a full definition as compiler 7 and later do. A name outside the rule keeps the legacy route. */
+  it('Custody_EightVcsRequiresAFullDefinition_AndOtherNamesKeepTheirRule', () => {
+    const original = fixture(textOf(), false);
+    const definition = WorkflowDefinitionV1Schema.parse(kernelOf(builtInDefinition('feature')));
+    const named = (compilerVersion: string) => ({ ...original, definition, capsule: { ...original.capsule,
+      identity: { ...original.capsule.identity, definitionVersion: contentDigest(definition) },
+      provenance: { ...original.capsule.provenance, compilerVersion } } });
+    for (const version of ['exarchos-prepare-8-vcs', 'exarchos-prepare-8', 'exarchos-prepare-7', 'exarchos-prepare-12']) {
+      const bundle = named(version);
+      expect(() => verifyPreparedCustody(selected([prepared(bundle)]), bundle), version).toThrow(/definition/i);
+    }
+    for (const version of ['exarchos-prepare-5', 'exarchos-prepare-6', 'capsule-compiler-0', 'exarchos-prepare-8-other']) {
+      const bundle = named(version);
+      expect(verifyPreparedCustody(selected([prepared(bundle)]), bundle), version).toMatchObject({ kind: 'legacy' });
+    }
+  });
   it('Custody_MarkerAndSourceCannotHideChangedRawText', () => {
     const original = fixture();
     const edited = { ...original, designRecord: { reference: 'plan.md', text: textOf() + 'extra prose' } };

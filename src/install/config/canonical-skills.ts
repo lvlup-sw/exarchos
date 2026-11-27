@@ -30,7 +30,7 @@ export const COMMAND_TO_SKILL: Readonly<Record<string, readonly string[]>> = {
   prune: ['prune'],
   refactor: ['refactor'],
   rehydrate: ['rehydrate'],
-  review: ['mutation-adequacy', 'review'],
+  review: ['review'],
   shepherd: ['shepherd'],
   synthesize: ['synthesize'],
 } as const;

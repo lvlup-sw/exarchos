@@ -342,14 +342,21 @@ export interface Fixture {
  * Starts the binary as `exarchos mcp --operator` with a temporary `WORKFLOW_STATE_DIR` and connects an MCP
  * stdio client to it. When the connect fails, the function removes the temp directory before it
  * throws again, so a failed run leaves no `exarchos-compiled-test-*` directory.
+ * The child gets a scratch `HOME` and `USERPROFILE` inside the state directory, so it never reads the real home.
+ * The install identity directory sits inside that home too, because the install freshness check follows `HOME`.
  */
 export async function openFixture(binaryPath: string, repoRoot: string): Promise<Fixture> {
   const stateDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'exarchos-compiled-test-'));
+  const home = path.join(stateDir, 'home');
+  await fsp.mkdir(home);
   const transport = new StdioClientTransport({
     command: binaryPath,
     args: ['mcp', '--operator'],
     env: {
       ...process.env,
+      HOME: home,
+      USERPROFILE: home,
+      EXARCHOS_INSTALL_STATE_DIR: path.join(home, 'install-identity'),
       WORKFLOW_STATE_DIR: stateDir,
       EXARCHOS_PLUGIN_ROOT: repoRoot,
       LOG_LEVEL: 'error',

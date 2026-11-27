@@ -1,30 +1,28 @@
 /**
  * Unit tests for the parts of the kill-probe gate.
  *
- * `splitHunks` is pure. The snapshot, revert, and restore steps and `runProbe` run against a temporary git repo.
- * `test-adequacy.integration.test.ts` dispatches through `handleOrchestrate` against real git.
+ * `splitHunks` and `runProbe` are pure. The reverted source image runs against a temporary Git repository and the constrained reader.
+ * `test-adequacy.integration.test.ts` dispatches through `handleOrchestrate` against real Git.
  */
 
 import { describe, it, expect, afterEach } from 'vitest';
 import * as fc from 'fast-check';
-import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { realpath } from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 
 import { DEFAULT_TEST_SUPPORT_SEGMENTS } from '../../../../src/config/toolchains.js';
 import {
   splitHunks,
-  snapshotWorkingTree,
-  revertSourceFiles,
-  restoreWorkingTree,
   runProbe,
   type ProbeResult,
   type RunOutcome,
   type TestRunFn,
 } from '../../../../src/verbs/gates/test-adequacy.js';
-import { changedFilesFor } from '../../../../src/verbs/gates/test-adequacy-handler.js';
-import type { GitExec } from '../../../../src/verbs/pure/execute-merge.js';
+import { readTaskDiff } from '../../../../src/verbs/gates/test-adequacy-handler.js';
+import { buildDisposableCopy, type DisposableCopySource } from '../../../../src/verbs/verification/disposable-copy.js';
+import { createConstrainedGitReads, processObservationalGitPath } from '../../../../src/utils/git-tree.js';
 import { execFileAsync } from '../../../../tools/test-helpers/spawn.js';
 import { rmrf } from '../../../../tools/test-helpers/temp-dir.js';
 
@@ -36,25 +34,6 @@ function git(repoRoot: string, args: readonly string[]): Promise<string> {
 function ran(green: boolean, stdout?: string): RunOutcome {
   return { kind: 'ran', result: green ? 'green' : 'red', ...(stdout === undefined ? {} : { stdout }) };
 }
-
-/** Production-shaped GitExec over a real repo (mirrors merge-orchestrate's). */
-const realGitExec: GitExec = (repoRoot, args) => {
-  try {
-    const stdout = execFileSync('git', [...args], {
-      cwd: repoRoot,
-      timeout: 15_000,
-      encoding: 'utf-8',
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
-    return { stdout, exitCode: 0 };
-  } catch (err) {
-    const e = err as { status?: number; stdout?: string | Buffer; stderr?: string | Buffer };
-    const out =
-      (typeof e.stdout === 'string' ? e.stdout : e.stdout?.toString('utf-8') ?? '') +
-      (typeof e.stderr === 'string' ? e.stderr : e.stderr?.toString('utf-8') ?? '');
-    return { stdout: out, exitCode: e.status ?? 1 };
-  }
-};
 
 async function initRepo(prefix: string): Promise<string> {
   const repoRoot = mkdtempSync(path.join(os.tmpdir(), prefix));
@@ -92,17 +71,32 @@ async function setupTaskRepo(prefix: string): Promise<{
   return { repoRoot, baseRef, sourceFile: 'src/calc.js', testFile: 'src/calc.test.js' };
 }
 
-/**
- * Hash of the full working tree, for equality checks.
- * `git stash create` captures the tree and changes no ref. For a clean tree it gives no sha, so the hash is the HEAD tree.
- */
-async function workingTreeHash(repoRoot: string): Promise<string> {
-  const stashSha = (await git(repoRoot, ['stash', 'create'])).trim();
-  if (!stashSha) {
-    return (await git(repoRoot, ['rev-parse', 'HEAD^{tree}'])).trim();
-  }
-  return (await git(repoRoot, ['rev-parse', `${stashSha}^{tree}`])).trim();
+/** The source of a disposable copy of the checked-out head, with the constrained reads of the repository. */
+async function copySourceOf(repoRoot: string): Promise<DisposableCopySource> {
+  const gitPath = processObservationalGitPath();
+  if (gitPath === undefined) throw new Error('No Git on PATH');
+  const checkout = await realpath(repoRoot);
+  const gitDir = path.join(checkout, '.git');
+  const head = (await git(checkout, ['rev-parse', 'HEAD'])).trim();
+  return { checkout, gitDir, repository: gitDir, head, reads: await createConstrainedGitReads(gitPath) };
 }
+
+/** The live state of a repository: its refs, its stash list, its index and its working tree status. */
+async function liveState(repoRoot: string): Promise<string> {
+  return [
+    await git(repoRoot, ['for-each-ref']),
+    await git(repoRoot, ['stash', 'list']),
+    await git(repoRoot, ['ls-files', '--stage']),
+    await git(repoRoot, ['status', '--porcelain', '--ignored']),
+  ].join('\n--\n');
+}
+
+/** The task paths of the pure probe cases. The probe reads no file, so no repository holds them. */
+const sourceFile = 'src/calc.js';
+const testFile = 'src/calc.test.js';
+
+/** A runner that is green on the head source and red on the reverted source: the new test pins the new behavior. */
+const killingRun: TestRunFn = async ({ source }) => ran(source === 'head');
 
 describe('splitHunks (file-level test/source classification)', () => {
   it('SplitHunks_CoLocatedTestFile_ClassifiedTest', () => {
@@ -218,7 +212,8 @@ describe('splitHunks (file-level test/source classification)', () => {
   });
 });
 
-describe('snapshot/revert/restore (INV-14: refuse-to-discard recovery)', () => {
+
+describe('the reverted source image (no Git write)', () => {
   const repos: string[] = [];
   afterEach(() => {
     for (const r of repos.splice(0)) {
@@ -229,147 +224,113 @@ describe('snapshot/revert/restore (INV-14: refuse-to-discard recovery)', () => {
     }
   });
 
-  /**
-   * The test changes the worktree first.
-   * `git stash create` must capture the change and must not change a ref, so the stash list stays the same.
-   */
+  /** The reverted image is a disposable copy. Its build writes no ref, no stash entry, no index entry and no file of the live checkout. */
   it(
-    'Snapshot_BeforeProbe_UsesRefuseToDiscardRef',
+    'RevertedImage_WritesNoRefNoStashAndNoLiveFile',
     async () => {
-      const { repoRoot } = await setupTaskRepo('test-adequacy-snap-');
+      const { repoRoot, baseRef, sourceFile: source } = await setupTaskRepo('test-adequacy-snap-');
       repos.push(repoRoot);
+      const before = await liveState(repoRoot);
 
-      writeFileSync(path.join(repoRoot, 'src', 'calc.js'), 'export const value = () => 99;\n');
-
-      const stashRefsBefore = await git(repoRoot, ['stash', 'list']);
-      const snap = snapshotWorkingTree(realGitExec, repoRoot);
-
-      expect('stashSha' in snap).toBe(true);
-      if ('stashSha' in snap) {
-        expect(snap.stashSha).toMatch(/^[0-9a-f]{40}$/);
+      const image = await buildDisposableCopy(await copySourceOf(repoRoot), { base: baseRef, sources: [source] });
+      try {
+        expect(readFileSync(path.join(image.root, source), 'utf-8')).toContain('=> 1');
+      } finally {
+        await image.dispose();
       }
-      expect(await git(repoRoot, ['stash', 'list'])).toBe(stashRefsBefore);
+
+      expect(await liveState(repoRoot)).toBe(before);
+      expect(readFileSync(path.join(repoRoot, source), 'utf-8')).toContain('=> 2');
     },
     30_000,
   );
 
+  /** The reverted image holds the base source and the head test. The live checkout keeps the head source, and the image goes after the dispose. */
   it(
-    'Restore_AfterProbe_TreeHashMatchesSnapshot',
+    'RevertedImage_HoldsTheBaseSourceAndTheHeadTest',
     async () => {
-      const { repoRoot, baseRef, sourceFile } = await setupTaskRepo('test-adequacy-restore-');
+      const { repoRoot, baseRef, sourceFile: source, testFile: test } = await setupTaskRepo('test-adequacy-restore-');
       repos.push(repoRoot);
 
-      const before = await workingTreeHash(repoRoot);
-      const snap = snapshotWorkingTree(realGitExec, repoRoot);
-      expect('stashSha' in snap).toBe(true);
-
-      const reverted = revertSourceFiles(realGitExec, repoRoot, baseRef, [sourceFile]);
-      expect(reverted.ok).toBe(true);
-      expect(await workingTreeHash(repoRoot)).not.toBe(before);
-
-      if ('stashSha' in snap) {
-        const restore = restoreWorkingTree(realGitExec, repoRoot, snap.stashSha);
-        expect(restore.restored).toBe(true);
+      const image = await buildDisposableCopy(await copySourceOf(repoRoot), { base: baseRef, sources: [source] });
+      const root = image.root;
+      try {
+        expect(readFileSync(path.join(root, source), 'utf-8')).toContain('=> 1');
+        expect(readFileSync(path.join(root, test), 'utf-8')).toContain('pins value()===2');
+      } finally {
+        await image.dispose();
       }
-      expect(await workingTreeHash(repoRoot)).toBe(before);
+
+      expect(existsSync(root)).toBe(false);
+      expect(readFileSync(path.join(repoRoot, source), 'utf-8')).toContain('=> 2');
     },
     30_000,
   );
 
+  /** A changed source at the base takes its base bytes. A source that the task added is left out of the image, and the live checkout keeps it. */
   it(
-    'RevertSourceFiles_MixedExistingAndAddedSource_RevertsAndRestores',
+    'RevertedImage_MixedExistingAndAddedSource_HoldsTheBaseAndLeavesOutTheAdded',
     async () => {
-      const { repoRoot, baseRef, sourceFile } = await setupTaskRepo(
-        'test-adequacy-added-source-',
-      );
+      const { repoRoot, baseRef, sourceFile: source } = await setupTaskRepo('test-adequacy-added-source-');
       repos.push(repoRoot);
       const addedSource = 'src/transition-admission-corpus.ts';
-      const absoluteAddedSource = path.join(repoRoot, addedSource);
-      writeFileSync(absoluteAddedSource, 'export const corpus = [];\n');
+      writeFileSync(path.join(repoRoot, addedSource), 'export const corpus = [];\n');
       await git(repoRoot, ['add', addedSource]);
       await git(repoRoot, ['commit', '-m', 'task: add characterization corpus', '-q']);
+      const before = await liveState(repoRoot);
 
-      const before = await workingTreeHash(repoRoot);
-      const snap = snapshotWorkingTree(realGitExec, repoRoot);
-      expect('stashSha' in snap).toBe(true);
-      if (!('stashSha' in snap)) throw new Error('snapshot failed');
+      const image = await buildDisposableCopy(await copySourceOf(repoRoot), { base: baseRef, sources: [source, addedSource] });
+      try {
+        expect(readFileSync(path.join(image.root, source), 'utf-8')).toContain('=> 1');
+        expect(existsSync(path.join(image.root, addedSource))).toBe(false);
+      } finally {
+        await image.dispose();
+      }
 
-      const reverted = revertSourceFiles(realGitExec, repoRoot, baseRef, [
-        sourceFile,
-        addedSource,
-      ]);
-
-      expect(reverted.ok).toBe(true);
-      expect(readFileSync(path.join(repoRoot, sourceFile), 'utf-8')).toContain('=> 1');
-      expect(existsSync(absoluteAddedSource)).toBe(false);
-
-      const restore = restoreWorkingTree(realGitExec, repoRoot, snap.stashSha);
-      expect(restore.restored).toBe(true);
-      expect(existsSync(absoluteAddedSource)).toBe(true);
-      expect(await workingTreeHash(repoRoot)).toBe(before);
+      expect(existsSync(path.join(repoRoot, addedSource))).toBe(true);
+      expect(await liveState(repoRoot)).toBe(before);
     },
     30_000,
   );
 
-  /**
-   * The test runner passes on the task source and throws on the reverted source, so only the second run throws.
-   * `runProbe` must reject and must leave the working tree as it was before the probe. The restore must be in a `finally`.
-   */
+  /** A probe whose runner throws on the reverted run rejects. The live checkout never held the reverted source, so nothing needs a restore. */
   it(
-    'Restore_OnProbeError_StillRestores',
+    'RevertedImage_ARunThatThrows_LeavesTheLiveCheckoutUnchanged',
     async () => {
-      const { repoRoot, baseRef, sourceFile, testFile } = await setupTaskRepo('test-adequacy-restore-err-');
+      const { repoRoot } = await setupTaskRepo('test-adequacy-restore-err-');
       repos.push(repoRoot);
-
-      const before = await workingTreeHash(repoRoot);
+      const before = await liveState(repoRoot);
       const sourcesSeen: string[] = [];
-      const runTests: TestRunFn = async ({ repoRoot: rr }) => {
-        const source = readFileSync(path.join(rr, sourceFile), 'utf-8');
-        sourcesSeen.push(source.includes('=> 1') ? 'reverted' : 'task');
-        if (source.includes('=> 1')) throw new Error('injected crash of the post-revert run');
+      const runTests: TestRunFn = async ({ source }) => {
+        sourcesSeen.push(source);
+        if (source === 'reverted') throw new Error('injected crash of the post-revert run');
         return ran(true);
       };
 
-      await expect(
-        runProbe({
-          gitExec: realGitExec,
-          repoRoot,
-          baseRef,
-          changedFiles: [sourceFile, testFile],
-          runTests,
-        }),
-      ).rejects.toThrow('injected crash of the post-revert run');
+      await expect(runProbe({ changedFiles: [sourceFile, testFile], runTests })).rejects.toThrow('injected crash of the post-revert run');
 
-      expect(sourcesSeen).toEqual(['task', 'reverted']);
-      expect(await workingTreeHash(repoRoot)).toBe(before);
-      expect(readFileSync(path.join(repoRoot, sourceFile), 'utf-8')).toContain('=> 2');
+      expect(sourcesSeen).toEqual(['head', 'reverted']);
+      expect(await liveState(repoRoot)).toBe(before);
     },
     30_000,
   );
 
-  /**
-   * The path does not exist at the base ref, so `git checkout <base> -- <path>` fails.
-   * The helper must return the `revert-conflict` discriminant and must not throw.
-   */
+  /** A source path that neither the base nor the head holds refuses the image, and no copy stays. */
   it(
-    'Revert_Conflict_ReturnsRevertConflictDiscriminant',
+    'RevertedImage_ASourceInNeitherTree_Refuses',
     async () => {
-      const { repoRoot } = await setupTaskRepo('test-adequacy-conflict-');
+      const { repoRoot, baseRef } = await setupTaskRepo('test-adequacy-conflict-');
       repos.push(repoRoot);
 
-      const reverted = revertSourceFiles(realGitExec, repoRoot, 'main', [
-        'src/does-not-exist-at-base.js',
-      ]);
-      expect(reverted.ok).toBe(false);
-      if (!reverted.ok) {
-        expect(reverted.discriminant).toBe('revert-conflict');
-      }
+      await expect(buildDisposableCopy(await copySourceOf(repoRoot), { base: baseRef, sources: ['src/does-not-exist-at-base.js'] }))
+        .rejects.toThrow('in neither the base nor the head');
     },
     30_000,
   );
 
+  /** A task-added source is absent from the reverted image, while the live index keeps its committed bytes. */
   it(
-    'Revert_TaskAddedSource_RemovesThenRestoresCleanly',
+    'RevertedImage_TaskAddedSource_IsAbsentAndTheLiveIndexKeepsIt',
     async () => {
       const { repoRoot, baseRef } = await setupTaskRepo('test-adequacy-added-source-');
       repos.push(repoRoot);
@@ -379,26 +340,20 @@ describe('snapshot/revert/restore (INV-14: refuse-to-discard recovery)', () => {
       await git(repoRoot, ['add', addedSource]);
       await git(repoRoot, ['commit', '-m', 'task: add source helper', '-q']);
 
-      const snap = snapshotWorkingTree(realGitExec, repoRoot);
-      expect('stashSha' in snap).toBe(true);
-      if (!('stashSha' in snap)) throw new Error('snapshot failed');
+      const image = await buildDisposableCopy(await copySourceOf(repoRoot), { base: baseRef, sources: ['src/calc.js', addedSource] });
+      try {
+        expect(existsSync(path.join(image.root, addedSource))).toBe(false);
+      } finally {
+        await image.dispose();
+      }
 
-      const reverted = revertSourceFiles(realGitExec, repoRoot, baseRef, [
-        'src/calc.js',
-        addedSource,
-      ]);
-      expect(reverted.ok).toBe(true);
-      await expect(git(repoRoot, ['show', `:${addedSource}`])).rejects.toThrow();
-
-      const restored = restoreWorkingTree(realGitExec, repoRoot, snap.stashSha);
-      expect(restored.restored).toBe(true);
       expect(await git(repoRoot, ['show', `:${addedSource}`])).toBe(addedContent);
     },
     30_000,
   );
 });
 
-describe('runProbe (compose split → snapshot → revert → run → restore)', () => {
+describe('runProbe (split, then the head run, then the reverted run)', () => {
   const repos: string[] = [];
   afterEach(() => {
     for (const r of repos.splice(0)) {
@@ -416,22 +371,13 @@ describe('runProbe (compose split → snapshot → revert → run → restore)',
   it(
     'Probe_NoNewTests_ReturnsNoNewTestsDiscriminant',
     async () => {
-      const { repoRoot, baseRef } = await setupTaskRepo('test-adequacy-probe-notest-');
-      repos.push(repoRoot);
-
       let testRan = false;
       const testRun: TestRunFn = async () => {
         testRan = true;
         return ran(true);
       };
 
-      const result: ProbeResult = await runProbe({
-        gitExec: realGitExec,
-        repoRoot,
-        baseRef,
-        changedFiles: ['src/calc.js'],
-        runTests: testRun,
-      });
+      const result: ProbeResult = await runProbe({ changedFiles: [sourceFile], runTests: testRun });
 
       expect(result.discriminant).toBe('no-new-tests');
       expect(result.passed).toBe(true);
@@ -443,37 +389,24 @@ describe('runProbe (compose split → snapshot → revert → run → restore)',
     30_000,
   );
 
-  /** The test runner fails when the source file holds the base content, because the new test pins the new behavior. */
+  /** The test runner fails on the reverted source, because the new test pins the new behavior. */
   it(
     'Probe_NewTestFailsOnRevert_RedObservedTrue_PassedTrue',
     async () => {
-      const { repoRoot, baseRef, sourceFile, testFile } = await setupTaskRepo(
-        'test-adequacy-probe-red-',
-      );
-      repos.push(repoRoot);
-
-      const before = await workingTreeHash(repoRoot);
-
-      const runTests: TestRunFn = async ({ repoRoot: rr }) => {
-        const src = (await git(rr, ['show', ':' + sourceFile])).trim();
-        const reverted = src.includes('=> 1');
-        return ran(!reverted);
+      const sourcesSeen: string[] = [];
+      const runTests: TestRunFn = async (input) => {
+        sourcesSeen.push(input.source);
+        return killingRun(input);
       };
 
-      const result = await runProbe({
-        gitExec: realGitExec,
-        repoRoot,
-        baseRef,
-        changedFiles: [sourceFile, testFile],
-        runTests,
-      });
+      const result = await runProbe({ changedFiles: [sourceFile, testFile], runTests });
 
+      expect(sourcesSeen).toEqual(['head', 'reverted']);
       expect(result.redObserved).toBe(true);
       expect(result.passed).toBe(true);
       expect(result.restoredClean).toBe(true);
       expect(result.probedTests).toEqual([testFile]);
       expect(result.discriminant).toBeUndefined();
-      expect(await workingTreeHash(repoRoot)).toBe(before);
     },
     30_000,
   );
@@ -482,50 +415,20 @@ describe('runProbe (compose split → snapshot → revert → run → restore)',
   it(
     'Probe_NewTestPassesOnRevert_PassedFalse',
     async () => {
-      const { repoRoot, baseRef, sourceFile, testFile } = await setupTaskRepo(
-        'test-adequacy-probe-green-',
-      );
-      repos.push(repoRoot);
-
-      const before = await workingTreeHash(repoRoot);
-
-      const runTests: TestRunFn = async () => ran(true);
-
-      const result = await runProbe({
-        gitExec: realGitExec,
-        repoRoot,
-        baseRef,
-        changedFiles: [sourceFile, testFile],
-        runTests,
-      });
+      const result = await runProbe({ changedFiles: [sourceFile, testFile], runTests: async () => ran(true) });
 
       expect(result.redObserved).toBe(false);
       expect(result.passed).toBe(false);
       expect(result.restoredClean).toBe(true);
-      expect(await workingTreeHash(repoRoot)).toBe(before);
     },
     30_000,
   );
 
-  /** `probedTests` holds the classified test files, and `restoredClean` shows the restore, which runs in each case. */
+  /** `probedTests` holds the classified test files, and `restoredClean` holds true, because the probe writes no file. */
   it(
     'Probe_Result_CarriesProbedTestsAndRestoredClean',
     async () => {
-      const { repoRoot, baseRef, sourceFile, testFile } = await setupTaskRepo(
-        'test-adequacy-probe-carrier-',
-      );
-      repos.push(repoRoot);
-
-      const runTests: TestRunFn = async ({ repoRoot: rr }) =>
-        ran(!readFileSync(path.join(rr, sourceFile), 'utf-8').includes('=> 1'));
-
-      const result = await runProbe({
-        gitExec: realGitExec,
-        repoRoot,
-        baseRef,
-        changedFiles: [sourceFile, testFile],
-        runTests,
-      });
+      const result = await runProbe({ changedFiles: [sourceFile, testFile], runTests: killingRun });
 
       expect(result.probedTests).toEqual([testFile]);
       expect(result.restoredClean).toBe(true);
@@ -536,30 +439,20 @@ describe('runProbe (compose split → snapshot → revert → run → restore)',
   );
 
   /**
-   * The test command fails on every run, so the tests are red on the task source before any revert.
+   * The test command fails on every run, so the tests are red on the head source before any revert.
    * A red run after the revert then proves nothing. The probe must stop with `baseline-red` and block at every tier.
    */
   it(
     'Probe_TestCommandAlwaysFails_IsBaselineRedAndBlocksAtEveryTier',
     async () => {
-      const { repoRoot, baseRef, sourceFile, testFile } = await setupTaskRepo(
-        'test-adequacy-probe-baseline-red-',
-      );
-      repos.push(repoRoot);
-
-      const before = await workingTreeHash(repoRoot);
       for (const riskTier of [undefined, 'low', 'medium', 'high'] as const) {
         const sourcesSeen: string[] = [];
-        const runTests: TestRunFn = async ({ repoRoot: rr }) => {
-          const reverted = readFileSync(path.join(rr, sourceFile), 'utf-8').includes('=> 1');
-          sourcesSeen.push(reverted ? 'reverted' : 'task');
+        const runTests: TestRunFn = async ({ source }) => {
+          sourcesSeen.push(source);
           return ran(false, 'line one\nError: Cannot find module ./missing.js');
         };
 
         const result = await runProbe({
-          gitExec: realGitExec,
-          repoRoot,
-          baseRef,
           changedFiles: [sourceFile, testFile],
           runTests,
           ...(riskTier === undefined ? {} : { riskTier }),
@@ -574,8 +467,7 @@ describe('runProbe (compose split → snapshot → revert → run → restore)',
         expect(result.restoredClean, String(riskTier)).toBe(true);
         expect(result.report, String(riskTier)).toContain('Cannot find module ./missing.js');
         expect(result.report, String(riskTier)).not.toContain('did not run');
-        expect(sourcesSeen, String(riskTier)).toEqual(['task']);
-        expect(await workingTreeHash(repoRoot), String(riskTier)).toBe(before);
+        expect(sourcesSeen, String(riskTier)).toEqual(['head']);
       }
     },
     30_000,
@@ -585,19 +477,8 @@ describe('runProbe (compose split → snapshot → revert → run → restore)',
   it(
     'Probe_BaselineRed_DetailEndsWithTheTailOfTheRunnerOutput',
     async () => {
-      const { repoRoot, baseRef, sourceFile, testFile } = await setupTaskRepo(
-        'test-adequacy-probe-baseline-tail-',
-      );
-      repos.push(repoRoot);
-
       const output = Array.from({ length: 50 }, (_, i) => `output line ${i}`).join('\n');
-      const result = await runProbe({
-        gitExec: realGitExec,
-        repoRoot,
-        baseRef,
-        changedFiles: [sourceFile, testFile],
-        runTests: async () => ran(false, output),
-      });
+      const result = await runProbe({ changedFiles: [sourceFile, testFile], runTests: async () => ran(false, output) });
 
       expect(result.discriminant).toBe('baseline-red');
       expect(result.verdict.kind).toBe('indeterminate');
@@ -616,15 +497,9 @@ describe('runProbe (compose split → snapshot → revert → run → restore)',
   it(
     'Probe_TestOnlyTask_RunsTheTestsOnceAndNeverPasses',
     async () => {
-      const { repoRoot, baseRef, testFile } = await setupTaskRepo('test-adequacy-probe-test-only-');
-      repos.push(repoRoot);
-
       for (const green of [true, false]) {
         let calls = 0;
         const result = await runProbe({
-          gitExec: realGitExec,
-          repoRoot,
-          baseRef,
           changedFiles: [testFile],
           runTests: async () => {
             calls += 1;
@@ -654,34 +529,20 @@ describe('runProbe (compose split → snapshot → revert → run → restore)',
   it(
     'Probe_DeletedTestFile_IsNeverProbed',
     async () => {
-      const { repoRoot, baseRef, sourceFile, testFile } = await setupTaskRepo(
-        'test-adequacy-probe-deleted-test-',
-      );
-      repos.push(repoRoot);
       const deletedTest = 'src/old.test.js';
 
       const filesSeen: (readonly string[])[] = [];
-      const runTests: TestRunFn = async ({ repoRoot: rr, testFiles }) => {
-        filesSeen.push(testFiles);
-        return ran(!readFileSync(path.join(rr, sourceFile), 'utf-8').includes('=> 1'));
+      const runTests: TestRunFn = async (input) => {
+        filesSeen.push(input.testFiles);
+        return killingRun(input);
       };
 
-      const mixed = await runProbe({
-        gitExec: realGitExec,
-        repoRoot,
-        baseRef,
-        changedFiles: [sourceFile, testFile, deletedTest],
-        deletedFiles: [deletedTest],
-        runTests,
-      });
+      const mixed = await runProbe({ changedFiles: [sourceFile, testFile, deletedTest], deletedFiles: [deletedTest], runTests });
       expect(mixed.probedTests).toEqual([testFile]);
       expect(mixed.passed).toBe(true);
       expect(filesSeen).toEqual([[testFile], [testFile]]);
 
       const onlyDeleted = await runProbe({
-        gitExec: realGitExec,
-        repoRoot,
-        baseRef,
         changedFiles: [sourceFile, deletedTest],
         deletedFiles: [deletedTest],
         runTests: () => {
@@ -696,11 +557,11 @@ describe('runProbe (compose split → snapshot → revert → run → restore)',
   );
 
   /**
-   * The task renames one source file and deletes another. The diff marks both base paths deleted, so the revert brings them back.
-   * The restore must remove them again, so the tree hash and the git status after the probe equal those before it.
+   * The task renames one source file and deletes another. The diff marks both base paths deleted, so the reverted image holds them.
+   * The head image holds only the new path. The live tree, the index and the status after the probe equal those before it.
    */
   it(
-    'Probe_RenamedAndDeletedSource_RestoresTheTreeAndTheIndexExactly',
+    'Probe_RenamedAndDeletedSource_TheRevertedImageHoldsTheBasePathsAndTheLiveTreeStays',
     async () => {
       const repoRoot = await initRepo('test-adequacy-probe-rename-');
       repos.push(repoRoot);
@@ -711,7 +572,6 @@ describe('runProbe (compose split → snapshot → revert → run → restore)',
       writeFileSync(path.join(repoRoot, 'src', 'dead.js'), 'export const dead = true;\n');
       await git(repoRoot, ['add', '.']);
       await git(repoRoot, ['commit', '-m', 'base', '-q']);
-      const baseRef = (await git(repoRoot, ['rev-parse', 'HEAD'])).trim();
 
       await git(repoRoot, ['checkout', '-b', 'feature/rename', '-q']);
       writeFileSync(path.join(repoRoot, 'src', 'calc.js'), 'export const value = () => 2;\n');
@@ -721,98 +581,79 @@ describe('runProbe (compose split → snapshot → revert → run → restore)',
       await git(repoRoot, ['add', '.']);
       await git(repoRoot, ['commit', '-m', 'task: rename, delete and bump', '-q']);
 
-      const detected = await git(repoRoot, ['diff', '-M', '--name-status', `${baseRef}...HEAD`]);
+      const detected = await git(repoRoot, ['diff', '-M', '--name-status', 'main...HEAD']);
       expect(detected).toMatch(/^R\d*\tsrc\/old\.js\tsrc\/new\.js$/m);
 
-      const changed = changedFilesFor(realGitExec, repoRoot, baseRef);
+      const changed = await readTaskDiff(repoRoot, { kind: 'base', baseRef: 'main' });
       expect(changed.ok).toBe(true);
       if (!changed.ok) return;
       expect([...changed.deletedFiles].sort()).toEqual(['src/dead.js', 'src/old.js']);
 
-      const statusBefore = await git(repoRoot, ['status', '--porcelain']);
-      const hashBefore = await workingTreeHash(repoRoot);
+      const before = await liveState(repoRoot);
+      const source = await copySourceOf(repoRoot);
       const treesSeen: string[] = [];
-      const runTests: TestRunFn = async ({ repoRoot: rr }) => {
-        const present = ['src/new.js', 'src/old.js', 'src/dead.js'].filter((file) =>
-          existsSync(path.join(rr, file)),
-        );
-        treesSeen.push(present.join(','));
-        return ran(existsSync(path.join(rr, 'src', 'new.js')));
+      const runTests: TestRunFn = async (input) => {
+        const image = input.source === 'reverted'
+          ? await buildDisposableCopy(source, { base: changed.base, sources: ['src/calc.js', 'src/dead.js', 'src/new.js', 'src/old.js'] })
+          : await buildDisposableCopy(source);
+        try {
+          const present = ['src/new.js', 'src/old.js', 'src/dead.js'].filter((file) => existsSync(path.join(image.root, file)));
+          treesSeen.push(present.join(','));
+          return ran(existsSync(path.join(image.root, 'src', 'new.js')));
+        } finally {
+          await image.dispose();
+        }
       };
 
-      const result = await runProbe({
-        gitExec: realGitExec,
-        repoRoot,
-        baseRef,
-        changedFiles: changed.files,
-        deletedFiles: changed.deletedFiles,
-        runTests,
-        riskTier: 'high',
-      });
+      const result = await runProbe({ changedFiles: changed.files, deletedFiles: changed.deletedFiles, runTests, riskTier: 'high' });
 
       expect(treesSeen).toEqual(['src/new.js', 'src/old.js,src/dead.js']);
       expect(result.passed).toBe(true);
       expect(result.restoredClean).toBe(true);
-      expect(await git(repoRoot, ['status', '--porcelain'])).toBe(statusBefore);
-      expect(await workingTreeHash(repoRoot)).toBe(hashBefore);
+      expect(await liveState(repoRoot)).toBe(before);
       expect(existsSync(path.join(repoRoot, 'src', 'old.js'))).toBe(false);
       expect(existsSync(path.join(repoRoot, 'src', 'dead.js'))).toBe(false);
     },
     30_000,
   );
 
-  /** A failed restore wins over `baseline-red`, because a tree that did not restore makes every other fact untrusted. */
+  /** A head image that the runner cannot build gives a run with no verdict. The probe stops before the revert and never reads it as red. */
   it(
-    'Probe_RestoreFailsAfterBaselineRed_IsRestoreFailed',
+    'Probe_AnUnbuiltHeadImage_IsRunNoVerdictBeforeAnyRevert',
     async () => {
-      const { repoRoot, baseRef, sourceFile, testFile } = await setupTaskRepo(
-        'test-adequacy-probe-restore-wins-',
-      );
-      repos.push(repoRoot);
-
-      const restoreRefusingGitExec: GitExec = (root, args) =>
-        args[0] === 'checkout' && args.at(-1) === '.'
-          ? { stdout: 'injected restore failure', exitCode: 1 }
-          : realGitExec(root, args);
-
+      const sourcesSeen: string[] = [];
       const result = await runProbe({
-        gitExec: restoreRefusingGitExec,
-        repoRoot,
-        baseRef,
         changedFiles: [sourceFile, testFile],
-        runTests: async () => ran(false, 'red on the task source'),
+        runTests: async ({ source }) => {
+          sourcesSeen.push(source);
+          return { kind: 'no-verdict', cause: 'did-not-start', detail: 'the disposable copy of the head was not built' };
+        },
         riskTier: 'low',
       });
 
-      expect(result.discriminant).toBe('restore-failed');
-      expect(result.restoredClean).toBe(false);
+      expect(sourcesSeen).toEqual(['head']);
+      expect(result.discriminant).toBe('run-no-verdict');
       expect(result.passed).toBe(false);
+      expect(result.report).toContain('the disposable copy of the head was not built');
     },
     30_000,
   );
 
   /**
-   * The run on the task source ends with no verdict, for example at a timeout. That run is not a red run, so the probe must not
-   * call it `baseline-red`. The verdict is `run-no-verdict`, which blocks at every tier, and the probe does not revert the source.
+   * The run on the head source ends with no verdict, for example at a timeout. That run is not a red run, so the probe must not
+   * call it `baseline-red`. The verdict is `run-no-verdict`, which blocks at every tier, and the probe runs no reverted source.
    */
   it(
     'Probe_RunOnTheTaskSourceWithNoVerdict_IsRunNoVerdictAndBlocksAtEveryTier',
     async () => {
-      const { repoRoot, baseRef, sourceFile, testFile } = await setupTaskRepo('test-adequacy-probe-pre-no-verdict-');
-      repos.push(repoRoot);
-
-      const before = await workingTreeHash(repoRoot);
       for (const riskTier of [undefined, 'low', 'medium', 'high'] as const) {
         const sourcesSeen: string[] = [];
-        const runTests: TestRunFn = async ({ repoRoot: rr }) => {
-          sourcesSeen.push(readFileSync(path.join(rr, sourceFile), 'utf-8').includes('=> 1') ? 'reverted' : 'task');
+        const runTests: TestRunFn = async ({ source }) => {
+          sourcesSeen.push(source);
           return { kind: 'no-verdict', cause: 'timeout', detail: 'the limit is 120000 ms', stdout: 'partial output' };
         };
 
         const result = await runProbe({
-          gitExec: realGitExec,
-          repoRoot,
-          baseRef,
           changedFiles: [sourceFile, testFile],
           runTests,
           ...(riskTier === undefined ? {} : { riskTier }),
@@ -826,38 +667,24 @@ describe('runProbe (compose split → snapshot → revert → run → restore)',
         expect(result.report, String(riskTier)).toContain('the limit is 120000 ms');
         expect(result.report, String(riskTier)).toContain('partial output');
         expect(result.report, String(riskTier)).not.toContain('failed on the task source');
-        expect(sourcesSeen, String(riskTier)).toEqual(['task']);
-        expect(await workingTreeHash(repoRoot), String(riskTier)).toBe(before);
+        expect(sourcesSeen, String(riskTier)).toEqual(['head']);
       }
     },
     30_000,
   );
 
   /**
-   * The run on the task source is green, and the run after the revert ends with no verdict. Before this change a timeout,
-   * a signal or an overflow of that run read as a kill, so a vacuous test passed. Each cause must give `run-no-verdict`, never `passed`.
+   * The run on the head source is green, and the run after the revert ends with no verdict. A timeout,
+   * a signal or an overflow of that run must never read as a kill. Each cause must give `run-no-verdict`, never `passed`.
    */
   it(
     'Probe_RunAfterTheRevertWithNoVerdict_IsNeverAKill',
     async () => {
-      const { repoRoot, baseRef, sourceFile, testFile } = await setupTaskRepo('test-adequacy-probe-post-no-verdict-');
-      repos.push(repoRoot);
-
-      const before = await workingTreeHash(repoRoot);
       for (const cause of ['timeout', 'signal', 'overflow', 'unknown-exit-code'] as const) {
-        const runTests: TestRunFn = async ({ repoRoot: rr }) =>
-          readFileSync(path.join(rr, sourceFile), 'utf-8').includes('=> 1')
-            ? { kind: 'no-verdict', cause, detail: `injected ${cause}` }
-            : ran(true);
+        const runTests: TestRunFn = async ({ source }) =>
+          source === 'reverted' ? { kind: 'no-verdict', cause, detail: `injected ${cause}` } : ran(true);
 
-        const result = await runProbe({
-          gitExec: realGitExec,
-          repoRoot,
-          baseRef,
-          changedFiles: [sourceFile, testFile],
-          runTests,
-          riskTier: 'high',
-        });
+        const result = await runProbe({ changedFiles: [sourceFile, testFile], runTests, riskTier: 'high' });
 
         expect(result.verdict.kind, cause).toBe('indeterminate');
         expect(result.discriminant, cause).toBe('run-no-verdict');
@@ -865,34 +692,25 @@ describe('runProbe (compose split → snapshot → revert → run → restore)',
         expect(result.passed, cause).toBe(false);
         expect(result.restoredClean, cause).toBe(true);
         expect(result.report, cause).toContain(`after the revert reached no verdict (${cause})`);
-        expect(await workingTreeHash(repoRoot), cause).toBe(before);
       }
     },
     30_000,
   );
 
-  /** A failed restore wins over `run-no-verdict`, as it wins over `baseline-red`. */
+  /** A reverted image that the runner cannot build gives a run with no verdict after a green head run. It is never a kill. */
   it(
-    'Probe_RestoreFailsAfterARunWithNoVerdict_IsRestoreFailed',
+    'Probe_AnUnbuiltRevertedImage_IsRunNoVerdictAndNeverAKill',
     async () => {
-      const { repoRoot, baseRef, sourceFile, testFile } = await setupTaskRepo('test-adequacy-probe-restore-no-verdict-');
-      repos.push(repoRoot);
-
-      const restoreRefusingGitExec: GitExec = (root, args) =>
-        args[0] === 'checkout' && args.at(-1) === '.'
-          ? { stdout: 'injected restore failure', exitCode: 1 }
-          : realGitExec(root, args);
-
       const result = await runProbe({
-        gitExec: restoreRefusingGitExec,
-        repoRoot,
-        baseRef,
         changedFiles: [sourceFile, testFile],
-        runTests: async () => ({ kind: 'no-verdict', cause: 'signal', detail: 'the signal is SIGKILL' }),
+        runTests: async ({ source }) => source === 'reverted'
+          ? { kind: 'no-verdict', cause: 'did-not-start', detail: 'The reverted source image was not built' }
+          : ran(true),
         riskTier: 'low',
       });
 
-      expect(result.discriminant).toBe('restore-failed');
+      expect(result.discriminant).toBe('run-no-verdict');
+      expect(result.redObserved).toBe(false);
       expect(result.passed).toBe(false);
     },
     30_000,
@@ -905,9 +723,6 @@ describe('runProbe (compose split → snapshot → revert → run → restore)',
   it(
     'Probe_BaselineRed_DetailKeepsTheFirstStderrLineAheadOfTheTail',
     async () => {
-      const { repoRoot, baseRef, sourceFile, testFile } = await setupTaskRepo('test-adequacy-probe-first-stderr-');
-      repos.push(repoRoot);
-
       const stdout = Array.from({ length: 7 }, (_, i) => `stdout line ${i}`).join('\n');
       const stderr = [
         '',
@@ -915,9 +730,6 @@ describe('runProbe (compose split → snapshot → revert → run → restore)',
         ...Array.from({ length: 30 }, (_, i) => `stderr line ${i}`),
       ].join('\n');
       const result = await runProbe({
-        gitExec: realGitExec,
-        repoRoot,
-        baseRef,
         changedFiles: [sourceFile, testFile],
         runTests: async () => ({ kind: 'ran', result: 'red', stdout, stderr }),
       });

@@ -358,4 +358,18 @@ describe('the capped prepare receipt', () => {
     expect(receipt).toEqual(original);
   });
 
+  /** A compiler 8-vcs receipt keeps the same custody pointer as compiler 8. A compiler outside the immutable policy gets none. */
+  it('PrepareEconomy_Compiler8VcsInvocation_KeepsTheCustodyPointer', () => {
+    const receipt = receiptOf();
+    receipt.capsule.provenance.compilerVersion = 'exarchos-prepare-8-vcs';
+    const summary = summarizePreparedCapsuleReceipt(receipt);
+    expect(summary.detailRead).toEqual({ tool: 'exarchos_orchestrate', action: 'read_prepared_capsule',
+      arguments: { streamId: receipt.workflowId, capsuleVersion: receipt.capsuleVersion, offset: 0, limit: 10 } });
+    expect(estimateOutputTokens(summary)).toBeLessThanOrEqual(PREPARE_ECONOMY_BUDGET_TOKENS);
+    for (const compilerVersion of ['exarchos-prepare-7', 'exarchos-prepare-8-other', 'capsule-compiler-0']) {
+      receipt.capsule.provenance.compilerVersion = compilerVersion;
+      expect(summarizePreparedCapsuleReceipt(receipt).detailRead, compilerVersion).toBeUndefined();
+    }
+  });
+
 });

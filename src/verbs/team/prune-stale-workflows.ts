@@ -14,7 +14,8 @@ import { handleCancel } from '../../workflow/cancel.js';
 import { readStateFile } from '../../workflow/state-store.js';
 import { isTerminalPhase as baseIsTerminalPhase } from '../../workflow/terminal-phases.js';
 import { orchestrateLogger } from '../../logger.js';
-import { defaultSafeguards, type PruneSafeguards } from './prune-safeguards.js';
+import { defaultSafeguards, observedCommitTime, pruneObservation, type PruneObservation, type PruneSafeguards } from './prune-safeguards.js';
+import { constrainedCommitId } from '../../utils/git-tree.js';
 import { resolveStalenessTopology, type StalenessScope } from '../../workflow/topology/builtin.js';
 import type { Topology } from '../../workflow/topology/phase-contract.js';
 import { scoreEntryThroughTopology } from '../../pruner/coordinator.js';
@@ -42,8 +43,8 @@ export interface WorkflowListEntry {
    */
   phaseTransitionTimestamp?: string;
   /**
-   * A second staleness signal: the ISO time of the latest commit on the tracked branch, from
-   * `git log -1 --format=%ct`. It is undefined for a workflow with no tracked branch, and the selector
+   * A second staleness signal: the ISO commit time of the tip of the tracked branch, from
+   * the constrained Git reader. It is undefined for a workflow with no tracked branch, and the selector
    * then does not count it against the workflow.
    */
   branchActivityTimestamp?: string;
@@ -250,8 +251,8 @@ export interface PruneHandlerDeps {
    */
   readPhaseTransitionTimestamp: (featureId: string) => Promise<string | undefined>;
   /**
-   * Reads the time of the latest commit on the tracked branch as an ISO string. It returns
-   * `undefined` when the workflow has no tracked branch or `git log` fails.
+   * Reads the commit time of the tip of the tracked branch as an ISO string. It returns
+   * `undefined` when the workflow has no tracked branch or the read fails.
    */
   readBranchActivityTimestamp: (
     branchName: string | undefined,
@@ -367,38 +368,37 @@ function makeReadPhaseTransitionTimestamp(
 }
 
 /**
- * Reads the time of the latest commit on `refs/heads/<branchName>` with `git log -1 --format=%ct`, as
- * an ISO string. It uses `execFile`, so the parallel readers of the handler do not block the event loop.
- * It returns `undefined` for an absent branch name, a name outside the safe ref characters, or a git failure.
+ * Reads the commit time of the `refs/heads/<branchName>` commit through the constrained reader, as an ISO string.
+ * It reads the located checkout of the prune call, which the recent-commits safeguard also reads.
+ * It returns `undefined` for an absent branch name, a name outside the safe ref characters, a missing branch or an unreadable read.
  */
-async function defaultReadBranchActivityTimestamp(
+async function observedBranchActivityTimestamp(
+  observation: PruneObservation,
   branchName: string | undefined,
 ): Promise<string | undefined> {
   if (!branchName) return undefined;
   if (!/^[A-Za-z0-9/_.\-]+$/.test(branchName) || branchName.includes('..')) {
     return undefined;
   }
+  const checkout = await observation.checkout();
+  if (checkout.kind !== 'located') return undefined;
+  const { located } = checkout;
   try {
-    const { execFile } = await import('node:child_process');
-    const { promisify } = await import('node:util');
-    const execFileAsync = promisify(execFile);
-    const { stdout } = await execFileAsync(
-      'git',
-      ['log', '-1', '--format=%ct', `refs/heads/${branchName}`],
-      { encoding: 'utf-8', timeout: 10_000 },
-    );
-    const output = stdout.trim();
-    if (!output) return undefined;
-    const epochSeconds = Number.parseInt(output, 10);
-    if (!Number.isFinite(epochSeconds) || epochSeconds <= 0) return undefined;
-    return new Date(epochSeconds * 1000).toISOString();
+    const commit = constrainedCommitId((await located.reads.commit(located.gitDir, located.checkout, `refs/heads/${branchName}`)).trim());
+    const epochSeconds = await observedCommitTime(located, commit);
+    return epochSeconds === undefined ? undefined : new Date(epochSeconds * 1000).toISOString();
   } catch {
     return undefined;
   }
 }
 
-/** Production dep bundle — real `handleList`/`handleCancel` + default safeguards. */
+/**
+ * Production dep bundle — real `handleList`/`handleCancel` + default safeguards.
+ * One Git observation serves the call. It uses a non-empty connector Git path, else the process-wide Git path.
+ */
 function productionDeps(_ctx?: DispatchContext): PruneHandlerDeps {
+  const connectorGitPath = _ctx?.verificationHost?.gitPath;
+  const observation = pruneObservation(connectorGitPath === '' ? undefined : connectorGitPath);
   return {
     handleList: (stateDir) => handleList({}, stateDir),
     handleCancel: (args, stateDir) =>
@@ -408,9 +408,9 @@ function productionDeps(_ctx?: DispatchContext): PruneHandlerDeps {
         _ctx?.eventStore ?? null,
       ),
     readBranchName: defaultReadBranchName,
-    safeguards: defaultSafeguards(),
+    safeguards: defaultSafeguards(undefined, observation),
     readPhaseTransitionTimestamp: makeReadPhaseTransitionTimestamp(_ctx),
-    readBranchActivityTimestamp: defaultReadBranchActivityTimestamp,
+    readBranchActivityTimestamp: (branchName) => observedBranchActivityTimestamp(observation, branchName),
   };
 }
 

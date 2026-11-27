@@ -2,16 +2,22 @@
  * Checks competing bootstrap calls and document repair through the packaged binary.
  * @oracle-sources: Recorded Git observations, SQLite ledger and claim rows, and approved bytes.
  */
-import { unlink, writeFile } from 'node:fs/promises';
+import { access, unlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import fc from 'fast-check';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import {
   PLAN, STREAM, TASKS, changeDatabase, data, digest, gitBarrier, makeBarrier, prepareRequest, prepareRows,
   record, settleArgs, typedTasks, withRaceRepository, type RaceRepository,
 } from '../helpers/capsule/s6-process-race.js';
 import { textOf } from '../helpers/capsule/prepared-authority.js';
+import { registerCustomWorkflows } from '../../src/config/register.js';
+import { EventStore } from '../../src/events/store.js';
+import { unregisterWorkflowType } from '../../src/workflow/state-machine.js';
+import { unextendWorkflowTypeEnum } from '../../src/workflow/schemas.js';
+
+vi.mock('bun:sqlite', () => import('../../src/storage/__shims__/bun-sqlite-node.js'));
 
 const PROCESS_TIMEOUT = 70_000;
 
@@ -271,24 +277,38 @@ describe('packaged compatibility document repair', () => {
     });
   }, PROCESS_TIMEOUT);
 
+  /**
+   * The historical stream is seeded in this process with data registration, so no executable configuration seeds it.
+   * The checkout then holds an `exarchos.config.js` that registers the type and writes a marker when it runs.
+   * The packaged binary decodes the old stream cold, refuses a new start of the type, and never evaluates the file.
+   */
   it('Acceptance_PackagedHistoricalConstructor_DecodesColdAndRequiresRegistrationForNewStarts', async () => {
-    const config = 'exarchos.config.js';
     await withRaceRepository(async fixture => {
       const checkout = fixture.repository.checkout;
       const constructor = {
         initialPhase: 'recorded-local-entry', phases: ['recorded-local-entry', 'completed'],
         transitions: [{ from: 'recorded-local-entry', to: 'completed', event: 'finish' }],
       };
-      await writeFile(path.join(checkout, config), `export default { workflows: { ['constructor']: ${JSON.stringify(constructor)} } };\n`);
       const legacy = 'historical-constructor';
       const event = { type: 'workflow.started', data: { featureId: legacy, workflowType: 'constructor' } };
+      registerCustomWorkflows({ workflows: { constructor } });
+      const seed = new EventStore(fixture.stateDir);
+      try {
+        await seed.initialize();
+        await seed.append(legacy, event);
+      } finally {
+        seed.close();
+        unextendWorkflowTypeEnum('constructor');
+        unregisterWorkflowType('constructor');
+      }
+      expect(fixture.ledger(legacy).rows).toMatchObject([{ schemaVersion: '1.0', data: event.data }]);
+      const marker = path.join(fixture.controls, 'config-evaluated');
+      await writeFile(path.join(checkout, 'exarchos.config.js'), `import { writeFileSync } from 'node:fs';\n`
+        + `writeFileSync(${JSON.stringify(marker)}, 'evaluated');\n`
+        + `export default { workflows: { ['constructor']: ${JSON.stringify(constructor)} } };\n`);
       const append = (stream: string) => ['event', 'append', '--stream', stream, '--event', JSON.stringify({
         ...event, data: { ...event.data, featureId: stream },
       })];
-      const registered = await fixture.cli(append(legacy), {}, checkout);
-      expect(registered.exitCode, JSON.stringify(registered.envelope)).toBe(0);
-      expect(fixture.ledger(legacy).rows).toMatchObject([{ schemaVersion: '1.0', data: event.data }]);
-      await unlink(path.join(checkout, config));
       const cold = await fixture.mcp('exarchos_view', { action: 'workflow_status', workflowId: legacy });
       expect(data(cold)).toMatchObject({ workflowType: 'constructor', phase: 'started' });
       const hydrated = await fixture.mcp('exarchos_workflow', { action: 'rehydrate', featureId: legacy });
@@ -297,6 +317,7 @@ describe('packaged compatibility document repair', () => {
       expect(unregistered.exitCode).not.toBe(0);
       expect(unregistered.envelope).toMatchObject({ success: false, error: { code: 'VALIDATION_ERROR' } });
       expect(fixture.ledger('unregistered-constructor').rows).toEqual([]);
+      await expect(access(marker)).rejects.toMatchObject({ code: 'ENOENT' });
     });
   }, PROCESS_TIMEOUT);
 

@@ -24,6 +24,7 @@ import { nodeTestProfile } from '../helpers/verification-profile.js';
 import { scopedRepository } from '../helpers/scoped-repository.js';
 import { makeTempDir, rmrfAsync } from '../../tools/test-helpers/temp-dir.js';
 import { execFileAsync } from '../../tools/test-helpers/spawn.js';
+import { deriveRepoKey } from '../../src/utils/paths.js';
 import { runAsTrustedCaller, seedActivePhaseAttempt } from '../../tools/test-helpers/trusted-context.js';
 
 const closes: (() => Promise<void>)[] = [];
@@ -43,7 +44,7 @@ async function setup() {
   const events = new EventStore(stateDir); await events.initialize();
   closes.push(async () => { events.close(); await rmrfAsync(stateDir); });
   const identity = profiledValidCapsule().identity;
-  await seedActivePhaseAttempt(events, identity.workflowId);
+  await seedActivePhaseAttempt(events, identity.workflowId, { repoRoot: deriveRepoKey(tree) });
   const repository = await observeRepository(tree); if (repository.kind !== 'repository') throw new Error('Missing Git repository');
   const profile = nodeTestProfile();
   profile.tests.probe = { ...profile.tests.probe, command: { state: 'resolved', argv: [process.execPath, 'probe.cjs'], source: 'config' }, globs: ['**/*.test.json'], files: 'after-separator' };
@@ -101,7 +102,10 @@ describe('immutable diff leaves', () => {
     expect(legacy.data).toMatchObject({ passed: false });
   });
 
-  /** Mock detection uses the selected pair on a clean checkout and refuses changed or dirty endpoints. */
+  /**
+   * Mock detection uses the selected pair on a clean checkout and refuses a changed or missing endpoint.
+   * The constrained diff runs no repository textconv, so the textconv marker and its dirty file never appear, and the binary payload passes with no findings.
+   */
   it('MockBoundary_ExactHeadNotHEAD', async () => {
     const f = await setup();
     await f.repo.commitIn('target', { 'boundary.test.ts': "vi.mock('remote-sdk');\n" });
@@ -126,13 +130,14 @@ describe('immutable diff leaves', () => {
     await git(m.tree, 'config', 'diff.endpoint.textconv', `"${process.execPath}" "${script}"`);
     const checked = await m.coordinate();
     const endpoint = await m.call('check_mock_boundary', { coordinate: checked }, m.trusted(checked));
-    expect(existsSync(marker)).toBe(true); expect(existsSync(join(m.tree, 'TEXTCONV_DIRTY'))).toBe(true);
-    expect(endpoint.error?.code).toBe('TASK_COORDINATE_REFUSED');
+    expect(existsSync(marker)).toBe(false); expect(existsSync(join(m.tree, 'TEXTCONV_DIRTY'))).toBe(false);
+    expect(endpoint.success, JSON.stringify(endpoint)).toBe(true);
+    expect(endpoint.data).toMatchObject({ passed: true, findings: [] });
     const rows = await m.events.query(m.identity.workflowId);
     const evidence = rows.filter(row => row.type === 'admission.evidence-recorded');
     expect(evidence).toHaveLength(1);
-    expect(evidence[0]?.data?.evidence).not.toMatchObject({ verdict: 'pass' });
-    expect(rows.filter(row => row.type === 'gate.executed').map(row => row.data?.passed)).toEqual([false]);
+    expect(evidence[0]?.data?.evidence).toMatchObject({ verdict: 'pass' });
+    expect(rows.filter(row => row.type === 'gate.executed').map(row => row.data?.passed)).toEqual([true]);
   });
 
   /** Public and mismatched coordinates refuse before provider effects, including a disabled gate. Historical omissions remain admitted. */

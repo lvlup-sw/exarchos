@@ -8,10 +8,12 @@
  *   6. A PR stack exists (skippable).
  *   7. The tests pass (skippable).
  * Checks 2 to 5 run only when check 1 passes.
+ * The local approved-check executor runs check 7 as a lifecycle check of the phase attempt, with no verifier provisioning.
+ * A caller test-command override takes the override layer of the resolver, so the approved plan holds the override.
+ * Check 6 reads the current branch through the constrained reader with the process-wide Git path.
  */
 
-import { execFileSync } from 'node:child_process';
-import { runCommandSync } from '../../utils/process.js';
+import { resolve } from 'node:path';
 import type { ToolResult } from '../../format.js';
 import type { EventStore } from '../../events/store.js';
 import { resolveTestRuntime } from '../../config/test-runtime-resolver.js';
@@ -20,8 +22,11 @@ import type { VcsProvider } from '../../vcs/provider.js';
 import { createVcsProvider } from '../../vcs/factory.js';
 import { classifyStateFile, resolveWorkflowState } from '../resolve-state.js';
 import { createEvidenceSubject } from '../../workflow/admission/evidence-subject.js';
-import { runPhaseGateWithEvidence } from './gate-runner.js';
-import { emitGateEvent, sameOperationGateKey } from './gate-utils.js';
+import { processObservationalGitPath } from '../../utils/git-tree.js';
+import { hostedPendingResult, runPhaseGateWithEvidence } from './gate-runner.js';
+import { emitGateEvent, observeCurrentCheckout, sameOperationGateKey } from './gate-utils.js';
+import { admitLifecycleLegs, type LifecycleLeg } from '../verification/lifecycle-check.js';
+import type { CheckExecutor } from '../verification/check-executor.js';
 
 export interface PreSynthesisCheckArgs {
   /**
@@ -331,12 +336,15 @@ function checkNoFixRequests(
 /**
  * Check 6: passes when the current branch has an open PR. It is skipped with
  * `skipStack`, or when the provider is not GitHub.
+ * The branch is the symbolic HEAD of the checkout root above `repoRoot`, read with the process-wide Git path.
+ * No usable Git, a detached HEAD and a refused observation fail the check.
  */
 async function checkPrStack(
   ctx: CheckContext,
   repoRoot: string,
   skipStack: boolean,
   provider: VcsProvider,
+  gitPath: string | undefined,
 ): Promise<void> {
   if (skipStack) {
     checkSkip(ctx, 'PR stack exists (--skip-stack)');
@@ -348,19 +356,8 @@ async function checkPrStack(
     return;
   }
 
-  let currentBranch: string;
-  try {
-    currentBranch = execFileSync('git', ['branch', '--show-current'], {
-      cwd: repoRoot,
-      encoding: 'utf-8',
-      timeout: 5_000,
-      stdio: ['pipe', 'pipe', 'pipe'],
-    }).trim();
-  } catch {
-    checkFail(ctx, 'PR stack exists', 'Could not determine current branch');
-    return;
-  }
-
+  const observed = gitPath === undefined ? undefined : await observeCurrentCheckout(gitPath, resolve(repoRoot));
+  const currentBranch = observed?.kind === 'observed' ? observed.checkout.branch.slice('refs/heads/'.length) : '';
   if (!currentBranch) {
     checkFail(ctx, 'PR stack exists', 'Could not determine current branch');
     return;
@@ -379,93 +376,92 @@ async function checkPrStack(
   }
 }
 
-/**
- * Check 7: runs the test command, then the typecheck command, from
- * `resolveTestRuntime`. If the runtime is unresolved or has no test command,
- * the check is skipped. So the check never runs a guessed `npm` command in a
- * pnpm or yarn repo. The commands run through `runCommandSync`, because
- * `execFile` refuses to start a `.cmd` package-manager shim on Windows since
- * CVE-2024-27980.
- */
-function checkTestsPass(
-  ctx: CheckContext,
-  repoRoot: string,
-  skipTests: boolean,
-  testCommand?: string,
-): void {
-  if (skipTests) {
-    checkSkip(ctx, 'Tests pass (--skip-tests)');
-    return;
-  }
+/** The event store, the executor and the phase attempt that scope the test run of one call. */
+interface PreSynthesisRun {
+  readonly eventStore: EventStore;
+  readonly executor?: CheckExecutor;
+  readonly phaseAttemptId: () => string | undefined;
+}
 
+/** The argument vector of a resolved command, or undefined when it is empty or does not split. */
+function argvOf(command: string): readonly string[] | undefined {
+  try {
+    const { cmd, args } = splitCommand(command);
+    return cmd === '' ? undefined : [cmd, ...args];
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Check 7 in the local executor. The test leg and the typecheck leg run in one check, and a failed test leg stops it.
+ * A caller test-command override takes the override layer of the resolver. A refusal returns as the gate result.
+ * A pending result and a leg with no verdict throw the pending signal.
+ */
+async function checkTestsPass(
+  ctx: CheckContext,
+  args: PreSynthesisCheckArgs,
+  repoRoot: string,
+  run: PreSynthesisRun,
+): Promise<ToolResult | undefined> {
+  if (args.skipTests) {
+    checkSkip(ctx, 'Tests pass (--skip-tests)');
+    return undefined;
+  }
   let resolved: ReturnType<typeof resolveTestRuntime>;
   try {
-    resolved = resolveTestRuntime(
-      repoRoot,
-      testCommand ? { override: { test: testCommand } } : undefined,
-    );
+    resolved = resolveTestRuntime(repoRoot, args.testCommand === undefined ? undefined : { override: { test: args.testCommand } });
   } catch (err) {
     checkFail(ctx, 'Tests pass', err instanceof Error ? err.message : String(err));
-    return;
+    return undefined;
   }
-
   if (resolved.source === 'unresolved') {
-    const detail = resolved.remediation ?? 'no test runtime resolved';
-    checkSkip(ctx, `Tests pass — ${detail}`);
-    return;
+    checkSkip(ctx, `Tests pass — ${resolved.remediation ?? 'no test runtime resolved'}`);
+    return undefined;
   }
-
-  const cmds = { test: resolved.test, typecheck: resolved.typecheck };
-
-  if (cmds.test === null) {
+  if (resolved.test === null) {
     checkSkip(ctx, 'Tests pass (no test runner detected)');
-    return;
+    return undefined;
   }
-
-  try {
-    const { cmd: testProg, args: testArgs } = splitCommand(cmds.test);
-    if (testProg === '') {
-      checkFail(ctx, 'Tests pass', 'empty test command');
-      return;
-    }
-    runCommandSync(testProg, testArgs as string[], {
-      cwd: repoRoot,
-      timeout: 120_000,
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
-  } catch {
-    checkFail(ctx, 'Tests pass', `${cmds.test} failed`);
-    return;
+  const test = argvOf(resolved.test);
+  if (test === undefined) {
+    checkFail(ctx, 'Tests pass', `${resolved.test} failed`);
+    return undefined;
   }
-
-  if (cmds.typecheck !== null) {
-    try {
-      const { cmd: tcProg, args: tcArgs } = splitCommand(cmds.typecheck);
-      if (tcProg === '') {
-        checkFail(ctx, 'Tests pass', 'empty typecheck command');
-        return;
-      }
-      runCommandSync(tcProg, tcArgs as string[], {
-        cwd: repoRoot,
-        timeout: 60_000,
-        stdio: ['pipe', 'pipe', 'pipe'],
-      });
-    } catch {
-      checkFail(ctx, 'Tests pass', `${cmds.typecheck} failed`);
-      return;
-    }
+  const typecheck = resolved.typecheck === null ? undefined : argvOf(resolved.typecheck);
+  const legs: LifecycleLeg[] = [{ kind: 'command', argv: test }];
+  if (typecheck !== undefined) legs.push({ kind: 'typecheck', argv: typecheck });
+  const phaseAttemptId = run.phaseAttemptId();
+  const admitted = await admitLifecycleLegs({
+    eventStore: run.eventStore, checkout: repoRoot, legs, stopAfterTestFailure: true,
+    streamId: args.featureId, ...(phaseAttemptId === undefined ? {} : { phaseAttemptId }),
+    ...(run.executor === undefined ? {} : { executor: run.executor }),
+  });
+  if ('success' in admitted) return admitted;
+  if (admitted[0]?.run.exitCode !== 0) {
+    checkFail(ctx, 'Tests pass', `${resolved.test} failed`);
+    return undefined;
   }
-
+  if (resolved.typecheck !== null && (typecheck === undefined || admitted[1]?.run.exitCode !== 0)) {
+    checkFail(ctx, 'Tests pass', `${resolved.typecheck} failed`);
+    return undefined;
+  }
   checkPass(ctx, 'Tests pass');
+  return undefined;
 }
 
 /**
  * Runs the readiness checks through `runPhaseGateWithEvidence`. The runner
  * records durable gate evidence before a success result returns.
+ * Check 7 runs in the local executor with no verifier provisioning. `skipTests`, `skipStack` and a caller test-command override apply.
+ * A pending result maps to its existing code with no evidence.
+ *
+ * @param executor - The local check executor. The default is the real executor. A test passes its own executor.
  */
 export async function handlePreSynthesisCheck(
   args: PreSynthesisCheckArgs,
   provider?: VcsProvider,
+  executor?: CheckExecutor,
 ): Promise<ToolResult> {
   if (!args.featureId) {
     return {
@@ -484,20 +480,28 @@ export async function handlePreSynthesisCheck(
     };
   }
 
-  return runPhaseGateWithEvidence({
-    streamId: args.featureId,
-    gateClass: 'pre-synthesis',
-    requirementId: 'requirement:pre-synthesis',
-    stateDir,
-    eventStore,
-    subject: (phaseAttemptId) =>
-      createEvidenceSubject(
-        { kind: 'phase-attempt', phaseAttemptId },
-        { gate: 'pre-synthesis', phase: 'synthesize' },
-      ),
-    providerInput: args,
-    executeProvider: async () => executePreSynthesisCheck(args, eventStore, provider),
-  });
+  let attempt: string | undefined;
+  const run: PreSynthesisRun = { eventStore, ...(executor === undefined ? {} : { executor }), phaseAttemptId: () => attempt };
+  try {
+    return await runPhaseGateWithEvidence({
+      streamId: args.featureId,
+      gateClass: 'pre-synthesis',
+      requirementId: 'requirement:pre-synthesis',
+      stateDir,
+      eventStore,
+      subject: (phaseAttemptId) => {
+        attempt = phaseAttemptId;
+        return createEvidenceSubject(
+          { kind: 'phase-attempt', phaseAttemptId },
+          { gate: 'pre-synthesis', phase: 'synthesize' },
+        );
+      },
+      providerInput: args,
+      executeProvider: async () => executePreSynthesisCheck(args, eventStore, provider, run),
+    });
+  } catch (error) {
+    return hostedPendingResult(error);
+  }
 }
 
 /**
@@ -510,10 +514,12 @@ export async function handlePreSynthesisCheck(
 async function executePreSynthesisCheck(
   args: PreSynthesisCheckArgs,
   store: EventStore,
-  provider?: VcsProvider,
+  provider: VcsProvider | undefined,
+  run: PreSynthesisRun,
 ): Promise<ToolResult> {
-  const { stateFile, featureId, eventStore, repoRoot = '.', skipTests = false, skipStack = false, testCommand } = args;
-  const vcs = provider ?? await createVcsProvider();
+  const { stateFile, featureId, eventStore, repoRoot = '.', skipStack = false } = args;
+  const gitPath = processObservationalGitPath();
+  const vcs = provider ?? await createVcsProvider(gitPath === undefined ? undefined : { detectorDeps: { gitPath, cwd: repoRoot } });
 
   const ctx: CheckContext = {
     results: [],
@@ -546,9 +552,10 @@ async function executePreSynthesisCheck(
     checkNoFixRequests(ctx, state);
   }
 
-  await checkPrStack(ctx, repoRoot, skipStack, vcs);
+  await checkPrStack(ctx, repoRoot, skipStack, vcs, gitPath);
 
-  checkTestsPass(ctx, repoRoot, skipTests, testCommand);
+  const refused = await checkTestsPass(ctx, args, repoRoot, run);
+  if (refused !== undefined) return refused;
 
   const total = ctx.counters.pass + ctx.counters.fail;
   const passed = ctx.counters.fail === 0;

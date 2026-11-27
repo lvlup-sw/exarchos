@@ -1,19 +1,23 @@
 /**
  * Handler for the `prepare_synthesis` action. It runs the readiness checks before synthesis: task completion, test suite, typecheck, document coverage and branch stack.
  * It emits a `gate.executed` event for the test suite, the typecheck and the document leg.
+ *
+ * The local approved-check executor runs the test and typecheck legs in one lifecycle check of the phase attempt, with no verifier provisioning.
+ * The stack and changed-file legs read Git only through the constrained reader with the process-wide Git path.
  */
 
-import { execSync, execFileSync } from 'node:child_process';
 import type { ToolResult } from '../../format.js';
 import type { EventStore } from '../../events/store.js';
-import { runCommandSync } from '../../utils/process.js';
 import { resolveRunnableCommand, type RunnableCommand } from '../../config/test-runtime-resolver.js';
 import { resolveWorkflowState } from '../resolve-state.js';
-import { emitGateEvent } from '../gates/gate-utils.js';
+import { emitGateEvent, observeCurrentCheckout, type CurrentCheckoutRead } from '../gates/gate-utils.js';
 import type { ResolvedProjectConfig } from '../../config/resolve.js';
 import { globToRegExp } from '../../architecture/glob-to-regexp.js';
 import { createEvidenceSubject } from '../../workflow/admission/evidence-subject.js';
-import { runPhaseGateWithEvidence } from '../gates/gate-runner.js';
+import { processObservationalGitPath } from '../../utils/git-tree.js';
+import { HostedAdequacyPending, hostedPendingResult, runPhaseGateWithEvidence } from '../gates/gate-runner.js';
+import { admitLifecycleLegs, type LifecycleLeg } from '../verification/lifecycle-check.js';
+import type { CheckExecutor } from '../verification/check-executor.js';
 
 interface SynthesisReadinessState {
   tasksComplete: boolean;
@@ -72,47 +76,75 @@ interface LegRun {
   readonly output: string;
 }
 
-/**
- * Runs a resolved command in `repoRoot` in argument form, with no shell. The caller names the tree,
- * and the server working directory is never used.
- */
-function runLeg(
-  command: Extract<RunnableCommand, { kind: 'runnable' }>,
-  repoRoot: string,
-  timeout: number,
-): LegRun {
-  try {
-    const output = runCommandSync(command.bin, command.args, {
-      cwd: repoRoot,
-      encoding: 'buffer',
-      timeout,
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
-    return { exitedZero: true, output: outputText(output) };
-  } catch (err: unknown) {
-    const execError = err as { stdout?: Buffer | string; stderr?: Buffer | string };
-    const output = [execError.stdout, execError.stderr]
-      .filter((chunk): chunk is Buffer | string => chunk !== undefined && chunk !== null)
-      .map(outputText)
-      .join('\n');
-    const message = err instanceof Error ? err.message : String(err);
-    return { exitedZero: false, output: output.trim().length > 0 ? output : message };
-  }
+/** The runner of one leg. The local runner reads the observed leg of that kind. */
+type LegRunner = (
+  kind: LifecycleLeg['kind'], command: Extract<RunnableCommand, { kind: 'runnable' }>, repoRoot: string, timeout: number,
+) => LegRun;
+
+/** A leg that the approved plan does not hold refuses here and never runs. */
+const unplannedLeg: LegRunner = (kind) => {
+  throw new Error(`The ${kind} leg is not in the approved plan, so it does not run`);
+};
+
+/** The test and typecheck commands of one call. The call reads them once, so the plan and the legs see the same commands. */
+interface LegCommands {
+  readonly test: RunnableCommand;
+  readonly typecheck: RunnableCommand;
 }
 
-function outputText(chunk: Buffer | string): string {
-  return typeof chunk === 'string' ? chunk : chunk.toString('utf-8');
+/** Read the test and typecheck commands of the checkout once. */
+function legCommandsOf(repoRoot: string): LegCommands {
+  return { test: resolveRunnableCommand(repoRoot, 'test'), typecheck: resolveRunnableCommand(repoRoot, 'typecheck') };
+}
+
+/** The event store, the executor and the phase attempt that scope the legs of one call. */
+interface PrepareSynthesisRun {
+  readonly eventStore: EventStore;
+  readonly executor?: CheckExecutor;
+  readonly phaseAttemptId: () => string | undefined;
+}
+
+/**
+ * Run each resolvable leg in one local check and return a runner that reads the observed legs.
+ * Both legs run in the one check. A refusal returns as the gate result. A pending result and a leg with no verdict throw the pending signal.
+ * The runner refuses a leg whose command differs from the planned leg, so no command outside the plan runs.
+ */
+async function localLegRunner(
+  streamId: string, repoRoot: string, run: PrepareSynthesisRun, commands: LegCommands,
+): Promise<LegRunner | ToolResult> {
+  const legs: LifecycleLeg[] = [];
+  for (const [kind, resolved] of [['command', commands.test], ['typecheck', commands.typecheck]] satisfies [LifecycleLeg['kind'], RunnableCommand][]) {
+    if (resolved.kind === 'runnable') legs.push({ kind, argv: [resolved.bin, ...resolved.args] });
+  }
+  if (legs.length === 0) return unplannedLeg;
+  const phaseAttemptId = run.phaseAttemptId();
+  const admitted = await admitLifecycleLegs({
+    eventStore: run.eventStore, checkout: repoRoot, legs, streamId, ...(phaseAttemptId === undefined ? {} : { phaseAttemptId }),
+    ...(run.executor === undefined ? {} : { executor: run.executor }),
+  });
+  if ('success' in admitted) return admitted;
+  return (kind, command) => {
+    const planned = legs.find((leg) => leg.kind === kind);
+    if (planned === undefined || planned.argv.join('\0') !== [command.bin, ...command.args].join('\0')) return unplannedLeg(kind, command, repoRoot, 0);
+    const observed = admitted.find((leg) => leg.kind === kind)?.run;
+    if (observed === undefined) throw new Error(`The executor returned no ${kind} leg`);
+    const output = [observed.stdout, observed.stderr].filter((chunk) => chunk.length > 0).join('\n');
+    return { exitedZero: observed.exitCode === 0, output };
+  };
 }
 
 /** Runs the resolved test command. No resolved command fails the leg. */
-function runTestSuite(repoRoot: string): TestResult {
-  const resolved = resolveRunnableCommand(repoRoot, 'test');
+function runTestSuite(repoRoot: string, run: LegRunner, resolved: RunnableCommand): TestResult {
   if (resolved.kind !== 'runnable') {
     return { passed: false, passCount: 0, failCount: 0, command: null, reason: resolved.reason };
   }
-  const run = runLeg(resolved, repoRoot, 120_000);
+  return testResultOf(resolved.command, run('command', resolved, repoRoot, 120_000));
+}
+
+/** The test leg result of one run. */
+function testResultOf(command: string, run: LegRun): TestResult {
   const { passCount, failCount } = parseTestOutput(run.output);
-  return { passed: run.exitedZero, passCount, failCount, command: resolved.command, output: run.output };
+  return { passed: run.exitedZero, passCount, failCount, command, output: run.output };
 }
 
 /** Counts printed as "<n> passed" and "<n> failed". Informational only. */
@@ -126,15 +158,14 @@ function parseTestOutput(output: string): { passCount: number; failCount: number
 }
 
 /** Runs the resolved typecheck command when the toolchain declares one. */
-function runTypecheck(repoRoot: string): TypecheckResult {
-  const resolved = resolveRunnableCommand(repoRoot, 'typecheck');
+function runTypecheck(repoRoot: string, runner: LegRunner, resolved: RunnableCommand): TypecheckResult {
   if (resolved.kind === 'unresolved') {
     return { passed: true, errorCount: 0, command: null, reason: resolved.reason };
   }
   if (resolved.kind === 'invalid') {
     return { passed: false, errorCount: 1, command: null, errors: [resolved.reason], reason: resolved.reason };
   }
-  const run = runLeg(resolved, repoRoot, 60_000);
+  const run = runner('typecheck', resolved, repoRoot, 60_000);
   if (run.exitedZero) {
     return { passed: true, errorCount: 0, command: resolved.command };
   }
@@ -153,32 +184,45 @@ function parseTypecheckErrors(output: string, command: string): string[] {
   return [trimmed.length > 0 ? trimmed : `${command} exited with a non-zero status`];
 }
 
-/** Returns the default branch from `origin/HEAD`, or `'main'`. A branch name with unexpected characters also gives `'main'`, which prevents command injection. */
-function detectDefaultBranch(repoRoot: string): string {
+/** The default base name when the origin HEAD symbolic ref does not read. */
+const DEFAULT_BASE_NAME = 'main';
+
+/** The prefix of the origin HEAD target. The rest is the base name. */
+const ORIGIN_REF_PREFIX = 'refs/remotes/origin/';
+
+/** The observed checkout of the stack and changed-file legs with its resolved base commit, or the cause of a refusal. */
+type SynthesisCheckout =
+  | { readonly kind: 'observed'; readonly read: Extract<CurrentCheckoutRead, { kind: 'observed' }>; readonly base: string }
+  | { readonly kind: 'refused'; readonly reason: string };
+
+/**
+ * Observe the checkout root above `repoRoot` once with the process-wide Git path, and resolve the base.
+ * The base name is the origin HEAD target with no `refs/remotes/origin/` prefix, or `main` when that ref does not read.
+ * The name resolves by the closed base-name order, so a local branch comes first, as `main...HEAD` resolves today.
+ * An unusable Git path, a refused observation and a refused base give a refusal, and no leg reads Git after it.
+ */
+async function synthesisCheckout(gitPath: string | undefined, repoRoot: string): Promise<SynthesisCheckout> {
+  if (gitPath === undefined) return { kind: 'refused', reason: 'No usable Git executable observes the checkout.' };
+  const read = await observeCurrentCheckout(gitPath, repoRoot);
+  if (read.kind === 'refused') return read;
+  const { observer, checkout } = read;
+  let name = DEFAULT_BASE_NAME;
   try {
-    const ref = execSync('git symbolic-ref refs/remotes/origin/HEAD', {
-      cwd: repoRoot,
-      encoding: 'utf-8',
-      timeout: 5_000,
-      stdio: ['pipe', 'pipe', 'pipe'],
-    }).trim();
-    const branch = ref.replace('refs/remotes/origin/', '');
-    return /^[a-zA-Z0-9/_.-]+$/.test(branch) ? branch : 'main';
+    const target = (await observer.reads.originHead(checkout.gitDir, checkout.checkout)).trim();
+    if (target.startsWith(ORIGIN_REF_PREFIX) && target.length > ORIGIN_REF_PREFIX.length) name = target.slice(ORIGIN_REF_PREFIX.length);
   } catch {
-    return 'main';
+    name = DEFAULT_BASE_NAME;
   }
+  const base = await observer.base(checkout, name);
+  return base.kind === 'observed' ? { kind: 'observed', read, base: base.value } : base;
 }
 
-function verifyStack(repoRoot: string): StackResult {
+/** The commits of the stack from the base to the head, as one-line graph entries. A refused checkout or a failed read is not healthy. */
+async function verifyStack(synthesis: SynthesisCheckout): Promise<StackResult> {
+  if (synthesis.kind === 'refused') return { healthy: false, branches: [], error: synthesis.reason };
+  const { observer, checkout } = synthesis.read;
   try {
-    const baseBranch = detectDefaultBranch(repoRoot);
-    const output = execSync(`git log --oneline --graph ${baseBranch}..HEAD`, {
-      cwd: repoRoot,
-      encoding: 'buffer',
-      timeout: 15_000,
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
-    const text = output.toString('utf-8');
+    const text = await observer.reads.commitRange(checkout.gitDir, checkout.checkout, synthesis.base, checkout.head);
     const branches = text
       .split('\n')
       .map((line) => line.trim())
@@ -248,21 +292,17 @@ export function documentLegBlocks(result: DocumentLegResult): boolean {
 }
 
 /**
- * Returns the names of the files that changed between the default branch and HEAD.
- * It returns `null`, not `[]`, when git fails, so the caller can fail closed and not waive a blocking leg.
- * It uses the argv form of `execFileSync`, so no shell runs.
+ * Returns the names of the files that changed from the merge base of the resolved base and HEAD to HEAD. This is the meaning of `base...HEAD`.
+ * It returns `null`, not `[]`, when the observation, the base, the merge base or the diff fails. The caller then fails closed and does not waive a blocking leg.
+ * No merge base gives `null`, never a two-dot diff.
  */
-function changedFilesAgainstBase(repoRoot: string): string[] | null {
+async function changedFilesAgainstBase(synthesis: SynthesisCheckout): Promise<string[] | null> {
+  if (synthesis.kind === 'refused') return null;
+  const { observer, checkout } = synthesis.read;
   try {
-    const baseBranch = detectDefaultBranch(repoRoot);
-    const output = execFileSync('git', ['diff', '--name-only', `${baseBranch}...HEAD`], {
-      cwd: repoRoot,
-      encoding: 'buffer',
-      timeout: 15_000,
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
+    const mergeBase = (await observer.reads.mergeBase(checkout.gitDir, checkout.checkout, synthesis.base, checkout.head)).trim();
+    const output = await observer.reads.nameOnly(checkout.gitDir, checkout.checkout, mergeBase, checkout.head);
     return output
-      .toString('utf-8')
       .split('\n')
       .map((line) => line.trim())
       .filter(Boolean);
@@ -305,10 +345,17 @@ interface PrepareSynthesisArgs {
   readonly projectConfig?: ResolvedProjectConfig;
 }
 
+/**
+ * Runs the readiness legs through the shared phase-gate runner.
+ * The test and typecheck legs run in the local executor with no verifier provisioning. A pending result maps to its existing code with no evidence.
+ *
+ * @param executor - The local check executor. The default is the real executor. A test passes its own executor.
+ */
 export async function handlePrepareSynthesis(
   args: PrepareSynthesisArgs,
   stateDir: string,
   eventStore: EventStore,
+  executor?: CheckExecutor,
 ): Promise<ToolResult> {
   if (!args.featureId) {
     return {
@@ -317,19 +364,28 @@ export async function handlePrepareSynthesis(
     };
   }
 
-  return runPhaseGateWithEvidence({
-    streamId: args.featureId,
-    gateClass: 'prepare-synthesis',
-    requirementId: 'requirement:prepare-synthesis',
-    stateDir,
-    eventStore,
-    subject: (phaseAttemptId) => createEvidenceSubject(
-      { kind: 'phase-attempt', phaseAttemptId },
-      { gate: 'prepare-synthesis' },
-    ),
-    providerInput: args,
-    executeProvider: async () => executePrepareSynthesis(args, stateDir, eventStore),
-  });
+  let attempt: string | undefined;
+  const run: PrepareSynthesisRun = { eventStore, ...(executor === undefined ? {} : { executor }), phaseAttemptId: () => attempt };
+  try {
+    return await runPhaseGateWithEvidence({
+      streamId: args.featureId,
+      gateClass: 'prepare-synthesis',
+      requirementId: 'requirement:prepare-synthesis',
+      stateDir,
+      eventStore,
+      subject: (phaseAttemptId) => {
+        attempt = phaseAttemptId;
+        return createEvidenceSubject(
+          { kind: 'phase-attempt', phaseAttemptId },
+          { gate: 'prepare-synthesis' },
+        );
+      },
+      providerInput: args,
+      executeProvider: async () => executePrepareSynthesis(args, stateDir, eventStore, run),
+    });
+  } catch (error) {
+    return hostedPendingResult(error);
+  }
 }
 
 /**
@@ -345,6 +401,7 @@ async function executePrepareSynthesis(
   args: PrepareSynthesisArgs,
   stateDir: string,
   eventStore: EventStore,
+  run: PrepareSynthesisRun,
 ): Promise<ToolResult> {
   if (!args.featureId) {
     return {
@@ -420,7 +477,10 @@ async function executePrepareSynthesis(
     }
     const repoRoot = args.repoRoot;
 
-    const tests = runTestSuite(repoRoot);
+    const commands = legCommandsOf(repoRoot);
+    const runner = await localLegRunner(streamId, repoRoot, run, commands);
+    if (typeof runner !== 'function') return runner;
+    const tests = runTestSuite(repoRoot, runner, commands.test);
     await emitGateEvent(store, streamId, 'test-suite', 'CI', tests.passed, {
       dimension: 'D1',
       phase: 'synthesize',
@@ -430,7 +490,7 @@ async function executePrepareSynthesis(
       ...(tests.reason !== undefined ? { reason: tests.reason } : {}),
     });
 
-    const typecheck = runTypecheck(repoRoot);
+    const typecheck = runTypecheck(repoRoot, runner, commands.typecheck);
     if (typecheck.command !== null || !typecheck.passed) {
       await emitGateEvent(store, streamId, 'typecheck', 'CI', typecheck.passed, {
         dimension: 'D1',
@@ -441,10 +501,11 @@ async function executePrepareSynthesis(
       });
     }
 
-    const stack = verifyStack(repoRoot);
+    const synthesis = await synthesisCheckout(processObservationalGitPath(), repoRoot);
+    const stack = await verifyStack(synthesis);
 
     const docCfg = args.projectConfig?.synthesis?.documentLeg ?? DEFAULT_DOCUMENT_LEG;
-    const changedFiles = changedFilesAgainstBase(repoRoot);
+    const changedFiles = await changedFilesAgainstBase(synthesis);
     const documentLeg: DocumentLegResult = changedFiles === null
       ? {
           evaluated: true,
@@ -511,6 +572,7 @@ async function executePrepareSynthesis(
 
     return { success: true, data: result };
   } catch (err) {
+    if (err instanceof HostedAdequacyPending) throw err;
     return {
       success: false,
       error: {

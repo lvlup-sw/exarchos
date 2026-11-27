@@ -11,47 +11,37 @@ All implementation tasks MUST run in isolated worktrees, not the main project ro
 
 ## Pre-Dispatch Checklist
 
-Before dispatching ANY implementer, run the worktree setup script. Always
-pass `featureId` so the action creates the worktree from the workflow's
-integration branch (`synthesis.integrationBranch`), not a stale `main`. The
-base of the task is `<baseCommit>`, the `baseCommit` of the task in the
-capsule: the base step of the agent switches the worktree to a branch of its
-own at that commit, and settlement refuses a HEAD that does not hold it
-(`base-not-held`):
+Before dispatching ANY implementer, give the task a linked worktree from the
+harness. Under native isolation the host makes it. Otherwise the coordinator
+makes it with git, from the `baseCommit` of the task in the capsule, at the
+canonical path. No Exarchos call makes the worktree:
 
-```typescript
-exarchos_orchestrate({
-  action: "setup_worktree",
-  repoRoot: "<project-root>",
-  featureId: "<feature-id>",
-  taskId: "<task-id>",
-  taskName: "<task-name>"
-  // baseBranch: "<integration-branch>"  // optional explicit override
-})
+```bash
+git worktree add --detach .worktrees/<task-id>-<task-name> <baseCommit>
 ```
 
-**Base-branch resolution:** the feature branch is created from
-the first available of `baseBranch` arg → `synthesis.integrationBranch` (from
-state) → current `HEAD` → `main`. On a stacked / non-`main` integration
-branch, omitting `featureId` AND running from outside the integration checkout
-is the one way to silently land on `main` — so pass `featureId`, or set
-`baseBranch` explicitly. This is the managed-path equivalent of the native
-`worktree.baseRef:"head"` pin. Neither one is the base guarantee: the base step
-of the agent gives the base on each runtime, and the `base-not-held` rule of
-settlement enforces it. The base step is
+**The base of the task:** `<baseCommit>` is the `baseCommit` of the task in the
+capsule, not a branch name, so the worktree never starts from a stale `main`.
+The worktree is detached. The base step of the agent switches it to a branch of
+its own at that commit, and settlement refuses a HEAD that does not hold it
+(`base-not-held`). The native `worktree.baseRef:"head"` pin is not the base
+guarantee: the base step of the agent gives the base on each runtime, and the
+`base-not-held` rule of settlement enforces it. The base step is
 `git switch -c <own branch> <baseCommit>` for an implementer or a scaffolder,
-and the earlier branch of the task for a fixer.
+and the earlier branch of the task for a fixer. A compiler-8 dependent replaces
+it with `git switch -c <own branch> <forkCommit>`, and it never resets to the
+root base.
 
-**Validates:**
-- `.worktrees/` is gitignored (adds to `.gitignore` if missing)
-- Feature branch created (`feature/<task-id>-<task-name>` from the resolved integration branch)
-- Git worktree added at `.worktrees/<task-id>-<task-name>`
-- `npm install` ran in worktree
-- Baseline tests pass in worktree
+**Check before the dispatch:**
+- `.worktrees/` is gitignored (add it to `.gitignore` if it is missing)
+- `git worktree list` shows the worktree at `.worktrees/<task-id>-<task-name>`, detached at `<baseCommit>`
+- The dependencies of the project are installed in the worktree, and a linked `node_modules` has the ignore rule `node_modules`
+- The worktree is not the checkout that `prepare` read or the primary worktree of the repository
 
-**On `passed: true`:** Worktree is ready. Proceed with implementer dispatch.
+**When every check passes:** the worktree is ready. Proceed with implementer dispatch.
 
-**On `passed: false`:** Setup failed. Review the checklist output for which step failed. Fix the issue before dispatching.
+**When a check fails:** do not dispatch. Fix the failed step, or remove the
+worktree with `git worktree remove` and add it again.
 
 ## Worktree State Tracking
 

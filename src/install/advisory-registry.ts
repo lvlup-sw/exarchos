@@ -167,8 +167,8 @@ export interface AdvisoryRatchetResult {
  * The inventory matches the sites that {@link discoverSofteningSites} finds, not the enforcer-wiring
  * manifest. That manifest covers only `check-*` and `lint-*` primaries, so it cannot name
  * `eval-capability-layer`, whose control is `run-evals-cli.ts`. That entry is softened twice: by `continue-on-error: true` in
- * `eval-gate.yml`, and by an exit-0 rule for the `capability` layer in `run-evals-cli.ts`. Two of the
- * four entries have a filtered CI path, and each `ciPathFiltered` claim records that.
+ * `eval-gate.yml`, and by an exit-0 rule for the `capability` layer in `run-evals-cli.ts`. One of the
+ * three entries has a filtered CI path, and each `ciPathFiltered` claim records that.
  */
 export const ADVISORY_REGISTRY: readonly AdvisoryEntry[] = [
   {
@@ -223,41 +223,6 @@ export const ADVISORY_REGISTRY: readonly AdvisoryEntry[] = [
         file: '.github/workflows/benchmark-gate.yml',
         kind: 'continue-on-error',
         target: 'tools/audit/gates/check-benchmark-regression.sh',
-      },
-    ],
-  },
-  {
-    id: 'check-mutation-gate',
-    file: 'tools/audit/gates/check-mutation-gate.mjs',
-    control: 'mutation-adequacy',
-    owner: 'exarchos',
-    promotionThreshold:
-      '#1720 resolves (StrykerJS dry-run stops degrading on the full server ' +
-      'suite) AND the gate emits a real scored verdict — not a degrade/skip ' +
-      'carrier — on ≥3 consecutive green CI runs; then drop `--observe` from the ' +
-      'ci.yml invocation so a failing mutation verdict fails the job.',
-    removalThreshold:
-      'Diff-scoped mutation adequacy is subsumed by a blocking gate elsewhere ' +
-      '(e.g. the coverage ratchet grows a mutation axis), making the standalone ' +
-      'observe-mode gate redundant.',
-    issue: '#1720',
-    expires: '2027-06-30',
-    killFixture: 'mutation-gate-failing-verdict',
-    ciPath: '.github/workflows/ci.yml',
-    ciStepMatch: 'tools/audit/gates/check-mutation-gate.mjs',
-    ciPathFiltered: true,
-    ciFilterRationale:
-      'Hosted by ci.yml\'s `test-mcp` job behind a step-level ' +
-      '`if: github.event_name == \'workflow_dispatch\'`. A push to main never runs it. ' +
-      'Compounding that, `--observe` collapses every failing verdict to exit 0 ' +
-      '(the gate\'s own self-test, direction 9, `NoCoverageFailure_ObserveNeverBlocks`), so ' +
-      'in its live configuration it cannot block on ANY lane. Both are exit conditions of ' +
-      '#1720.',
-    softening: [
-      {
-        file: '.github/workflows/ci.yml',
-        kind: 'observe',
-        target: 'tools/audit/gates/check-mutation-gate.mjs',
       },
     ],
   },
@@ -1190,84 +1155,6 @@ function missingControl(advisory: AdvisoryEntry, path: string): KillProbeResult 
   };
 }
 
-/** The bridge-result carrier shape `check-mutation-gate.mjs` scores. */
-interface MutationCarrier {
-  readonly success: boolean;
-  readonly data?: {
-    readonly passed?: boolean;
-    readonly mutationScore?: number;
-    readonly threshold?: number;
-    readonly noCoverage?: number;
-    readonly maxNoCoverage?: number;
-    readonly warning?: string;
-    readonly skipped?: boolean;
-    readonly degraded?: boolean;
-  };
-}
-
-/**
- * A port of the failure decision of `computeVerdict` in `tools/audit/gates/check-mutation-gate.mjs`. A
- * carrier fails when the handler errored, or when it is a degrade, skip, or warning carrier. It also fails
- * when a scored axis is not finite, or when `passed !== true`.
- */
-export function mutationVerdictFires(result: MutationCarrier): boolean {
-  if (result.success !== true) return true;
-  const data = result.data;
-  if (!data || typeof data !== 'object') return true;
-  if (data.warning !== undefined) return true;
-  if (data.skipped === true) return true;
-  if (data.degraded === true) return true;
-  const hasVerdict =
-    typeof data.passed === 'boolean' &&
-    Number.isFinite(data.mutationScore) &&
-    Number.isFinite(data.threshold) &&
-    Number.isFinite(data.noCoverage) &&
-    Number.isFinite(data.maxNoCoverage);
-  if (!hasVerdict) return true;
-  return data.passed !== true;
-}
-
-/**
- * Kill fixture `mutation-gate-failing-verdict`. The violation is a scored carrier with `passed: false`, and
- * the clean control has `passed: true`.
- *
- * The real gate cannot run here, because it calls `git` for the PR diff and a `bun` bridge for the handler.
- * So the port decides, and the probe checks that the failing-verdict branch and the `--observe` collapse
- * are still in the real script. The probe proves that detection still discriminates. It does not prove
- * that the gate can fail in CI, where `--observe` turns this verdict into exit 0.
- */
-export function probeMutationGateVerdict(
-  advisory: AdvisoryEntry,
-  opts: LocalKillProbeOptions,
-): KillProbeResult {
-  const script = join(opts.repoRoot, 'tools', 'audit', 'gates', 'check-mutation-gate.mjs');
-  if (!existsSync(script)) return missingControl(advisory, script);
-  const src = readFileSync(script, 'utf8');
-  const structurallyIntact =
-    src.includes('mutation-adequacy FAILED') &&
-    src.includes('data.passed !== true') &&
-    src.includes('OBSERVE — would FAIL blocking mode');
-
-  const violation: MutationCarrier = {
-    success: true,
-    data: { passed: false, mutationScore: 41, threshold: 60, noCoverage: 9, maxNoCoverage: 3 },
-  };
-  const clean: MutationCarrier = {
-    success: true,
-    data: { passed: true, mutationScore: 82, threshold: 60, noCoverage: 0, maxNoCoverage: 3 },
-  };
-
-  return {
-    advisoryId: advisory.id,
-    killFixture: advisory.killFixture,
-    firedOnViolation: structurallyIntact && mutationVerdictFires(violation),
-    firedOnClean: mutationVerdictFires(clean),
-    detail:
-      `in-process port of computeVerdict; real gate's failing-verdict + observe-collapse ` +
-      `branches ${structurallyIntact ? 'present' : 'MISSING'}`,
-  };
-}
-
 /** The per-suite summary shape `run-evals-cli.ts` reduces over. */
 interface EvalSummaryLite {
   readonly failed: number;
@@ -1326,12 +1213,11 @@ export function probeEvalCapabilityLayer(
 }
 
 /**
- * The kill probes of this module, for `check-mutation-gate` and `eval-capability-layer`. Callers compose
- * them with `runKillProbe` from `advisory-kill-probes.ts`, which owns the other two probes. Each probe runs
- * an in-process port of the decision rule of its control on a seeded violation and clean pair. It also
- * checks that the real control still holds the ported branch, so a gutted control still fails.
+ * The kill probe of this module, for `eval-capability-layer`. Callers compose it with `runKillProbe` from
+ * `advisory-kill-probes.ts`, which owns the other two probes. The probe runs an in-process port of the
+ * decision rule of its control on a seeded violation and clean pair. It also checks that the real control
+ * still holds the ported branch, so a gutted control still fails.
  */
 export const REGISTRY_LOCAL_KILL_PROBES: Readonly<Record<string, AdvisoryProbeRunner>> = {
-  'check-mutation-gate': probeMutationGateVerdict,
   'eval-capability-layer': probeEvalCapabilityLayer,
 };

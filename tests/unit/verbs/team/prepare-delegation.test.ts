@@ -30,9 +30,10 @@ vi.mock('../../../../src/projections/telemetry/telemetry-queries.js', () => ({
 }));
 
 vi.mock('../../../../src/verbs/team/dispatch-guard.js', () => ({
-  validateBranchAncestry: vi.fn().mockResolvedValue({ passed: true, checks: ['ancestry'] }),
+  observeDispatchCheckout: vi.fn().mockResolvedValue({ kind: 'absent' }),
+  validateObservedAncestry: vi.fn().mockResolvedValue({ passed: true, checks: ['ancestry'] }),
   assertMainWorktree: vi.fn().mockReturnValue({ isMain: true, actual: '/repo', expected: 'main worktree (no .claude/worktrees/ in path)' }),
-  getCurrentBranch: vi.fn().mockReturnValue('feature/test-branch'),
+  readObservedBranch: vi.fn().mockResolvedValue({ kind: 'branch', branch: 'feature/test-branch' }),
   assertCurrentBranchNotProtected: vi.fn().mockReturnValue({ blocked: false }),
   probeStashAndEmit: vi.fn().mockResolvedValue(undefined),
 }));
@@ -89,9 +90,9 @@ import * as fc from 'fast-check';
 import { delegationReadinessProjection } from '../../../../src/projections/views/delegation-readiness-view.js';
 import type { WorkflowEvent } from '../../../../src/events/schemas.js';
 import {
-  validateBranchAncestry,
+  validateObservedAncestry,
   assertMainWorktree,
-  getCurrentBranch,
+  readObservedBranch,
   assertCurrentBranchNotProtected,
 } from '../../../../src/verbs/team/dispatch-guard.js';
 import { shouldEnforceCheckpoint } from '../../../../src/workflow/checkpoint.js';
@@ -266,7 +267,7 @@ describe('handlePrepareDelegation', () => {
    */
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.mocked(validateBranchAncestry).mockResolvedValue({ passed: true, checks: ['ancestry'] });
+    vi.mocked(validateObservedAncestry).mockResolvedValue({ passed: true, checks: ['ancestry'] });
     vi.mocked(assertMainWorktree).mockReturnValue({
       isMain: true,
       actual: '/repo',
@@ -1098,7 +1099,7 @@ describe('handlePrepareDelegation', () => {
   it('handlePrepareDelegation_AncestryCheckFails_ReturnsBlocked', async () => {
     const state = readyWorkflowState();
     setupMaterializer(state);
-    vi.mocked(validateBranchAncestry).mockResolvedValue({
+    vi.mocked(validateObservedAncestry).mockResolvedValue({
       passed: false,
       blocked: true,
       reason: 'ancestry',
@@ -1122,7 +1123,7 @@ describe('handlePrepareDelegation', () => {
   it('handlePrepareDelegation_AncestryCheckPasses_ProceedsToClassification', async () => {
     const state = readyWorkflowState();
     setupMaterializer(state);
-    vi.mocked(validateBranchAncestry).mockResolvedValue({
+    vi.mocked(validateObservedAncestry).mockResolvedValue({
       passed: true,
       checks: ['ancestry'],
     });
@@ -1176,7 +1177,7 @@ describe('handlePrepareDelegation', () => {
   it('handlePrepareDelegation_OnProtectedBranch_ReturnsBlockedAndEmitsPreflightBlocked', async () => {
     const state = readyWorkflowState();
     const { mockStore } = setupMaterializer(state);
-    vi.mocked(getCurrentBranch).mockReturnValueOnce('main');
+    vi.mocked(readObservedBranch).mockResolvedValueOnce({ kind: 'branch', branch: 'main' });
     vi.mocked(assertCurrentBranchNotProtected).mockReturnValueOnce({
       blocked: true,
       reason: 'current-branch-protected',
@@ -1195,7 +1196,7 @@ describe('handlePrepareDelegation', () => {
     expect(data.blocked).toBe(true);
     expect(data.reason).toBe('current-branch-protected');
     expect(data.currentBranch).toBe('main');
-    expect(vi.mocked(validateBranchAncestry)).not.toHaveBeenCalled();
+    expect(vi.mocked(validateObservedAncestry)).not.toHaveBeenCalled();
 
     const preflightEvent = mockStore.append.mock.calls.find(
       (call: unknown[]) => (call[1] as { type: string }).type === 'preflight.blocked',
@@ -1205,16 +1206,40 @@ describe('handlePrepareDelegation', () => {
     expect(eventData.reason).toBe('current-branch-protected');
   });
 
+  /** An unreadable branch read blocks with the git-error reason before the protected-branch guard, in both isolation modes. */
+  it('handlePrepareDelegation_UnreadableBranchRead_BlocksWithGitErrorBeforeTheProtectedGuard', async () => {
+    for (const nativeIsolation of [false, true]) {
+      vi.clearAllMocks();
+      const state = readyWorkflowState();
+      const { mockStore } = setupMaterializer(state);
+      vi.mocked(readObservedBranch).mockResolvedValueOnce({ kind: 'unreadable', error: 'Unsupported repository config include or extension' });
+
+      const result = await handlePrepareDelegation({ featureId: 'test-feature', nativeIsolation }, STATE_DIR, makeCtx(mockStore, STATE_DIR));
+
+      expect(result.data).toEqual({ blocked: true, reason: 'git-error', error: 'Unsupported repository config include or extension' });
+      expect(vi.mocked(assertCurrentBranchNotProtected)).not.toHaveBeenCalled();
+      expect(vi.mocked(validateObservedAncestry)).not.toHaveBeenCalled();
+      const types = mockStore.append.mock.calls.map((call: unknown[]) => (call[1] as { type: string }).type);
+      expect(types).toContain('preflight.blocked');
+      expect(types).toContain('dispatch.preflight');
+      expect(types).not.toContain('stash.detected');
+      const blocked = mockStore.append.mock.calls.find((call: unknown[]) => (call[1] as { type: string }).type === 'preflight.blocked');
+      expect((blocked?.[1] as { data: unknown }).data).toEqual({ reason: 'git-error', details: { error: 'Unsupported repository config include or extension' } });
+      const summary = mockStore.append.mock.calls.find((call: unknown[]) => (call[1] as { type: string }).type === 'dispatch.preflight');
+      expect((summary?.[1] as { data: { guards: { ancestry: { passed: boolean } }; passed: boolean } }).data).toMatchObject({ guards: { ancestry: { passed: false } }, passed: false });
+    }
+  });
+
   /**
    * The server reads HEAD from its own launch checkout, which stays on `main` while the orchestrator works in a worktree.
    * So the protected-branch guard gives a false positive there. Under native isolation, the host owns base safety and the guard does not run.
-   * The test sets `getCurrentBranch` with `mockReturnValueOnce`, so the value does not leak into later tests.
+   * The test sets `readObservedBranch` with `mockResolvedValueOnce`, so the value does not leak into later tests.
    */
   it('handlePrepareDelegation_NativeIsolationOnProtectedBranch_SkipsGuardAndProceeds', async () => {
     const state = readyWorkflowState();
     setupMaterializer(state);
     vi.mocked(generateQualityHints).mockReturnValue([]);
-    vi.mocked(getCurrentBranch).mockReturnValueOnce('main');
+    vi.mocked(readObservedBranch).mockResolvedValueOnce({ kind: 'branch', branch: 'main' });
     const args = { featureId: 'test-feature', nativeIsolation: true };
 
     const result = await handlePrepareDelegation(args, STATE_DIR, makeCtx(mockStore, STATE_DIR));
@@ -1241,8 +1266,8 @@ describe('handlePrepareDelegation', () => {
     };
     delete state.synthesis;
     setupMaterializer(state);
-    vi.mocked(getCurrentBranch).mockReturnValueOnce('feature/real-branch');
-    vi.mocked(validateBranchAncestry).mockResolvedValue({
+    vi.mocked(readObservedBranch).mockResolvedValueOnce({ kind: 'branch', branch: 'feature/real-branch' });
+    vi.mocked(validateObservedAncestry).mockResolvedValue({
       passed: true,
       checks: ['ancestry'],
     });
@@ -1254,10 +1279,10 @@ describe('handlePrepareDelegation', () => {
 
     await handlePrepareDelegation(args, STATE_DIR, makeCtx(mockStore, STATE_DIR));
 
-    const call = vi.mocked(validateBranchAncestry).mock.calls[0];
+    const call = vi.mocked(validateObservedAncestry).mock.calls[0];
     expect(call).toBeDefined();
-    expect(call![0]).toBe('feature/real-branch');
-    expect(call![0]).not.toBe('dogfood-v280');
+    expect(call![1]).toBe('feature/real-branch');
+    expect(call![1]).not.toBe('dogfood-v280');
   });
 
   it('handlePrepareDelegation_InMainWorktree_ProceedsNormally', async () => {
@@ -1285,7 +1310,7 @@ describe('handlePrepareDelegation', () => {
   it('handlePrepareDelegation_AncestryPasses_EmitsPreflightExecutedEvent', async () => {
     const state = readyWorkflowState();
     const { mockStore } = setupMaterializer(state);
-    vi.mocked(validateBranchAncestry).mockResolvedValue({
+    vi.mocked(validateObservedAncestry).mockResolvedValue({
       passed: true,
       checks: ['ancestry'],
     });
@@ -1314,7 +1339,7 @@ describe('handlePrepareDelegation', () => {
   it('handlePrepareDelegation_AncestryBlocked_EmitsPreflightBlockedEvent', async () => {
     const state = readyWorkflowState();
     const { mockStore } = setupMaterializer(state);
-    vi.mocked(validateBranchAncestry).mockResolvedValue({
+    vi.mocked(validateObservedAncestry).mockResolvedValue({
       passed: false,
       blocked: true,
       reason: 'ancestry',
@@ -1337,7 +1362,7 @@ describe('handlePrepareDelegation', () => {
   it('handlePrepareDelegation_WorktreeBlocked_EmitsPreflightBlockedEvent', async () => {
     const state = readyWorkflowState();
     const { mockStore } = setupMaterializer(state);
-    vi.mocked(validateBranchAncestry).mockResolvedValue({
+    vi.mocked(validateObservedAncestry).mockResolvedValue({
       passed: true,
       checks: ['ancestry'],
     });

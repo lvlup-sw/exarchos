@@ -97,6 +97,25 @@ const VerificationTraceSchema = z
   })
   .strict();
 
+/**
+ * The integration record of a compiler 8-vcs settlement that judged the integration tip.
+ * `ref` is the full integration ref, `tip` the commit that settle captured and `observedAt` the time of its final observation.
+ * `attemptBinding` is the `settle-integration:` operation that binds the stored request.
+ * `suiteEvidenceDigest` names the stored local observation of the suite run. The run bundle store keeps that observation under this digest.
+ * A bundle of the retired verifier holds the digest of its signed suite evidence, and it reads unchanged.
+ *
+ * Both are present only for a resolved suite that settle ran. An unresolved suite or an unmerged head leaves both out.
+ */
+const IntegrationRecordSchema = z
+  .object({
+    ref: z.string().min(1),
+    tip: z.string().regex(/^[0-9a-f]{40}(?:[0-9a-f]{24})?$/),
+    observedAt: z.iso.datetime({ offset: true }),
+    attemptBinding: z.string().min(1).optional(),
+    suiteEvidenceDigest: z.string().regex(/^[a-f0-9]{64}$/).optional(),
+  })
+  .strict();
+
 export const SettlementBundleV1Schema = z
   .object({
     bundleVersion: z.literal(SETTLEMENT_BUNDLE_VERSION),
@@ -136,6 +155,8 @@ export const SettlementBundleV1Schema = z
      * and it is often empty.
      */
     verification: z.array(VerificationTraceSchema).optional(),
+    /** Present only on a compiler 8-vcs bundle whose adjudication judged the integration tip. */
+    integration: IntegrationRecordSchema.optional(),
     settledAt: z.iso.datetime({ offset: true }),
   })
   .strict();

@@ -10,9 +10,10 @@
  *
  * The gate never guesses a base. A run with no `baseBranch` gives the verdict
  * `base-missing`, which is indeterminate and blocks.
+ *
+ * The legs run in the local approved-check executor, in a disposable copy of the exact head, so codegen never writes the checkout.
  */
 
-import { runCommandSync } from '../../utils/process.js';
 import type { ToolResult } from '../../format.js';
 import type { EventStore } from '../../events/store.js';
 import {
@@ -26,6 +27,12 @@ import {
 } from './gate-utils.js';
 import { runGatePreflight } from '../pure/gate-preflight.js';
 import { runDurableGateProducer } from './durable-gate-producer.js';
+import { contentDigest } from '../../contract/capsule/capsule-digest.js';
+import { verificationJson, type CheckLeg, type CheckPlan } from '../../contract/verification/harness-verification.js';
+import {
+  legArgv, pendingOfDirectCall, refusedCheckResult, runApprovedCheck, type CheckExecutor, type CheckSession,
+} from '../verification/check-executor.js';
+import type { VerificationProfile } from '../../workflow/verification/profile.js';
 import type { RiskTier } from '../../workflow/verification-policy.js';
 import type { ResolvedProjectConfig } from '../../config/resolve.js';
 import type { GitExec } from '../pure/execute-merge.js';
@@ -81,36 +88,47 @@ export interface ContractDriftHandlerArgs extends ProfiledGateArgs {
    */
   readonly projectConfig?: ResolvedProjectConfig;
 
-  /** A test seam. The default is `defaultGitExec`. */
+  /** A test seam. The default is `defaultGitExec`, which reads the merge base in the live checkout. */
   readonly gitExec?: GitExec;
-  /** A test seam. The default is {@link defaultRunCommand}. */
+  /** A test seam. With it, the legs run through it at the root, and no executor runs. */
   readonly runCommand?: CommandRunFn;
 }
 
-/**
- * The default command runner. It spawns the first token of `argv` with the rest,
- * in the repository, and returns the exit code with stdout. On a non-zero exit, the
- * output also holds stderr. It does not throw on a non-zero exit, because the gate
- * reads the exit code as the verdict of the leg.
- */
-const defaultRunCommand: CommandRunFn = async ({ repoRoot, argv }) => {
-  const [program = '', ...args] = argv;
-  try {
-    const stdout = runCommandSync(program, args, {
-      cwd: repoRoot,
-      timeout: 120_000,
-      encoding: 'utf-8',
-      stdio: ['pipe', 'pipe', 'pipe'],
-    }) as string;
-    return { exitCode: 0, stdout };
-  } catch (err) {
-    const e = err as { status?: number; stdout?: string | Buffer; stderr?: string | Buffer };
-    const out =
-      (typeof e.stdout === 'string' ? e.stdout : e.stdout?.toString('utf-8') ?? '') +
-      (typeof e.stderr === 'string' ? e.stderr : e.stderr?.toString('utf-8') ?? '');
-    return { exitCode: e.status ?? 1, stdout: out };
+/** The contract legs in the order of the gate. */
+const CONTRACT_LEGS: readonly ('codegen' | 'typecheck' | 'diff')[] = ['codegen', 'typecheck', 'diff'];
+
+/** The reviewed typed scope of the resolved contract legs, in the order of the gate. */
+export function contractDriftPlan(contract: VerificationProfile['contract']): CheckPlan {
+  const legs: CheckLeg[] = [];
+  for (const kind of CONTRACT_LEGS) {
+    const term = contract[kind];
+    if (term.state === 'resolved') legs.push({ name: kind, kind, argv: [...term.argv] });
   }
-};
+  return { operation: 'contract-drift', legs };
+}
+
+/** True when the gate runs a leg: codegen or diff resolves, and a bound diff names both standalone coordinates. */
+function contractDriftRunsLegs(contract: VerificationProfile['contract'], bound: boolean): boolean {
+  const { codegen, diff } = contract;
+  if (codegen.state === 'unresolved' && diff.state === 'unresolved') return false;
+  return !(bound && diff.state === 'resolved'
+    && (!diff.argv.slice(1).includes('@baseCommit@') || !diff.argv.slice(1).includes('@headCommit@')));
+}
+
+/**
+ * A leg runner over one executor session. Each argv that the drift legs ask for must be an approved leg after the coordinate substitution.
+ * A leg that ended other than by an exit reads as exit 1, and its output names the end. A failed exit keeps stdout and stderr.
+ */
+function sessionLegs(session: CheckSession, plan: CheckPlan, substitute: Readonly<Record<string, string>>): CommandRunFn {
+  return async ({ argv }) => {
+    const wanted = verificationJson(argv);
+    const leg = plan.legs.findIndex((_, index) => verificationJson(legArgv(plan, { leg: index, substitute })) === wanted);
+    const run = await session.run({ leg, substitute });
+    if (run.end === 'exited' && run.exitCode === 0) return { exitCode: 0, stdout: run.stdout };
+    const stopped = run.end === 'exited' ? '' : `[the executor stopped the leg: ${run.end}${run.detail === undefined ? '' : `, ${run.detail}`}] `;
+    return { exitCode: run.end === 'exited' ? run.exitCode ?? 1 : 1, stdout: `${stopped}${run.stdout}${run.stderr}` };
+  };
+}
 
 /** The discriminant of a run that names no base. */
 const BASE_MISSING = 'base-missing';
@@ -142,6 +160,34 @@ function isCleanPass(drift: ContractDriftResult): boolean {
 }
 
 /**
+ * Runs the drift legs. With a test runner in the args, the legs run through it at the root.
+ * Else the legs run in the local executor, in a disposable copy of the exact head, and the merge base reads the live checkout.
+ * A run that runs no leg starts no executor.
+ */
+async function runDrift(
+  args: ContractDriftHandlerArgs, repoRoot: string, baseRef: string, eventStore: EventStore, executor: CheckExecutor,
+): Promise<ContractDriftResult | ToolResult> {
+  const profile = profileOf(args, repoRoot);
+  const { contract } = profile;
+  const gitExec = args.gitExec ?? defaultGitExec;
+  const drift = (root: string, runCommand: CommandRunFn) => runContractDrift({
+    repoRoot: root, baseRef, contract, coordinate: args.coordinate, gitExec: (_root, gitArgs) => gitExec(repoRoot, gitArgs), runCommand,
+  });
+  if (args.runCommand !== undefined) return drift(repoRoot, args.runCommand);
+  const plan = contractDriftPlan(contract);
+  if (!contractDriftRunsLegs(contract, args.coordinate !== undefined)) {
+    return drift(repoRoot, async () => { throw new Error('a contract run with no runnable leg runs no command'); });
+  }
+  const coordinate = args.coordinate;
+  const substitute = coordinate === undefined ? {} : { '@baseCommit@': coordinate.diffBaseCommit, '@headCommit@': coordinate.observedHeadCommit };
+  const ran = await executor({
+    eventStore, operation: 'contract-drift', streamId: args.featureId, taskId: args.taskId, plan, profileDigest: contentDigest(profile),
+    checkout: repoRoot, coordinate, workspace: 'disposable-copy',
+  }, (session) => drift(session.root, sessionLegs(session, plan, substitute)));
+  return ran.kind === 'refused' ? refusedCheckResult(ran.reason) : ran.value;
+}
+
+/**
  * Runs the shared gate preflight, which requires `taskId`. Then it runs the
  * gate inside the durable gate producer. A policy skip gives a passing result
  * with `skipped: true`.
@@ -149,11 +195,14 @@ function isCleanPass(drift: ContractDriftResult): boolean {
  * After the policy skip and before any contract leg, a run with no base gives `base-missing`.
  * Its verdict is `indeterminate` with `passed: false`, and it is not a skip. Thus it blocks, and a policy skip with no base stays a skip.
  * With no base, the producer scope gets no `baseRef`, so the evidence subject names no diff base.
+ *
+ * @param executor - The local check executor, {@link runApprovedCheck} by default. A test passes its own executor.
  */
 export async function handleContractDrift(
   args: ContractDriftHandlerArgs,
   stateDir: string,
   eventStore: EventStore,
+  executor: CheckExecutor = runApprovedCheck,
 ): Promise<ToolResult> {
   const pre = await runGatePreflight(
     {
@@ -170,78 +219,73 @@ export async function handleContractDrift(
   const repoRoot = pre.repoRoot;
   const baseRef = args.baseBranch && args.baseBranch.trim().length > 0 ? args.baseBranch.trim() : undefined;
 
-  return runDurableGateProducer(
-    {
-      coordinate: args.coordinate,
-      gateClass: 'contract-drift',
-      featureId: args.featureId,
-      taskId: args.taskId,
-      ...(args.branch ? { branch: args.branch } : {}),
-      ...(baseRef ? { baseRef } : {}),
-      repoRoot,
-      stateDir,
-      eventStore,
-    },
-    async () => {
-      const policySkip = resolvePolicySkip({
-        gateName: 'check_contract_drift',
-        riskTier: args.riskTier,
-        boundaryTouching: args.boundaryTouching,
-        config: args.projectConfig,
-      });
-      if (policySkip) {
-        return {
-          success: true,
-          data: {
-            passed: true,
-            skipped: true,
-            drift: false,
-            breaking: [],
-            report: policySkip.reason,
-            discriminant: SKIPPED_BY_POLICY,
-          },
-        };
-      }
-
-      if (baseRef === undefined) {
-        return {
-          success: true,
-          data: {
-            passed: false,
-            verdict: 'indeterminate',
-            drift: false,
-            breaking: [],
-            report: BASE_MISSING_REPORT,
-            discriminant: BASE_MISSING,
-          },
-        };
-      }
-
-      const gitExec = args.gitExec ?? defaultGitExec;
-      const runCommand = args.runCommand ?? defaultRunCommand;
-      const drift: ContractDriftResult = await runContractDrift({
-        repoRoot,
-        baseRef,
-        contract: profileOf(args, repoRoot).contract,
+  try {
+    return await runDurableGateProducer(
+      {
         coordinate: args.coordinate,
-        gitExec,
-        runCommand,
-      });
+        gateClass: 'contract-drift',
+        featureId: args.featureId,
+        taskId: args.taskId,
+        ...(args.branch ? { branch: args.branch } : {}),
+        ...(baseRef ? { baseRef } : {}),
+        repoRoot,
+        stateDir,
+        eventStore,
+      },
+      async () => {
+        const policySkip = resolvePolicySkip({
+          gateName: 'check_contract_drift',
+          riskTier: args.riskTier,
+          boundaryTouching: args.boundaryTouching,
+          config: args.projectConfig,
+        });
+        if (policySkip) {
+          return {
+            success: true,
+            data: {
+              passed: true,
+              skipped: true,
+              drift: false,
+              breaking: [],
+              report: policySkip.reason,
+              discriminant: SKIPPED_BY_POLICY,
+            },
+          };
+        }
 
-      if (drift.discriminant === 'PROFILE_DIFF_COORDINATE_UNBOUND') {
-        return { success: false, error: { code: drift.discriminant, message: drift.report } };
-      }
-      return {
-        success: true,
-        data: {
-          passed: drift.passed,
-          drift: drift.drift,
-          breaking: drift.breaking,
-          report: `profile = ${profilePathOf(args, repoRoot)}\n${drift.report}`,
-          ...unresolvedFields(args, repoRoot, drift),
-          ...(isCleanPass(drift) ? { next_actions: [ONE_SEMANTIC_TEST_STEER] } : {}),
-        },
-      };
-    },
-  );
+        if (baseRef === undefined) {
+          return {
+            success: true,
+            data: {
+              passed: false,
+              verdict: 'indeterminate',
+              drift: false,
+              breaking: [],
+              report: BASE_MISSING_REPORT,
+              discriminant: BASE_MISSING,
+            },
+          };
+        }
+
+        const drift = await runDrift(args, repoRoot, baseRef, eventStore, executor);
+        if ('success' in drift) return drift;
+        if (drift.discriminant === 'PROFILE_DIFF_COORDINATE_UNBOUND') {
+          return { success: false, error: { code: drift.discriminant, message: drift.report } };
+        }
+        return {
+          success: true,
+          data: {
+            passed: drift.passed,
+            drift: drift.drift,
+            breaking: drift.breaking,
+            report: `profile = ${profilePathOf(args, repoRoot)}\n${drift.report}`,
+            ...unresolvedFields(args, repoRoot, drift),
+            ...(isCleanPass(drift) ? { next_actions: [ONE_SEMANTIC_TEST_STEER] } : {}),
+          },
+        };
+      },
+    );
+  } catch (error) {
+    return pendingOfDirectCall(error, args.coordinate !== undefined);
+  }
 }

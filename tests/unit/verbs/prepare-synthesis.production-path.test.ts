@@ -4,12 +4,14 @@
  * `team/prepare-synthesis.test.ts` calls `handlePrepareSynthesis` directly, so it cannot see what `dispatch()` does to the args.
  * `dispatch()` gives the handler only the keys that the parsed action schema keeps.
  * Thus the action schema must declare `repoRoot`, or no production call reaches the handler with it.
- * Each case here runs through `dispatch()`. The mock stubs `execSync` and `execFileSync` and keeps the rest of `node:child_process` real.
- * Thus nothing spawns, and the tests check only the `cwd` of each leg.
+ *
+ * Each case here runs through `dispatch()` with no verifier provisioning. The lifecycle check of the local executor is a stub that records each request.
+ * The stack and changed-file legs read a real Git fixture through the constrained reader with the Git executable on PATH.
+ * The mock stubs `execSync` and `execFileSync`, so no leg can start a plain process unseen.
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { accessSync, constants, mkdirSync, mkdtempSync, realpathSync, writeFileSync } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 
@@ -22,6 +24,13 @@ vi.mock('node:child_process', async (importOriginal) => {
   };
 });
 
+vi.mock('../../../src/verbs/verification/lifecycle-check.js', () => {
+  const run = { argv: ['leg'], end: 'exited' as const, exitCode: 0, stdout: 'Tests: 3 passed, 0 failed', stderr: '' };
+  return {
+    admitLifecycleLegs: vi.fn(async () => [{ name: 'test', kind: 'command', run }, { name: 'typecheck', kind: 'typecheck', run }]),
+  };
+});
+
 import { execSync, execFileSync } from 'node:child_process';
 
 import { EventStore } from '../../../src/events/store.js';
@@ -30,21 +39,31 @@ import type { DispatchContext } from '../../../src/dispatch/core/dispatch.js';
 import { dispatch } from '../../../src/dispatch/core/dispatch.js';
 import { seedActivePhaseAttempt, withTrustedCaller } from '../../../tools/test-helpers/trusted-context.js';
 import { TOOL_REGISTRY } from '../../../src/registry.js';
+import { admitLifecycleLegs } from '../../../src/verbs/verification/lifecycle-check.js';
+import { execFileAsync } from '../../../tools/test-helpers/spawn.js';
 
-/** Every `cwd` handed to a shelled-out leg during the call under test. */
-function observedLegCwds(): string[] {
-  const fromExecSync = vi.mocked(execSync).mock.calls
-    .map((call) => (call[1] as { cwd?: string } | undefined)?.cwd)
-    .filter((cwd): cwd is string => typeof cwd === 'string');
-  const fromExecFileSync = vi.mocked(execFileSync).mock.calls
-    .map((call) => (call[2] as { cwd?: string } | undefined)?.cwd)
-    .filter((cwd): cwd is string => typeof cwd === 'string');
-  return [...fromExecSync, ...fromExecFileSync];
+/** The absolute real path of the Git executable on the test process PATH. */
+function gitExecutable(): string {
+  for (const directory of (process.env.PATH ?? '').split(path.delimiter)) {
+    const candidate = path.resolve(directory, process.platform === 'win32' ? 'git.exe' : 'git');
+    try { accessSync(candidate, constants.X_OK); return realpathSync(candidate); } catch {}
+  }
+  throw new Error('The fixture needs Git on PATH');
 }
 
-/** The shell-form commands the `execSync` legs asked for. */
-function observedExecSyncCommands(): string[] {
-  return vi.mocked(execSync).mock.calls.map((call) => String(call[0]));
+const GIT = gitExecutable();
+
+/** Fixture Git with a fixed identity and no global or system configuration. */
+async function fixtureGit(cwd: string, ...args: string[]): Promise<void> {
+  await execFileAsync(GIT, args, {
+    cwd,
+    timeout: 30_000,
+    env: {
+      ...process.env, GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: os.devNull,
+      GIT_AUTHOR_NAME: 'Fixture', GIT_AUTHOR_EMAIL: 'fixture@example.invalid',
+      GIT_COMMITTER_NAME: 'Fixture', GIT_COMMITTER_EMAIL: 'fixture@example.invalid',
+    },
+  });
 }
 
 describe('prepare_synthesis production path (DR-8 / #1756)', () => {
@@ -56,16 +75,24 @@ describe('prepare_synthesis production path (DR-8 / #1756)', () => {
   const FEATURE_ID = 'feat-prepare-synthesis-prodpath';
 
   /**
-   * The repo root is a temporary directory and not `process.cwd()`.
-   * No tasks are seeded, so the task-completion check passes and the handler runs the four shell legs.
+   * The repo root is a temporary Git checkout and not `process.cwd()`. The task branch adds one commit after `main`.
+   * No tasks are seeded, so the task-completion check passes and the handler runs every leg.
    */
   beforeEach(async () => {
     vi.clearAllMocks();
     const stateDir = mkdtempSync(path.join(os.tmpdir(), 'ps-prodpath-state-'));
     cleanups.push(() => rmrf(stateDir));
-    repoRoot = mkdtempSync(path.join(os.tmpdir(), 'ps-prodpath-repo-'));
+    repoRoot = realpathSync(mkdtempSync(path.join(os.tmpdir(), 'ps-prodpath-repo-')));
     cleanups.push(() => rmrf(repoRoot));
     writeFileSync(path.join(repoRoot, '.exarchos.yml'), "test: 'vitest run'\ntypecheck: 'tsc --noEmit'\n");
+    await fixtureGit(repoRoot, 'init', '-q', '-b', 'main');
+    await fixtureGit(repoRoot, 'add', '.');
+    await fixtureGit(repoRoot, 'commit', '-q', '-m', 'base');
+    await fixtureGit(repoRoot, 'checkout', '-q', '-b', 'task');
+    mkdirSync(path.join(repoRoot, 'src'));
+    writeFileSync(path.join(repoRoot, 'src', 'touched.ts'), 'export {};\n');
+    await fixtureGit(repoRoot, 'add', '.');
+    await fixtureGit(repoRoot, 'commit', '-q', '-m', 'touch the source');
 
     const eventStore = new EventStore(stateDir);
     await eventStore.initialize();
@@ -98,7 +125,7 @@ describe('prepare_synthesis production path (DR-8 / #1756)', () => {
 
   /**
    * Without the schema field, `repoRoot` does not reach the handler, and no leg runs.
-   * The test checks each named leg by its command, so a missing leg cannot pass on the count alone.
+   * The test checks each named leg by its command and the Git legs by their result. So a missing leg cannot pass on the count alone.
    */
   it('ProductionPath_DispatchWithRepoRoot_EveryLegRunsAgainstThatRoot', async () => {
     const result = await dispatch(
@@ -110,35 +137,24 @@ describe('prepare_synthesis production path (DR-8 / #1756)', () => {
     expect(result.error?.code, JSON.stringify(result.error)).toBeUndefined();
     expect(result.success).toBe(true);
 
-    const cwds = observedLegCwds();
-    expect(cwds.length).toBeGreaterThanOrEqual(4);
-    for (const cwd of cwds) {
-      expect(cwd).toBe(repoRoot);
-    }
-    expect(cwds).not.toContain(process.cwd());
+    const requests = vi.mocked(admitLifecycleLegs).mock.calls.map(([input]) => input);
+    expect(requests.map((input) => input.checkout)).toEqual([repoRoot]);
+    expect(requests[0]?.legs).toEqual([{ kind: 'command', argv: ['vitest', 'run'] }, { kind: 'typecheck', argv: ['tsc', '--noEmit'] }]);
+    expect(repoRoot).not.toBe(process.cwd());
 
-    const commands = observedExecSyncCommands();
-    expect(commands.some((c) => c.startsWith('git log '))).toBe(true);
-    expect(vi.mocked(execFileSync)).toHaveBeenCalledWith(
-      'vitest',
-      ['run'],
-      expect.objectContaining({ cwd: repoRoot }),
-    );
-    expect(vi.mocked(execFileSync)).toHaveBeenCalledWith(
-      'tsc',
-      ['--noEmit'],
-      expect.objectContaining({ cwd: repoRoot }),
-    );
-    expect(vi.mocked(execFileSync)).toHaveBeenCalledWith(
-      'git',
-      expect.arrayContaining(['diff', '--name-only']),
-      expect.objectContaining({ cwd: repoRoot }),
-    );
+    const data = result.data as { stack: { healthy: boolean; branches: string[] }; tests: { passed: boolean }; typecheck: { passed: boolean } };
+    expect(data.tests.passed).toBe(true);
+    expect(data.typecheck.passed).toBe(true);
+    expect(data.stack.healthy).toBe(true);
+    expect(data.stack.branches).toHaveLength(1);
+    expect(data.stack.branches[0]).toContain('touch the source');
+    expect(execSync).not.toHaveBeenCalled();
+    expect(execFileSync).not.toHaveBeenCalled();
   });
 
   /**
    * The action schema requires `repoRoot`, so `dispatch()` rejects a call without it before the gate runner starts.
-   * Thus no subprocess runs, and no evidence row exists for a gate that did not run.
+   * Thus no leg runs, and no evidence row exists for a gate that did not run.
    */
   it('ProductionPath_DispatchWithoutRepoRoot_RefusedBeforeAnyLegSpawns', async () => {
     const result = await dispatch(
@@ -150,7 +166,9 @@ describe('prepare_synthesis production path (DR-8 / #1756)', () => {
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe('INVALID_INPUT');
     expect(result.error?.message).toMatch(/repoRoot/i);
-    expect(observedLegCwds()).toEqual([]);
+    expect(admitLifecycleLegs).not.toHaveBeenCalled();
+    expect(execSync).not.toHaveBeenCalled();
+    expect(execFileSync).not.toHaveBeenCalled();
 
     const evidence = await ctx.eventStore.query(FEATURE_ID, {
       type: 'admission.evidence-recorded',

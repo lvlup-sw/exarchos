@@ -19,7 +19,6 @@ import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
 import {
   WorktreeManager,
   WORKTREES_STREAM,
-  defaultGitRunner,
   type GitRunner,
   type ReleaseResult,
   type ReservationOwner,
@@ -38,6 +37,7 @@ import { emitLaunchExecuted, LAUNCH_EXECUTED } from '../../../../src/runtime/lau
 import { deriveWorktreePath } from '../../../../src/runtime/launcher/topology.js';
 import {
   createLauncherWorktree,
+  launcherGitRunner,
   CREATE_REQUESTED,
   CREATE_EXECUTED,
 } from '../../../../src/runtime/launcher/create-worktree.js';
@@ -97,7 +97,7 @@ function recordingGit(): { runner: GitRunner; calls: string[][] } {
   const runner: GitRunner = {
     run(args, cwd) {
       calls.push([...args]);
-      return defaultGitRunner.run(args, cwd);
+      return launcherGitRunner.run(args, cwd);
     },
   };
   return { runner, calls };

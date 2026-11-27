@@ -1,6 +1,7 @@
 // The gate runner mock calls only the provider, because these cases test the
 // provider verdict. `unrunbooked-gate-evidence-dispatch.test.ts` proves the
-// recorded evidence over real dispatch.
+// recorded evidence over real dispatch. The lifecycle check of the local executor
+// is a stub, so each verdict case reads only the handling of its legs.
 
 import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { tmpdir } from 'node:os';
@@ -14,6 +15,10 @@ vi.mock('node:fs', () => ({
 
 vi.mock('node:child_process', () => ({
   execFileSync: vi.fn(),
+}));
+
+vi.mock('../../../../src/verbs/verification/lifecycle-check.js', () => ({
+  admitLifecycleLegs: vi.fn(),
 }));
 
 vi.mock('../../../../src/verbs/gates/gate-runner.js', () => ({
@@ -37,11 +42,14 @@ vi.mock('../../../../src/verbs/gates/gate-runner.js', () => ({
       };
     }
   }),
+  hostedPendingResult: vi.fn((error: unknown) => { throw error; }),
 }));
 
 import { existsSync, readFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { handlePostDelegationCheck } from '../../../../src/verbs/team/post-delegation-check.js';
+import { runPhaseGateWithEvidence } from '../../../../src/verbs/gates/gate-runner.js';
+import { admitLifecycleLegs } from '../../../../src/verbs/verification/lifecycle-check.js';
 import type { EventStore } from '../../../../src/events/store.js';
 import { rmrf } from '../../../../tools/test-helpers/temp-dir.js';
 
@@ -56,6 +64,11 @@ const mockExecFileSync = vi.mocked(execFileSync);
  */
 const STATE_DIR = '/tmp/test-post-delegation-check';
 const FEATURE_ID = 'post-delegation-feature';
+
+/** One observed test leg of the local executor with an exit code. */
+function localRun(exitCode: number) {
+  return [{ name: 'test', kind: 'command' as const, run: { argv: ['test'], end: 'exited' as const, exitCode, stdout: '', stderr: '' } }];
+}
 
 let currentStore: EventStore;
 
@@ -114,6 +127,7 @@ describe('handlePostDelegationCheck', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     currentStore = unavailableStore();
+    vi.mocked(admitLifecycleLegs).mockResolvedValue(localRun(0));
   });
 
   afterEach(() => {
@@ -138,7 +152,6 @@ describe('handlePostDelegationCheck', () => {
     mockReadFileSync.mockImplementation(((p: unknown) =>
       String(p).endsWith('package.json') ? NODE_PACKAGE_JSON : stateJson) as typeof readFileSync);
     currentStore = storeFrom(stateJson);
-    mockExecFileSync.mockReturnValue(Buffer.from(''));
 
     const result = await handlePostDelegationCheck({
       ...gateWiring(),
@@ -147,29 +160,56 @@ describe('handlePostDelegationCheck', () => {
     });
 
     expect(result.success).toBe(true);
+    expect(admitLifecycleLegs).toHaveBeenCalledTimes(2);
+    expect(mockExecFileSync).not.toHaveBeenCalled();
     const data = result.data as { passed: boolean; report: string; checks: { pass: number; fail: number; skip: number } };
     expect(data.passed).toBe(true);
     expect(data.checks.fail).toBe(0);
     expect(data.report).toContain('PASS');
   });
 
-  /** A worktree without a package.json still runs its tests. A Go module resolves `go test ./...`. */
+  /** Each worktree runs its tests in the local executor under its own task subject, and the handler runs no command of its own. */
+  it('localRoute_checksEachWorktreeInTheLocalExecutor', async () => {
+    const repoRoot = fixtureRepo();
+    for (const worktree of ['wt-a', 'wt-b']) {
+      realFs.mkdirSync(join(repoRoot, worktree));
+      realFs.writeFileSync(join(repoRoot, worktree, 'go.mod'), 'module example.com/fixture\n');
+    }
+    useRealFs();
+    currentStore = storeFrom(makeState([makeCompleteTask('task-a', 'wt-a'), makeCompleteTask('task-b', 'wt-b')]));
+    vi.mocked(admitLifecycleLegs)
+      .mockResolvedValueOnce(localRun(0))
+      .mockResolvedValueOnce(localRun(1));
+    const result = await handlePostDelegationCheck({ ...gateWiring(), repoRoot });
+
+    expect(mockExecFileSync).not.toHaveBeenCalled();
+    expect(vi.mocked(admitLifecycleLegs).mock.calls.map(([input]) => input.eventStore === currentStore)).toEqual([true, true]);
+    expect(vi.mocked(admitLifecycleLegs).mock.calls.map(([input]) => [input.checkout.replace(/^.*\//, ''), input.taskId, input.streamId, input.legs]))
+      .toEqual([
+        ['wt-a', 'task-a', FEATURE_ID, [{ kind: 'command', argv: ['go', 'test', './...'] }]],
+        ['wt-b', 'task-b', FEATURE_ID, [{ kind: 'command', argv: ['go', 'test', './...'] }]],
+      ]);
+    const data = result.data as { passed: boolean; report: string };
+    expect(data.passed).toBe(false);
+    expect(data.report).toContain('**PASS**: Worktree tests: wt-a (go test ./...)');
+    expect(data.report).toContain('**FAIL**: Worktree tests: wt-b — go test ./... failed');
+  });
+
+  /** A worktree without a package.json still runs its tests in the local executor. A Go module resolves `go test ./...`. */
   it('worktreeGoModule_runsTheResolvedTestCommand', async () => {
     const repoRoot = fixtureRepo();
     realFs.mkdirSync(join(repoRoot, 'wt-go'));
     realFs.writeFileSync(join(repoRoot, 'wt-go', 'go.mod'), 'module example.com/fixture\n');
     useRealFs();
     currentStore = storeFrom(makeState([makeCompleteTask('task-1', 'wt-go')]));
-    mockExecFileSync.mockReturnValue(Buffer.from(''));
 
     const result = await handlePostDelegationCheck({ ...gateWiring(), repoRoot });
 
-    expect(mockExecFileSync).toHaveBeenCalledTimes(1);
-    expect(mockExecFileSync).toHaveBeenCalledWith(
-      'go',
-      ['test', './...'],
-      expect.objectContaining({ cwd: expect.stringMatching(/wt-go$/) }),
-    );
+    expect(mockExecFileSync).not.toHaveBeenCalled();
+    expect(admitLifecycleLegs).toHaveBeenCalledTimes(1);
+    expect(admitLifecycleLegs).toHaveBeenCalledWith(expect.objectContaining({
+      checkout: expect.stringMatching(/wt-go$/), legs: [{ kind: 'command', argv: ['go', 'test', './...'] }],
+    }));
     const data = result.data as { passed: boolean; report: string };
     expect(data.passed).toBe(true);
     expect(data.report).toContain('Worktree tests: wt-go (go test ./...)');
@@ -189,6 +229,7 @@ describe('handlePostDelegationCheck', () => {
     expect(data.checks.skip).toBe(0);
     expect(data.report).toMatch(/FAIL\*\*: Worktree tests: wt-empty — No test command resolved: No project markers detected/);
     expect(mockExecFileSync).not.toHaveBeenCalled();
+    expect(admitLifecycleLegs).not.toHaveBeenCalled();
   });
 
   /**
@@ -284,6 +325,24 @@ describe('handlePostDelegationCheck', () => {
     const data = result.data as { passed: boolean; checks: { skip: number } };
     expect(data.passed).toBe(true);
     expect(data.checks.skip).toBeGreaterThan(0);
+    expect(mockExecFileSync).not.toHaveBeenCalled();
+    expect(admitLifecycleLegs).not.toHaveBeenCalled();
+  });
+
+  /** A refusal of the local executor returns as the gate result, before the gate event. */
+  it('localRefusal_returnsTheRefusalWithNoGateEvent', async () => {
+    const repoRoot = fixtureRepo();
+    realFs.mkdirSync(join(repoRoot, 'wt-go'));
+    realFs.writeFileSync(join(repoRoot, 'wt-go', 'go.mod'), 'module example.com/fixture\n');
+    useRealFs();
+    currentStore = storeFrom(makeState([makeCompleteTask('task-1', 'wt-go')]));
+    vi.mocked(admitLifecycleLegs).mockResolvedValue({ success: false, error: { code: 'LOCAL_CHECK_REFUSED', message: 'refused' } });
+
+    const result = await handlePostDelegationCheck({ ...gateWiring(), repoRoot });
+
+    expect(result).toEqual({ success: false, error: { code: 'LOCAL_CHECK_REFUSED', message: 'refused' } });
+    expect(runPhaseGateWithEvidence).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(currentStore.append)).not.toHaveBeenCalled();
     expect(mockExecFileSync).not.toHaveBeenCalled();
   });
 

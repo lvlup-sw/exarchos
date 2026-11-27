@@ -13,6 +13,13 @@ vi.mock('node:child_process', () => ({
   execFileSync: vi.fn(() => Buffer.from('')),
 }));
 
+vi.mock('../../../src/verbs/verification/lifecycle-check.js', () => {
+  const run = { argv: ['leg'], end: 'exited' as const, exitCode: 0, stdout: 'Tests: 1 passed, 0 failed', stderr: '' };
+  return {
+    admitLifecycleLegs: vi.fn(async () => [{ name: 'test', kind: 'command', run }, { name: 'typecheck', kind: 'typecheck', run }]),
+  };
+});
+
 import { createInMemoryResolver } from '../../../src/workflow/capabilities/resolver.js';
 import {
   deriveMcpCallerIdentity,
@@ -174,7 +181,7 @@ describe('migrated phase gate durable evidence', () => {
   /**
    * `prepare_synthesis` is the blocking gate, so a refusal here stops the
    * synthesize phase. It needs an explicit `repoRoot`. The fixture passes `root`,
-   * because the file mocks `node:child_process`.
+   * because the file mocks `node:child_process`. The lifecycle check of the local executor is a stub, so the legs are green.
    */
   it('PrepareSynthesis_WorkflowPredatingThePhaseAttemptStamp_IsNotWedged', async () => {
     const result = await runWithDispatchContext(dispatchContext(), () =>

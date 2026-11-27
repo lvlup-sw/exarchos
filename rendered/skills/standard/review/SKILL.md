@@ -74,8 +74,6 @@ Run the quality-evaluation gates via runbook — `exarchos_orchestrate({ action:
 3. `prepare_review` — returns the deterministic check catalog (grep / structural / heuristic) + `pluginStatus`. Execute each check against the changed files; collect findings as `pluginFindings`.
 4. Optional D3–D5 gates (`check_context_economy`, `check_operational_resilience`, `check_workflow_determinism`) — advisory; feed the convergence view.
 
-> **mutation-adequacy (HIGH tier only):** a **separate required dimension** that gates the HIGH risk tier at the `/review` boundary — see `@skills/mutation-adequacy/SKILL.md`. Do not run mutation testing in this skill; the closest in-scope proxy is the **Specific** test-desiderata property plus the delegation-time `check_test_adequacy` gate.
-
 ### Invariant conformance — audit-mode judgment is YOURS
 
 Run `check_invariant_conformance` over the diff whenever a catalog is registered under `.exarchos.yml: invariants.catalogs`. It decides `mode: check` invariants mechanically and folds them into `findings`. It **cannot decide `mode: audit` invariants at all** — those need a reviewer's judgment, which is you.

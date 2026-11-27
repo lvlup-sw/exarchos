@@ -15,7 +15,12 @@
 
 import { randomUUID } from 'node:crypto';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
+import { realpath } from 'node:fs/promises';
 import * as path from 'node:path';
+import {
+  decideRelation, exitedWithOne, listObservedWorktrees, locateObservational, ownWorktreeConfigNeutral, type ObservationalCheckout,
+} from '../../utils/git-observer.js';
+import { constrainedCommitId, observationalReader, type ConstrainedGitReads } from '../../utils/git-tree.js';
 import type { EventStore } from '../../events/store.js';
 import type { EventInput, DecideResult } from '../../events/atomic-appender.js';
 import type { WorkflowEvent } from '../../events/schemas.js';
@@ -109,15 +114,26 @@ export interface HeadVerification {
     | 'head-unresolved';
 }
 
+/** The closed value of a worktree listing that a checkout holds but that the probe cannot read. */
+export interface UnreadableWorktreeListing {
+  readonly unreadable: true;
+}
+
+/** A worktree listing: the records, or the unreadable value. */
+type WorktreeListing = OnDiskWorktree[] | UnreadableWorktreeListing;
+
 /**
  * Read-only probe over real git. Tests inject a fake. The default is
- * {@link defaultGitWorktreeProbe}.
+ * {@link createGitWorktreeProbe}. Each method gives a value or a promise of it.
  */
 export interface GitWorktreeProbe {
-  /** Enumerate on-disk worktrees of `repoRoot` (empty on any git failure). */
-  listWorktrees(repoRoot: string): OnDiskWorktree[];
+  /**
+   * Enumerate the on-disk worktrees of `repoRoot`. A path outside any checkout gives the empty list.
+   * A checkout that the probe cannot read gives the unreadable value.
+   */
+  listWorktrees(repoRoot: string): WorktreeListing | Promise<WorktreeListing>;
   /** Re-verify a worktree's HEAD/ancestry against its upstream (freshly read). */
-  verifyHead(worktreePath: string): HeadVerification;
+  verifyHead(worktreePath: string): HeadVerification | Promise<HeadVerification>;
 }
 
 /**
@@ -212,51 +228,120 @@ function gitCapture(
   };
 }
 
-/** Resolve a ref to its sha in `worktreePath`, or `null` when it does not exist. */
-function gitRevParse(worktreePath: string, ref: string): string | null {
-  const { status, stdout } = gitCapture(
-    ['rev-parse', '--verify', '--quiet', ref],
-    worktreePath,
-  );
-  if (status !== 0) return null;
-  const sha = stdout.trim();
-  return sha.length > 0 ? sha : null;
+/** The closed verdict of a worktree whose HEAD, upstream or ancestry cannot be read. */
+const HEAD_UNRESOLVED: HeadVerification = { head: null, upstream: null, mutable: false, reason: 'head-unresolved' };
+
+/** The short branch name of a full ref. A ref outside `refs/heads/` keeps its full name. */
+function shortBranch(ref: string): string {
+  return ref.startsWith('refs/heads/') ? ref.slice('refs/heads/'.length) : ref;
+}
+
+/** The upstream ref of a local branch, or the empty value for no upstream. An output that is not exactly one record of that branch gives undefined. */
+async function readUpstreamRef(located: ObservationalCheckout, branch: string): Promise<string | undefined> {
+  const records = (await located.reads.upstream(located.gitDir, located.checkout, branch))
+    .split('\n').filter(line => line.length > 0).map(line => line.split('\0'));
+  const own = records.filter(fields => fields[0] === branch);
+  const fields = own[0];
+  if (own.length !== 1 || fields === undefined || fields.length !== 2) return undefined;
+  return fields[1];
+}
+
+/** True when the constrained ref listing shows exactly one record of the local branch ref. */
+async function localBranchExists(located: ObservationalCheckout, ref: string): Promise<boolean> {
+  const records = (await located.reads.upstream(located.gitDir, located.checkout, ref))
+    .split('\n').filter(line => line.split('\0')[0] === ref);
+  return records.length === 1;
 }
 
 /**
- * The default real-git probe. `verifyHead` reads HEAD again at verify time, not
- * from the porcelain snapshot. A worktree with a resolved HEAD is mutable when it
- * has no upstream, or when HEAD contains the upstream tip.
+ * The commit of an upstream ref, null when the upstream is gone, or undefined when the read fails.
+ * A missing remote-tracking ref and a deleted local upstream give null. An existing local upstream reads through the exact commit operation.
  */
-export const defaultGitWorktreeProbe: GitWorktreeProbe = {
-  listWorktrees(repoRoot: string): OnDiskWorktree[] {
-    const { status, stdout } = gitCapture(
-      ['worktree', 'list', '--porcelain'],
-      repoRoot,
-    );
-    if (status !== 0) return [];
-    return parseWorktreeListPorcelain(stdout);
-  },
-  verifyHead(worktreePath: string): HeadVerification {
-    const head = gitRevParse(worktreePath, 'HEAD');
-    if (head === null) {
-      return { head: null, upstream: null, mutable: false, reason: 'head-unresolved' };
+async function readUpstreamCommit(located: ObservationalCheckout, upstream: string): Promise<string | null | undefined> {
+  if (upstream.startsWith('refs/remotes/')) {
+    try { return constrainedCommitId((await located.reads.remoteCommit(located.gitDir, located.checkout, upstream)).trim()); }
+    catch (error) { return exitedWithOne(error) ? null : undefined; }
+  }
+  if (!upstream.startsWith('refs/heads/')) return undefined;
+  try {
+    if (!(await localBranchExists(located, upstream))) return null;
+    return constrainedCommitId((await located.reads.commit(located.gitDir, located.checkout, upstream)).trim());
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Verify one listed worktree. The read locates the worktree path itself and passes its own Git directory, never the Git directory of another worktree.
+ * HEAD and the branch come from the listing record whose real path equals the worktree. A located Git directory that is the common directory must be the main record.
+ *
+ * With worktreeConfig on, the own config.worktree of a linked worktree must hold no branch or remote section.
+ * The upstream comes from the constrained ref listing, and ancestry from the decision helper. Each unreadable step gives head-unresolved.
+ */
+async function verifyListedHead(worktreePath: string, reader: () => Promise<ConstrainedGitReads>): Promise<HeadVerification> {
+  try {
+    const observation = await locateObservational(worktreePath, reader);
+    if (observation.kind !== 'located') return HEAD_UNRESOLVED;
+    const { located } = observation;
+    if (located.checkout !== await realpath(worktreePath) || !(await ownWorktreeConfigNeutral(located))) return HEAD_UNRESOLVED;
+    const records = await listObservedWorktrees(located);
+    const indexes: number[] = [];
+    for (const [index, record] of records.entries()) {
+      try { if (await realpath(record.path) === located.checkout) indexes.push(index); }
+      catch { continue; }
     }
-    const upstream = gitRevParse(worktreePath, '@{upstream}');
-    if (upstream === null) {
-      return { head, upstream: null, mutable: true, reason: 'no-upstream' };
-    }
-    if (upstream === head) {
-      return { head, upstream, mutable: true, reason: 'up-to-date' };
-    }
-    const upstreamContained =
-      gitCapture(['merge-base', '--is-ancestor', upstream, 'HEAD'], worktreePath)
-        .status === 0;
-    return upstreamContained
+    const index = indexes[0];
+    const record = index === undefined ? undefined : records[index];
+    if (indexes.length !== 1 || record === undefined || record.bare || record.prunable || record.head === undefined) return HEAD_UNRESOLVED;
+    if (located.gitDir === located.repository && index !== 0) return HEAD_UNRESOLVED;
+    const head = record.head;
+    if (record.branch === undefined) return { head, upstream: null, mutable: true, reason: 'no-upstream' };
+    const upstreamRef = await readUpstreamRef(located, record.branch);
+    if (upstreamRef === undefined) return HEAD_UNRESOLVED;
+    if (upstreamRef === '') return { head, upstream: null, mutable: true, reason: 'no-upstream' };
+    const upstream = await readUpstreamCommit(located, upstreamRef);
+    if (upstream === undefined) return HEAD_UNRESOLVED;
+    if (upstream === null) return { head, upstream: null, mutable: true, reason: 'no-upstream' };
+    if (upstream === head) return { head, upstream, mutable: true, reason: 'up-to-date' };
+    const relation = await decideRelation(located, 'ancestry', upstream, head);
+    if (relation.kind === 'unreadable') return HEAD_UNRESOLVED;
+    return relation.kind === 'related'
       ? { head, upstream, mutable: true, reason: 'up-to-date' }
       : { head, upstream, mutable: false, reason: 'stale-after-push' };
-  },
-};
+  } catch {
+    return HEAD_UNRESOLVED;
+  }
+}
+
+/**
+ * The default probe over the constrained reader. A non-empty `gitPath` is the connector Git path, else the reads use the process-wide Git path.
+ * One probe instance creates at most one reader, so one action probes the Git executable once.
+ * The listing gives the empty list only when no checkout holds `repoRoot`. Each other unreadable cause gives the unreadable value.
+ *
+ * `verifyHead` reads the listing again at verify time. A worktree with a resolved HEAD is mutable when it has no upstream, or when HEAD contains the upstream tip.
+ */
+export function createGitWorktreeProbe(gitPath?: string): GitWorktreeProbe {
+  const reader = observationalReader(gitPath);
+  return {
+    async listWorktrees(repoRoot: string): Promise<WorktreeListing> {
+      const observation = await locateObservational(repoRoot, reader);
+      if (observation.kind === 'absent') return [];
+      if (observation.kind === 'unreadable') return { unreadable: true };
+      try {
+        return (await listObservedWorktrees(observation.located)).map((record) => ({
+          path: record.path,
+          head: record.head ?? null,
+          branch: record.branch === undefined ? null : shortBranch(record.branch),
+          detached: record.detached,
+          bare: record.bare,
+        }));
+      } catch {
+        return { unreadable: true };
+      }
+    },
+    verifyHead: (worktreePath: string) => verifyListedHead(worktreePath, reader),
+  };
+}
 
 /**
  * An injectable seam over `git`. Each prune git operation, including the
@@ -301,6 +386,11 @@ export interface AdoptResult {
   readonly worktrees: readonly WorktreeAdoptionReport[];
   /** The `worktreeId`s for which a `worktree.adopted` event was appended. */
   readonly adopted: readonly string[];
+  /**
+   * True when a checkout holds `repoRoot` but its worktree listing cannot be read. The pass then appends no event and reports no worktree.
+   * `acquire_worktree` refuses such a pass. The prune pass and the launcher treat it as an empty pass.
+   */
+  readonly listingUnreadable?: true;
 }
 
 /** Arguments for {@link WorktreeManager.prune}. */
@@ -444,8 +534,10 @@ export interface WorktreeManagerDeps {
   readonly eventStore: EventStore;
   /** Per-PID source for the owner liveness probe. Defaults to {@link defaultProcessSource}. */
   readonly processSource?: ProcessSource;
-  /** Real-git probe for `adopt`. Defaults to {@link defaultGitWorktreeProbe}. */
+  /** Real-git probe for `adopt`. Defaults to {@link createGitWorktreeProbe} with {@link observationalGitPath}. */
   readonly gitProbe?: GitWorktreeProbe;
+  /** The connector Git path of the default probe. An empty or absent path selects the process-wide Git path. */
+  readonly observationalGitPath?: string;
   /**
    * Derives the owning `featureId` of an adopted worktree. Defaults to
    * {@link unattachedFeatureIdResolver}.
@@ -583,7 +675,7 @@ export class WorktreeManager {
   constructor(deps: WorktreeManagerDeps) {
     this.eventStore = deps.eventStore;
     this.processSource = deps.processSource ?? defaultProcessSource;
-    this.gitProbe = deps.gitProbe ?? defaultGitWorktreeProbe;
+    this.gitProbe = deps.gitProbe ?? createGitWorktreeProbe(deps.observationalGitPath);
     this.featureIdResolver = deps.featureIdResolver ?? unattachedFeatureIdResolver;
     this.realpath = deps.realpath ?? defaultRealpath;
     this.gitRunner = deps.gitRunner ?? defaultGitRunner;
@@ -785,13 +877,17 @@ export class WorktreeManager {
    * `decide`, so a concurrent adopt that loses emits nothing.
    */
   async adopt(repoRoot: string): Promise<AdoptResult> {
-    const onDisk = this.gitProbe.listWorktrees(repoRoot);
-    const probed = onDisk.map((wt) => ({
-      worktreeId: this.canonicalId(wt.path),
-      path: wt.path,
-      featureId: this.featureIdResolver(wt),
-      verification: this.gitProbe.verifyHead(wt.path),
-    }));
+    const onDisk = await this.gitProbe.listWorktrees(repoRoot);
+    if (!Array.isArray(onDisk)) return { worktrees: [], adopted: [], listingUnreadable: true };
+    const probed: { worktreeId: string; path: string; featureId: string | null; verification: HeadVerification }[] = [];
+    for (const wt of onDisk) {
+      probed.push({
+        worktreeId: this.canonicalId(wt.path),
+        path: wt.path,
+        featureId: this.featureIdResolver(wt),
+        verification: await this.gitProbe.verifyHead(wt.path),
+      });
+    }
 
     const appender = this.eventStore.getAppender();
     let adopted: string[] = [];

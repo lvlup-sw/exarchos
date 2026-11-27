@@ -28,6 +28,11 @@ export interface PostMergeOptions {
   ) => CommandResult;
   /** VcsProvider for CI status queries. Falls back to createVcsProvider(). */
   provider?: VcsProvider;
+  /**
+   * The test runner of the local approved-check executor. When present, it replaces `runCommand`.
+   * A run with no verdict throws, so it never reads as a red suite.
+   */
+  localTestRun?: (bin: string, args: readonly string[]) => Promise<CommandResult>;
 }
 
 export interface PostMergeResult {
@@ -174,7 +179,7 @@ export async function checkPostMerge(options: PostMergeOptions): Promise<PostMer
     checkPass('CI green (all checks SUCCESS, SKIPPED, or NEUTRAL)');
   }
 
-  function checkTestSuite(): void {
+  async function checkTestSuite(): Promise<void> {
     const resolved = resolveRunnableCommand(repoRoot, 'test');
     if (resolved.kind !== 'runnable') {
       findings.push(
@@ -184,7 +189,8 @@ export async function checkPostMerge(options: PostMergeOptions): Promise<PostMer
       return;
     }
 
-    const testResult = runCommand(resolved.bin, resolved.args);
+    const testResult = options.localTestRun === undefined
+      ? runCommand(resolved.bin, resolved.args) : await options.localTestRun(resolved.bin, resolved.args);
 
     if (testResult.exitCode !== 0) {
       findings.push(
@@ -198,7 +204,7 @@ export async function checkPostMerge(options: PostMergeOptions): Promise<PostMer
   }
 
   await checkCiStatus();
-  checkTestSuite();
+  await checkTestSuite();
 
   const reportLines: string[] = [];
   reportLines.push('## Post-Merge Regression Report');

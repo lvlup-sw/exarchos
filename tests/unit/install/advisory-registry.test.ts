@@ -1122,7 +1122,7 @@ describe('ADVISORY_REGISTRY (real repo)', () => {
     ).toEqual([]);
   });
 
-  /** The registry governs each advisory primary in the enforcer-wiring manifest. The manifest names three or more. */
+  /** The registry governs each advisory primary in the enforcer-wiring manifest. The manifest names two or more. */
   it('EveryManifestAdvisory_IsRegistered', () => {
     const manifest = JSON.parse(
       readFileSync(join(REPO_ROOT, 'tools', 'audit', 'gates', 'enforcer-wiring-manifest.json'), 'utf8'),
@@ -1130,7 +1130,7 @@ describe('ADVISORY_REGISTRY (real repo)', () => {
     const manifestAdvisories = manifest.primaries
       .filter((p) => p.disposition === 'advisory')
       .map((p) => p.script);
-    expect(manifestAdvisories.length).toBeGreaterThanOrEqual(3);
+    expect(manifestAdvisories.length).toBeGreaterThanOrEqual(2);
     const governed = new Set([
       ...ADVISORY_REGISTRY.map((e) => e.file),
       ...ADVISORY_REGISTRY.flatMap((e) => e.softening.map((r) => r.target)),

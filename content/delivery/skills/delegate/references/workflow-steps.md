@@ -36,7 +36,7 @@ git worktree add --detach .worktrees/task-001 <baseCommit>
 cd .worktrees/task-001 && npm install
 ```
 
-The worktree is detached, so the base step of the worker makes the branch of the task: `git switch -c <own branch> <baseCommit>`. Give each worker an `<own branch>` that no branch holds yet, such as `task/task-001`. It is not the branch of a worktree that `setup_worktree` or `git worktree add -b` made, because git refuses `git switch -c` for a branch that exists.
+The worktree is detached, so the base step of the worker makes the branch of the task: `git switch -c <own branch> <baseCommit>`. Give each worker an `<own branch>` that no branch holds yet, such as `task/task-001`. It is not the branch of a worktree that `git worktree add -b` made, because git refuses `git switch -c` for a branch that exists.
 
 A task never runs in the checkout that `prepare` read or in the primary worktree of the repository: `settle` and `task_complete` refuse both. A linked `node_modules` needs the ignore rule `node_modules`, without a trailing slash, or the worktree is not clean.
 

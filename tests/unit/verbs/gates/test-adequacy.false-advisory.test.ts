@@ -1,42 +1,46 @@
 // The kill probe must not report a vacuous pass. These tests pin three cases.
 //
-// 1. A failed `git diff` is a failure, not an empty list of changed files.
-// 2. The diff uses the named task branch, not the checked-out `HEAD`.
+// 1. A failed diff read is a failure, not an empty list of changed files.
+// 2. A named task branch must be the branch of the checkout, so the diff never measures another head.
 //    From the main worktree, a `HEAD` diff is empty for a branch that adds tests.
 // 3. A medium-risk or high-risk task without probe-able tests fails.
 
 import { describe, it, expect } from 'vitest';
-import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync, existsSync } from 'node:fs';
+import { realpath } from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 
 import { runProbe, type TestRunFn } from '../../../../src/verbs/gates/test-adequacy.js';
-import { changedFilesFor } from '../../../../src/verbs/gates/test-adequacy-handler.js';
-import type { GitExec } from '../../../../src/verbs/pure/execute-merge.js';
+import { readTaskDiff } from '../../../../src/verbs/gates/test-adequacy-handler.js';
+import { buildDisposableCopy, type SourceRevert } from '../../../../src/verbs/verification/disposable-copy.js';
+import { createConstrainedGitReads, processObservationalGitPath } from '../../../../src/utils/git-tree.js';
 import { execFileAsync } from '../../../../tools/test-helpers/spawn.js';
 
 function git(repoRoot: string, args: readonly string[]): Promise<string> {
   return execFileAsync('git', args, { cwd: repoRoot, timeout: 30_000 });
 }
 
-const realGitExec: GitExec = (repoRoot, args) => {
-  try {
-    const stdout = execFileSync('git', [...args], {
-      cwd: repoRoot,
-      timeout: 15_000,
-      encoding: 'utf-8',
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
-    return { stdout, exitCode: 0 };
-  } catch (err) {
-    const e = err as { status?: number; stdout?: string | Buffer; stderr?: string | Buffer };
-    const out =
-      (typeof e.stdout === 'string' ? e.stdout : e.stdout?.toString('utf-8') ?? '') +
-      (typeof e.stderr === 'string' ? e.stderr : e.stderr?.toString('utf-8') ?? '');
-    return { stdout: out, exitCode: e.status ?? 1 };
-  }
-};
+/**
+ * A runner that builds the head image or the reverted image of the checked-out head and answers from it.
+ * `green` reads the image root and gives true for a green run. The image goes after the answer.
+ */
+async function imageRunner(repoRoot: string, revert: SourceRevert, green: (root: string) => boolean): Promise<TestRunFn> {
+  const gitPath = processObservationalGitPath();
+  if (gitPath === undefined) throw new Error('No Git on PATH');
+  const checkout = await realpath(repoRoot);
+  const gitDir = path.join(checkout, '.git');
+  const source = { checkout, gitDir, repository: gitDir, head: (await git(checkout, ['rev-parse', 'HEAD'])).trim(),
+    reads: await createConstrainedGitReads(gitPath) };
+  return async (input) => {
+    const image = await buildDisposableCopy(source, input.source === 'reverted' ? revert : undefined);
+    try {
+      return { kind: 'ran', result: green(image.root) ? 'green' : 'red' };
+    } finally {
+      await image.dispose();
+    }
+  };
+}
 
 async function initRepo(prefix: string): Promise<string> {
   const repoRoot = mkdtempSync(path.join(os.tmpdir(), prefix));
@@ -75,10 +79,17 @@ async function setupCommittedTaskBranch(prefix: string): Promise<{
 }
 
 describe('TestAdequacy_CommittedBranchDiscovery (WFQ-005)', () => {
-  it('discovers task-added files from a named branch when HEAD is a different branch', async () => {
+  /** A named branch that the checkout does not hold refuses, so the diff never measures another head. On its checkout, the branch diff shows the added files. */
+  it('refuses a named branch that the checkout does not hold, and discovers the added files on its checkout', async () => {
     const { repoRoot, baseRef, branch } = await setupCommittedTaskBranch('wfq005-disc-');
 
-    const viaBranch = changedFilesFor(realGitExec, repoRoot, baseRef, branch);
+    const elsewhere = await readTaskDiff(repoRoot, { kind: 'base', baseRef, branch });
+    expect(elsewhere.ok).toBe(false);
+    if (elsewhere.ok) return;
+    expect(elsewhere.detail).toContain('is not the branch of the checkout');
+
+    await git(repoRoot, ['checkout', branch, '-q']);
+    const viaBranch = await readTaskDiff(repoRoot, { kind: 'base', baseRef, branch });
     expect(viaBranch.ok).toBe(true);
     if (!viaBranch.ok) return;
     expect(viaBranch.files).toEqual(
@@ -90,7 +101,7 @@ describe('TestAdequacy_CommittedBranchDiscovery (WFQ-005)', () => {
   it('returns an empty diff — not the branch diff — when HEAD is used instead of the branch', async () => {
     const { repoRoot, baseRef } = await setupCommittedTaskBranch('wfq005-head-');
 
-    const viaHead = changedFilesFor(realGitExec, repoRoot, baseRef);
+    const viaHead = await readTaskDiff(repoRoot, { kind: 'base', baseRef });
     expect(viaHead.ok).toBe(true);
     if (!viaHead.ok) return;
     expect(viaHead.files).toEqual([]);
@@ -117,7 +128,7 @@ describe('TestAdequacy_CommittedBranchDiscovery (WFQ-005)', () => {
     await git(repoRoot, ['add', '.']);
     await git(repoRoot, ['commit', '-m', 'task: replace the test', '-q']);
 
-    const changed = changedFilesFor(realGitExec, repoRoot, baseRef, 'feature/replace');
+    const changed = await readTaskDiff(repoRoot, { kind: 'base', baseRef, branch: 'feature/replace' });
     expect(changed.ok).toBe(true);
     if (!changed.ok) return;
     expect(changed.files).toHaveLength(3);
@@ -127,16 +138,11 @@ describe('TestAdequacy_CommittedBranchDiscovery (WFQ-005)', () => {
     expect(changed.deletedFiles).toEqual(['src/old.test.js']);
 
     const result = await runProbe({
-      gitExec: realGitExec,
-      repoRoot,
-      baseRef,
       changedFiles: changed.files,
       deletedFiles: changed.deletedFiles,
       riskTier: 'high',
-      runTests: async () => ({
-        kind: 'ran',
-        result: readFileSync(path.join(repoRoot, 'src', 'kept.js'), 'utf-8').includes('=> 2') ? 'green' : 'red',
-      }),
+      runTests: await imageRunner(repoRoot, { base: changed.base, sources: ['src/kept.js'] },
+        (root) => readFileSync(path.join(root, 'src', 'kept.js'), 'utf-8').includes('=> 2')),
     });
     expect(result.probedTests).toEqual(['src/räkna.test.js']);
     expect(result.passed).toBe(true);
@@ -144,12 +150,12 @@ describe('TestAdequacy_CommittedBranchDiscovery (WFQ-005)', () => {
   });
 
   it('reports a git failure as a failure rather than an empty file list', async () => {
-    const { repoRoot, baseRef } = await setupCommittedTaskBranch('wfq005-gitfail-');
+    const { repoRoot } = await setupCommittedTaskBranch('wfq005-gitfail-');
 
-    const result = changedFilesFor(realGitExec, repoRoot, baseRef, 'refs/heads/does-not-exist');
+    const result = await readTaskDiff(repoRoot, { kind: 'base', baseRef: 'does-not-exist' });
     expect(result.ok).toBe(false);
     if (result.ok) return;
-    expect(result.detail).toContain('git diff');
+    expect(result.detail).toContain('was not resolved');
   });
 });
 
@@ -160,9 +166,6 @@ describe('TestAdequacy_NoFalseAdvisorySuccess (WFQ-005)', () => {
 
   it('fails closed when the task diff could not be computed', async () => {
     const result = await runProbe({
-      gitExec: realGitExec,
-      repoRoot: '/nonexistent',
-      baseRef: 'main',
       changedFiles: [],
       diffFailed: true,
       riskTier: 'low',
@@ -176,9 +179,6 @@ describe('TestAdequacy_NoFalseAdvisorySuccess (WFQ-005)', () => {
 
   it('fails a medium-risk task that ships no probe-able tests', async () => {
     const result = await runProbe({
-      gitExec: realGitExec,
-      repoRoot: '/unused',
-      baseRef: 'main',
       changedFiles: ['src/only-source.js'],
       riskTier: 'medium',
       runTests: neverRun,
@@ -191,9 +191,6 @@ describe('TestAdequacy_NoFalseAdvisorySuccess (WFQ-005)', () => {
 
   it('fails a high-risk task that ships no probe-able tests', async () => {
     const result = await runProbe({
-      gitExec: realGitExec,
-      repoRoot: '/unused',
-      baseRef: 'main',
       changedFiles: ['src/only-source.js'],
       riskTier: 'high',
       runTests: neverRun,
@@ -205,9 +202,6 @@ describe('TestAdequacy_NoFalseAdvisorySuccess (WFQ-005)', () => {
 
   it('still advisory-skips a low-risk task with no tests', async () => {
     const result = await runProbe({
-      gitExec: realGitExec,
-      repoRoot: '/unused',
-      baseRef: 'main',
       changedFiles: ['src/only-source.js'],
       riskTier: 'low',
       runTests: neverRun,
@@ -220,9 +214,6 @@ describe('TestAdequacy_NoFalseAdvisorySuccess (WFQ-005)', () => {
 
   it('advisory-skips when no risk tier is supplied (unchanged default)', async () => {
     const result = await runProbe({
-      gitExec: realGitExec,
-      repoRoot: '/unused',
-      baseRef: 'main',
       changedFiles: ['src/only-source.js'],
       runTests: neverRun,
     });
@@ -233,22 +224,19 @@ describe('TestAdequacy_NoFalseAdvisorySuccess (WFQ-005)', () => {
 });
 
 describe('TestAdequacy_TaskAddedSource_RealKillProbe (WFQ-005)', () => {
-  /** The fake test run fails exactly when the source module is absent, as a real kill probe must observe. */
+  /** The test run fails exactly when the reverted image lacks the source module, as a real kill probe must observe. */
   it('reverts task-added source and observes a real red, not revert-conflict', async () => {
     const { repoRoot, baseRef, branch } = await setupCommittedTaskBranch('wfq005-kill-');
     await git(repoRoot, ['checkout', branch, '-q']);
 
-    const changed = changedFilesFor(realGitExec, repoRoot, baseRef, branch);
+    const changed = await readTaskDiff(repoRoot, { kind: 'base', baseRef, branch });
     expect(changed.ok).toBe(true);
     if (!changed.ok) return;
 
-    const runTests: TestRunFn = () =>
-      Promise.resolve({ kind: 'ran', result: existsSync(path.join(repoRoot, 'src', 'added.js')) ? 'green' : 'red' });
+    const runTests = await imageRunner(repoRoot, { base: changed.base, sources: ['src/added.js'] },
+      (root) => existsSync(path.join(root, 'src', 'added.js')));
 
     const result = await runProbe({
-      gitExec: realGitExec,
-      repoRoot,
-      baseRef,
       changedFiles: changed.files,
       riskTier: 'high',
       runTests,

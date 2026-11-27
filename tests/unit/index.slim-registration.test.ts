@@ -6,7 +6,10 @@
  * If `createServer` turns slim registration off, the full descriptions come back and the budget test fails.
  */
 
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, beforeAll, afterAll, vi } from 'vitest';
+import { mkdtempSync } from 'node:fs';
+import { homedir, tmpdir } from 'node:os';
+import { join } from 'node:path';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import * as os from 'node:os';
@@ -20,7 +23,31 @@ import {
 import { createServer } from '../../src/index.js';
 import { estimateTokens } from '../../tools/conformance/src/description-budget.js';
 import { TOOL_REGISTRY } from '../../src/registry.js';
-import { rmrfAsync } from '../../tools/test-helpers/temp-dir.js';
+import { rmrf, rmrfAsync } from '../../tools/test-helpers/temp-dir.js';
+
+/** The home variables of the run. The file restores them after its last test. */
+const ORIGINAL_HOME: Readonly<Record<'HOME' | 'USERPROFILE', string | undefined>> = {
+  HOME: process.env.HOME,
+  USERPROFILE: process.env.USERPROFILE,
+};
+
+/** The scratch home of this file. `createServer` reads the verifier provisioning under the home once per file, so no test reads the real home. */
+let scratchHome = '';
+
+beforeAll(() => {
+  scratchHome = mkdtempSync(join(tmpdir(), 'create-server-home-'));
+  process.env.HOME = scratchHome;
+  process.env.USERPROFILE = scratchHome;
+});
+
+afterAll(() => {
+  for (const key of ['HOME', 'USERPROFILE'] as const) {
+    const value = ORIGINAL_HOME[key];
+    if (value === undefined) delete process.env[key];
+    else process.env[key] = value;
+  }
+  rmrf(scratchHome);
+});
 
 /** The token ceiling for the sum of the registered tool descriptions. */
 const SLIM_REGISTRATION_TOKEN_BUDGET = 3_800;
@@ -79,6 +106,11 @@ async function bootProductionClient(): Promise<V2Client> {
 }
 
 describe('DR-6 slim tools/list registration', () => {
+  /** `createServer` reads the verifier provisioning under `os.homedir()`, so the home of this file is its scratch home and never the real one. */
+  it('CreateServer_HomeDirectory_IsTheScratchHomeOfThisFile', () => {
+    expect(homedir()).toBe(scratchHome);
+    expect(scratchHome).not.toBe(ORIGINAL_HOME.HOME);
+  });
   /** The measure is the sum of the registered tool descriptions, which the model pays for on each `tools/list` call. */
   it('toolsList_SlimRegistration_MeasuresUnder3800Tokens', async () => {
     const client = await bootProductionClient();

@@ -4,9 +4,13 @@
  * as the server. A v1 client with a v2 server hangs and reports no error.
  */
 import type { ChildProcess } from 'node:child_process';
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { Client } from '@modelcontextprotocol/client';
 import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
 import * as processTracker from './process-tracker.js';
+import { rmrf } from '../../tools/test-helpers/temp-dir.js';
 
 /** Options for `spawnMcpClient`. */
 export interface SpawnMcpClientOpts {
@@ -25,6 +29,7 @@ export interface SpawnMcpClientOpts {
   /**
    * Extra variables for the child. The transport merges them over its default environment,
    * a short list such as `HOME` and `PATH`. The child gets no other variable of the parent.
+   * Without `HOME` here, `HOME` and `USERPROFILE` name a fresh scratch directory that is removed when the child exits.
    */
   env?: Record<string, string>;
   /**
@@ -87,7 +92,18 @@ export async function spawnMcpClient(
     ? [DEFAULT_SUBCOMMAND, '--operator', ...callerArgs]
     : callerArgs;
 
-  const env: Record<string, string> = { ...(extraEnv ?? {}) };
+  const scratchHome = extraEnv?.HOME === undefined ? mkdtempSync(join(tmpdir(), 'exarchos-mcp-home-')) : undefined;
+  const env: Record<string, string> = {
+    ...(scratchHome === undefined ? {} : { HOME: scratchHome, USERPROFILE: scratchHome }),
+    ...(extraEnv ?? {}),
+  };
+  const removeScratchHome = (): void => {
+    if (scratchHome === undefined) return;
+    try {
+      rmrf(scratchHome);
+    } catch {
+    }
+  };
   if (stateDir !== undefined) {
     env.WORKFLOW_STATE_DIR = stateDir;
     env.EXARCHOS_STATE_DIR = stateDir;
@@ -121,6 +137,7 @@ export async function spawnMcpClient(
   try {
     await transport.start();
   } catch (err) {
+    removeScratchHome();
     const msg = err instanceof Error ? err.message : String(err);
     throw new Error(
       `spawnMcpClient: failed to spawn '${command}': ${msg}`,
@@ -142,6 +159,7 @@ export async function spawnMcpClient(
   }
   const child = candidate as ChildProcess;
   processTracker.register(child);
+  child.once('exit', removeScratchHome);
 
   const client = new Client(
     { name: 'exarchos-test-harness', version: '0.0.0' },

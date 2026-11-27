@@ -113,21 +113,16 @@ Call `exarchos_workflow({ action: "describe", playbook: "debug" })` for the `deb
 
 ### 7. Synthesize Phase
 
-Create PR via GitHub CLI:
+Commit and push the fix:
 
 ```bash
 # Stage, commit, and push
 git add <fixed-files>
 git commit -m "fix: <issue summary>"
 git push -u origin <branch-name>
-
-# Create PR and enable auto-merge
 ```
 
-```typescript
-exarchos_orchestrate({ action: "create_pr", base: "main", head: "<branch-name>", title: "fix: <issue summary>", body: "<pr-body>" })
-exarchos_orchestrate({ action: "merge_pr", prId: "<number>", strategy: "squash" })
-```
+The coordinator creates the PR and enables auto-merge through its harness, outside governance.
 
 Then update the PR description:
 ```bash

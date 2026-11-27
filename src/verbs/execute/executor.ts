@@ -13,16 +13,17 @@
  * The `DispatchContext` import is type-only for the same reason.
  */
 
-import { replayPassingAdequacy } from '../gates/durable-gate-producer.js';
+import { observeSelectedCheckout, replayPassingAdequacy } from '../gates/durable-gate-producer.js';
 import { createHash, randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { canonicalJson } from '../../contract/request-context.js';
 import { TaskVerificationCoordinateSchema } from '../../contract/capsule/exarchos-capsule.js';
+import { HostedAdequacyPending } from '../gates/gate-runner.js';
 import { recheckPreparedAuthority, type PreparedAuthority } from '../../workflow/capsule/prepared-custody.js';
-import { observeImmutableClaimedTree } from '../../utils/git-tree.js';
 import { verificationOperationId, settlementClaimKey } from '../settle/settlement-reads.js';
 import { resolveTaskStanding } from '../settle/task-standing.js';
 import { IntentExecutedOutputSchema } from './schemas.js';
+import { historicalSynthesisDigest } from './historical-requests.js';
 
 import { resolveEmissionEnforcement } from '../../config/resolve.js';
 import {
@@ -87,6 +88,7 @@ import type {
   ReceiptLeaf,
   ReceiptSteering,
 } from './types.js';
+import { compilerPolicy } from '../../contract/capsule/compiler-policy.js';
 
 /**
  * The event this action commits on both outcomes. Read off the settlement
@@ -226,6 +228,49 @@ async function boundReceipt(operationId: string, input: z.infer<typeof ExecuteIn
     throw new Error('Segment run custody mismatch');
   }
   return claim.result;
+}
+
+/** Authenticate original synthesis custody without consulting live compilation, providers or configuration. */
+async function historicalSynthesisResult(streamId: string, operationId: string, args: Record<string, unknown>, ctx: DispatchContext, bundles: RunBundleStore): Promise<ToolResult | undefined> {
+  try {
+    let claim = ctx.eventStore.getAppender().ensureSqliteBackendSync().lookupOperationClaim<IntentReceipt>(operationId);
+    let rows = await ctx.eventStore.query(streamId);
+    if (claim === undefined) {
+      const effects = await ctx.eventStore.query('vcs', { operationId: derivedLeafOperationId(operationId, 1, 'create_pr') });
+      if (effects.some(row => row.type === 'pr.create.requested' || row.type === 'pr.create.executed')
+        || rows.some(row => row.type === INTENT_EXECUTED_EVENT && row.data?.operationId === operationId)) {
+        claim = ctx.eventStore.getAppender().ensureSqliteBackendSync().lookupOperationClaim<IntentReceipt>(operationId);
+        if (claim === undefined) return { success: false, error: { code: 'INTENT_HISTORY_INCOMPLETE', message: 'Original writer evidence has no authenticated terminal claim. Nothing was executed.' } };
+        rows = await ctx.eventStore.query(streamId);
+      } else return undefined;
+    }
+    const requestDigest = historicalSynthesisDigest(streamId, args);
+    if (claim.streamId !== streamId) throw new Error('Historical claim belongs to another stream');
+    if (claim.requestDigest !== requestDigest) return digestMismatchResult(operationId, 'Nothing was executed.');
+    const receipt = IntentExecutedOutputSchema.options[0].shape.data.parse(claim.result);
+    if (receipt.operationId !== operationId || receipt.intent !== 'synthesis-closeout' || receipt.requestDigest !== requestDigest
+      || claim.sequences.length !== 1 || claim.eventIds.length !== 1 || claim.timestamps.length !== 1) throw new Error('Invalid historical terminal claim');
+    const row = rows.find(candidate => candidate.sequence === claim.sequences[0]);
+    if (row === undefined || row.streamId !== streamId || !('eventId' in row) || row.eventId !== claim.eventIds[0] || row.timestamp !== claim.timestamps[0]
+      || row.type !== INTENT_EXECUTED_EVENT || row.schemaVersion !== INTENT_EXECUTED_SETTLEMENT.custodyFromSchemaVersion) throw new Error('Missing original historical terminal member');
+    const record = OrchestrateIntentExecutedData.parse(row.data);
+    if (record.operationId !== operationId || record.intent !== receipt.intent || record.outcome !== receipt.outcome
+      || record.failedLeaf !== receipt.failedLeaf || record.requestDigest !== requestDigest
+      || canonicalJson(record.leaves) !== canonicalJson(receipt.leaves.map(leaf => ({ action: leaf.action, status: leaf.status, sequences: leaf.events.map(event => event.sequence) })))
+      || canonicalJson(record.steering) !== canonicalJson(receipt.steering)
+      || canonicalJson(record.bundleRefs) !== canonicalJson(receipt.bundleRefs)) throw new Error('Historical terminal record differs from receipt');
+    const ref = receipt.bundleRefs?.[0];
+    if (receipt.bundleRefs?.length !== 1 || ref === undefined || ref.artifactId !== executeIntentBundleArtifactId(operationId)) throw new Error('Invalid historical run reference');
+    const run = decodeExecuteIntentBundle(await bundles.resolve(ContentDigestV1Schema.parse(ref.digest)));
+    if (run.operationId !== operationId || run.streamId !== streamId || run.intent !== receipt.intent || run.requestDigest !== requestDigest
+      || run.input !== undefined || run.outcome !== receipt.outcome || run.failedLeaf !== receipt.failedLeaf
+      || canonicalJson(run.failure) !== canonicalJson(receipt.failure) || canonicalJson(run.steering) !== canonicalJson(receipt.steering)
+      || run.tailSequence !== receipt.tailSequence || canonicalJson(run.interaction) !== canonicalJson(receipt.interaction)
+      || canonicalJson(receiptLeavesOfRun(run)) !== canonicalJson(receipt.leaves)) throw new Error('Historical run differs from original receipt');
+    return receiptResult(claim.result);
+  } catch (error) {
+    return { success: false, error: { code: 'INTENT_HISTORY_REFUSED', message: error instanceof Error ? error.message : String(error) } };
+  }
 }
 
 /**
@@ -420,29 +465,42 @@ export async function handleExecuteIntent(
   if (deps.verificationInput === undefined && Object.hasOwn(intentArgs, 'coordinate')) return invalid('Only authenticated settlement may supply verification coordinates');
   if (deps.verificationInput !== undefined) {
     try { return await executeBoundInput(intent, streamId, operationId, intentArgs, stateDir, ctx, deps); }
-    catch (error) { return { success: false, error: { code: 'SEGMENT_INPUT_REFUSED', message: error instanceof Error ? error.message : String(error) } }; }
+    catch (error) {
+      return { success: false, error: {
+        code: error instanceof HostedAdequacyPending ? 'HOSTED_ADEQUACY_PENDING' : 'SEGMENT_INPUT_REFUSED',
+        message: error instanceof Error ? error.message : String(error),
+      } };
+    }
   }
-
-  const compiled = compileIntent(intent, { streamId }, intentArgs, deps);
-  if (!compiled.ok) {
-    return {
-      success: false,
-      error: {
-        code: compiled.refusal.code,
-        message: compiled.refusal.message,
-        ...(compiled.refusal.step !== undefined ? { expectedShape: { step: compiled.refusal.step } } : {}),
-      },
-    };
-  }
-  const segment = compiled.segment;
-  const requestDigest = executeRequestDigest(intent, streamId, segment.args);
 
   return runExclusivePerOperation(operationId, async () => {
+    if (intent === 'synthesis-closeout') {
+      const historical = await historicalSynthesisResult(streamId, operationId, intentArgs, ctx, deps.bundleStore ?? ctx.eventStore.bundleStore);
+      if (historical !== undefined) return historical;
+    }
+    const compiled = compileIntent(intent, { streamId }, intentArgs, deps);
+    if (!compiled.ok) {
+      return {
+        success: false,
+        error: {
+          code: compiled.refusal.code,
+          message: compiled.refusal.message,
+          ...(compiled.refusal.step !== undefined ? { expectedShape: { step: compiled.refusal.step } } : {}),
+        },
+      };
+    }
+    const segment = compiled.segment;
+    const requestDigest = executeRequestDigest(intent, streamId, segment.args);
+
     const claim = ctx.eventStore
       .getAppender()
       .ensureSqliteBackendSync()
       .lookupOperationClaim<IntentReceipt>(operationId);
     if (claim !== undefined) {
+      if (intent === 'synthesis-closeout') {
+        return await historicalSynthesisResult(streamId, operationId, intentArgs, ctx, deps.bundleStore ?? ctx.eventStore.bundleStore)
+          ?? { success: false, error: { code: 'INTENT_HISTORY_REFUSED', message: 'Historical claim disappeared. Nothing was executed.' } };
+      }
       if (claim.requestDigest !== requestDigest) {
         return digestMismatchResult(operationId, 'Nothing was executed.');
       }
@@ -528,22 +586,25 @@ async function validateBoundProofs(input: z.infer<typeof ExecuteIntentInputSchem
     }
 }
 
-/** Interrupted execution uses only the original clean checkout at the selected immutable head. */
+/**
+ * Interrupted execution uses only the original clean checkout at the selected immutable head.
+ * The constrained observer reads it, with the closed listings and no status, so no checkout filter runs.
+ */
 async function requireBoundTree(input: z.infer<typeof ExecuteIntentInputSchema>): Promise<void> {
   const coordinate = input.args.coordinate;
   if (coordinate === undefined) throw new Error('Missing coordinate');
-    const treePath = input.args.worktreePath;
-    if (typeof treePath !== 'string') throw new Error('Missing bound checkout');
-    const tree = await observeImmutableClaimedTree(treePath, coordinate.diffBaseCommit, coordinate.repository);
-    if (tree.kind !== 'tree' || tree.repository !== coordinate.repository || tree.head !== coordinate.observedHeadCommit
-      || !tree.holdsBase || tree.dirtyPaths.length !== 0) throw new Error('Bound checkout is unavailable, changed or dirty; restore it before resuming');
+  const treePath = input.args.worktreePath;
+  if (typeof treePath !== 'string') throw new Error('Missing bound checkout');
+  if (await observeSelectedCheckout(treePath, coordinate) === undefined) {
+    throw new Error('Bound checkout is unavailable, changed or dirty; restore it before resuming');
+  }
 }
 
 /** The trusted path binds one normalized snapshot before any leaf. A binding is neither a lease nor completion. */
 async function executeBoundInput(intent: string, streamId: string, operationId: string, args: Record<string, unknown>,
   stateDir: string, ctx: DispatchContext, deps: ExecuteIntentDeps): Promise<ToolResult> {
   const authority = deps.verificationInput;
-  if (authority === undefined || authority.authority.capsule.provenance.compilerVersion !== 'exarchos-prepare-8'
+  if (authority === undefined || !compilerPolicy(authority.authority.capsule.provenance.compilerVersion).immutable
     || authority.authority.capsule.identity.workflowId !== streamId || intent !== 'task-completion'
     || (authority.round !== 0 && authority.round !== 1)
     || settlementClaimKey(streamId, { ...authority.authority.capsule.identity, batchId: authority.batchId }, authority.round) !== authority.outerOperationId
@@ -588,16 +649,19 @@ async function executeBoundInput(intent: string, streamId: string, operationId: 
     await requireBoundTree(input);
     const coordinate = input.args.coordinate;
     if (coordinate === undefined) throw new Error('Missing bound verification coordinate');
+    const requestDigest = normalizedExecuteRequestDigest(intent, streamId, input.args);
+    if (authority.authority.capsule.settlementContract.scope === undefined) throw new Error('Missing bound repository scope');
+    const verificationInput: DispatchContext['verificationInput'] = { coordinate, segmentOperationId: operationId };
     for (const leaf of compiled.segment.leaves) {
       const rows = await ctx.eventStore.query(leaf.observationStreamId, { operationId: derivedLeafOperationId(operationId, leaf.index, leaf.action) });
       if (rows.length > 0 && leaf.contract.replay.kind !== 'safe-repeat'
         && await replayElidedRows({ leaf, derived: derivedLeafOperationId(operationId, leaf.index, leaf.action),
-          ctx: { ...ctx, verificationInput: { coordinate, segmentOperationId: operationId } } }) === undefined) {
+          ctx: { ...ctx, verificationInput } }) === undefined) {
         throw new Error(`Interrupted leaf '${leaf.action}' has effects without a safe continuation contract; retain them and recover explicitly`);
       }
     }
-    const committed = await runSegment({ segment: compiled.segment, operationId, requestDigest: normalizedExecuteRequestDigest(intent, streamId, input.args),
-      stateDir, ctx, outer: outerCorrelation(ctx), handlers: deps.handlers, handlerTool: deps.handlerTool, bundles,
+    const committed = await runSegment({ segment: compiled.segment, operationId, requestDigest,
+      stateDir, ctx: { ...ctx, verificationInput }, outer: outerCorrelation(ctx), handlers: deps.handlers, handlerTool: deps.handlerTool, bundles,
       steeringSource: 'capsule', boundInput: input });
     return committed.kind === 'digest-mismatch' ? digestMismatchResult(operationId, 'Nothing may replace the bound input.') : receiptResult(committed.receipt);
   });
@@ -689,11 +753,10 @@ async function runSegment(input: RunSegmentInput): Promise<CommitOutcome> {
   let failedLeaf: string | undefined;
   let failure: IntentReceipt['failure'];
 
-  const coordinate = input.boundInput?.args.coordinate;
-  const leafContext = coordinate === undefined ? ctx : { ...ctx, verificationInput: { coordinate, segmentOperationId: operationId } };
+
   for (const leaf of segment.leaves) {
     const startedAt = new Date().toISOString();
-    const outcome = await runLeaf({ leaf, operationId, stateDir, ctx: leafContext, outer, handlers, handlerTool, segment });
+    const outcome = await runLeaf({ leaf, operationId, stateDir, ctx, outer, handlers, handlerTool, segment });
     const endedAt = new Date().toISOString();
     leaves.push({
       action: leaf.action,

@@ -16,6 +16,7 @@ import { WorkflowDefinitionV1Schema } from '@lvlup-sw/strategos-contracts';
 import type { IrEdgeConditionNode } from '../ir/admission-ir.js';
 import type { ExarchosCapsuleV1 } from './exarchos-capsule.js';
 import { visitDeclaredObjects } from './kernel-derivation.js';
+import { compilerPolicy } from './compiler-policy.js';
 
 /**
  * Every kind of reference-integrity violation that this pass reports. It is a runtime roster, not a
@@ -186,18 +187,26 @@ function findDependencyCycles(
   return cycles;
 }
 
-/** Compiler-specific completeness does not change the historical structural decoder. */
+/**
+ * Compiler-specific completeness does not change the historical structural decoder.
+ * Only compiler 8-vcs pins an integration term. Each other compiler refuses one, before the early return of a compiler that is not immutable.
+ */
 function compilerSemantics(capsule: ExarchosCapsuleV1): CapsuleReferenceViolation[] {
-  if (capsule.provenance.compilerVersion !== 'exarchos-prepare-8') return [];
+  const policy = compilerPolicy(capsule.provenance.compilerVersion);
   const violations: CapsuleReferenceViolation[] = [];
   const fail = (ref: string, at: string, message: string): void => {
     violations.push({ kind: 'compiler-semantics', ref, at, message });
   };
   const terms = capsule.settlementContract;
+  if (policy.integration !== (terms.integration !== undefined)) {
+    fail(capsule.provenance.compilerVersion, 'settlementContract.integration',
+      policy.integration ? 'Compiler 8-vcs requires the integration ref.' : 'Only compiler 8-vcs pins an integration ref.');
+  }
+  if (!policy.immutable) return violations;
   const sources = capsule.provenance.sources.filter(source => source.sourceId === 'design-record');
   if (terms.verificationMode !== 'immutable-task-diff-v1' || terms.scope === undefined
       || terms.verificationProfile === undefined || terms.skipPhases === undefined || sources.length !== 1) {
-    fail('exarchos-prepare-8', 'provenance.compilerVersion', 'Compiler 8 requires typed source, scope, profile, frozen skips and immutable verification.');
+    fail(capsule.provenance.compilerVersion, 'provenance.compilerVersion', 'Compiler 8 requires typed source, scope, profile, frozen skips and immutable verification.');
   }
   const taskIds = new Set(capsule.graph.tasks.map(task => task.taskId));
   const edgeKeys = new Set<string>();

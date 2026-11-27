@@ -2,7 +2,7 @@
  * debug_review_gate under the verification profile. A changed file counts as a new test only when a test-name glob of `tests.globs` matches it.
  *
  * Each case builds a real git repository, and the resolver reads its real marker files. Each case sets `skipRun`, so the gate starts no test command.
- * The evidence runner is a stub that calls only the provider.
+ * The evidence runner is a stub that calls only the provider. The constrained reader reads the diff with the Git executable on PATH.
  */
 
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';

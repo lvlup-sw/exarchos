@@ -1,11 +1,11 @@
 /**
  * Production wiring for the launcher. It composes the built modules into live deps.
  *
- * The `exarchos <harness>` verb and the lifecycle core accept their event store and
+ * The harness entry verb and the lifecycle core accept their event store and
  * their spawn, teardown and signal seams as deps, and never construct them.
  * Without this wiring, a real launch has no `lifecycleDeps` and returns `NOT_WIRED`.
  * This module holds no behavior of its own and no per-harness branch.
- * {@link LauncherWiringOverrides} lets the CLI-surface tests inject OS-effect fakes
+ * {@link LauncherWiringOverrides} lets the harness entry tests inject OS-effect fakes
  * into the same composition that the verb runs.
  */
 
@@ -45,7 +45,7 @@ export type StartupRecover = (
 /**
  * Overrides for the production launcher wiring. Production callers omit all fields,
  * so the real spawn, git, process-table and signal seams are wired.
- * The CLI-surface tests inject fakes here to run the real composition without host OS effects.
+ * The harness entry tests inject fakes here to run the real composition without host OS effects.
  * No user-facing flag sets these fields.
  */
 export interface LauncherWiringOverrides {

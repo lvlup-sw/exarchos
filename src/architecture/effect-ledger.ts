@@ -628,6 +628,21 @@ export const EFFECT_OWNERSHIP: readonly EffectOwnershipRule[] = registerLedger()
 
 function registerLedger(): readonly EffectOwnershipRule[] {
   return Object.freeze([
+    rule('network', 'dispatch/core/verifier-client.ts', 'verifier-client', 'idempotent authenticated submit and original disposition lookup without local execution', 'no execution fallback'),
+    rule('network', 'runtime/verification-host/server.ts', 'verifier-listener', 'private bounded authenticated local listener', 'inode-bound listener close'),
+    rule('process', 'runtime/verification-host/processes.ts', 'verifier-probe', 'durably claimed fixed profiles and approved check children under Linux confinement', 'retain unknown claim until terminal result'),
+    rule('filesystem', 'runtime/verification-host/provisioning.ts', 'verifier-provisioning', 'protected operator provisioning reads', 'none'),
+    rule('filesystem', 'runtime/verification-host/authorization.ts', 'verifier-resources',
+      'canonical resource identity reads and exclusive writes of private runtime copies whose bytes match their pins', 'the owning disposable scratch removes each private runtime copy'),
+    rule('filesystem', 'runtime/verification-host/processes.ts', 'verifier-mounts', 'captured resource identity recheck', 'retain incomplete claim on refusal'),
+    rule('filesystem', 'runtime/verification-host/adequacy.ts', 'verifier-adequacy-images',
+      'host-private disposable images of exact committed sources, check workspaces and private runtime copy directories',
+      'verify cleanup and untouched registered checkout before terminal evidence'),
+    rule('filesystem', 'storage/sqlite/verifier-claim-db.ts', 'verifier-claims', 'atomic private claim and lease writes', 'durable original evidence and leases'),
+    rule('filesystem', 'runtime/verification-host/server.ts', 'verifier-socket', 'inode-bound private listener lifecycle', 'close only original listener'),
+    rule('network', 'vcs/github-pr-observer.ts', 'github-pr-get-observer',
+      'read-only: one exact bounded GitHub PR GET with manual redirect refusal',
+      'none: failed reads do not initiate a provider mutation'),
     rule(
       'network',
       'workflow/feedback.ts',
@@ -651,7 +666,14 @@ function registerLedger(): readonly EffectOwnershipRule[] {
         '--git-common-dir, rev-parse --verify --quiet <ref>^{commit}, symbolic-ref --quiet ' +
         'HEAD, rev-parse --verify --quiet HEAD, merge-base --is-ancestor (also ' +
         '<baseCommit> HEAD) and --no-optional-locks status --porcelain, which writes no index ' +
-        'refresh; a re-run on the same tree gives the same answer',
+        'refresh; the constrained reads add worktree list, cat-file -e, cat-file --batch of exact blob IDs, ls-tree, ls-files ' +
+        '--stage, ls-files --others --exclude-standard, merge-base, rev-parse of a ' +
+        'refs/remotes ref, symbolic-ref refs/remotes/origin/HEAD, diff --name-only, ' +
+        'diff --name-status, diff --submodule=short and log --oneline --graph ' +
+        '--no-show-signature over exact commits; the observational reads add log -1 --format=%ct ' +
+        '--no-show-signature of an exact commit, remote get-url origin, stash list --no-color ' +
+        '--no-show-signature, for-each-ref --format=%(refname)%00%(upstream) of a refs/heads ref and ' +
+        'diff --stat over exact commits; a re-run on the same tree gives the same answer',
       'none: every call is a read, so a failed, refused or timed-out read leaves no state ' +
         'to unwind',
     ),
@@ -678,31 +700,10 @@ function registerLedger(): readonly EffectOwnershipRule[] {
     ),
     rule(
       'process',
-      'config/',
-      'config-probe-owner',
-      'idempotent: config toolchain probes are read-only',
-      'none: probes mutate no state',
-    ),
-    rule(
-      'process',
-      'hooks/',
-      'hook-process-owner',
-      'best-effort: hook subprocesses are side-channel',
-      'none: hooks are advisory, not on the compensation path',
-    ),
-    rule(
-      'process',
       'runtime/launcher/',
       'launcher-process-owner',
       'idempotent: teardown/liveness probes tolerate re-run',
       'launcher lifecycle owns child kill/teardown',
-    ),
-    rule(
-      'process',
-      'lifecycle/',
-      'cli-process-owner',
-      'per-command: CLI verification runners own re-run semantics',
-      'none: verification is read-only over the worktree',
     ),
     rule(
       'process',

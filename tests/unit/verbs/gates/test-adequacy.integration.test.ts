@@ -3,7 +3,7 @@
 // from a vacuous one.
 // A real test fails when the source change is reverted, so the probe sees red and passes. A vacuous
 // test stays green on the revert, so the probe fails with `redObserved: false`.
-// `test-adequacy.test.ts` holds the unit tests for the split, the snapshot and restore, and the probe.
+// `test-adequacy.test.ts` holds the unit tests for the split, the reverted source image and the probe.
 
 import { describe, it, expect, afterEach, afterAll, beforeAll, vi } from 'vitest';
 import {
@@ -27,18 +27,14 @@ import { fileURLToPath } from 'node:url';
 import { EventStore } from '../../../../src/events/store.js';
 import type { DispatchContext } from '../../../../src/dispatch/core/dispatch.js';
 import { handleOrchestrate } from '../../../../src/verbs/composite.js';
-import { resolveVerificationProfile } from '../../../../src/config/verification-profile.js';
-import { PLUGIN_MODE_ENV_KEYS, STORE_LOCATION_ENV_KEYS } from '../../../../src/utils/paths.js';
-import {
-  buildScopedTestRunner,
-  PROBE_SCRATCH_PREFIX,
-  type ScopedTestRunLimits,
-} from '../../../../src/verbs/gates/test-adequacy-handler.js';
+import { probeArgv, resolveVerificationProfile } from '../../../../src/config/verification-profile.js';
+import { deriveRepoKey, PLUGIN_MODE_ENV_KEYS, STORE_LOCATION_ENV_KEYS } from '../../../../src/utils/paths.js';
+import { adequacyPlan, probeRunOutcome } from '../../../../src/verbs/gates/test-adequacy-handler.js';
+import { PROBE_SCRATCH_PREFIX, runApprovedCheck } from '../../../../src/verbs/verification/check-executor.js';
 import {
   RUN_NO_VERDICT_CAUSES,
   type RunNoVerdictCause,
   type RunOutcome,
-  type TestRunFn,
 } from '../../../../src/verbs/gates/test-adequacy.js';
 import type { VerificationProfile } from '../../../../src/workflow/verification/profile.js';
 import { rmrf } from '../../../../tools/test-helpers/temp-dir.js';
@@ -594,7 +590,7 @@ describe('check_test_adequacy acceptance (kill probe through handleOrchestrate)'
 /** The probe term of the verification profile. */
 type ProbeTerm = VerificationProfile['tests']['probe'];
 
-/** The test file list that each runner case passes. The runner appends it after `--`. */
+/** The test file list that each runner case passes. The probe leg appends it after `--`. */
 const TEST_FILES: readonly string[] = ['missing.test.ts'];
 
 /** A probe term that runs `argv` in the `after-separator` form. Only `failureExitCodes` read as a red run. */
@@ -622,39 +618,77 @@ async function resolvedProbeTerm(repoRoot: string): Promise<ProbeTerm> {
   return profile.tests.probe;
 }
 
-/** Runs one scoped test run of a runner. The runner spawns synchronously, so the call is isolated from the event loop of the worker. */
-function runOnce(runner: TestRunFn, repoRoot: string): Promise<RunOutcome> {
-  return isolatedSync(() => runner({ repoRoot, testFiles: TEST_FILES }));
+/**
+ * Commits each file of `repoRoot` on the branch `probe`. A directory with no repository gets one first.
+ * The local executor runs a direct call only in a clean registered branch checkout.
+ */
+async function commitAll(repoRoot: string): Promise<void> {
+  if (!existsSync(path.join(repoRoot, '.git'))) {
+    await git(repoRoot, ['init', '--initial-branch=probe', '-q']);
+    await git(repoRoot, ['config', 'user.email', 'test@example.com']);
+    await git(repoRoot, ['config', 'user.name', 'Test']);
+    await git(repoRoot, ['config', 'commit.gpgsign', 'false']);
+  }
+  await git(repoRoot, ['add', '-A']);
+  if ((await git(repoRoot, ['status', '--porcelain'])).trim().length > 0) await git(repoRoot, ['commit', '-q', '-m', 'probe fixture']);
 }
 
-/** One row for each no-verdict cause: the argv, the limits of the run, and a text that the detail must hold. */
+/** The stores that a probe runner made. Each one goes after its describe. */
+const runnerStores: Array<() => void> = [];
+
+/**
+ * A probe runner over the local executor. It runs the probe leg of `probe` in the checkout `repoRoot`, then reads the leg with the probe rules.
+ * The store exists before the first run, so a case can change the temporary directory of the leg only. The workflow start names the checkout as its repository.
+ */
+async function probeRunner(probe: ProbeTerm, repoRoot: string, legTimeoutMs?: number): Promise<(testFiles?: readonly string[]) => Promise<RunOutcome>> {
+  const stateDir = mkdtempSync(path.join(os.tmpdir(), 'probe-runner-state-'));
+  const eventStore = new EventStore(stateDir);
+  await eventStore.initialize();
+  runnerStores.push(() => {
+    eventStore.close();
+    rmrf(stateDir);
+  });
+  const checkout = realpathSync(repoRoot);
+  await seedActivePhaseAttempt(eventStore, 'feat-probe-runner', { repoRoot: deriveRepoKey(checkout) });
+  return async (testFiles = TEST_FILES) => {
+    await commitAll(checkout);
+    const outcome = await runAsTrustedCaller(stateDir, () => runApprovedCheck({
+      eventStore, operation: 'test-adequacy', streamId: 'feat-probe-runner', plan: adequacyPlan(probe), profileDigest: 'a'.repeat(64),
+      checkout, workspace: 'checkout', ...(legTimeoutMs === undefined ? {} : { legTimeoutMs }),
+    }, async (session) => probeRunOutcome(await session.run({ leg: 0, append: probeArgv(probe.files, [], testFiles) }), probe.failureExitCodes.codes)));
+    if (outcome.kind === 'refused') throw new Error(outcome.reason);
+    return outcome.value;
+  };
+}
+
+/** One row for each no-verdict cause: the argv, the time cap of the leg, and a text that the detail must hold. */
 interface NoVerdictRow {
   readonly cause: RunNoVerdictCause;
   readonly argv: readonly string[];
-  readonly limits?: ScopedTestRunLimits;
+  readonly legTimeoutMs?: number;
   readonly detail: string;
   readonly posixOnly?: boolean;
 }
 
-/** Every no-verdict cause, each with a real process or a command that the runner cannot run. */
+/** Every no-verdict cause, each with a real process or a command that the executor cannot run. */
 const NO_VERDICT_ROWS: readonly NoVerdictRow[] = [
-  { cause: 'did-not-start', argv: ['exarchos-no-such-test-runner-for-this-test'], detail: 'ENOENT' },
+  { cause: 'did-not-start', argv: ['exarchos-no-such-test-runner-for-this-test'], detail: 'is not on PATH' },
   {
     cause: 'timeout',
     argv: [process.execPath, '-e', 'setTimeout(() => {}, 30000)'],
-    limits: { timeoutMs: 2_000 },
-    detail: 'the limit is 2000 ms',
+    legTimeoutMs: 2_000,
+    detail: 'the executor stopped the run at its time limit',
   },
   {
     cause: 'signal',
     argv: [process.execPath, '-e', "process.kill(process.pid, 'SIGKILL')"],
-    detail: 'the signal is SIGKILL',
+    detail: 'the signal SIGKILL stopped the run',
     posixOnly: true,
   },
   {
     cause: 'overflow',
-    argv: [process.execPath, '-e', "process.stdout.write('x'.repeat(2 * 1024 * 1024))"],
-    detail: 'the limit is 1048576 bytes',
+    argv: [process.execPath, '-e', "process.stdout.write('x'.repeat(65 * 1024 * 1024))"],
+    detail: 'the executor stopped the run at its output limit',
   },
   {
     cause: 'unknown-exit-code',
@@ -664,15 +698,18 @@ const NO_VERDICT_ROWS: readonly NoVerdictRow[] = [
 ];
 
 /**
- * The default runner of the probe, driven with real processes. Exit 0 is green, and a test-failure exit code is red.
- * Every other end of a run gives no verdict, with its cause. The table holds one row for each cause of the closed list.
+ * The probe leg of the local executor, driven with real processes. Exit 0 is green, and a test-failure exit code is red.
+ * Every other end of a leg gives no verdict, with its cause. The table holds one row for each cause of the closed list.
  */
-describe('buildScopedTestRunner — each end of a real test run', () => {
+describe('the probe leg of the local executor — each end of a real test run', () => {
   let workDir: string;
-  beforeAll(() => {
-    workDir = mkdtempSync(path.join(os.tmpdir(), 'probe-runner-'));
+  beforeAll(async () => {
+    workDir = realpathSync(mkdtempSync(path.join(os.tmpdir(), 'probe-runner-')));
+    writeFileSync(path.join(workDir, 'README.md'), 'probe runner fixture\n');
+    await commitAll(workDir);
   });
   afterAll(() => {
+    for (const close of runnerStores.splice(0)) close();
     rmrf(workDir);
   });
 
@@ -686,48 +723,47 @@ describe('buildScopedTestRunner — each end of a real test run', () => {
     it.skipIf(row.posixOnly === true && process.platform === 'win32')(
       `ScopedTestRunner_${row.cause}_IsNoVerdictWithItsCause`,
       async () => {
-        const outcome = await runOnce(buildScopedTestRunner(probeTerm(row.argv), workDir, row.limits), workDir);
+        const outcome = await (await probeRunner(probeTerm(row.argv), workDir, row.legTimeoutMs))();
 
         expect(outcome.kind).toBe('no-verdict');
         if (outcome.kind !== 'no-verdict') return;
         expect(outcome.cause).toBe(row.cause);
         expect(outcome.detail).toContain(row.detail);
       },
-      30_000,
+      60_000,
     );
   }
 
-  /** Each run gets a scratch directory. When the runner cannot make it, the run gives no verdict and starts no command. */
+  /** Each leg gets a scratch directory. When the executor cannot make it, the leg gives no verdict and starts no command. */
   it('ScopedTestRunner_ScratchDirectoryNotMade_IsNoVerdictAndStartsNoCommand', async () => {
-    const marker = path.join(workDir, 'started-with-no-scratch').split(path.sep).join('/');
-    const runner = buildScopedTestRunner(nodeProbeTerm(`require('node:fs').writeFileSync('${marker}', '')`), workDir);
+    const markerDir = mkdtempSync(path.join(os.tmpdir(), 'probe-runner-marker-'));
+    runnerStores.push(() => rmrf(markerDir));
+    const marker = path.join(markerDir, 'started-with-no-scratch').split(path.sep).join('/');
+    const run = await probeRunner(nodeProbeTerm(`require('node:fs').writeFileSync('${marker}', '')`), workDir);
     let outcome: RunOutcome;
     try {
-      for (const name of TEMP_VARIABLES) vi.stubEnv(name, path.join(workDir, 'missing-tmp'));
-      outcome = await runOnce(runner, workDir);
+      for (const name of TEMP_VARIABLES) vi.stubEnv(name, path.join(markerDir, 'missing-tmp'));
+      outcome = await run();
     } finally {
       vi.unstubAllEnvs();
     }
 
     expect(outcome).toMatchObject({ kind: 'no-verdict', cause: 'did-not-start' });
     if (outcome.kind !== 'no-verdict') return;
-    expect(outcome.detail).toContain('the scratch directory of the run was not made');
+    expect(outcome.detail).toContain('scratch directory of the leg was not made');
     expect(existsSync(marker)).toBe(false);
   });
 
   it('ScopedTestRunner_ExitZero_IsAGreenRun', async () => {
-    const runner = buildScopedTestRunner(nodeProbeTerm("process.stdout.write('ok')"), workDir);
+    const run = await probeRunner(nodeProbeTerm("process.stdout.write('ok')"), workDir);
 
-    expect(await runOnce(runner, workDir)).toEqual({ kind: 'ran', result: 'green', stdout: 'ok' });
+    expect(await run()).toEqual({ kind: 'ran', result: 'green', stdout: 'ok', stderr: '' });
   });
 
   it('ScopedTestRunner_ExitOne_IsARedRunWithItsOutput', async () => {
-    const runner = buildScopedTestRunner(
-      nodeProbeTerm("process.stdout.write('out'); process.stderr.write('err'); process.exit(1)"),
-      workDir,
-    );
+    const run = await probeRunner(nodeProbeTerm("process.stdout.write('out'); process.stderr.write('err'); process.exit(1)"), workDir);
 
-    expect(await runOnce(runner, workDir)).toEqual({ kind: 'ran', result: 'red', stdout: 'out', stderr: 'err' });
+    expect(await run()).toEqual({ kind: 'ran', result: 'red', stdout: 'out', stderr: 'err' });
   });
 
   /**
@@ -735,14 +771,15 @@ describe('buildScopedTestRunner — each end of a real test run', () => {
    * With them, exit 101 is a red run, and exit 1 gives no verdict, with a detail that names both codes.
    */
   it('ScopedTestRunner_RustToolchain_ReadsExit101AsRedAndExit1AsNoVerdict', async () => {
-    const cargoRepo = mkdtempSync(path.join(workDir, 'cargo-'));
+    const cargoRepo = realpathSync(mkdtempSync(path.join(os.tmpdir(), 'probe-runner-cargo-')));
+    runnerStores.push(() => rmrf(cargoRepo));
     writeFileSync(path.join(cargoRepo, 'Cargo.toml'), '[package]\nname = "fixture"\nversion = "0.1.0"\n');
     const resolved = await resolvedProbeTerm(cargoRepo);
     expect(resolved.command).toEqual({ state: 'resolved', argv: ['cargo', 'test'], source: 'detection' });
     expect(resolved.failureExitCodes.codes).toEqual([101]);
 
-    const red = await runOnce(buildScopedTestRunner(withNodeScript(resolved, 'process.exit(101)'), cargoRepo), cargoRepo);
-    const noVerdict = await runOnce(buildScopedTestRunner(withNodeScript(resolved, 'process.exit(1)'), cargoRepo), cargoRepo);
+    const red = await (await probeRunner(withNodeScript(resolved, 'process.exit(101)'), cargoRepo))();
+    const noVerdict = await (await probeRunner(withNodeScript(resolved, 'process.exit(1)'), cargoRepo))();
 
     expect(red).toEqual({ kind: 'ran', result: 'red', stdout: '', stderr: '' });
     expect(noVerdict).toMatchObject({
@@ -757,14 +794,15 @@ describe('buildScopedTestRunner — each end of a real test run', () => {
    * The probe term of a Python project holds the exit codes 1 and 2. So exit 2 is a red run, and exit 4 gives no verdict.
    */
   it('ScopedTestRunner_PythonToolchain_ReadsExit2AsRedAndExit4AsNoVerdict', async () => {
-    const pythonRepo = mkdtempSync(path.join(workDir, 'python-'));
+    const pythonRepo = realpathSync(mkdtempSync(path.join(os.tmpdir(), 'probe-runner-python-')));
+    runnerStores.push(() => rmrf(pythonRepo));
     writeFileSync(path.join(pythonRepo, 'pyproject.toml'), '[project]\nname = "fixture"\nversion = "0.0.1"\n');
     const resolved = await resolvedProbeTerm(pythonRepo);
     expect(resolved.command).toEqual({ state: 'resolved', argv: ['pytest'], source: 'detection' });
     expect(resolved.failureExitCodes.codes).toEqual([1, 2]);
 
-    const red = await runOnce(buildScopedTestRunner(withNodeScript(resolved, 'process.exit(2)'), pythonRepo), pythonRepo);
-    const noVerdict = await runOnce(buildScopedTestRunner(withNodeScript(resolved, 'process.exit(4)'), pythonRepo), pythonRepo);
+    const red = await (await probeRunner(withNodeScript(resolved, 'process.exit(2)'), pythonRepo))();
+    const noVerdict = await (await probeRunner(withNodeScript(resolved, 'process.exit(4)'), pythonRepo))();
 
     expect(red).toEqual({ kind: 'ran', result: 'red', stdout: '', stderr: '' });
     expect(noVerdict).toMatchObject({
@@ -776,7 +814,7 @@ describe('buildScopedTestRunner — each end of a real test run', () => {
 
   /**
    * A measurement with a real pytest. It skips where no pytest is on PATH. The test file imports a function, and the revert removes it.
-   * pytest stops at collection with exit 2. The default runner reads that load failure as a red run, so the probe counts it as a kill.
+   * pytest stops at collection with exit 2. The probe leg reads that load failure as a red run, so the probe counts it as a kill.
    */
   it('ScopedTestRunner_RealPytestCollectionErrorAfterTheRevert_IsARedRun', async (ctx) => {
     try {
@@ -784,16 +822,17 @@ describe('buildScopedTestRunner — each end of a real test run', () => {
     } catch {
       ctx.skip();
     }
-    const pythonRepo = mkdtempSync(path.join(workDir, 'pytest-'));
+    const pythonRepo = realpathSync(mkdtempSync(path.join(os.tmpdir(), 'probe-runner-pytest-')));
+    runnerStores.push(() => rmrf(pythonRepo));
     writeFileSync(path.join(pythonRepo, 'pyproject.toml'), '[project]\nname = "fixture"\nversion = "0.0.1"\n');
+    writeFileSync(path.join(pythonRepo, '.gitignore'), '__pycache__/\n.pytest_cache/\n');
     writeFileSync(path.join(pythonRepo, 'calc.py'), 'def add(a, b):\n    return a + b\n');
     writeFileSync(path.join(pythonRepo, 'test_calc.py'), 'from calc import add\n\n\ndef test_add():\n    assert add(1, 2) == 3\n');
-    const runner = buildScopedTestRunner(await resolvedProbeTerm(pythonRepo), pythonRepo);
-    const run = (): Promise<RunOutcome> => isolatedSync(() => runner({ repoRoot: pythonRepo, testFiles: ['test_calc.py'] }));
+    const run = await probeRunner(await resolvedProbeTerm(pythonRepo), pythonRepo);
 
-    const onTheTaskSource = await run();
+    const onTheTaskSource = await run(['test_calc.py']);
     writeFileSync(path.join(pythonRepo, 'calc.py'), '\n');
-    const afterTheRevert = await run();
+    const afterTheRevert = await run(['test_calc.py']);
 
     expect(onTheTaskSource).toMatchObject({ kind: 'ran', result: 'green' });
     expect(afterTheRevert).toMatchObject({ kind: 'ran', result: 'red' });
@@ -805,7 +844,8 @@ describe('buildScopedTestRunner — each end of a real test run', () => {
    * `npm run test:files` passes that exit through to the probe. npm 11 passes it through, so the run gives no verdict and is not red.
    */
   it('ScopedTestRunner_WrapperRefusalThroughNpm_PassesExit2ThroughAsNoVerdict', async () => {
-    const pkg = mkdtempSync(path.join(workDir, 'npm-wrapper-'));
+    const pkg = realpathSync(mkdtempSync(path.join(os.tmpdir(), 'probe-runner-npm-wrapper-')));
+    runnerStores.push(() => rmrf(pkg));
     const wrapper = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../../tools/test-helpers/run-test-files.mjs');
     copyFileSync(wrapper, path.join(pkg, 'run-test-files.mjs'));
     writeFileSync(
@@ -813,7 +853,7 @@ describe('buildScopedTestRunner — each end of a real test run', () => {
       JSON.stringify({ name: 'fixture', private: true, scripts: { 'test:files': 'node run-test-files.mjs' } }),
     );
 
-    const outcome = await runOnce(buildScopedTestRunner(await resolvedProbeTerm(pkg), pkg), pkg);
+    const outcome = await (await probeRunner(await resolvedProbeTerm(pkg), pkg))();
 
     expect(outcome).toMatchObject({
       kind: 'no-verdict',
@@ -847,16 +887,17 @@ const SCRATCH_VITEST_CONFIG = `export default ${JSON.stringify(
   2,
 )};\n`;
 
-/** A scratch test file that writes the name of its vitest project into `markers/<name>.json`, then asserts that `value()` is 2. */
-function scratchTestFile(name: string): string {
+/** A scratch test file that writes the name of its vitest project into a marker directory outside the package, then asserts that `value()` is 2. */
+function scratchTestFile(name: string, markers: string): string {
   return [
     "import { mkdirSync, writeFileSync } from 'node:fs';",
+    "import { join } from 'node:path';",
     "import { it, expect } from 'vitest';",
     "import { value } from '../../src/value.mjs';",
     '',
     "it('value is 2', (ctx) => {",
-    "  mkdirSync(new URL('../../markers/', import.meta.url), { recursive: true });",
-    `  writeFileSync(new URL('../../markers/${name}.json', import.meta.url), JSON.stringify({ project: ctx.task.file.projectName }));`,
+    `  mkdirSync(${JSON.stringify(markers)}, { recursive: true });`,
+    `  writeFileSync(join(${JSON.stringify(markers)}, '${name}.json'), JSON.stringify({ project: ctx.task.file.projectName }));`,
     '  expect(value()).toBe(2);',
     '});',
     '',
@@ -864,22 +905,28 @@ function scratchTestFile(name: string): string {
 }
 
 /** Reads the marker that the scratch test file `name` wrote, or `undefined` when the file did not run. */
-function readProjectMarker(pkg: string, name: string): unknown {
-  const marker = path.join(pkg, 'markers', `${name}.json`);
+function readProjectMarker(markers: string, name: string): unknown {
+  const marker = path.join(markers, `${name}.json`);
   return existsSync(marker) ? JSON.parse(readFileSync(marker, 'utf8')) : undefined;
 }
 
 /**
- * The production runner of the probe, the tracked `test:files` wrapper and the real vitest, in a scratch package.
+ * The probe leg of the local executor, the tracked `test:files` wrapper and the real vitest, in a scratch package.
  * The package has its own config, so no run reads the root config of this repository.
+ * Each test writes its marker outside the package, so the package stays a clean checkout.
  */
-describe('buildScopedTestRunner — the test:files wrapper with a real vitest', () => {
+describe('the probe leg of the local executor — the test:files wrapper with a real vitest', () => {
+  afterAll(() => {
+    for (const close of runnerStores.splice(0)) close();
+  });
+
   /**
-   * The runner gets one file of each project. Each named file runs in the project that collects it, and a third file does not run.
+   * The probe leg gets one file of each project. Each named file runs in the project that collects it, and a third file does not run.
    * The green source gives a green run. A reverted source makes both files red, and the run is red.
    */
   it('DefaultRunTests_TestFilesWrapper_RunsEachNamedFileInItsProjectAndReadsItsResult', async () => {
     const pkg = realpathSync(mkdtempSync(path.join(os.tmpdir(), 'probe-vitest-package-')));
+    const markers = realpathSync(mkdtempSync(path.join(os.tmpdir(), 'probe-vitest-markers-')));
     const link = path.join(pkg, 'node_modules', 'vitest');
     try {
       mkdirSync(path.join(pkg, 'tools', 'test-helpers'), { recursive: true });
@@ -888,6 +935,7 @@ describe('buildScopedTestRunner — the test:files wrapper with a real vitest', 
         path.join(pkg, 'package.json'),
         JSON.stringify({ name: 'scratch', private: true, scripts: { 'test:files': 'node tools/test-helpers/run-test-files.mjs' } }),
       );
+      writeFileSync(path.join(pkg, '.gitignore'), 'node_modules\n');
       mkdirSync(path.dirname(link), { recursive: true });
       symlinkSync(VITEST_PACKAGE_DIR, link, 'junction');
       writeFileSync(path.join(pkg, 'vitest.config.mjs'), SCRATCH_VITEST_CONFIG);
@@ -896,20 +944,20 @@ describe('buildScopedTestRunner — the test:files wrapper with a real vitest', 
       const scratchFiles: ReadonlyArray<readonly [string, string]> = [['scripts', 'scripts'], ['unit', 'unit'], ['unit', 'other']];
       for (const [dir, name] of scratchFiles) {
         mkdirSync(path.join(pkg, 'tests', dir), { recursive: true });
-        writeFileSync(path.join(pkg, 'tests', dir, `${name}.test.mjs`), scratchTestFile(name));
+        writeFileSync(path.join(pkg, 'tests', dir, `${name}.test.mjs`), scratchTestFile(name, markers));
       }
-      const runner = buildScopedTestRunner(await resolvedProbeTerm(pkg), pkg);
+      const run = await probeRunner(await resolvedProbeTerm(pkg), pkg);
       const testFiles = ['tests/scripts/scripts.test.mjs', 'tests/unit/unit.test.mjs'];
 
-      const green = await isolatedSync(() => runner({ repoRoot: pkg, testFiles }));
+      const green = await run(testFiles);
 
       expect(green, `${green.stdout ?? ''}\n${green.stderr ?? ''}`).toMatchObject({ kind: 'ran', result: 'green' });
-      expect(readProjectMarker(pkg, 'scripts')).toEqual({ project: 'unit' });
-      expect(readProjectMarker(pkg, 'unit')).toEqual({ project: 'core' });
-      expect(readProjectMarker(pkg, 'other')).toBeUndefined();
+      expect(readProjectMarker(markers, 'scripts')).toEqual({ project: 'unit' });
+      expect(readProjectMarker(markers, 'unit')).toEqual({ project: 'core' });
+      expect(readProjectMarker(markers, 'other')).toBeUndefined();
 
       writeFileSync(path.join(pkg, 'src', 'value.mjs'), 'export function value() {\n  return 1;\n}\n');
-      const red = await isolatedSync(() => runner({ repoRoot: pkg, testFiles }));
+      const red = await run(testFiles);
 
       expect(red, `${red.stdout ?? ''}\n${red.stderr ?? ''}`).toMatchObject({ kind: 'ran', result: 'red' });
       expect(`${red.stdout ?? ''}${red.stderr ?? ''}`).toContain('expected 1 to be 2');
@@ -917,6 +965,7 @@ describe('buildScopedTestRunner — the test:files wrapper with a real vitest', 
     } finally {
       if (lstatSync(link, { throwIfNoEntry: false })?.isSymbolicLink() === true) unlinkSync(link);
       rmrf(pkg);
+      rmrf(markers);
     }
   }, 120_000);
 });
@@ -927,7 +976,7 @@ const seededWorkflows = new Set<string>();
 /**
  * Calls the composite handler directly, not through `dispatch()`. It recreates the trusted dispatch
  * scope, because without it the gate runner refuses with `TRUSTED_CALLER_REQUIRED`. It also seeds a
- * started workflow with an active phase attempt, which the gate evidence binds to.
+ * started workflow with an active phase attempt, which the gate evidence binds to. The start names the repository of the call.
  */
 async function orchestrate(
   args: Record<string, unknown>,
@@ -938,7 +987,8 @@ async function orchestrate(
     const key = `${ctx.stateDir}\0${featureId}`;
     if (!seededWorkflows.has(key)) {
       seededWorkflows.add(key);
-      await seedActivePhaseAttempt(ctx.eventStore, featureId);
+      const repoRoot = args['repoRoot'];
+      await seedActivePhaseAttempt(ctx.eventStore, featureId, typeof repoRoot === 'string' ? { repoRoot: deriveRepoKey(repoRoot) } : {});
     }
   }
   return runAsTrustedCaller(ctx.stateDir, () => handleOrchestrate(args, ctx));

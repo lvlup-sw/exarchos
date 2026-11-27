@@ -4,6 +4,7 @@
 
 import { canonicalJson } from '../contract/request-context.js';
 import { TaskVerificationCoordinateSchema } from '../contract/capsule/exarchos-capsule.js';
+import type { VerificationHostConnector } from '../contract/verification/harness-verification.js';
 import { type ToolResult } from '../format.js';
 import type { DispatchContext } from '../dispatch/core/dispatch.js';
 import type { EventType } from '../events/schemas.js';
@@ -65,9 +66,9 @@ import { handleSetupWorktree, type SetupWorktreeArgs } from './team/setup-worktr
 import { handleVerifyDelegationSaga } from './team/verify-delegation-saga.js';
 import { handlePostDelegationCheck } from './team/post-delegation-check.js';
 import { handleReconcileState } from './reconcile-state.js';
-import { handlePreSynthesisCheck } from './gates/pre-synthesis-check.js';
+import { handlePreSynthesisCheck, type PreSynthesisCheckArgs } from './gates/pre-synthesis-check.js';
 import { handleCheckCoderabbit } from './vcs/check-coderabbit.js';
-import { handleCheckPolishScope } from './gates/check-polish-scope.js';
+import { handleCheckPolishScope, type CheckPolishScopeArgs } from './gates/check-polish-scope.js';
 import { handleNeedsSchemaSync } from './gates/needs-schema-sync.js';
 import { handleVerifyDocLinks } from './gates/verify-doc-links.js';
 import { handleVerifyReviewTriage } from './review/verify-review-triage.js';
@@ -118,9 +119,49 @@ import { handleSettle } from './settle/handler.js';
 
 type ActionHandler = (args: Record<string, unknown>, stateDir: string, ctx?: DispatchContext) => Promise<ToolResult>;
 
-/** Wraps a typed handler as an ActionHandler, narrowing Record<string, unknown> to T. */
-function adapt<T>(handler: (args: T, stateDir: string) => Promise<ToolResult>): ActionHandler {
-  return (args, stateDir) => handler(args as unknown as T, stateDir);
+/** The private verifier terms that only the dispatch context supplies. An adapter removes a caller copy from the args. */
+const PRIVATE_VERIFIER_TERMS: readonly string[] = ['verificationHost', 'hostAdequacy', 'hostCheck'];
+
+/** The args without a caller copy of the private verifier terms. */
+function withoutPrivateTerms(args: Record<string, unknown>): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(args).filter(([key]) => !PRIVATE_VERIFIER_TERMS.includes(key)));
+}
+
+/**
+ * The handler `inner` with a caller copy of the private verifier terms removed from the args.
+ * A lifecycle or team action reads no connector, but its args still never carry a caller copy of a private term.
+ */
+function privateTermsRemoved(inner: ActionHandler): ActionHandler {
+  return (args, stateDir, ctx) => inner(withoutPrivateTerms(args), stateDir, ctx);
+}
+
+/** The connector of a provisioned context. A caller argument never supplies it. */
+function connectorOf(ctx: DispatchContext): VerificationHostConnector | undefined {
+  return ctx.verificationHost;
+}
+
+/**
+ * The connector Git path of a provisioned context for an observational read. An empty path counts as no path, so the read uses the process-wide Git path.
+ * A caller argument never supplies it.
+ */
+function observationalGitPathOf(ctx: DispatchContext): string | undefined {
+  const gitPath = ctx.verificationHost?.gitPath;
+  return gitPath === undefined || gitPath === '' ? undefined : gitPath;
+}
+
+/**
+ * Wraps a typed handler as an ActionHandler. The handler reads the args as its own type.
+ * The `extraOf` selector reads an extra argument from the dispatch context, such as the connector of a provisioned context.
+ * The adapter passes it only when the selector gives a value, and then removes a caller copy of the private terms.
+ */
+function adapt<T, X = never>(
+  handler: (args: T, stateDir: string, extra?: X) => Promise<ToolResult>, extraOf?: (ctx: DispatchContext) => X | undefined,
+): ActionHandler {
+  return (args, stateDir, ctx) => {
+    const typedArgs = (extraOf === undefined ? args : withoutPrivateTerms(args)) as unknown as T;
+    const extra = extraOf !== undefined && ctx !== undefined ? extraOf(ctx) : undefined;
+    return extra === undefined ? handler(typedArgs, stateDir) : handler(typedArgs, stateDir, extra);
+  };
 }
 
 /** Wraps a typed handler that receives (args, ctx: DispatchContext). */
@@ -169,7 +210,7 @@ function adaptWithEventStore<T, X = never>(
         `${handler.name}: ctx.eventStore required (handler dispatched without DispatchContext)`,
       );
     }
-    const typedArgs = args as unknown as T;
+    const typedArgs = (extraOf === undefined ? args : withoutPrivateTerms(args)) as unknown as T;
     const extra = extraOf?.(ctx);
     return extra === undefined
       ? handler(typedArgs, stateDir, ctx.eventStore)
@@ -181,9 +222,11 @@ function adaptWithEventStore<T, X = never>(
  * Like {@link adaptWithEventStore}, but it also copies `ctx.projectConfig` into the handler args.
  * An explicit `projectConfig` in the args, such as from a test, wins.
  * It serves a handler that needs both the event store and the resolved config, such as `prepare_synthesis`.
+ * `extraOf` selects an extra argument as {@link adapt} does.
  */
-function adaptWithEventStoreAndConfig<T>(
-  handler: (args: T, stateDir: string, eventStore: EventStore) => Promise<ToolResult>,
+function adaptWithEventStoreAndConfig<T, X = never>(
+  handler: (args: T, stateDir: string, eventStore: EventStore, extra?: X) => Promise<ToolResult>,
+  extraOf?: (ctx: DispatchContext) => X | undefined,
 ): ActionHandler {
   return async (args, stateDir, ctx) => {
     if (!ctx?.eventStore) {
@@ -191,12 +234,17 @@ function adaptWithEventStoreAndConfig<T>(
         `${handler.name}: ctx.eventStore required (handler dispatched without DispatchContext)`,
       );
     }
+    const plainArgs = extraOf === undefined ? args : withoutPrivateTerms(args);
     const enrichedArgs =
       ctx.projectConfig !== undefined &&
-      (args as { projectConfig?: unknown }).projectConfig === undefined
-        ? { ...(args as Record<string, unknown>), projectConfig: ctx.projectConfig }
-        : args;
-    return handler(enrichedArgs as unknown as T, stateDir, ctx.eventStore);
+      (plainArgs as { projectConfig?: unknown }).projectConfig === undefined
+        ? { ...plainArgs, projectConfig: ctx.projectConfig }
+        : plainArgs;
+    const typedArgs = enrichedArgs as unknown as T;
+    const extra = extraOf?.(ctx);
+    return extra === undefined
+      ? handler(typedArgs, stateDir, ctx.eventStore)
+      : handler(typedArgs, stateDir, ctx.eventStore, extra);
   };
 }
 
@@ -241,12 +289,27 @@ function coordinateRefusal(args: Record<string, unknown>, ctx: DispatchContext |
  * The severity wrapper of the action table applies the severity and the IMPLEMENT-phase audit mode, so this adapter does not.
  *
  * `verificationProfile` comes only from the context. The adapter removes a value that the args carry, so a wire caller cannot pin a profile.
+ * The private verifier terms come only from the context too. The adapter removes `hostAdequacy`, `hostCheck` and `verificationHost` from the args.
+ * A check gate and the adequacy gate ignore the connector and run in the local approved-check executor, with or without a verifier provisioning.
+ * The adapter has two parameters, so the envelope rule resolves the handler of a call with a literal Boolean option.
  *
  * @internal Exported so that a test can call the adapter with a gate of its own.
  */
 export function adaptLadderGate<T>(
   handler: (args: T, stateDir: string, eventStore: EventStore) => Promise<ToolResult>,
   coordinateAware = false,
+): ActionHandler {
+  return adaptLadderGateWithExtra(handler, coordinateAware, () => undefined);
+}
+
+/**
+ * The adapter {@link adaptLadderGate} for a gate that takes an extra fourth argument.
+ * The selector gives that argument from the context, such as the connector of a provisioned context.
+ */
+function adaptLadderGateWithExtra<T, X>(
+  handler: (args: T, stateDir: string, eventStore: EventStore, extra?: X) => Promise<ToolResult>,
+  coordinateAware: boolean,
+  extraOf: (ctx: DispatchContext) => X | undefined,
 ): ActionHandler {
   return async (args, stateDir, ctx) => {
     if (!ctx?.eventStore) {
@@ -261,14 +324,16 @@ export function adaptLadderGate<T>(
       (args as { projectConfig?: unknown }).projectConfig === undefined
         ? { ...(args as Record<string, unknown>), projectConfig: ctx.projectConfig }
         : args;
-    const { verificationProfile: _carried, ...unprofiledArgs } = enrichedArgs;
+    const { verificationProfile: _carried, hostAdequacy: _host, hostCheck: _check, verificationHost: _verifier, ...unprofiledArgs } = enrichedArgs;
     const gateArgs =
       ctx.verificationProfile === undefined
         ? unprofiledArgs
         : { ...unprofiledArgs, verificationProfile: ctx.verificationProfile };
     const selectedArgs = coordinateAware && ctx.verificationInput !== undefined
       ? { ...gateArgs, coordinate: ctx.verificationInput.coordinate } : gateArgs;
-    return handler(selectedArgs as unknown as T, stateDir, ctx.eventStore);
+    const typedArgs = selectedArgs as unknown as T;
+    const extra = extraOf(ctx);
+    return extra === undefined ? handler(typedArgs, stateDir, ctx.eventStore) : handler(typedArgs, stateDir, ctx.eventStore, extra);
   };
 }
 
@@ -338,17 +403,21 @@ function adaptWithOptionalEventStore<T>(
 /**
  * Wraps a handler that takes one args object, and adds `stateDir` and `ctx.eventStore` to that object.
  * An example is `handleFinalizeOneshot`, whose `FinalizeOneshotArgs` holds both fields.
+ * `extraOf` selects an extra argument as {@link adapt} does.
  */
-function adaptArgsWithStateDirAndEventStore<T>(
-  handler: (args: T) => ToolResult | Promise<ToolResult>,
+function adaptArgsWithStateDirAndEventStore<T, X = never>(
+  handler: (args: T, extra?: X) => ToolResult | Promise<ToolResult>,
+  extraOf?: (ctx: DispatchContext) => X | undefined,
 ): ActionHandler {
   return async (args, stateDir, ctx) => {
     const enriched = {
-      ...args,
+      ...(extraOf === undefined ? args : withoutPrivateTerms(args)),
       stateDir,
       ...(ctx?.eventStore ? { eventStore: ctx.eventStore } : {}),
     };
-    return handler(enriched as unknown as T);
+    const typedArgs = enriched as unknown as T;
+    const extra = extraOf !== undefined && ctx !== undefined ? extraOf(ctx) : undefined;
+    return extra === undefined ? handler(typedArgs) : handler(typedArgs, extra);
   };
 }
 
@@ -432,7 +501,7 @@ export const ACTION_HANDLERS: Readonly<Record<string, ActionHandler>> = {
   task_fail: adaptWithEventStore(handleTaskFail),
   review_triage: adaptWithEventStore(handleReviewTriage),
   prepare_delegation: adaptWithCtx(handlePrepareDelegation),
-  prepare_synthesis: adaptWithEventStoreAndConfig(handlePrepareSynthesis),
+  prepare_synthesis: privateTermsRemoved(adaptWithEventStoreAndConfig(handlePrepareSynthesis)),
   assess_stack: adaptWithEventStoreAndConfig(handleAssessStack),
   check_design_completeness: adaptWithEventStore(handleDesignCompleteness),
   check_plan_coverage: adaptWithEventStore(handlePlanCoverage),
@@ -444,20 +513,20 @@ export const ACTION_HANDLERS: Readonly<Record<string, ActionHandler>> = {
   /** Verification-ladder gate. {@link adaptLadderGate} copies the dispatch config into the args, and the severity wrapper applies the severity. */
   check_test_adequacy: adaptLadderGate(handleTestAdequacy, true),
   check_contract_drift: adaptLadderGate(handleContractDrift, true),
-  check_mock_boundary: adaptLadderGate(handleMockBoundary, true),
+  check_mock_boundary: adaptLadderGateWithExtra(handleMockBoundary, true, connectorOf),
   /**
    * Action of the mutation-adequacy review dimension. It is advisory by default, because its seeded gate default is warning-only.
    * A score under the threshold shows survivor `next_actions` and does not block.
    * An explicit `review.gates['mutation-adequacy']` override can make it blocking.
    */
-  [MUTATION_GATE_NAME]: adaptLadderGate(handleMutationAdequacy),
-  check_post_merge: adaptWithEventStore(handlePostMerge),
+  [MUTATION_GATE_NAME]: adaptLadderGateWithExtra(handleMutationAdequacy, false, connectorOf),
+  check_post_merge: privateTermsRemoved(adaptWithEventStore(handlePostMerge)),
   check_static_analysis: adaptLadderGate(handleStaticAnalysis, true),
   check_integration_suite: adaptLadderGate(handleCheckIntegrationSuite, true),
   check_security_scan: adaptWithEventStore(handleSecurityScan),
-  check_context_economy: adaptWithEventStore(handleContextEconomy),
-  check_operational_resilience: adaptWithEventStore(handleOperationalResilience),
-  check_workflow_determinism: adaptWithEventStore(handleWorkflowDeterminism),
+  check_context_economy: adaptWithEventStore(handleContextEconomy, observationalGitPathOf),
+  check_operational_resilience: adaptWithEventStore(handleOperationalResilience, observationalGitPathOf),
+  check_workflow_determinism: adaptWithEventStore(handleWorkflowDeterminism, observationalGitPathOf),
   check_review_verdict: adaptWithEventStoreAndConfig(handleReviewVerdict),
   check_convergence: adaptWithEventStore(handleCheckConvergence),
   check_provenance_chain: adaptWithEventStore(handleProvenanceChain),
@@ -465,7 +534,7 @@ export const ACTION_HANDLERS: Readonly<Record<string, ActionHandler>> = {
   check_event_emissions: adaptWithEventStore(handleCheckEventEmissions),
   agent_spec: adapt(handleAgentSpec),
   extract_task: adapt(handleExtractTask),
-  review_diff: adapt(handleReviewDiff),
+  review_diff: adapt(handleReviewDiff, observationalGitPathOf),
   verify_worktree: adapt(handleVerifyWorktree),
   select_debug_track: adaptWithOptionalEventStore(handleSelectDebugTrack),
   investigation_timer: adaptWithOptionalEventStore(handleInvestigationTimer),
@@ -474,20 +543,23 @@ export const ACTION_HANDLERS: Readonly<Record<string, ActionHandler>> = {
   check_pr_comments: adaptArgs(handleCheckPrComments),
   validate_pr_body: adaptWithOptionalEventStore(handleValidatePrBody),
   validate_pr_stack: adaptWithEventStore(handleValidatePrStack),
-  debug_review_gate: adaptWithEventStore(handleDebugReviewGate),
+  debug_review_gate: privateTermsRemoved(adaptWithEventStore(handleDebugReviewGate)),
   extract_fix_tasks: adaptArgsWithStateDirAndEventStore(handleExtractFixTasks),
   classify_review_items: adaptArgsWithEventStore(handleClassifyReviewItems),
   generate_traceability: adaptArgs(handleGenerateTraceability),
+  /** Spec coverage runs its declared tests in the local approved-check executor. It reads no connector. */
   spec_coverage_check: adaptWithEventStore(handleSpecCoverageCheck),
-  verify_worktree_baseline: adapt(handleVerifyWorktreeBaseline),
+  verify_worktree_baseline: privateTermsRemoved(adaptWithEventStore(handleVerifyWorktreeBaseline)),
   setup_worktree: adaptSetupWorktree(),
   verify_delegation_saga: adaptArgs(handleVerifyDelegationSaga),
-  post_delegation_check: adaptArgsWithStateDirAndEventStore(handlePostDelegationCheck),
+  post_delegation_check: privateTermsRemoved(adaptArgsWithStateDirAndEventStore(handlePostDelegationCheck)),
   reconcile_state: adaptArgsWithEventStore(handleReconcileState),
-  pre_synthesis_check: adaptArgsWithStateDirAndEventStore(handlePreSynthesisCheck),
+  pre_synthesis_check: privateTermsRemoved(adaptArgsWithStateDirAndEventStore((args: PreSynthesisCheckArgs) => handlePreSynthesisCheck(args))),
   check_coderabbit: adaptArgs(handleCheckCoderabbit),
-  check_polish_scope: adaptArgs(handleCheckPolishScope),
-  needs_schema_sync: adaptArgs(handleNeedsSchemaSync),
+  check_polish_scope: adapt((args: CheckPolishScopeArgs, _stateDir: string, gitPath?: string) =>
+    handleCheckPolishScope(args, gitPath), observationalGitPathOf),
+  needs_schema_sync: adapt((args: Parameters<typeof handleNeedsSchemaSync>[0], _stateDir: string, gitPath?: string) =>
+    handleNeedsSchemaSync(args, gitPath), observationalGitPathOf),
   verify_doc_links: adaptArgs(handleVerifyDocLinks),
   verify_review_triage: adaptArgsWithStateDirAndEventStore(handleVerifyReviewTriage),
   prepare_review: adaptWithEventStore(handlePrepareReview),

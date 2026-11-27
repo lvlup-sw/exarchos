@@ -1,13 +1,14 @@
 /**
  * The kill-probe gate for `check_test_adequacy`. It proves that the tests of a task are not vacuous, with mutation testing at N=1.
- * The probe first runs the new or changed tests on the task source, and they must pass.
- * Then it reverts only the source files of the task and keeps the test files and the test-support files. It runs the same tests again and expects at least one to go red.
+ * The probe first runs the new or changed tests on the head source, and they must pass.
+ * Then it runs the same tests on the reverted source and expects at least one to go red.
+ * The reverted source holds the task source files at the base, with the test files and the test-support files of the head.
  * A test that survives the source revert asserts nothing about the change.
  *
+ * The probe writes no file and runs no Git command. The runner owns both source images, which are disposable copies of the exact head.
  * `splitHunks` is exported so the mock-boundary gate can reuse the same classification.
  */
 
-import type { GitExec } from '../pure/execute-merge.js';
 import { assertNever } from '../../contract/error-families.js';
 import { DEFAULT_TEST_GLOBS, DEFAULT_TEST_SUPPORT_SEGMENTS } from '../../config/toolchains.js';
 import { PROFILE_UNRESOLVED, type VerificationProfile } from '../../workflow/verification/profile.js';
@@ -124,6 +125,8 @@ function closedNames<const Names extends readonly [string, ...string[]]>(...name
  * `run-no-verdict` means that a scoped test run ended with no green and no red result.
  * `unprobed-test-paths` means that the diff touches a test path, and the probe command cannot run it or no test file is left.
  * `profile-unresolved` means that the glob term or the probe command is unresolved.
+ *
+ * `revert-conflict` and `restore-failed` come only from stored results of the earlier in-place revert. They stay so that a stored result reads unchanged.
  */
 export const ADEQUACY_DISCRIMINANTS = closedNames(
   'no-new-tests',
@@ -352,172 +355,6 @@ export function verdictOf(carrier: unknown): ProbeVerdict {
   };
 }
 
-export type SnapshotResult =
-  | { readonly stashSha: string }
-  | { readonly error: string };
-
-export type RevertResult =
-  | { readonly ok: true }
-  | { readonly ok: false; readonly discriminant: 'revert-conflict'; readonly detail: string };
-
-export interface RestoreResult {
-  readonly restored: boolean;
-  readonly detail?: string;
-}
-
-/**
- * Captures the current working tree as an object-only snapshot. It does not throw.
- * `git stash create` writes a commit object of the dirty tree and returns its sha, and changes no ref.
- * `stash push` and `stash pop` change the stash storage that all worktrees share, so the probe does not use them.
- * On a clean tree, `stash create` prints nothing, so the snapshot is the HEAD commit.
- */
-export function snapshotWorkingTree(gitExec: GitExec, repoRoot: string): SnapshotResult {
-  try {
-    const created = gitExec(repoRoot, ['stash', 'create']);
-    if (created.exitCode !== 0) {
-      return { error: `git stash create exited ${created.exitCode}: ${created.stdout.trim()}` };
-    }
-    const sha = created.stdout.trim();
-    if (sha) {
-      return { stashSha: sha };
-    }
-    const head = gitExec(repoRoot, ['rev-parse', 'HEAD']);
-    if (head.exitCode !== 0) {
-      return { error: `git rev-parse HEAD exited ${head.exitCode}: ${head.stdout.trim()}` };
-    }
-    const headSha = head.stdout.trim();
-    if (!headSha) return { error: 'empty sha from git rev-parse HEAD' };
-    return { stashSha: headSha };
-  } catch (err) {
-    return { error: err instanceof Error ? err.message : String(err) };
-  }
-}
-
-/**
- * Reverts only the given source files to their state at `baseRef`. It never runs `reset --hard`.
- * A path that exists at the base gets a targeted checkout. A tracked path that the task added is removed, so the probe recreates the base.
- * A path that is absent from the base and from the current index is a `revert-conflict`, as is a git failure.
- * An empty file list is a trivial success.
- */
-export function revertSourceFiles(
-  gitExec: GitExec,
-  repoRoot: string,
-  baseRef: string,
-  sourceFiles: readonly string[],
-): RevertResult {
-  if (sourceFiles.length === 0) {
-    return { ok: true };
-  }
-  try {
-    const verifiedBase = gitExec(repoRoot, [
-      'rev-parse',
-      '--verify',
-      `${baseRef}^{commit}`,
-    ]);
-    if (verifiedBase.exitCode !== 0) {
-      return {
-        ok: false,
-        discriminant: 'revert-conflict',
-        detail: `git rev-parse ${baseRef} exited ${verifiedBase.exitCode}: ${verifiedBase.stdout.trim()}`,
-      };
-    }
-
-    const basePaths: string[] = [];
-    const taskAddedPaths: string[] = [];
-    for (const sourceFile of sourceFiles) {
-      const atBase = gitExec(repoRoot, [
-        'cat-file',
-        '-e',
-        `${baseRef}:${sourceFile}`,
-      ]);
-      if (atBase.exitCode === 0) {
-        basePaths.push(sourceFile);
-        continue;
-      }
-
-      const trackedNow = gitExec(repoRoot, [
-        'ls-files',
-        '--error-unmatch',
-        '--',
-        sourceFile,
-      ]);
-      if (trackedNow.exitCode !== 0) {
-        return {
-          ok: false,
-          discriminant: 'revert-conflict',
-          detail: `source path is absent from both ${baseRef} and the current index: ${sourceFile}`,
-        };
-      }
-      taskAddedPaths.push(sourceFile);
-    }
-
-    if (basePaths.length > 0) {
-      const checkout = gitExec(repoRoot, [
-        'checkout',
-        baseRef,
-        '--',
-        ...basePaths,
-      ]);
-      if (checkout.exitCode !== 0) {
-        return {
-          ok: false,
-          discriminant: 'revert-conflict',
-          detail: `git checkout ${baseRef} -- <source> exited ${checkout.exitCode}: ${checkout.stdout.trim()}`,
-        };
-      }
-    }
-
-    if (taskAddedPaths.length > 0) {
-      const remove = gitExec(repoRoot, [
-        'rm',
-        '--force',
-        '--',
-        ...taskAddedPaths,
-      ]);
-      if (remove.exitCode !== 0) {
-        return {
-          ok: false,
-          discriminant: 'revert-conflict',
-          detail: `git rm -- <task-added-source> exited ${remove.exitCode}: ${remove.stdout.trim()}`,
-        };
-      }
-    }
-
-    return { ok: true };
-  } catch (err) {
-    return {
-      ok: false,
-      discriminant: 'revert-conflict',
-      detail: err instanceof Error ? err.message : String(err),
-    };
-  }
-}
-
-/**
- * Restores the index and the tracked files to the tree of the snapshot from {@link snapshotWorkingTree}. It does not throw.
- * The checkout is `--no-overlay`, so it also removes a tracked path that the snapshot does not hold.
- * The revert brings back each deleted or renamed source path of the base, and the default overlay checkout leaves that path staged.
- * A file that git does not track stays as it is. A git failure returns `restored: false`, and the probe reports `restore-failed`.
- */
-export function restoreWorkingTree(
-  gitExec: GitExec,
-  repoRoot: string,
-  stashSha: string,
-): RestoreResult {
-  try {
-    const result = gitExec(repoRoot, ['checkout', '--no-overlay', stashSha, '--', '.']);
-    if (result.exitCode !== 0) {
-      return {
-        restored: false,
-        detail: `git checkout --no-overlay ${stashSha} -- . exited ${result.exitCode}: ${result.stdout.trim()}`,
-      };
-    }
-    return { restored: true };
-  } catch (err) {
-    return { restored: false, detail: err instanceof Error ? err.message : String(err) };
-  }
-}
-
 /**
  * Each end of a scoped test run that gives no verdict, in one list. {@link RUN_NO_VERDICT_TEXT} says what each cause means.
  * `did-not-start` also covers a runner that failed with no exit status, and a run whose scratch directory was not made.
@@ -571,11 +408,15 @@ export type RunOutcome =
       readonly stderr?: undefined;
     };
 
+/** The source of one probe run: the exact head, or the head with the task sources at the base. */
+export type ProbeSource = 'head' | 'reverted';
+
 /**
  * The injected runner of the resolved test command. It scopes the run to the new or changed test files where the runner allows.
+ * It runs the tests in the source image that `source` names. A source image that the runner cannot build gives a run with no verdict.
  */
 export type TestRunFn = (input: {
-  readonly repoRoot: string;
+  readonly source: ProbeSource;
   readonly testFiles: readonly string[];
 }) => Promise<RunOutcome>;
 
@@ -595,15 +436,11 @@ interface ProbeTerms {
 }
 
 export interface ProbeArgs {
-  readonly gitExec: GitExec;
-  readonly repoRoot: string;
-  /** The base ref the task diff is measured against (revert target). */
-  readonly baseRef: string;
   /** Repo-relative files changed by the task diff. */
   readonly changedFiles: readonly string[];
   /**
    * The changed files that the head side of the diff deletes. A renamed file gives its base path here.
-   * They stay in the source revert, so the run after the revert sees them, and the restore removes them again.
+   * They stay in the source revert, so the reverted source holds them.
    * A deleted test file is not at the head, so the probe never runs it.
    */
   readonly deletedFiles?: readonly string[];
@@ -648,7 +485,7 @@ export interface ProbeResult {
   readonly probedTests: string[];
   /** True when the scoped tests FAILED on the reverted source (the kill). */
   readonly redObserved: boolean;
-  /** True when the working tree was restored to its pre-probe snapshot. */
+  /** True when the live checkout stayed as it was. The probe writes no file, so a probe result always holds true. */
   readonly restoredClean: boolean;
   /** DERIVED. Set iff the verdict is indeterminate — names the cause. */
   readonly discriminant?: AdequacyDiscriminant;
@@ -850,64 +687,21 @@ function noTestLeftReason(files: readonly string[]): string {
  * Runs the kill probe. The test runner and the changed-file list are injected, so unit tests need no real test command.
  *
  *   1. Check the glob term and split the diff. A deleted test file is not run. A stop here gives `profile-unresolved`, `unprobed-test-paths` or `no-new-tests`.
- *   2. Snapshot the working tree (a failed snapshot stops the probe before any change).
- *   3. Run the scoped tests on the task source. A red run gives `baseline-red`, because a later red run proves no kill.
- *   4. Revert only the source files to `baseRef` and run the tests again. A task with no source file skips this step and fails.
- *   5. Restore the working tree in a `finally`, so the restore runs even when a test run throws.
+ *   2. Run the scoped tests on the head source. A red run gives `baseline-red`, because a later red run proves no kill.
+ *   3. Run the same tests on the reverted source. A task with no source file skips this step and fails.
  *
- * Red after green gives `passed`, and green after green gives `failed`. A failed revert or restore gives `indeterminate`. A failed restore wins over each cause of a run.
- * A run with no verdict gives `run-no-verdict`. The runner checks the probe command at its first run, and an injected runner replaces that check.
+ * Red after green gives `passed`, and green after green gives `failed`. A run with no verdict gives `run-no-verdict`, never a kill.
+ * The runner checks the probe command at its first run, and an injected runner replaces that check.
  *
  * Limit: the probe reads every red run after the revert as a kill. A test can fail to load when the revert removes or changes a module that it imports.
  * An example is a module that the task adds or renames. A reverted config file, such as `package.json`, can make the run red or collect no test. Test files and test-support files are never reverted.
  */
 export async function runProbe(args: ProbeArgs): Promise<ProbeResult> {
-  const { gitExec, repoRoot, baseRef, changedFiles, runTests, terms } = args;
-  const riskTier = args.riskTier;
+  const { runTests, terms, riskTier } = args;
   const withRoute = terms?.withRoute ?? ((reason: string): string => reason);
-
-  if (args.diffFailed === true) {
-    return toProbeResult(
-      {
-        kind: 'indeterminate',
-        cause: 'diff-failed',
-        detail: 'could not compute the task diff',
-      },
-      { probedTests: [], redObserved: false, restoredClean: true },
-      riskTier,
-    );
-  }
-
-  const globTerm = terms?.globs;
-  if (globTerm?.state === 'unresolved') {
-    return probeNotRun(PROFILE_UNRESOLVED, withRoute(globTerm.reason), riskTier);
-  }
-
-  const deleted = new Set(args.deletedFiles ?? []);
-  const claimed = replacedSeedFiles(changedFiles, globTerm);
-  const split = splitHunks(
-    changedFiles.filter((file) => !claimed.includes(file)),
-    { testGlobs: globTerm?.globs ?? args.testGlobs, supportSegments: terms?.supportSegments },
-  );
-  const testFiles = split.testFiles.filter((file) => !deleted.has(file));
-  const sourceFiles = split.sourceFiles;
-
-  const foreignTests = claimed.filter((file) => !deleted.has(file));
-  if (foreignTests.length > 0) {
-    return probeNotRun('unprobed-test-paths', withRoute(replacedSeedReason(foreignTests)), riskTier);
-  }
-
-  const touchedTestPaths = [...claimed, ...split.testFiles, ...split.supportFiles];
-  if (testFiles.length === 0 && touchedTestPaths.length > 0) {
-    return probeNotRun('unprobed-test-paths', withRoute(noTestLeftReason(touchedTestPaths)), riskTier);
-  }
-
-  const probeGlobs = terms?.probeGlobs;
-  const unfit = probeGlobs === undefined ? [] : testFiles.filter((file) => !matchesAnyGlob(file, probeGlobs));
-  if (unfit.length > 0) {
-    return probeNotRun('unprobed-test-paths', withRoute(runnerFitReason(unfit)), riskTier);
-  }
-
+  const selection = selectAdequacyPaths(args);
+  if ('blocked' in selection) return selection.blocked;
+  const { testFiles, sourceFiles } = selection;
   if (testFiles.length === 0) {
     return toProbeResult(
       {
@@ -922,71 +716,15 @@ export async function runProbe(args: ProbeArgs): Promise<ProbeResult> {
     );
   }
 
-  const snap = snapshotWorkingTree(gitExec, repoRoot);
-  if ('error' in snap) {
-    return toProbeResult(
-      {
-        kind: 'indeterminate',
-        cause: 'restore-failed',
-        detail: `could not snapshot the working tree: ${snap.error}`,
-      },
-      { probedTests: testFiles, redObserved: false, restoredClean: false },
-      riskTier,
-    );
-  }
-  const stashSha = snap.stashSha;
-
-  let preRun: RunOutcome | undefined;
-  let postRevert: RunOutcome | undefined;
-  let revertDetail: string | undefined;
-  let restore: RestoreResult = { restored: false, detail: 'restore did not run' };
-
-  try {
-    preRun = await runTests({ repoRoot, testFiles });
-    if (isGreenRun(preRun) && sourceFiles.length > 0) {
-      const reverted = revertSourceFiles(gitExec, repoRoot, baseRef, sourceFiles);
-      if (reverted.ok) {
-        postRevert = await runTests({ repoRoot, testFiles });
-      } else {
-        revertDetail = reverted.detail;
-      }
-    }
-  } finally {
-    restore = restoreWorkingTree(gitExec, repoRoot, stashSha);
-  }
-
-  const restoredClean = restore.restored;
+  const preRun = await runTests({ source: 'head', testFiles });
+  const postRevert = isGreenRun(preRun) && sourceFiles.length > 0 ? await runTests({ source: 'reverted', testFiles }) : undefined;
   const redObserved = postRevert !== undefined && postRevert.kind === 'ran' && postRevert.result === 'red';
-
-  if (revertDetail !== undefined) {
-    return toProbeResult(
-      {
-        kind: 'indeterminate',
-        cause: 'revert-conflict',
-        detail: `could not revert the task's source hunks: ${revertDetail}`,
-      },
-      { probedTests: testFiles, redObserved: false, restoredClean },
-      riskTier,
-    );
-  }
-
-  if (!restoredClean) {
-    return toProbeResult(
-      {
-        kind: 'indeterminate',
-        cause: 'restore-failed',
-        detail: `could not restore the working tree: ${restore.detail ?? 'unknown'}`,
-      },
-      { probedTests: testFiles, redObserved, restoredClean },
-      riskTier,
-    );
-  }
 
   const stoppedBeforeRevert = preRunVerdict(preRun, withRoute);
   if (stoppedBeforeRevert !== undefined) {
     return toProbeResult(
       stoppedBeforeRevert,
-      { probedTests: preRun.kind === 'unresolved' ? [] : testFiles, redObserved: false, restoredClean },
+      { probedTests: preRun.kind === 'unresolved' ? [] : testFiles, redObserved: false, restoredClean: true },
       riskTier,
     );
   }
@@ -1001,14 +739,67 @@ export async function runProbe(args: ProbeArgs): Promise<ProbeResult> {
           'the scoped tests stay GREEN and no kill is possible',
         probedTests: testFiles,
       },
-      { probedTests: testFiles, redObserved, restoredClean },
+      { probedTests: testFiles, redObserved, restoredClean: true },
       riskTier,
     );
   }
 
   return toProbeResult(
     postRevertVerdict(postRevert, testFiles, withRoute),
-    { probedTests: testFiles, redObserved, restoredClean },
+    { probedTests: testFiles, redObserved, restoredClean: true },
     riskTier,
   );
+}
+
+
+/** Select the exact tests and source files for either probe owner. */
+export function selectAdequacyPaths(args: Pick<ProbeArgs, 'changedFiles' | 'deletedFiles' | 'riskTier' | 'terms' | 'testGlobs' | 'diffFailed'>):
+  { testFiles: string[]; sourceFiles: string[] } | { blocked: ProbeResult } {
+  const { changedFiles, terms } = args;
+  const riskTier = args.riskTier;
+  const withRoute = terms?.withRoute ?? ((reason: string): string => reason);
+
+  if (args.diffFailed === true) {
+    return { blocked: toProbeResult(
+      {
+        kind: 'indeterminate',
+        cause: 'diff-failed',
+        detail: 'could not compute the task diff',
+      },
+      { probedTests: [], redObserved: false, restoredClean: true },
+      riskTier,
+    ) };
+  }
+
+  const globTerm = terms?.globs;
+  if (globTerm?.state === 'unresolved') {
+    return { blocked: probeNotRun(PROFILE_UNRESOLVED, withRoute(globTerm.reason), riskTier) };
+  }
+
+  const deleted = new Set(args.deletedFiles ?? []);
+  const claimed = replacedSeedFiles(changedFiles, globTerm);
+  const split = splitHunks(
+    changedFiles.filter((file) => !claimed.includes(file)),
+    { testGlobs: globTerm?.globs ?? args.testGlobs, supportSegments: terms?.supportSegments },
+  );
+  const testFiles = split.testFiles.filter((file) => !deleted.has(file));
+  const sourceFiles = split.sourceFiles;
+
+  const foreignTests = claimed.filter((file) => !deleted.has(file));
+  if (foreignTests.length > 0) {
+    return { blocked: probeNotRun('unprobed-test-paths', withRoute(replacedSeedReason(foreignTests)), riskTier) };
+  }
+
+  const touchedTestPaths = [...claimed, ...split.testFiles, ...split.supportFiles];
+  if (testFiles.length === 0 && touchedTestPaths.length > 0) {
+    return { blocked: probeNotRun('unprobed-test-paths', withRoute(noTestLeftReason(touchedTestPaths)), riskTier) };
+  }
+
+  const probeGlobs = terms?.probeGlobs;
+  const unfit = probeGlobs === undefined ? [] : testFiles.filter((file) => !matchesAnyGlob(file, probeGlobs));
+  if (unfit.length > 0) {
+    return { blocked: probeNotRun('unprobed-test-paths', withRoute(runnerFitReason(unfit)), riskTier) };
+  }
+
+  return { testFiles, sourceFiles };
 }

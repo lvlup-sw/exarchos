@@ -140,6 +140,12 @@ const RETIRED_TEST_FILES: ReadonlyArray<{ path: string; subject: string }> = [
   { path: 'tests/scripts/audit/check-no-duplicate-suites.test.ts', subject: 'tools/audit/check-no-duplicate-suites.mjs' },
   { path: 'tests/scripts/audit/consolidate-suite.test.ts', subject: 'tools/audit/consolidate-suite.mjs' },
   { path: 'tests/scripts/audit/manifest-gate-ci.test.ts', subject: 'tools/audit/manifest-gate-ci.mjs' },
+  { path: 'tests/unit/config/loader.test.ts', subject: 'src/config/loader.ts' },
+  { path: 'tests/unit/config/guards.test.ts', subject: 'src/config/guards.ts' },
+  { path: 'tests/unit/hooks/config-hooks.test.ts', subject: 'src/hooks/config-hooks.ts' },
+  { path: 'tests/unit/hooks/config-hooks-integration.test.ts', subject: 'src/hooks/config-hooks.ts' },
+  { path: 'tests/unit/events/composite-hooks.test.ts', subject: 'src/hooks/config-hooks.ts' },
+  { path: 'tests/scripts/check-mutation-gate.test.sh', subject: 'tools/audit/gates/check-mutation-gate.mjs' },
 ];
 
 describe('test inventory', () => {

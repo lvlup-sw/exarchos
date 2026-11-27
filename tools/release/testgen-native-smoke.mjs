@@ -18,7 +18,7 @@ const domain = { kind: 'record', fields: {
 export function checkNativeV2(scratch, testgen, npm, options, checkedOutput) {
   const profiles = testgen(['describe']).capabilities.frameworks;
   for (const { framework, version } of profiles) {
-    if (framework !== 'tunit') npm(['install', '--ignore-scripts', '--no-audit', '--no-fund', '--prefer-offline', '--save-dev', ...(framework === 'vitest' ? [`vitest@${version}`] : []), 'typescript@5.9.3', '@types/node@24', ...(framework === 'bun-test' ? ['@types/bun'] : [])]);
+    if (framework !== 'tunit') npm(['install', '--ignore-scripts', '--no-audit', '--no-fund', '--prefer-online', '--save-dev', ...(framework === 'vitest' ? [`vitest@${version}`] : []), 'typescript@5.9.3', '@types/node@24', ...(framework === 'bun-test' ? ['@types/bun'] : [])]);
     const folder = `native-${framework}-${version}`;
     const cwd = join(scratch, folder);
     mkdirSync(cwd);

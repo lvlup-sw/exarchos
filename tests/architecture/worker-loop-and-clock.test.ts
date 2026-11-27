@@ -68,11 +68,6 @@ const KNOWN_WRAPPERS: ReadonlyArray<{ readonly module: string; readonly name: st
   { module: 'src/verbs/gates/static-analysis', name: 'execCommandRunner', condition: 'always' },
   { module: 'src/verbs/gates/check-integration-suite', name: 'execCommandRunner', condition: 'always' },
   { module: 'src/verbs/vcs/git-exec-default', name: 'defaultGitExec', condition: 'always' },
-  { module: 'src/utils/paths', name: 'deriveRepoKey', condition: [{ argument: 1, property: 'gitCommonDir' }] },
-  { module: 'src/config/load-exarchos-config', name: 'loadExarchosConfig', condition: [{ argument: 1, property: 'findRepoRoot' }] },
-  { module: 'src/config/test-runtime-resolver', name: 'resolveTestRuntime', condition: [{ argument: 1, property: 'loadConfig' }] },
-  { module: 'src/config/test-runtime-resolver', name: 'resolveScopedTestCommand', condition: [{ argument: 1, property: 'loadConfig' }] },
-  { module: 'src/config/verification-profile', name: 'resolveVerificationProfile', condition: [{ argument: 1, property: 'loadConfig' }] },
   { module: 'src/verbs/vcs/push-with-lease', name: 'readRemoteSha', condition: [{ argument: 2 }] },
 ];
 
@@ -93,24 +88,9 @@ const MAX_EXEMPT_TIMEOUT_MS = 15_000;
  */
 const SYNC_SPAWN_EXEMPTIONS: ReadonlyArray<{ readonly file: string; readonly calls: number; readonly forcedBy: string }> = [
   {
-    file: 'tests/evals/quality-ab/grade.ts',
-    calls: 1,
-    forcedBy: 'runProbe (src/verbs/gates/test-adequacy.ts) takes a synchronous GitExec',
-  },
-  {
     file: 'tests/outcome/preflight-debug.test.ts',
     calls: 1,
     forcedBy: 'mergePreflight (src/verbs/pure/merge-preflight.ts) takes a synchronous GitExec',
-  },
-  {
-    file: 'tests/unit/verbs/gates/test-adequacy.false-advisory.test.ts',
-    calls: 1,
-    forcedBy: 'changedFilesFor (src/verbs/gates/test-adequacy-handler.ts) and runProbe take a synchronous GitExec',
-  },
-  {
-    file: 'tests/unit/verbs/gates/test-adequacy.test.ts',
-    calls: 1,
-    forcedBy: 'snapshotWorkingTree, revertSourceFiles, restoreWorkingTree and runProbe take a synchronous GitExec',
   },
   {
     file: 'tests/unit/verbs/merge/local-git-merge.test.ts',

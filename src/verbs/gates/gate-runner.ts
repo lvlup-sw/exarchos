@@ -1,6 +1,13 @@
 import { canonicalJson } from '../../contract/request-context.js';
 import { GateExecutedData, type WorkflowEvent } from '../../events/schemas.js';
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { createHash } from 'node:crypto';
+import { lstat, open, realpath } from 'node:fs/promises';
+import { constants } from 'node:fs';
+import { join } from 'node:path';
+import { verificationValueDigest, type HostedCommandRun } from '../../contract/verification/harness-verification.js';
+import type { createGitObserver } from '../../utils/git-observer.js';
+import type { CommandResult } from '../pure/static-analysis.js';
 
 import type { ContentAddressedStore } from '../../storage/artifacts/content-addressed-store.js';
 import { getDispatchContext } from '../../dispatch/dispatch-context.js';
@@ -44,6 +51,7 @@ import {
   DISABLED_BY_CONFIG,
   normalizeGateVerdict,
   readGateCompletenessDescriptor,
+  readGateRowMarks,
   readGateSkipDescriptor,
   type GateCompletenessDescriptor,
   type GateEvidenceReference,
@@ -96,6 +104,38 @@ export type GateProviderExecutor = (
   provider: GateProvider,
   input: unknown,
 ) => Promise<ToolResult>;
+
+/** A lost or unfinished hosted reply leaves the original bound segment retryable. */
+export class HostedAdequacyPending extends Error {}
+
+/**
+ * The signal of a local check inside a stored-evidence replay that has no stored local observation.
+ * Evidence from before the local executor, or from a moved head, has none. The runner then replays the stored evidence record.
+ */
+export class StoredEvidenceWithoutObservation extends Error {}
+
+/** The state of one provider run whose operation already has stored evidence. A check with no stored observation sets the mark. */
+interface StoredEvidenceRun {
+  observationMissing: boolean;
+}
+
+/** The scope of a provider run whose operation already has stored evidence. */
+const storedEvidenceScope = new AsyncLocalStorage<StoredEvidenceRun>();
+
+/** True inside a provider run whose operation already has stored evidence. A local check then replays its stored observation and starts no process. */
+export function storedEvidenceReplay(): boolean {
+  return storedEvidenceScope.getStore() !== undefined;
+}
+
+/**
+ * Mark the stored-evidence run as one with no stored local observation, and return the signal to throw.
+ * The mark stays when a provider catches the signal, so the runner still replays the stored evidence record.
+ */
+export function storedEvidenceWithoutObservation(message: string): StoredEvidenceWithoutObservation {
+  const run = storedEvidenceScope.getStore();
+  if (run !== undefined) run.observationMissing = true;
+  return new StoredEvidenceWithoutObservation(message);
+}
 
 export interface GateRunnerDependencies {
   readonly eventStore: Pick<EventStore, 'append' | 'query'>;
@@ -338,6 +378,36 @@ function persistenceFailure(error: unknown): ToolResult {
 }
 
 /**
+ * The carrier of a stored evidence record whose provider run had no stored local observation. No process starts for it.
+ * It states the stored verdict and the stored report artifact. The skip and completeness marks come from the same-operation `gate.executed` row, when one exists.
+ * It reads the rows of the operation, as the passing replay does, and it appends nothing.
+ */
+async function storedEvidenceCarrier(
+  eventStore: Pick<EventStore, 'query'>, streamId: string, operationId: string, record: AdmissionEvidenceRecorded,
+): Promise<ToolResult> {
+  const { evidence } = record;
+  const verdict = evidence.kind === 'gate' ? evidence.verdict : 'indeterminate';
+  const rows = await eventStore.query(streamId, { operationId });
+  const details = rows.flatMap((row) => {
+    const signal = row.type === 'gate.executed' ? GateExecutedData.safeParse(row.data) : undefined;
+    return signal?.success === true && signal.data.details?.evidenceId === evidence.evidenceId ? [signal.data.details] : [];
+  })[0];
+  const marks = readGateRowMarks(details);
+  const report = evidence.artifactRefs?.[0];
+  return {
+    success: true,
+    data: {
+      passed: verdict === 'pass',
+      verdict,
+      ...(marks.completeness ?? {}),
+      ...(marks.skip ?? {}),
+      replayedEvidenceId: evidence.evidenceId,
+      ...(report === undefined ? {} : { reportArtifact: report }),
+    },
+  };
+}
+
+/**
  * The audit/shadow gate chokepoint. It runs one registry provider, converts its carrier to a proof verdict, and persists a
  * subject-bound evidence record. It returns the carrier with evidence references, and it does not evaluate admission.
  *
@@ -348,6 +418,8 @@ function persistenceFailure(error: unknown): ToolResult {
  *
  * A `disabled` severity directive in the dispatch context replaces the provider run with a skip carrier, which the runner records.
  * The signal then lands when `emitGateExecuted` is on or the directive declares it. A policy skip in the provider loses to it.
+ * The runner looks up same-operation evidence before the provider. With stored evidence, the provider runs in the replay scope.
+ * A check in that scope with no stored local observation starts no process, and the runner returns the carrier of the stored record.
  */
 export async function runGate(
   request: GateRunRequest,
@@ -396,13 +468,28 @@ export async function runGate(
   const provider = resolution.data.provider;
   const disabled = context.gateSeverity?.severity === 'disabled' ? context.gateSeverity : undefined;
   const appendSignal = emitGateExecuted || disabled?.signal === true;
+  let stored: AdmissionEvidenceRecorded | undefined;
+  try {
+    stored = (await dependencies.eventStore.query(request.streamId, { type: 'admission.evidence-recorded' })).flatMap((event) => {
+      const candidate = AdmissionEvidenceRecordedData.safeParse(event.data);
+      return candidate.success && event.operationId === operationId
+        && candidate.data.evidence.requirementId === requirementId && candidate.data.evidence.phaseAttemptId === phaseAttemptId
+        && candidate.data.evidence.producer.providerRef === provider.providerRef && sameSubject(candidate.data.evidence.subject, request.subject)
+        ? [candidate.data] : [];
+    })[0];
+  } catch (error) {
+    return persistenceFailure(error);
+  }
   let providerResult: ToolResult;
   if (disabled !== undefined) {
     providerResult = disabledByConfigCarrier(disabled.action);
   } else {
+    const replay: StoredEvidenceRun = { observationMissing: false };
     try {
-      providerResult = await dependencies.executeProvider(provider, request.providerInput);
+      const execute = () => dependencies.executeProvider(provider, request.providerInput);
+      providerResult = await (stored === undefined ? execute() : storedEvidenceScope.run(replay, execute));
     } catch (error) {
+      if (error instanceof HostedAdequacyPending && !replay.observationMissing) throw error;
       providerResult = {
         success: false,
         error: {
@@ -411,6 +498,13 @@ export async function runGate(
           gate: provider.actionName,
         },
       };
+    }
+    if (stored !== undefined && replay.observationMissing) {
+      try {
+        providerResult = await storedEvidenceCarrier(dependencies.eventStore, request.streamId, operationId, stored);
+      } catch (error) {
+        return persistenceFailure(error);
+      }
     }
   }
 
@@ -676,4 +770,176 @@ export async function passingGateReplay(request: GateRunRequest, eventStore: Eve
   const active = activePredecessor(records, request, provider, request.policy?.policyDigest ?? FALLBACK_POLICY_DIGEST);
   if (active?.evidence.evidenceId !== id || records.filter(record => record.evidence.evidenceId === id).length !== 1) return undefined;
   return [evidenceRow, signalRow];
+}
+
+/** Map one signed child result onto the runner result that the existing pure interpreters read. */
+export function hostedCommandResult(run: HostedCommandRun): CommandResult {
+  const output = { stdout: run.stdout, stderr: run.stderr };
+  switch (run.end) {
+    case 'exited': return { exitCode: run.exitCode ?? -1, ...output };
+    case 'timeout': return { exitCode: -1, ...output, spawnError: 'ETIMEDOUT' };
+    case 'output-limit': return { exitCode: -1, ...output, spawnError: 'ENOBUFS' };
+    case 'unavailable': return { exitCode: -1, ...output, spawnError: 'EUNAVAILABLE' };
+    case 'signal': return { exitCode: -1, ...output, signal: 'SIGKILL' };
+  }
+}
+
+/** The closed reads of one observer. The clean-tree check uses the reads of the observer that observed the head. */
+type ObserverReads = Awaited<ReturnType<typeof createGitObserver>>['reads'];
+
+/** The bounds of the tree that the clean-tree check hashes. */
+const CLEAN_TREE_ENTRIES = 32768;
+const CLEAN_TREE_BYTES = 256 * 1024 * 1024;
+
+/** The closed message of an uncommitted tree. */
+const UNCOMMITTED_TREE_MESSAGE = 'The checkout has uncommitted changes. Commit them first, then run the check again.';
+
+/** The records of one NUL-separated listing. */
+function nulRecords(bytes: Buffer): string[] {
+  const records = new TextDecoder('utf-8', { fatal: true }).decode(bytes).split('\0');
+  if (records.pop() !== '') throw new Error('Truncated Git listing');
+  return records;
+}
+
+/**
+ * Hash one tracked file as a Git blob through a handle that follows no link. The file must stay a regular file of the same identity and size.
+ * The object ID length selects the repository hash.
+ */
+async function trackedBlobId(full: string, oid: string, budget: number): Promise<{ readonly id: string; readonly size: number; readonly executable: boolean } | undefined> {
+  const before = await lstat(full).catch(() => undefined);
+  if (before === undefined || !before.isFile() || before.size > budget || await realpath(full).catch(() => undefined) !== full) return undefined;
+  const file = await open(full, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+  try {
+    const opened = await file.stat();
+    if (!opened.isFile() || opened.dev !== before.dev || opened.ino !== before.ino || opened.size !== before.size) return undefined;
+    const bytes = Buffer.alloc(opened.size);
+    const { bytesRead } = await file.read(bytes, 0, bytes.length, 0);
+    if (bytesRead !== opened.size) return undefined;
+    const id = createHash(oid.length === 64 ? 'sha256' : 'sha1').update(`blob ${bytes.length}\0`).update(bytes).digest('hex');
+    return { id, size: opened.size, executable: (opened.mode & 0o111) !== 0 };
+  } finally { await file.close(); }
+}
+
+/**
+ * The refusal of a tree that differs from its exact head, or undefined for a clean tree.
+ * The closed listings compare the index with the head tree and find untracked paths. Each listing is bounded and decodes as strict UTF-8.
+ * Each tracked file is hashed in this process, so no checkout filter runs. A missing file, a mode change, an unsupported entry or a tree beyond the bounds refuses.
+ */
+async function uncommittedTreeRefusal(reads: ObserverReads, gitDir: string, checkout: string, head: string): Promise<string | undefined> {
+  const tree = nulRecords(await reads.treeListing(gitDir, checkout, head));
+  const index = nulRecords(await reads.indexListing(gitDir, checkout));
+  const untracked = nulRecords(await reads.untrackedListing(gitDir, checkout));
+  if (tree.length > CLEAN_TREE_ENTRIES) return 'The checkout tree exceeds the bounds of the clean-tree check.';
+  const entries: { readonly path: string; readonly mode: string; readonly oid: string }[] = [];
+  for (const record of tree) {
+    const match = /^(100644|100755) blob ([a-f0-9]{40}|[a-f0-9]{64})\t(.+)$/s.exec(record);
+    const [, mode, oid, path] = match ?? [];
+    if (mode === undefined || oid === undefined || path === undefined) return 'The checkout tree holds an entry that the clean-tree check does not support.';
+    entries.push({ path, mode, oid });
+  }
+  const expected = entries.map(entry => `${entry.mode} ${entry.oid} 0\t${entry.path}`).sort();
+  if (untracked.length > 0 || verificationValueDigest([...index].sort()) !== verificationValueDigest(expected)) return UNCOMMITTED_TREE_MESSAGE;
+  let budget = CLEAN_TREE_BYTES;
+  for (const entry of entries) {
+    const blob = await trackedBlobId(join(checkout, entry.path), entry.oid, budget);
+    if (blob === undefined || blob.id !== entry.oid || blob.executable !== (entry.mode === '100755')) return UNCOMMITTED_TREE_MESSAGE;
+    budget -= blob.size;
+  }
+  return undefined;
+}
+
+/**
+ * True when the closed listings show a clean tree at the exact head of one observed checkout. It runs no status and no checkout filter.
+ * The durable gate producer uses it for a selected coordinate checkout. A failed listing, an unsupported entry or a tree beyond the bounds gives false.
+ */
+export async function closedListingCleanTree(reads: ObserverReads, gitDir: string, checkout: string, head: string): Promise<boolean> {
+  try {
+    return await uncommittedTreeRefusal(reads, gitDir, checkout, head) === undefined;
+  } catch {
+    return false;
+  }
+}
+
+/** One path of a checkout that differs from its exact head. A tracked path with a regular working file names the blob ID of that file. */
+export interface TreeChange {
+  readonly path: string;
+  readonly tracked: boolean;
+  readonly workingBlob?: string;
+}
+
+/** The entries of one closed tree listing by path, as `<mode> <object ID>`. An entry that does not parse gives undefined. */
+function treeEntries(records: readonly string[]): Map<string, string> | undefined {
+  const entries = new Map<string, string>();
+  for (const record of records) {
+    const [, mode, oid, path] = /^(\d{6}) [a-z]+ ([a-f0-9]{40}|[a-f0-9]{64})\t(.+)$/s.exec(record) ?? [];
+    if (mode === undefined || oid === undefined || path === undefined) return undefined;
+    entries.set(path, `${mode} ${oid}`);
+  }
+  return entries;
+}
+
+/**
+ * The blob IDs of the regular files of one exact commit by path, from the closed tree listing. It runs no checkout filter.
+ * A failed listing, an entry that does not parse or a tree beyond the bounds gives undefined.
+ */
+export async function closedListingBlobs(reads: ObserverReads, gitDir: string, checkout: string, commit: string): Promise<ReadonlyMap<string, string> | undefined> {
+  try {
+    const records = nulRecords(await reads.treeListing(gitDir, checkout, commit));
+    const entries = records.length > CLEAN_TREE_ENTRIES ? undefined : treeEntries(records);
+    if (entries === undefined) return undefined;
+    const blobs = new Map<string, string>();
+    for (const [path, entry] of entries) {
+      const [mode = '', oid = ''] = entry.split(' ');
+      if (mode === '100644' || mode === '100755') blobs.set(path, oid);
+    }
+    return blobs;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * The paths of one observed checkout that differ from its exact head, from the closed listings only. It runs no status and no checkout filter.
+ * A tracked path differs when its index entry differs from the head entry.
+ * It also differs when its working file is missing or differs from its index entry.
+ * Each untracked path differs. Each working file is hashed in this process through a handle that follows no link.
+ *
+ * A failed listing, an entry other than a regular file, a conflict stage or a tree beyond the bounds gives undefined.
+ */
+export async function closedListingChanges(reads: ObserverReads, gitDir: string, checkout: string, head: string): Promise<readonly TreeChange[] | undefined> {
+  try {
+    const tree = nulRecords(await reads.treeListing(gitDir, checkout, head));
+    const index = nulRecords(await reads.indexListing(gitDir, checkout));
+    const untracked = nulRecords(await reads.untrackedListing(gitDir, checkout));
+    if (tree.length > CLEAN_TREE_ENTRIES || index.length > CLEAN_TREE_ENTRIES || untracked.length > CLEAN_TREE_ENTRIES) return undefined;
+    const headEntries = treeEntries(tree);
+    if (headEntries === undefined) return undefined;
+    const indexEntries = new Map<string, { readonly mode: string; readonly oid: string }>();
+    for (const record of index) {
+      const [, mode, oid, path] = /^(100644|100755) ([a-f0-9]{40}|[a-f0-9]{64}) 0\t(.+)$/s.exec(record) ?? [];
+      if (mode === undefined || oid === undefined || path === undefined) return undefined;
+      indexEntries.set(path, { mode, oid });
+    }
+    const changes: TreeChange[] = [];
+    let budget = CLEAN_TREE_BYTES;
+    for (const path of [...new Set([...headEntries.keys(), ...indexEntries.keys()])].sort()) {
+      const staged = indexEntries.get(path);
+      const blob = await trackedBlobId(join(checkout, path), staged?.oid ?? head, budget);
+      if (blob !== undefined) budget -= blob.size;
+      const working = blob === undefined ? {} : { workingBlob: blob.id };
+      if (staged === undefined || blob === undefined || blob.id !== staged.oid || blob.executable !== (staged.mode === '100755')
+        || headEntries.get(path) !== `${staged.mode} ${staged.oid}`) changes.push({ path, tracked: true, ...working });
+    }
+    const reported = new Set(changes.map(change => change.path));
+    for (const path of untracked) if (!reported.has(path)) changes.push({ path, tracked: false });
+    return changes;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Map the pending signal of a handler to its existing code. Any other error stays thrown. */
+export function hostedPendingResult(error: unknown): ToolResult {
+  if (error instanceof HostedAdequacyPending) return { success: false, error: { code: 'HOSTED_ADEQUACY_PENDING', message: error.message } };
+  throw error;
 }

@@ -268,7 +268,7 @@ describe('synthesis-closeout over the live handler table', () => {
   });
 
   /**
-   * A crash before the commit leaves no claim, so the retry runs the leaves again. The create
+   * A crash before the commit leaves no claim. The retry now refuses unfinished writer evidence. The create
    * handler journals its two rows itself, so each row must use the operation id that a retry
    * reuses. The journal dedups on that key, so a retry that calls the remote again also leaves
    * two rows. Thus the test also checks that `createPr` gets one call in total.
@@ -293,7 +293,8 @@ describe('synthesis-closeout over the live handler table', () => {
 
     crash = false;
     const result = await execute('op-synthesis-closeout-crash', ARGS, handlers);
-    expect(result.success).toBe(true);
+    expect(result).toMatchObject({ success: false, error: { code: 'INTENT_HISTORY_INCOMPLETE' } });
+    expect(await store.query(STREAM, { type: INTENT_EXECUTED_EVENT })).toHaveLength(0);
 
     const [index, action] = CREATE_LEAF;
     const derived = derivedLeafOperationId('op-synthesis-closeout-crash', index, action);

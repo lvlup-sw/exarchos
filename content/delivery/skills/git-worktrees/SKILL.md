@@ -174,16 +174,16 @@ When delegation skill spawns parallel tasks:
 3. Verify baseline tests
 4. Dispatch subagent with worktree path
 5. Track progress
-6. Merge branches in dependency order
-7. Clean up worktrees
+6. Land the accepted head commit of each settled task through the harness, one worktree at a time, in dependency order
+7. Clean up each worktree after its accepted head has landed
 
 ## Merge-Pending Handoff
 
-When a subagent completes a task in its worktree, the workflow's HSM transitions from `delegate` to `feature/merge-pending`. Because the integration branch is shared — sibling worktree merges can race for it — `serialize_merge` is the integration-merge path: it holds a single-writer per-`integrationRef` lease, then composes `merge_orchestrate` to land the worktree's branch onto the integration branch via a local `git merge` with a recorded recovery-point SHA — see `@skills/merge-orchestrator/SKILL.md` for the full handoff protocol. Do **not** dispatch raw `merge_orchestrate` for this integration merge (a live foreign lease makes it fail closed); raw `merge_orchestrate` is for a non-integration merge or a crash-resumed caller re-presenting its original lease.
+The coordinator lands each settled worktree through its harness, as the delegate skill describes (`@skills/delegate/SKILL.md`, section "Worktree-Bearing Tasks"). From the integration worktree, on the integration branch and with an empty `git status --porcelain`, it lands the accepted head commit of the task with `git merge --ff-only <accepted head commit>`. It lands one worktree at a time, in dependency order, and it lands the accepted head, never a branch name. Before a landing is tried again, `git merge-base --is-ancestor <accepted head> <integration-branch>` exits 0 to skip the worktree or 1 to land it, and any other exit stops the landing. The normal landing makes no Exarchos call and appends no `merge.executed` row. A stream that still parks in `merge-pending` follows `@skills/merge-orchestrator/SKILL.md`.
 
-Worktree cleanup (step 7 above) runs after the merge reports `phase: 'completed'`.
+Worktree cleanup (step 7 above) runs after `git merge-base --is-ancestor <accepted head> <integration-branch>` exits 0 for that worktree.
 
-This is **not** the same as the synthesize-phase remote PR merge (`merge_pr`). `serialize_merge` / `merge_orchestrate` operate on local refs in the main worktree; `merge_pr` calls the VCS provider once the integration branch is ready for the human-review PR.
+This landing is local git on the integration branch. It is **not** the pull request of the synthesize phase: the coordinator creates and merges that pull request through its harness, outside governance.
 
 ## Completion Criteria
 

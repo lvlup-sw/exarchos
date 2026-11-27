@@ -1,8 +1,15 @@
 /**
  * A CLI invoker for the process-fidelity harness. It runs any command, and the default is the
  * one `exarchos` binary with its subcommands.
+ * Each call gets a fresh scratch home directory unless the caller env sets `HOME`, so no child reads the real home.
+ * The setup file of the `process` project loads this module before a test file mocks `bun:sqlite`.
+ * Thus this module does not import the temp-dir helper, because that helper loads the storage backend.
+ * The end-of-run sweep of the temp run root removes each scratch home.
  */
 import { spawn } from 'node:child_process';
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { register, unregister } from './process-tracker.js';
 
 export interface RunCliOpts {
@@ -13,7 +20,11 @@ export interface RunCliOpts {
   command?: string;
   /** Arguments passed to the command. */
   args?: string[];
-  /** Env vars merged over `process.env`. Values here override the parent env. */
+  /**
+   * Env vars merged over `process.env`. Values here override the parent env.
+   * Without `HOME` here, `HOME` and `USERPROFILE` name a fresh scratch directory under the temp run root.
+   * A child that commits or merges needs `GIT_AUTHOR_*` and `GIT_COMMITTER_*` here, because the scratch home has no Git identity.
+   */
   env?: Record<string, string>;
   /** Working directory for the child. Defaults to `process.cwd()`. */
   cwd?: string;
@@ -57,7 +68,12 @@ export function runCli(opts: RunCliOpts): Promise<CliResult> {
     timeout = DEFAULT_TIMEOUT_MS,
   } = opts;
 
-  const mergedEnv: NodeJS.ProcessEnv = { ...process.env, ...env };
+  const scratchHome = env?.HOME === undefined ? mkdtempSync(join(tmpdir(), 'exarchos-cli-home-')) : undefined;
+  const mergedEnv: NodeJS.ProcessEnv = {
+    ...process.env,
+    ...(scratchHome === undefined ? {} : { HOME: scratchHome, USERPROFILE: scratchHome }),
+    ...env,
+  };
 
   return new Promise<CliResult>((resolve, reject) => {
     const start = Date.now();

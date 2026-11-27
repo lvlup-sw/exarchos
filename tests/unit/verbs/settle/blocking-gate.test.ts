@@ -1,6 +1,6 @@
 // `settle` over the full shipped task-completion runbook, when a blocking gate blocks.
 //
-// The kill probe is the first gate of that runbook, and it runs for real here.
+// The kill probe is the first gate of that runbook, and it runs for real here, in real source images through a spawning test executor.
 // The capsule stamps the task medium-tier. The claimed worktree is a git repository whose branch ships a test that does not read the change.
 // The probe reverts the source, the test stays green, and the gate blocks on a success carrier.
 // The batch must need a correction with the halt named, and the stream must hold no completion.
@@ -11,7 +11,7 @@
 //
 // @oracle-sources: ../../../../src/verbs/settle/handler.ts, the rows a real event store holds after the batch, read back by type rather than off the receipt
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mkdir, mkdtemp, realpath, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
@@ -47,6 +47,11 @@ import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
 import { seedActivePhaseAttempt } from '../../../../tools/test-helpers/trusted-context.js';
 import { execFileAsync } from '../../../../tools/test-helpers/spawn.js';
 import { inScopeObserver, scopeOfCheckout, withScope } from '../../../helpers/scoped-capsule.js';
+
+vi.mock('../../../../src/verbs/verification/check-executor.js', async (importOriginal) => ({
+  ...await importOriginal<typeof import('../../../../src/verbs/verification/check-executor.js')>(),
+  runApprovedCheck: (await import('../../../helpers/verification/check-executor.js')).spawningExecutor().executor,
+}));
 
 const STREAM = 'feat-settle-blocking-gate';
 

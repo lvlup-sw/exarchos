@@ -91,8 +91,8 @@ const CHECK_NAMES: readonly StaticAnalysisCheckName[] = ['lint', 'typecheck'];
 /** The options of {@link resolveVerificationProfile}. */
 export interface ResolveProfileOptions {
   /**
-   * The config loader. The default is `loadExarchosConfigOutcome`, which can spawn git to find the repository root.
-   * A call that passes a loader spawns nothing.
+   * The config loader. The default is `loadExarchosConfigOutcome`, which climbs to the repository root with no process.
+   * A call that passes a loader uses that loader.
    */
   readonly loadConfig?: (worktreePath: string) => ExarchosConfigOutcome;
 }

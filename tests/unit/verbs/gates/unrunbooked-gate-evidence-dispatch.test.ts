@@ -9,10 +9,14 @@
 //
 // The two mocks replace external work only. The post-merge check runs the repository tests, and the
 // VCS factory calls `gh`. Both sit inside the provider closure.
+//
+// The lifecycle and team checks run in the local executor with no verifier provisioning. Each such
+// case skips its test legs, so no check command runs.
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { accessSync, constants, realpathSync } from 'node:fs';
 import { mkdtemp, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { devNull, tmpdir } from 'node:os';
 import * as path from 'node:path';
 
 vi.mock('../../../../src/verbs/pure/post-merge.js', () => ({
@@ -51,6 +55,7 @@ import { dispatch, type DispatchContext } from '../../../../src/dispatch/core/di
 import { EventStore } from '../../../../src/events/store.js';
 import type { ToolResult } from '../../../../src/format.js';
 import { createInMemoryResolver } from '../../../../src/workflow/capabilities/resolver.js';
+import { execFileAsync } from '../../../../tools/test-helpers/spawn.js';
 import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
 import {
   seedActivePhaseAttempt,
@@ -69,6 +74,18 @@ const CAPABILITIES = [
 let stateDir: string;
 let store: EventStore;
 
+/** The absolute real path of the Git executable on the test process PATH. */
+function gitExecutable(): string {
+  for (const directory of (process.env.PATH ?? '').split(path.delimiter)) {
+    const candidate = path.resolve(directory, process.platform === 'win32' ? 'git.exe' : 'git');
+    try { accessSync(candidate, constants.X_OK); return realpathSync(candidate); } catch {}
+  }
+  throw new Error('The fixture needs Git on PATH');
+}
+
+/** The Git executable of the fixture checkouts. */
+const GIT = gitExecutable();
+
 function ctx(): DispatchContext {
   return {
     stateDir,
@@ -81,6 +98,20 @@ function ctx(): DispatchContext {
 
 async function call(args: Record<string, unknown>): Promise<ToolResult> {
   return dispatch('exarchos_orchestrate', args, ctx());
+}
+
+/** A one-commit Git checkout on `main` under the state directory. Its base and head are one commit, so its diff is empty. */
+async function fixtureCheckout(): Promise<string> {
+  const root = path.join(stateDir, 'checkout');
+  const env = {
+    ...process.env, GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: devNull,
+    GIT_AUTHOR_NAME: 'Fixture', GIT_AUTHOR_EMAIL: 'fixture@example.invalid',
+    GIT_COMMITTER_NAME: 'Fixture', GIT_COMMITTER_EMAIL: 'fixture@example.invalid',
+  };
+  for (const args of [['init', '-q', '-b', 'main', root], ['-C', root, 'commit', '-q', '--allow-empty', '-m', 'base']]) {
+    await execFileAsync(GIT, args, { env, timeout: 30_000 });
+  }
+  return realpathSync(root);
 }
 
 /** The evidence rows on a stream. */
@@ -157,15 +188,15 @@ describe('gates that declare durable evidence pay it on dispatch', () => {
     expect(result.success).toBe(true);
   });
 
-  /** `HEAD...HEAD` is an empty diff, so the gate reaches its verdict without a test run. */
+  /** `main...HEAD` of a one-commit checkout is an empty diff, so the gate reaches its verdict without a test run. */
   it('DebugReviewGate_Dispatched_RecordsEvidence', async () => {
     const stream = await streamInPhase('wf-debug-review', 'debug-review');
 
     await expectsEvidence(stream, {
       action: 'debug_review_gate',
       featureId: stream,
-      repoRoot: process.cwd(),
-      baseBranch: 'HEAD',
+      repoRoot: await fixtureCheckout(),
+      baseBranch: 'main',
       skipRun: true,
     });
   });
@@ -225,8 +256,8 @@ describe('gates that declare durable evidence pay it on dispatch', () => {
     await expectsEvidence(stream, {
       action: 'check_context_economy',
       featureId: stream,
-      repoRoot: process.cwd(),
-      baseBranch: 'HEAD',
+      repoRoot: await fixtureCheckout(),
+      baseBranch: 'main',
     });
   });
 
@@ -236,8 +267,8 @@ describe('gates that declare durable evidence pay it on dispatch', () => {
     await expectsEvidence(stream, {
       action: 'check_operational_resilience',
       featureId: stream,
-      repoRoot: process.cwd(),
-      baseBranch: 'HEAD',
+      repoRoot: await fixtureCheckout(),
+      baseBranch: 'main',
     });
   });
 
@@ -247,8 +278,8 @@ describe('gates that declare durable evidence pay it on dispatch', () => {
     await expectsEvidence(stream, {
       action: 'check_workflow_determinism',
       featureId: stream,
-      repoRoot: process.cwd(),
-      baseBranch: 'HEAD',
+      repoRoot: await fixtureCheckout(),
+      baseBranch: 'main',
     });
   });
 

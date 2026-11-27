@@ -1,13 +1,14 @@
-// Regression suite for the CLI wiring of the `exarchos <harness>` launcher.
+// Regression suite for the explicit harness entry and the governor stub of each harness verb.
 //
-// The suite drives the real Commander program over a real `EventStore` and a real git repository.
-// It injects only OS-effect fakes at the launcher-wiring seam of `buildCli`. A fake of the
-// verb-level `lifecycleDeps` hides a launcher that is not wired.
-// Thus each test runs the production composition: `cli.ts`, `makeLauncherLifecycleDeps`, the
-// verb, and `runLifecycle`.
+// The suite drives the real Commander program of the harness entry over a real `EventStore` and a real
+// git repository. It injects only OS-effect fakes at the launcher-wiring seam of `buildHarnessProgram`.
+// A fake of the verb-level `lifecycleDeps` hides a launcher that is not wired.
+// Thus each test runs the production composition: `harness-entry.ts`, `makeLauncherLifecycleDeps`,
+// the verb, and `runLifecycle`.
 //
 // A real launch must create the worktree, place the child in it, spawn the child, observe its exit
 // and tear down. The teardown releases the reservation. A dry-run must spawn nothing.
+// The governor CLI keeps one stub for each harness. The stub refuses and names the harness entry.
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mkdtemp, mkdir, writeFile } from 'node:fs/promises';
@@ -16,6 +17,8 @@ import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 
 import { buildCli, CLI_EXIT_CODES } from '../../../../src/adapters/cli/cli.js';
+import { buildHarnessProgram, HARNESS_EXIT_CODES } from '../../../../src/runtime/launcher/harness-entry.js';
+import { TIER1_HARNESSES } from '../../../../src/runtime/launcher/harness-registry.js';
 import { EventStore } from '../../../../src/events/store.js';
 import type { DispatchContext } from '../../../../src/dispatch/core/dispatch.js';
 import { execFileAsync } from '../../../../tools/test-helpers/spawn.js';
@@ -35,6 +38,7 @@ import type {
   TrappedSignal,
 } from '../../../../src/runtime/launcher/signals.js';
 import type { LauncherWiringOverrides } from '../../../../src/runtime/launcher/production-deps.js';
+import type { Command } from 'commander';
 
 async function git(cwd: string, args: readonly string[]): Promise<string> {
   return (await execFileAsync('git', args, { cwd })).trim();
@@ -99,36 +103,55 @@ function makeNoopRegistrar(): SignalRegistrar {
 
 interface LauncherCliRun {
   readonly stdout: string;
+  readonly stderr: string;
   readonly exitCode: number;
+  readonly contextCalls: number;
 }
 
+/** Runs a Commander program with stdout and stderr captured, and returns the exit code that its action set. */
+async function runProgram(
+  program: Command,
+  argv: readonly string[],
+): Promise<{ stdout: string; stderr: string; exitCode: number }> {
+  program.exitOverride();
+  const out: string[] = [];
+  const err: string[] = [];
+  const stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation((data: unknown): boolean => {
+    out.push(typeof data === 'string' ? data : String(data));
+    return true;
+  });
+  const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation((data: unknown): boolean => {
+    err.push(typeof data === 'string' ? data : String(data));
+    return true;
+  });
+
+  const savedExitCode = process.exitCode;
+  process.exitCode = undefined;
+  try {
+    await program.parseAsync(['node', program.name(), ...argv]);
+  } finally {
+    stdoutSpy.mockRestore();
+    stderrSpy.mockRestore();
+  }
+
+  const exitCode = typeof process.exitCode === 'number' ? process.exitCode : 0;
+  process.exitCode = savedExitCode;
+  return { stdout: out.join(''), stderr: err.join(''), exitCode };
+}
+
+/** Runs the harness entry program. The context provider counts its calls and returns the test context. */
 async function runLauncherCli(
   ctx: DispatchContext,
   launcher: LauncherWiringOverrides,
   argv: readonly string[],
 ): Promise<LauncherCliRun> {
-  const program = buildCli(ctx, { launcher });
-  program.exitOverride();
-
-  const chunks: string[] = [];
-  const stdoutSpy = vi
-    .spyOn(process.stdout, 'write')
-    .mockImplementation((data: unknown): boolean => {
-      chunks.push(typeof data === 'string' ? data : String(data));
-      return true;
-    });
-
-  const savedExitCode = process.exitCode;
-  process.exitCode = undefined;
-  try {
-    await program.parseAsync(['node', 'exarchos', ...argv]);
-  } finally {
-    stdoutSpy.mockRestore();
-  }
-
-  const exitCode = typeof process.exitCode === 'number' ? process.exitCode : 0;
-  process.exitCode = savedExitCode;
-  return { stdout: chunks.join(''), exitCode };
+  let contextCalls = 0;
+  const program = buildHarnessProgram(async () => {
+    contextCalls += 1;
+    return ctx;
+  }, launcher);
+  const run = await runProgram(program, argv);
+  return { ...run, contextCalls };
 }
 
 /**
@@ -136,7 +159,7 @@ async function runLauncherCli(
  * child and touches no real process signal. Its default `recover` does nothing, because one test
  * covers startup recovery separately.
  */
-describe('exarchos <harness> launcher CLI wiring (DR-1 / DR-6, R-1)', () => {
+describe('exarchos-harness launcher entry wiring (DR-1 / DR-6, R-1)', () => {
   let stateDir: string;
   let workdir: string;
   let store: EventStore;
@@ -197,7 +220,7 @@ describe('exarchos <harness> launcher CLI wiring (DR-1 / DR-6, R-1)', () => {
     );
 
     expect(stdout).not.toContain('NOT_WIRED');
-    expect(exitCode).toBe(CLI_EXIT_CODES.SUCCESS);
+    expect(exitCode).toBe(HARNESS_EXIT_CODES.SUCCESS);
 
     expect(fake.calls).toHaveLength(1);
     expect(fake.calls[0].command).toBe('claude');
@@ -232,7 +255,7 @@ describe('exarchos <harness> launcher CLI wiring (DR-1 / DR-6, R-1)', () => {
       ['claude-code', '--dry-run', '--json'],
     );
 
-    expect(exitCode).toBe(CLI_EXIT_CODES.SUCCESS);
+    expect(exitCode).toBe(HARNESS_EXIT_CODES.SUCCESS);
     expect(fake.calls).toHaveLength(0);
     expect(terminalCount()).toBe(0);
     expect(recoverCalls).toBe(0);
@@ -255,25 +278,20 @@ describe('exarchos <harness> launcher CLI wiring (DR-1 / DR-6, R-1)', () => {
       ['claude-code', '--json'],
     );
 
-    expect(exitCode).toBe(CLI_EXIT_CODES.SUCCESS);
+    expect(exitCode).toBe(HARNESS_EXIT_CODES.SUCCESS);
     expect(recoverRepoRoots).toEqual([repo]);
     expect(fake.calls).toHaveLength(1);
   }, 30_000);
 
   /**
-   * `runCli` normalizes only a `CommanderError`, so the launcher action must catch every other
+   * The entry normalizes only a `CommanderError`, so the launcher action must catch every other
    * rejection. Here the signal-install seam throws after the spawn, and `runLifecycle` rejects.
-   * The CLI must map that rejection to the `UNCAUGHT_EXCEPTION` envelope and exit 3.
+   * The entry must map that rejection to `UNCAUGHT_EXCEPTION` and exit 3.
    */
   it('LauncherCli_LaunchRejection_MapsToUncaughtException', async () => {
     const fake = makeFakeSpawn();
-    const stderrChunks: string[] = [];
-    vi.spyOn(process.stderr, 'write').mockImplementation((data: unknown): boolean => {
-      stderrChunks.push(typeof data === 'string' ? data : String(data));
-      return true;
-    });
 
-    const { exitCode, stdout } = await runLauncherCli(
+    const { exitCode, stdout, stderr } = await runLauncherCli(
       ctx,
       baseOverrides(fake, {
         installSignals: () => {
@@ -284,19 +302,82 @@ describe('exarchos <harness> launcher CLI wiring (DR-1 / DR-6, R-1)', () => {
     );
 
     expect(fake.calls).toHaveLength(1);
-    expect(exitCode).toBe(CLI_EXIT_CODES.UNCAUGHT_EXCEPTION);
-    expect(stdout + stderrChunks.join('')).toContain('UNCAUGHT_EXCEPTION');
+    expect(exitCode).toBe(HARNESS_EXIT_CODES.UNCAUGHT_EXCEPTION);
+    expect(stdout + stderr).toContain('UNCAUGHT_EXCEPTION');
   }, 30_000);
 
   /**
    * `frobozz` is not a Tier-1 harness, so Commander has no such command. Under `exitOverride`,
-   * `parseAsync` rejects, and nothing spawns.
+   * `parseAsync` rejects. The entry never asks for the context, runs no recovery, and spawns nothing.
    */
   it('LauncherCli_UnknownHarness_NeverRegistered', async () => {
     const fake = makeFakeSpawn();
-    await expect(
-      runLauncherCli(ctx, baseOverrides(fake), ['frobozz']),
-    ).rejects.toBeTruthy();
+    let contextCalls = 0;
+    let recoverCalls = 0;
+    const program = buildHarnessProgram(async () => {
+      contextCalls += 1;
+      return ctx;
+    }, baseOverrides(fake, {
+      recover: async () => {
+        recoverCalls += 1;
+        return { reconciled: [] };
+      },
+    }));
+
+    await expect(runProgram(program, ['frobozz'])).rejects.toBeTruthy();
+    expect(contextCalls).toBe(0);
+    expect(recoverCalls).toBe(0);
     expect(fake.calls).toHaveLength(0);
+    expect(store.getReadBackend().queryEvents(WORKTREES_STREAM)).toHaveLength(0);
+  });
+
+  /** An empty feature id fails the flag check before the entry asks for the context or runs recovery. */
+  it('LauncherCli_EmptyFeature_RefusesBeforeTheContext', async () => {
+    const fake = makeFakeSpawn();
+
+    const { exitCode, stdout, contextCalls } = await runLauncherCli(
+      ctx,
+      baseOverrides(fake),
+      ['claude-code', '--feature', '', '--json'],
+    );
+
+    expect(exitCode).toBe(HARNESS_EXIT_CODES.INVALID_INPUT);
+    expect(stdout).toContain('INVALID_INPUT');
+    expect(contextCalls).toBe(0);
+    expect(fake.calls).toHaveLength(0);
+  });
+
+  /** A real launch without `--json` writes the ToolResult as one JSON line on stdout. */
+  it('LauncherCli_NonDryRunWithoutJson_WritesOneToolResultLine', async () => {
+    const fake = makeFakeSpawn();
+
+    const { exitCode, stdout } = await runLauncherCli(ctx, baseOverrides(fake), ['claude-code']);
+
+    expect(exitCode).toBe(HARNESS_EXIT_CODES.SUCCESS);
+    const lines = stdout.split('\n').filter((line) => line.length > 0);
+    expect(lines).toHaveLength(1);
+    const parsed: unknown = JSON.parse(lines[0] ?? '');
+    expect(parsed).toMatchObject({ success: true });
+    expect(fake.calls).toHaveLength(1);
+  }, 30_000);
+
+  /**
+   * The governor CLI keeps one stub for each Tier-1 harness. Each flag form, `--help` included, writes
+   * a closed refusal that names `exarchos-harness <harness>` and exits 2. The stub appends no event,
+   * creates no worktree and never asks for the launcher composition.
+   */
+  it('LauncherCli_GovernorHarnessVerb_RefusesWithTheHarnessEntryName', async () => {
+    const flagForms: readonly (readonly string[])[] = [[], ['--dry-run'], ['--help'], ['--json', '--feature', 'f1']];
+    for (const harness of TIER1_HARNESSES) {
+      for (const flags of flagForms) {
+        const { exitCode, stdout, stderr } = await runProgram(buildCli(ctx), [harness, ...flags]);
+
+        expect(exitCode, `${harness} ${flags.join(' ')}`).toBe(CLI_EXIT_CODES.HANDLER_ERROR);
+        expect(stderr).toContain(`exarchos-harness ${harness}`);
+        expect(stdout).toBe('');
+      }
+    }
+    expect(store.getReadBackend().queryEvents(WORKTREES_STREAM)).toHaveLength(0);
+    expect(existsSync(deriveWorktreePath(base, 'exarchos-claude-code'))).toBe(false);
   });
 });

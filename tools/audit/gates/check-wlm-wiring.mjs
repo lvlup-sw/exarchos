@@ -234,15 +234,7 @@ const INTEGRATION_CONTEXT_RE = /integration[\s-]?(?:branch|ref|merge)/i;
  * relative to `content/`. Each must still name `serialize_merge` on a line that
  * names `merge_orchestrate`.
  */
-const EXPECTED_SKILLS_SCOPE_FILES = [
-  'delivery/skills/merge-orchestrator/SKILL.md',
-  'delivery/skills/merge-orchestrator/references/recovery-runbook.md',
-  'delivery/skills/merge-orchestrator/references/local-git-semantics.md',
-  'delivery/skills/delegate/SKILL.md',
-  'synthesis/skills/synthesize/SKILL.md',
-  'synthesis/skills/shepherd/SKILL.md',
-  'delivery/skills/git-worktrees/SKILL.md',
-];
+const EXPECTED_SKILLS_SCOPE_FILES = [];
 
 function checkRule2(skillsRoot, skillsRootIsDefault, violations) {
   const filesWithSerializeCaveat = new Set();

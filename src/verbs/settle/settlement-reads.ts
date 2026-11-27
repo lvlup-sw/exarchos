@@ -28,6 +28,7 @@ import {
   acceptedMaterialDeviations,
   adjudicateSettlement,
   type AdjudicationContext,
+  type IntegrationFailure,
   type ProposedDeviation,
   type SettlementClaim,
   type SettlementEvidence,
@@ -38,6 +39,7 @@ import {
 } from './adjudicate.js';
 import { claimScopeOf, completionTreeOf, type ClaimedTree } from './settle-scope.js';
 import type { SettlementVerificationTrace } from './types.js';
+import { compilerPolicy } from '../../contract/capsule/compiler-policy.js';
 
 /** Authenticated custody and exact row/claim recheck retained for the final settlement fence. */
 export type StandingProof = Extract<Awaited<ReturnType<typeof resolveTaskStanding>>, { kind: 'accepted' | 'provisional' }>['proof'];
@@ -220,6 +222,11 @@ export interface SettlementInputs {
   readonly observations?: ReadonlyMap<string, ClaimedTree>;
   /** Authenticated proofs remain available for the final transaction fence. */
   readonly acceptedStanding?: ReadonlyMap<string, StandingProof>;
+  /**
+   * The failure of the integration tip of a compiler 8-vcs settlement, which the integration gate set before the commit.
+   * The final pass reads it, so the commit judges again with the same input.
+   */
+  readonly integrationFailure?: IntegrationFailure;
 
 }
 
@@ -286,7 +293,7 @@ function claimScopeJudge(
   const terms = inputs.capsule.settlementContract.taskVerification ?? {};
   return (taskId) => {
     const task = terms[taskId];
-    const completed = inputs.capsule.provenance.compilerVersion === 'exarchos-prepare-8'
+    const completed = compilerPolicy(inputs.capsule.provenance.compilerVersion).immutable
       ? inputs.acceptedStanding?.has(taskId) === true : facts.completed.has(taskId);
     if (completed || task?.baseCommit === undefined) return undefined;
     return claimScopeOf(
@@ -358,11 +365,11 @@ export function judgeSettlement(
   runs: ReadonlyMap<string, VerificationRun>,
 ): SettlementJudgement {
   const { capsule, claims, deviations, decided } = inputs;
-  if (capsule.provenance.compilerVersion === 'exarchos-prepare-8') {
+  if (compilerPolicy(capsule.provenance.compilerVersion).immutable) {
     runs = new Map(taskGraphOrder(capsule.graph.tasks.map(task => task.taskId), capsule.graph.dependencies)
       .flatMap(taskId => { const run = runs.get(taskId); return run === undefined ? [] : [[taskId, run] satisfies [string, VerificationRun]]; }));
   }
-  const completed = capsule.provenance.compilerVersion === 'exarchos-prepare-8'
+  const completed = compilerPolicy(capsule.provenance.compilerVersion).immutable
     ? new Set([...(inputs.acceptedStanding?.keys() ?? [])].filter(taskId => !runs.has(taskId))) : facts.completed;
   const checkedIntact = (cited: CitedRecord): boolean | undefined => {
     const check = inputs.evidenceChecks.get(cited.key);
@@ -419,7 +426,8 @@ export function judgeSettlement(
     (taskId) => !runs.has(taskId) && !completed.has(taskId) && terms[taskId] !== undefined,
   );
   return {
-    verdict: adjudicateSettlement(capsule, claims, deviations, { ...context, verification: outcomes }),
+    verdict: adjudicateSettlement(capsule, claims, deviations, { ...context, verification: outcomes,
+      ...(inputs.integrationFailure === undefined ? {} : { integrationFailure: inputs.integrationFailure }) }),
     verifies: true,
     outcomes,
     traces,

@@ -16,6 +16,8 @@ import {
 } from '../../../../src/verbs/gates/contract-drift-handler.js';
 import type { GitExec } from '../../../../src/verbs/pure/execute-merge.js';
 import type { CommandRunFn } from '../../../../src/verbs/gates/contract-drift.js';
+import type { VerificationHostConnector } from '../../../../src/contract/verification/harness-verification.js';
+import { fakeExecutor } from '../../../helpers/verification/check-executor.js';
 
 vi.mock('../../../../src/verbs/gates/durable-gate-producer.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../../../src/verbs/gates/durable-gate-producer.js')>();
@@ -122,6 +124,40 @@ describe('check_contract_drift registration + dispatch + steer', () => {
     expect(ONE_SEMANTIC_TEST_STEER).toBe(
       'contracts verify shape, not meaning — keep exactly ONE semantic test for this boundary; delete redundant shape assertions',
     );
+  });
+
+  /** The composite ignores a provisioned connector and a caller copy of the private terms. The legs run, and the client is never called. */
+  it('HandleOrchestrate_AProvisionedVerifier_IsIgnoredAndTheLegsRun', async () => {
+    const arm = await makeArm('contract-hosted-');
+    arms.push(arm);
+    const calls: string[] = [];
+    const runCommand: CommandRunFn = async ({ argv }) => { calls.push(argv.join(' ')); return { exitCode: 0, stdout: 'no breaking changes' }; };
+    const unused = async (): Promise<never> => { throw new Error('The verifier client must not be called'); };
+    const connector: VerificationHostConnector = { publicKey: '', gitPath: '/usr/bin/git', resourceId: 'r', profileId: 'p',
+      client: { submit: unused, retrieve: unused } };
+    const args = { action: 'check_contract_drift', featureId: 'feat-hosted', taskId: 'T-1', baseBranch: 'main', repoRoot: contractRepo(),
+      gitExec: gitMergeBase, runCommand };
+
+    const provisioned = await handleOrchestrate({ ...args, hostCheck: { connector } }, { ...arm.ctx, verificationHost: connector });
+    expect(provisioned).toMatchObject({ success: true, data: { passed: true } });
+    expect(calls.length).toBeGreaterThan(0);
+  });
+
+  /** With no test runner, the legs run in the local executor, in a disposable copy of the exact head. The base reads the live checkout. */
+  it('ContractDrift_TheLegs_RunInADisposableCopyOfTheLocalExecutor', async () => {
+    const arm = await makeArm('contract-local-');
+    arms.push(arm);
+    const repoRoot = contractRepo();
+    const fake = fakeExecutor(() => ({ exitCode: 0, stdout: 'no breaking changes', stderr: '' }));
+    const result = await handleContractDrift(
+      { featureId: 'feat-local', taskId: 'T-1', baseBranch: 'main', repoRoot, gitExec: gitMergeBase }, arm.stateDir, arm.ctx.eventStore, fake.executor,
+    );
+
+    expect(result).toMatchObject({ success: true, data: { passed: true } });
+    expect(fake.requests).toHaveLength(1);
+    expect(fake.requests[0]).toMatchObject({ operation: 'contract-drift', workspace: 'disposable-copy', checkout: repoRoot, taskId: 'T-1' });
+    expect(fake.legs).toEqual([['sh', 'stubs/codegen.sh'], ['true'], ['sh', 'stubs/diff.sh']]);
+    expect(JSON.stringify(result)).toContain('MB0');
   });
 });
 

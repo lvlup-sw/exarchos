@@ -12,6 +12,7 @@ import type { ExarchosCapsuleV1 } from '../../contract/capsule/exarchos-capsule.
 import type { BundleRefV1 } from '../../events/bundle/digest-references.js';
 import { ArtifactIdSchema } from '../../workflow/admission/types.js';
 import { estimateOutputTokens, SUMMARY_FIRST_PAGE_ITEMS } from '../../dispatch/core/economy.js';
+import { compilerPolicy } from '../../contract/capsule/compiler-policy.js';
 
 export const PREPARE_ECONOMY_BUDGET_TOKENS = 8000;
 
@@ -155,7 +156,7 @@ export function summarizePreparedCapsuleReceipt(data: unknown): PreparedCapsuleR
       definitionVersion: receipt.definitionVersion,
       tailSequence: receipt.tailSequence,
       bundleRefs: receipt.bundleRefs,
-      ...(receipt.capsule?.provenance?.compilerVersion === 'exarchos-prepare-8'
+      ...(compilerPolicy(receipt.capsule?.provenance?.compilerVersion).immutable
         && typeof receipt.workflowId === 'string' && typeof receipt.capsuleVersion === 'number'
         ? { detailRead: preparedDetailInvocation(receipt.workflowId, receipt.capsuleVersion, 0, 10) } : {}),
       ...(recorded !== undefined

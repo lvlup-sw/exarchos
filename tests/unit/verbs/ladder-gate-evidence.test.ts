@@ -102,6 +102,14 @@ vi.mock('../../../src/verbs/gates/mock-boundary.js', async (importActual) => {
   };
 });
 
+vi.mock('../../../src/verbs/gates/gate-utils.js', async (importActual) => {
+  const actual = await importActual<typeof import('../../../src/verbs/gates/gate-utils.js')>();
+  return {
+    ...actual,
+    readConstrainedDiff: async () => ({ kind: 'diff', diff: '', head: 'a'.repeat(40) }),
+  };
+});
+
 vi.mock('../../../src/verbs/gates/gate-severity.js', () => ({
   resolveGateSeverity: () => controls.mockSeverity,
 }));
@@ -119,6 +127,7 @@ import type { EventStore } from '../../../src/events/store.js';
 import type { WorkflowEvent } from '../../../src/events/schemas.js';
 import type { ToolResult } from '../../../src/format.js';
 import { handleCheckIntegrationSuite } from '../../../src/verbs/gates/check-integration-suite.js';
+import { fakeExecutor } from '../../helpers/verification/check-executor.js';
 import { handleContractDrift } from '../../../src/verbs/gates/contract-drift-handler.js';
 import { handleMockBoundary } from '../../../src/verbs/gates/mock-boundary-handler.js';
 import { handleStaticAnalysis } from '../../../src/verbs/gates/static-analysis.js';
@@ -277,11 +286,11 @@ describe('migrated ladder gate durable evidence', () => {
             common,
             root,
             eventStore,
-            () => ({
+            fakeExecutor(() => ({
               exitCode: outcome === 'fail' ? 1 : 0,
               stdout: integrationJson(outcome !== 'fail'),
               stderr: '',
-            }),
+            })).executor,
           );
         case 'contract-drift':
           return handleContractDrift({
@@ -292,7 +301,6 @@ describe('migrated ladder gate durable evidence', () => {
         case 'mock-boundary':
           return handleMockBoundary({
             ...common,
-            gitExec: () => ({ stdout: '', exitCode: 0 }),
             loadConfig: () => controls.mockConfig,
           }, root, eventStore);
       }

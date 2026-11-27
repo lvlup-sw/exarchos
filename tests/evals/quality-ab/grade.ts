@@ -14,7 +14,6 @@
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { execFileSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { execFileAsync, spawnAsync, SpawnFailure } from '../../../tools/test-helpers/spawn.js';
@@ -26,7 +25,6 @@ import {
   type TestRunFn,
 } from '../../../src/verbs/gates/test-adequacy.js';
 import { execFailureFields } from '../../../src/utils/process.js';
-import type { GitExec } from '../../../src/verbs/pure/execute-merge.js';
 import { rmrf } from '../../../tools/test-helpers/temp-dir.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -132,41 +130,21 @@ export function listTestFiles(runDir: string): string[] {
   return fs.readdirSync(runDir).filter(isTestFile).sort();
 }
 
-/** The git executor for the throwaway repo. It is total: a non-zero exit is a value, never a throw. */
-export const evalGitExec: GitExec = (repoRoot, args) => {
-  try {
-    const stdout = execFileSync('git', [...args], {
-      cwd: repoRoot,
-      timeout: 15_000,
-      encoding: 'utf-8',
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
-    return { stdout, exitCode: 0 };
-  } catch (err) {
-    const e = err as { status?: number; stdout?: string | Buffer; stderr?: string | Buffer };
-    const out =
-      (typeof e.stdout === 'string' ? e.stdout : e.stdout?.toString('utf-8') ?? '') +
-      (typeof e.stderr === 'string' ? e.stderr : e.stderr?.toString('utf-8') ?? '');
-    return { stdout: out, exitCode: e.status ?? 1 };
-  }
-};
-
-/** The asynchronous twin of {@link evalGitExec}, for the setup steps that run before the probe. */
-async function evalGitAsync(repoRoot: string, args: readonly string[]): Promise<{ stdout: string; exitCode: number }> {
-  const result = await spawnAsync('git', args, { cwd: repoRoot, timeout: 30_000 });
-  if (result.status === 0 && result.error === undefined) return { stdout: result.stdout, exitCode: 0 };
-  return { stdout: result.stdout + result.stderr, exitCode: result.status ?? 1 };
+/** The two source images of one probe: the directory with the impl of the run, and the directory with the task stub in its place. */
+export interface EvalImages {
+  readonly head: string;
+  readonly reverted: string;
 }
 
 /**
- * Builds the test runner of the probe. The runner starts each test file of the run with `tsx` in the throwaway repo.
+ * Builds the test runner of the probe. The runner starts each test file of the run with `tsx` in the image that the run names.
  * A test file is a `node:assert` script that exits 1 on a failure. The run is green only when every file exits 0.
  * Exit 1 is a red run. A timeout, a signal, a start failure or another exit code gives no verdict, as in the production runner.
  */
-export function makeEvalRunTests(tsx: string = TSX): TestRunFn {
-  return async ({ repoRoot, testFiles }) => {
+export function makeEvalRunTests(images: EvalImages, tsx: string = TSX): TestRunFn {
+  return async ({ source, testFiles }) => {
     for (const tf of testFiles) {
-      const run = await spawnAsync(tsx, [tf], { cwd: repoRoot, timeout: 120_000 });
+      const run = await spawnAsync(tsx, [tf], { cwd: images[source], timeout: 120_000 });
       const output = { stdout: run.stdout, stderr: run.stderr };
       if (run.error !== undefined) {
         const timedOut = execFailureFields(run.error).code === 'ETIMEDOUT';
@@ -219,10 +197,9 @@ export interface GradeAdequacyOptions {
  * A run with no tests gives `no-new-tests` and no score. Every other indeterminate cause also gives no score, as `PROBE_CAUSE_MEASUREMENT` states.
  * Tests that fail on the impl before the revert give `baseline-red` and no score, because the probe observes no kill.
  *
- * The probe needs a diff, so the function builds a throwaway git repo for each run and always removes it.
- * The base commit holds the task stub as `impl.ts`. The working tree holds the impl and the tests of the run.
- * Thus the diff is exactly the change from the stub to the impl, and the probe reverts those hunks.
- * The commit takes its identity and `commit.gpgsign=false` from `-c` flags, so it needs no global git config.
+ * The probe runs the tests in two throwaway images, which the function builds for each run and always removes.
+ * The head image holds the impl and the tests of the run. The reverted image holds the task stub as `impl.ts` and the same tests.
+ * Thus the change is exactly the change from the stub to the impl, and the reverted image reverts it. No Git process runs.
  * `testGlobs` holds the exact test file names, because the default globs do not match a bare `test.ts`.
  */
 export async function gradeAdequacy(
@@ -250,35 +227,16 @@ export async function gradeAdequacy(
 
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'qab-adequacy-'));
   try {
-    await evalGitAsync(tmp, ['init', '-q']);
-    fs.writeFileSync(path.join(tmp, 'impl.ts'), stubSrc);
-    await evalGitAsync(tmp, ['add', 'impl.ts']);
-    const commit = await evalGitAsync(tmp, [
-      '-c', 'user.email=eval@exarchos.local',
-      '-c', 'user.name=exarchos-eval',
-      '-c', 'commit.gpgsign=false',
-      'commit', '-q', '-m', 'base: task stub',
-    ]);
-    if (commit.exitCode !== 0) {
-      return { probed: false, redObserved: false, score: null, discriminant: 'setup-failed', error: `git commit failed: ${commit.stdout.trim().slice(0, 200)}` };
-    }
-    const head = await evalGitAsync(tmp, ['rev-parse', 'HEAD']);
-    if (head.exitCode !== 0) {
-      return { probed: false, redObserved: false, score: null, discriminant: 'setup-failed', error: `git rev-parse failed: ${head.stdout.trim().slice(0, 200)}` };
-    }
-    const baseRef = head.stdout.trim();
-
-    fs.writeFileSync(path.join(tmp, 'impl.ts'), implSrc);
-    for (const tf of testFiles) {
-      fs.copyFileSync(path.join(runDir, tf), path.join(tmp, tf));
+    const images: EvalImages = { head: path.join(tmp, 'head'), reverted: path.join(tmp, 'reverted') };
+    for (const [image, source] of [[images.head, implSrc], [images.reverted, stubSrc]] as const) {
+      fs.mkdirSync(image);
+      fs.writeFileSync(path.join(image, 'impl.ts'), source);
+      for (const tf of testFiles) fs.copyFileSync(path.join(runDir, tf), path.join(image, tf));
     }
 
     const probe = await probeFn({
-      gitExec: evalGitExec,
-      repoRoot: tmp,
-      baseRef,
       changedFiles: ['impl.ts', ...testFiles],
-      runTests: makeEvalRunTests(options.tsx ?? TSX),
+      runTests: makeEvalRunTests(images, options.tsx ?? TSX),
       testGlobs: testFiles,
     });
 

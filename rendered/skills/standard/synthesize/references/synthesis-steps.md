@@ -116,15 +116,13 @@ mcp__plugin_exarchos_exarchos__exarchos_orchestrate({
 
 ## Step 6: Create PRs and Enable Auto-Merge
 
-Create PRs for each branch in the stack (bottom-up) and enable auto-merge:
+First run the Idempotency procedure of the synthesize skill for every head of the stack. If it stops, create no PR.
 
-```typescript
-// For each branch in the stack (bottom-up):
-exarchos_orchestrate({ action: "create_pr", base: "<parent-branch>", head: "<branch>", title: "<type>: <what>", body: "<pr-body>" })
-exarchos_orchestrate({ action: "merge_pr", prId: "<number>", strategy: "squash" })
-```
+Then, for each head of the stack (bottom-up), the coordinator creates the PR through its harness, outside governance, with base `<parent-branch>`, head `<branch>`, the title `<type>: <what>` and the validated body. It skips the create for a reused open match. It records the URL that the harness returns in the workflow state with `update` as soon as the harness returns it, and each write holds the full list recorded so far. Only after that `update` succeeds does it enable auto-merge on the PR through its harness, with the squash strategy.
 
-After creation, use `exarchos_orchestrate({ action: "list_prs", state: "open" })` to get the PR URLs for each stack entry.
+For a reused open match, take the URL from the single exact open match of a read filtered by head and base: `exarchos_orchestrate({ action: "list_prs", head: "<branch>", base: "<parent-branch>", state: "all" })`. Never record an unfiltered list of open PRs.
+
+If the harness cannot do a write, stop and report. Do not fall back to an Exarchos action.
 
 ## Step 7: Cleanup After Merge
 
@@ -134,9 +132,4 @@ git fetch --prune
 git branch -d <merged-branch-1> <merged-branch-2> ...
 ```
 
-Then remove worktrees if they exist:
-```bash
-# Remove worktrees used during delegation
-git worktree list | grep ".worktrees/" | awk '{print $1}' | xargs -I{} git worktree remove {}
-git worktree prune
-```
+Then the coordinator removes the worktrees of this workflow through its harness. It removes only the worktrees that this workflow recorded, never a directory found by a listing, and never with force. The cleanup skill holds the full rule (Step 4).

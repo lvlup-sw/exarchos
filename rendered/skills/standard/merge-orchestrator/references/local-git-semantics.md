@@ -1,69 +1,50 @@
 # Local-Git Semantics
 
-This reference explains why `merge_orchestrate` performs a local `git merge` rather than calling the VCS provider — and why that distinction matters for the recovery contract.
-
-> **Routing.** For a shared integration branch, `serialize_merge` is the integration-merge path — it holds a single-writer lease and composes `merge_orchestrate` unchanged, so everything below describes the git work that runs inside a serialized merge. This reference documents the composed executor; invoke `merge_orchestrate` directly only for a non-integration (private / scratch / solo) merge or when you already hold the lease.
-
-> **Recovery vocabulary.** The orchestrator's failure handling is modeled as a database transaction, not a saga: it records a **recovery point** (the integration branch's pre-merge HEAD) and, on failure, runs the INV-14 **recovery ladder** (`git merge --abort` → `git reset --keep <recoveryPointSha>`, never `--hard`) to rewind to that point. "Recovery point" and "recovery" replace the older "rollback anchor" / "rollback" / "compensation" framing throughout. The canonical recovery event is `merge.recovered`; the legacy `merge.rollback` event is retired (DR-2) — read-tolerant-not-emittable, so its name and `rollbackSha` wire field survive only for replaying pre-DR-2 event logs, never as a live emission.
+This reference explains why a landing is a local `git merge` that the coordinator runs through its harness, and why it does not call the VCS provider.
 
 ## The model
 
-`merge_orchestrate` is the SDLC handoff for landing a subagent's worktree branch onto the integration branch in the **main worktree** — driven by `serialize_merge` when the target is a shared integration ref. Every operation in the orchestrator is a local-git operation:
+The integration branch collects the accepted work of a feature. A landing adds one accepted head commit to it. Every step is a local git operation in the integration worktree:
 
-- **Preflight** — `git status --porcelain`, `git diff --cached --quiet`, `git rev-parse --abbrev-ref HEAD`, `git merge-base --is-ancestor`, `git rev-parse --git-dir`. All run against local refs.
-- **Recovery point** — `git rev-parse HEAD` captures the integration branch's tip before the merge, persisted as a write-ahead-log marker before any ref mutation.
-- **Merge** — `git merge --no-ff` / `--squash` / rebase + ff-only against local branches, in the main worktree's working directory.
-- **Recovery execution** — the INV-14 recovery ladder (`git merge --abort` → `git reset --keep <recoveryPointSha>`, never `--hard`) rewinds the integration branch's tip to the recovery point if the merge or post-merge verification fails.
+- **Ancestry check** — `git merge-base --is-ancestor <accepted head> <integration-branch>`. Exit 0 skips the landing, exit 1 lands, and any other exit stops.
+- **Clean-tree check** — `git rev-parse --abbrev-ref HEAD` names the integration branch, and `git status --porcelain` prints nothing.
+- **Rollback commit** — `git rev-parse <integration-branch>` captures the tip before the landing.
+- **Landing** — `git merge --ff-only <accepted head commit>`, or `git merge --no-ff <accepted head commit>` when the integration branch advanced.
 
-The integration branch may eventually be pushed to a remote and merged into `main` via a PR — that is a separate concern handled by `merge_pr` in the synthesize phase, when the full feature is ready for human review.
+The coordinator runs these steps with the git of its harness. No step calls an Exarchos action to merge.
+
+The integration branch is later pushed and merged into `main` through a pull request, in the synthesize phase. The coordinator creates and merges that pull request through its harness, outside governance.
 
 ## Why not call the VCS provider here?
 
-An earlier implementation of this orchestrator routed the merge through `provider.mergePr(prId, strategy)` — a remote API call (GitHub / GitLab / Azure DevOps). That created an architectural mismatch:
+An earlier design merged through the API of the VCS provider (GitHub, GitLab or Azure DevOps). A server-side merge does not move the local integration branch. Settlement, `prepare` and the verifier read local commits: they need each accepted head as an ancestor of the integration tip and of the fork of each dependent. A remote merge leaves those local checks with nothing to read. A squash on the server also makes a commit that settlement never judged.
 
 | What runs locally | What runs remotely |
 |-------------------|--------------------|
-| Preflight (drift, ancestry, branch protection, worktree assertion) | (nothing) |
-| Recovery point `git rev-parse HEAD` | (nothing) |
-| Recovery `git reset --keep` | (nothing) |
-| ❌ Merge | ✅ Merge (server-side via VCS API) |
-
-A server-side merge does not move local `HEAD`. So the recorded recovery point corresponded to a local ref the merge never touched, and the reset back to it was a **no-op** in production. Worse, a server-side merge that succeeded with a post-merge verification failure left a local/remote divergence with no automatic recovery.
-
-The fix was structural: align the merge primitive with the recovery primitive. Both are now local-git, and the recovery is a real undo operation that rewinds the integration branch to the recorded recovery point.
+| Ancestry and clean-tree checks | (nothing) |
+| Rollback commit `git rev-parse` | (nothing) |
+| Landing `git merge` | (nothing) |
+| (nothing) | The pull request of the synthesize phase, through the harness |
 
 ## Why the integration branch and not main?
 
-The integration branch is the long-lived collection point for a feature's subagent work. It's where the `delegate` phase composes parallel worktree branches into a single coherent state for review. Landing a subagent branch on the integration branch is an internal coordination operation — the operator has not yet asked for human review, and the work has not yet earned a place on `main`.
+The integration branch is the long-lived collection point for the subagent work of a feature. The `delegate` phase lands each accepted worktree head on it, so the review reads one coherent state. A landing on the integration branch is an internal coordination step: the operator has not yet asked for human review, and the work has not yet earned a place on `main`.
 
-Pushing to `main` happens later, via `merge_pr`, against a PR opened from the integration branch by the synthesize-phase shepherd loop. By then, the integration branch's content has been reviewed (`review` phase) and prepared for the wider audience.
+The work reaches `main` later, through the pull request that the coordinator opens from the integration branch in the synthesize phase. By then the `review` phase has judged the integration branch.
 
-## Branch precondition
+## Landing shapes
 
-The local-git merge adapter (`verbs/merge/local-git-merge.ts`) checks out the target branch defensively at the top of every invocation. This makes the precondition explicit: the orchestrator expects to be in the main worktree, on (or able to switch to) the target branch. A wrong-state caller surfaces as a clear `git checkout` failure rather than silent misbehavior.
+| Shape | Effect on the integration branch | When |
+|-------|----------------------------------|------|
+| Fast-forward | The branch moves to the accepted head, with no new commit | The normal landing: the accepted head holds the integration tip |
+| Merge commit | A new commit with two parents: the earlier tip and the accepted head | The integration branch advanced after the base of the task |
 
-The preflight composer separately asserts main-worktree (`git rev-parse --git-dir` shape) — this catches the case of an operator running `merge_orchestrate` from inside a subagent worktree, which would otherwise corrupt that worktree's state.
+Both shapes keep the accepted head reachable from the integration tip.
 
-## Strategy semantics
+Never rebase or squash an accepted head. Both make a new commit that settlement never judged, and the accepted head stops being an ancestor of the integration tip. A dependent then forks from a commit that does not hold its blocker head, and `settle` refuses it. A squash or a rebase appears only as an out-of-band case: a blocker that already landed that way. That case needs the recovery row of the skill (Step 4), and the row satisfies `prepare` only.
 
-| Strategy | Effect on integration branch | Effect on source branch |
-|----------|------------------------------|-------------------------|
-| `merge`  | New merge commit with two parents (target's previous HEAD + source's HEAD) | Unchanged |
-| `squash` | New single-parent commit containing source's diff | Unchanged |
-| `rebase` | Source's commits replayed atop target; integration branch ff-merges to source's new tip — linear history, no merge commit | History rewritten (source's commits get new SHAs) |
+## What a failed landing leaves
 
-`rebase` rewrites the source branch's history. For ephemeral subagent branches (created by `delegate`, deleted after merge), this is fine — the branch has no consumers other than the orchestrator. Don't pick `rebase` for source branches that are pushed and shared.
-
-## What the recovery actually undoes
-
-The recovery ladder — `git merge --abort` (the operation's own recovery primitive, best-effort) followed by `git reset --keep <recoveryPointSha>` (a refuse-to-discard substrate undo, never `--hard`) — restores the integration branch's `HEAD` to the recorded recovery point. This **does** undo:
-
-- A merge commit created by `--no-ff`
-- A squash commit created by `--squash` + `git commit`
-- A fast-forward advance from a `rebase` strategy (target moves back to its pre-rebase tip)
-
-`--keep` refuses to clobber uncommitted local changes (where `--hard` would silently destroy them); the executor surfaces an indeterminate outcome (`recoveryError` + `recoveryErrorDetail`) rather than masking a stranded worktree as a clean recovery.
-
-The recovery **does not** undo:
-
-- The source branch's history rewrite from a `rebase` strategy. The source branch keeps the rebased commits; only the integration branch's reference returns to its prior state. This is acceptable in the SDLC model because the source branch is ephemeral — it gets deleted after the merge cycle either way. If you need to inspect the original source commits, the reflog still has them until expiry.
+- A refused fast-forward changes nothing.
+- A conflicted merge commit leaves a merge in progress. `git merge --abort` makes no commit and restores the branch to its tip before the merge. No step resets the branch.
+- The INV-14 rule holds: never `git reset --hard`. The earlier merge executor rewound a failed merge with `git merge --abort`, then `git reset --keep <recoveryPointSha>`. `--keep` refuses to clobber uncommitted local changes, where `--hard` silently destroys them. Its recovery rows stay readable, and `recovery-runbook.md` explains them.

@@ -1,3 +1,4 @@
+// RESERVED(issue: #2220, owner: exarchos, expires: 2027-02-28) — data-only startup removed the last production importer, the custom view registrar. The deletion inventory lists this registry for removal.
 import { ViewMaterializer } from './materializer.js';
 import type { ViewProjection } from './materializer.js';
 

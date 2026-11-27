@@ -3,12 +3,13 @@
  * time it checks only the shape of each declared path. After implementation,
  * each declared file must exist on disk, and its tests must run and pass.
  * The test terms of the verification profile say which path is a test and which command runs it.
+ * The declared tests run in the local approved-check executor, read-only in the checkout, with the probe term as the one approved leg.
  */
 
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { DEFAULT_TEST_GLOBS } from '../../config/toolchains.js';
-import { matchesTestName } from '../../config/verification-profile.js';
+import { matchesTestName, probeArgv } from '../../config/verification-profile.js';
 import { toPosix } from '../../utils/paths.js';
 import type { ToolResult } from '../../format.js';
 import type { EventStore } from '../../events/store.js';
@@ -16,9 +17,12 @@ import { matchesAnyGlob, testPathWellFormednessError as declaredTestPathError } 
 import { readValidatedDesignRecord } from '../../workflow/design-record/read.js';
 import { createEvidenceSubject } from '../../workflow/admission/evidence-subject.js';
 import { PROFILE_UNRESOLVED, type VerificationProfile } from '../../workflow/verification/profile.js';
-import { runPhaseGateWithEvidence } from './gate-runner.js';
+import { hostedPendingResult, runPhaseGateWithEvidence } from './gate-runner.js';
+import { contentDigest } from '../../contract/capsule/capsule-digest.js';
+import type { CheckPlan } from '../../contract/verification/harness-verification.js';
+import { refusedCheckResult, runApprovedCheck, type CheckExecutor } from '../verification/check-executor.js';
 import { profileOf, withProfileRoute, type ProfiledGateArgs } from './gate-utils.js';
-import { buildScopedTestRunner } from './test-adequacy-handler.js';
+import { probeRunOutcome, runTimeoutOf } from './test-adequacy-handler.js';
 import type { RunOutcome } from './test-adequacy.js';
 
 /**
@@ -75,6 +79,12 @@ interface TestRunsResult {
   readonly checks: readonly CheckEntry[];
   /** The reason of a probe command that is not resolved. No test ran. */
   readonly unresolvedReason?: string;
+}
+
+/** The local execution context of one call: the event store of the claims and the executor of the declared tests. */
+interface SpecCoverageRun {
+  readonly eventStore: EventStore;
+  readonly executor: CheckExecutor;
 }
 
 const TEST_FILE_PATTERN = /\*\*Test file:\*\*\s*`([^`]+)`/;
@@ -224,11 +234,14 @@ function generateReport(
  * Runs the check through `runPhaseGateWithEvidence`. The runner records
  * durable gate evidence before a success result returns. The action declares
  * no catalog emissions, so it appends no `gate.executed` event of its own.
+ *
+ * @param executor - The local check executor, {@link runApprovedCheck} by default. A test passes its own executor.
  */
 export async function handleSpecCoverageCheck(
   args: SpecCoverageCheckArgs,
   stateDir: string,
   eventStore: EventStore,
+  executor: CheckExecutor = runApprovedCheck,
 ): Promise<ToolResult> {
   if (!args.featureId) {
     return {
@@ -237,20 +250,26 @@ export async function handleSpecCoverageCheck(
     };
   }
 
-  return runPhaseGateWithEvidence({
-    streamId: args.featureId,
-    gateClass: 'spec-coverage',
-    requirementId: 'requirement:spec-coverage',
-    stateDir,
-    eventStore,
-    subject: (phaseAttemptId) =>
-      createEvidenceSubject(
-        { kind: 'phase-attempt', phaseAttemptId },
-        { gate: 'spec-coverage', phase: 'planning' },
-      ),
-    providerInput: args,
-    executeProvider: async () => executeSpecCoverageCheck(args),
-  });
+  const host: SpecCoverageRun = { eventStore, executor };
+  try {
+    return await runPhaseGateWithEvidence({
+      streamId: args.featureId,
+      gateClass: 'spec-coverage',
+      requirementId: 'requirement:spec-coverage',
+      stateDir,
+      eventStore,
+      subject: (phaseAttemptId) => {
+        return createEvidenceSubject(
+          { kind: 'phase-attempt', phaseAttemptId },
+          { gate: 'spec-coverage', phase: 'planning' },
+        );
+      },
+      providerInput: args,
+      executeProvider: async () => executeSpecCoverageCheck(args, host),
+    });
+  } catch (error) {
+    return hostedPendingResult(error);
+  }
 }
 
 /**
@@ -259,7 +278,7 @@ export async function handleSpecCoverageCheck(
  * can run before the worktree exists. A root that does not exist resolves the
  * co-located globs only. A glob term that is not resolved fails each phase.
  */
-async function executeSpecCoverageCheck(args: SpecCoverageCheckArgs): Promise<ToolResult> {
+async function executeSpecCoverageCheck(args: SpecCoverageCheckArgs, host: SpecCoverageRun): Promise<ToolResult> {
   const { planFile, repoRoot, coveragePhase: phase = 'post-implementation' } = args;
 
   if (!existsSync(planFile)) {
@@ -276,7 +295,8 @@ async function executeSpecCoverageCheck(args: SpecCoverageCheckArgs): Promise<To
     };
   }
 
-  const { tests } = profileOf(args, repoRoot);
+  const profile = profileOf(args, repoRoot);
+  const { tests } = profile;
   const globTerm = tests.globs;
   if (globTerm.state === 'unresolved') {
     return unresolvedGlobsResult(phase, planFile, repoRoot, withProfileRoute(args, globTerm.reason));
@@ -298,7 +318,8 @@ async function executeSpecCoverageCheck(args: SpecCoverageCheckArgs): Promise<To
   return phase === 'plan'
     ? runPlanSyntaxCheck(planFile, repoRoot, testFiles, globTerm.globs,
       record.kind === 'typed' ? declaredTestPathError : testPathWellFormednessError)
-    : runImplementationCoverageCheck(args, testFiles, tests.probe, record.kind === 'typed' ? globTerm.globs : undefined);
+    : runImplementationCoverageCheck(args, testFiles, tests.probe, record.kind === 'typed' ? globTerm.globs : undefined,
+      { ...host, profileDigest: contentDigest(profile) });
 }
 
 /** The FAIL of a glob term that is not resolved. No path of the plan can read as a test, so the result declares none. */
@@ -406,10 +427,17 @@ function checkOfRun(name: string, outcome: Exclude<RunOutcome, { kind: 'unresolv
   return { status: outcome.result === 'green' ? 'PASS' : 'FAIL', name };
 }
 
+/** The local execution context of the declared tests, with the digest of the profile that gives the probe term. */
+interface DeclaredTestRun extends SpecCoverageRun {
+  readonly profileDigest: string;
+}
+
 /**
- * Runs the declared tests with the probe term, once for each file. The `none` form takes no file list, so it runs the command once.
+ * Runs the declared tests with the probe term in the local executor, once for each file. The `none` form takes no file list, so it runs the command once.
  * A declared test that no glob of the probe term matches fails before any run. A term with no `globs` takes each file.
- * The runner of the kill probe checks the probe command at its first run. That runner gives the argv, the working directory, the limits and the scratch store.
+ * The probe argv is the one approved leg, and the declared files are its appended operands. A scoped run keeps the time limit of a scoped probe run.
+ *
+ * A refusal of the executor is a failed carrier, which the runner records with no verdict.
  *
  * The check reads the probe globs only when the probe command is resolved, as the kill probe does.
  * Thus an unresolved command fails with `profile-unresolved`, not with the runner-fit reason.
@@ -418,28 +446,43 @@ async function runDeclaredTests(
   args: SpecCoverageCheckArgs,
   testFiles: readonly string[],
   probe: ProbeTerm,
-): Promise<TestRunsResult> {
+  run: DeclaredTestRun,
+): Promise<TestRunsResult | ToolResult> {
   const probeGlobs = probe.command.state === 'resolved' ? probe.globs : undefined;
   const unfit = probeGlobs === undefined ? [] : testFiles.filter((file) => !matchesAnyGlob(file, probeGlobs));
   if (unfit.length > 0) {
     const detail = withProfileRoute(args, runnerFitReason(unfit));
     return { checks: [{ status: 'FAIL', name: 'Probe command runs each declared test', detail }] };
   }
-
-  const { repoRoot } = args;
-  const runTests = buildScopedTestRunner(probe, repoRoot);
-  const unscoped = probe.files === 'none';
-  const checks: CheckEntry[] = [];
-  for (const files of unscoped ? [testFiles] : testFiles.map((file) => [file])) {
-    const outcome = await runTests({ repoRoot, testFiles: files });
-    if (outcome.kind === 'unresolved') {
-      const unresolvedReason = withProfileRoute(args, outcome.reason);
-      const detail = `${PROFILE_UNRESOLVED}: ${unresolvedReason}`;
-      return { checks: [{ status: 'FAIL', name: 'Probe command resolved', detail }], unresolvedReason };
-    }
-    checks.push(checkOfRun(unscoped ? UNSCOPED_RUN_CHECK : `Test passes: ${files.join(', ')}`, outcome));
+  if (probe.command.state === 'unresolved') {
+    const unresolvedReason = withProfileRoute(args, probe.command.reason);
+    return { checks: [{ status: 'FAIL', name: 'Probe command resolved', detail: `${PROFILE_UNRESOLVED}: ${unresolvedReason}` }], unresolvedReason };
   }
-  return { checks };
+
+  const unscoped = probe.files === 'none';
+  const codes = probe.failureExitCodes.codes;
+  const ran = await run.executor({
+    eventStore: run.eventStore, operation: 'spec-coverage', streamId: args.featureId, plan: specCoveragePlan(probe),
+    profileDigest: run.profileDigest, checkout: args.repoRoot, selection: testFiles, workspace: 'checkout',
+    legTimeoutMs: runTimeoutOf(probe.files),
+  }, async (session) => {
+    const checks: CheckEntry[] = [];
+    for (const files of unscoped ? [testFiles] : testFiles.map((file) => [file])) {
+      const observation = await session.run({ leg: 0, append: probeArgv(probe.files, [], files) });
+      checks.push(checkOfRun(unscoped ? UNSCOPED_RUN_CHECK : `Test passes: ${files.join(', ')}`, probeRunOutcome(observation, codes)));
+    }
+    return checks;
+  });
+  return ran.kind === 'refused' ? refusedCheckResult(ran.reason) : { checks: ran.value };
+}
+
+/** The reviewed typed scope of a resolved probe term: its argv and its file form. */
+export function specCoveragePlan(probe: ProbeTerm): CheckPlan {
+  return {
+    operation: 'spec-coverage',
+    legs: probe.command.state === 'resolved' ? [{ name: 'probe', kind: 'probe', argv: [...probe.command.argv] }] : [],
+    files: probe.files,
+  };
 }
 
 /**
@@ -453,6 +496,7 @@ async function runImplementationCoverageCheck(
   testFiles: readonly string[],
   probe: ProbeTerm,
   typedGlobs: readonly string[] | undefined,
+  host: DeclaredTestRun,
 ): Promise<ToolResult> {
   const { planFile, repoRoot, skipRun = false } = args;
   const checks: CheckEntry[] = [];
@@ -494,7 +538,8 @@ async function runImplementationCoverageCheck(
   if (skipRun) {
     checks.push({ status: 'SKIP', name: 'Test execution (--skip-run)' });
   } else if (testFiles.length > 0 && missingList.length === 0 && malformed.length === 0) {
-    const runs = await runDeclaredTests(args, testFiles, probe);
+    const runs = await runDeclaredTests(args, testFiles, probe, host);
+    if ('success' in runs) return runs;
     checks.push(...runs.checks);
     unresolvedReason = runs.unresolvedReason;
   }

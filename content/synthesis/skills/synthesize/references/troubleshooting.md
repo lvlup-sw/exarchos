@@ -80,11 +80,14 @@ If workflow state doesn't match git reality:
 3. Update state via `mcp__plugin_exarchos_exarchos__exarchos_workflow` with `action: "update"` to match git truth
 
 ## PR Creation Failed
-If `create_pr` fails:
+If the harness PR creation fails:
 1. Check the error output for specific guidance
 2. Run `exarchos_orchestrate({ action: "list_prs", state: "open" })` to verify the branch state
 3. If rebase conflict: run `git rebase origin/<base>` to resolve
 4. If authentication issue: check VCS provider token permissions
+5. Before a new create, run the Idempotency procedure of the synthesize skill again. A create with a lost reply can leave an open PR.
+
+If the harness cannot create the PR, stop and report. Do not fall back to an Exarchos action.
 
 ## Stack Rebase Conflict
 If `git rebase` encounters conflicts:

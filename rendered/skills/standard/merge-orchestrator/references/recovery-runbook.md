@@ -1,145 +1,85 @@
 # Recovery Runbook
 
-What to do when `merge_orchestrate` returns a non-`completed` outcome.
+What to do when a harness landing of an accepted head does not finish cleanly, and how to read the recovery rows of the earlier merge executor. No step discards uncommitted work or sets it aside, and no step rebases or squashes an accepted head.
 
-> **Routing on re-dispatch.** For a shared integration branch, `serialize_merge` is the integration-merge path — it re-composes `merge_orchestrate` under its single-writer lease. Wherever this runbook says "re-dispatch" / "re-invoke," do so **through `serialize_merge`** for a shared integration ref. Invoke `merge_orchestrate` directly only for a non-integration merge, or as the crash-resumed caller re-presenting the original `leaseOperationId` — a bare re-dispatch against a leased integration ref fails closed (`MERGE_LEASE_HELD`).
+## The fast-forward refuses
 
-## `phase: 'aborted'` — preflight blocked
+`git merge --ff-only <accepted head commit>` prints `fatal: Not possible to fast-forward, aborting.` The integration branch advanced after the base of the task, and the refusal changed nothing.
 
-The merge was never attempted. `data.preflight` carries the structured guard sub-results so you can identify which guard failed without reading workflow state.
+Follow the delegate runbook "When integration advances mid-wave" (`@skills/delegate/SKILL.md`). It checks ancestry first, captures the rollback commit with `git rev-parse <integration-branch>`, and lands the accepted head unchanged with `git merge --no-ff <accepted head commit>`. On a conflict it goes to its Rollback procedure: `git merge --abort`, a compare of the integration branch with the captured commit, and a rework task. Do not resolve a conflict in the integration worktree.
 
-### Diagnose
+## The integration worktree is not clean
 
-Inspect each guard field in order (the orchestrator evaluates them in this precedence):
+`git status --porcelain` prints a line before the landing. Stop and report. Find the owner of the change, and let that owner commit it on its own branch. The landing never discards work and never sets it aside.
 
-1. **`preflight.ancestry.passed === false`** — source does not descend from target.
-   - Check `preflight.ancestry.missing` for the missing ref(s).
-   - Resolution: rebase or merge target into source first, then re-dispatch.
+## A landing was interrupted
 
-2. **`preflight.currentBranchProtection.blocked === true`** — current branch is protected.
-   - Check `preflight.currentBranchProtection.currentBranch` and `.hint`.
-   - Resolution: switch off the protected branch (`git checkout <non-protected>`) and re-dispatch.
-
-3. **`preflight.worktree.isMain === false`** — invoked from a subagent worktree.
-   - Resolution: `cd` to the main worktree (`preflight.worktree.expected`) and re-dispatch.
-
-4. **`preflight.drift.clean === false`** — uncommitted work in the working tree.
-   - Sub-fields: `drift.uncommittedFiles[]`, `drift.indexStale`, `drift.detachedHead`.
-   - Resolution depends on intent:
-     - Want to keep the work → `git stash` or commit it on a new branch.
-     - Want to discard → `git restore .` (or `git reset --hard HEAD` if the index is also dirty).
-     - Detached HEAD → `git checkout <branch>` to attach.
-   - Per design, the orchestrator never auto-recovers from drift — this is deliberate, to ensure no code path can destroy uncommitted work.
-
-`failureReasons` on the emitted `merge.preflight` event carries the operator-facing diagnostic string `describePreflightFailure` produces, mirroring what the ToolResult shows.
-
-### Re-dispatch
-
-After resolving the underlying condition, re-invoke the merge with the same arguments — through `serialize_merge` for a shared integration ref (it re-composes `merge_orchestrate` under its lease), or `merge_orchestrate` directly for a non-integration / lease-held merge. The fresh dispatch re-runs preflight; if all guards now pass, the executor proceeds.
-
-## `phase: 'rolled-back'` — merge attempted, recovered
-
-> The phase value is still `rolled-back` — a load-bearing state token intentionally unchanged by the recovery reframe. The *behavior* it describes is recovery to the recorded recovery point.
-
-The executor recorded the recovery point, attempted the merge, the merge or post-merge verification failed, and the INV-14 recovery ladder (`git merge --abort` → `git reset --keep <recoveryPointSha>`, never `--hard`) ran. The integration branch is rewound to its pre-merge state.
-
-### Diagnose
-
-Check `data.reason`:
-
-| `reason` | Meaning | Typical cause |
-|----------|---------|---------------|
-| `merge-failed` | Git merge command exited non-zero | Merge conflict, missing source branch, ref corruption |
-| `verification-failed` | Post-merge verification step rejected the merge | Custom verification adapter detected a problem (rare in default config) |
-| `timeout` | Underlying operation exceeded the 120s timeout | Repo size, slow disk, lock contention |
-
-### Then check `data.recoveryError` / `data.recoveryErrorDetail`
-
-If present, the recovery itself failed and **the working tree is stranded**. The integration branch may not be back at the recorded recovery point. `data.recoveryError` is the INV-14 discriminator (`reset-keep-blocked` / `reset-failed` / `unexpected-mid-merge-drift`) and `data.recoveryErrorDetail` is the human-readable detail. This is a critical condition requiring manual intervention:
+After a crash or a lost reply, first run:
 
 ```bash
-# Verify current state
-git status
-git log --oneline -5
-
-# If the integration branch is in an unexpected state, rewind it to the
-# recovery point. Prefer --keep (refuse-to-discard); use --hard only if you
-# have already confirmed there is no uncommitted work you need to preserve.
-git checkout <integration-branch>
-git reset --keep <recoveryPointSha-from-the-event-log>
-
-# Where <recoveryPointSha-from-the-event-log> can be retrieved from the most
-# recent recovery event. Prefer the canonical merge.recovered, which
-# carries recoveryPointSha; fall back to the legacy merge.rollback, whose
-# rollbackSha wire field holds the same value during the deprecation window:
-exarchos_event query stream=<featureId> filter='{"type":"merge.recovered"}'
-# fall back to merge.rollback, then merge.executed, if no recovery event exists.
-# (merge.preflight does NOT carry the recovery point — it runs before the
-# recovery point is captured.)
+git merge-base --is-ancestor <accepted head> <integration-branch>
 ```
 
-If neither `recoveryError` nor `recoveryErrorDetail` is present, the recovery succeeded and the working tree is back to the recorded state — proceed to the conflict-resolution flow below.
+Exit 0 means that the landing happened: do not land again. Exit 1 means that it did not: start again at Step 3 of the skill. Any other exit stops the recovery and reports.
 
-### Resolve a `merge-failed` outcome
+If `git status` shows a merge in progress, the operator runs `git merge --abort` by hand, checks that `git status --porcelain` prints nothing, and then runs the ancestry check again.
 
-For merge conflicts (most common cause of `merge-failed`):
+## The `merge.executed` row is required
 
-1. `git checkout <target-branch>` (the integration branch)
-2. `git merge <source-branch>` to surface the conflicts in the working tree
-3. Resolve conflicts manually
-4. `git add` the resolved files
-5. `git commit` to complete the merge
-6. **Do not** re-dispatch the merge (neither `serialize_merge` nor `merge_orchestrate`) — the merge is now done manually. Follow the repository's event-first commit-point invariant: emit the `merge.executed` event FIRST, then update `mergeOrchestrator.phase` to `completed` via `exarchos:exarchos_workflow update`. Reversing the order risks a state-file/event-stream divergence if the event append fails after the state write.
+A stream parked in `merge-pending`, or a blocker that landed by a squash or a rebase, needs one `merge.executed` row (skill Step 4). Append it after the git landing, never before it, and before any update of `mergeOrchestrator` state. A harness landing makes no state update, so the row is the whole record.
 
 ```typescript
-// Event first — the repository treats event append as the commit point.
-// Use the same `strategy` the original dispatch was invoked with so the
-// projected state matches what the auto-emit path would have produced.
-// NOTE: the merge.executed EVENT keeps the legacy `rollbackSha` wire field
-// during the v2.11.x deprecation window — supply the recovery-point SHA there.
-exarchos:exarchos_event({ action: "append", stream: "<featureId>", event: {
-  type: "merge.executed",
-  data: {
-    taskId: "<task-id>",
-    sourceBranch: "<source>",
-    targetBranch: "<target>",
-    strategy: "<squash|merge|rebase>",
-    mergeSha: "<the-manual-merge-commit-sha>",
-    rollbackSha: "<recovery-point-sha-from-prior-event>",
+exarchos_event({
+  action: "append",
+  stream: "<featureId>",
+  idempotencyKey: "<taskId>:<mergeSha>",
+  event: {
+    type: "merge.executed",
+    data: {
+      taskId: "<taskId>",
+      sourceBranch: "<task branch>",
+      targetBranch: "<integration-branch>",
+      mergeSha: "<integration tip after the landing>",
+      rollbackSha: "<integration tip before the landing>",
+    },
   },
-}});
-
-// Then update workflow state to reflect the terminal phase.
-// The mergeOrchestrator STATE field is `recoveryPointSha` (renamed from
-// `rollbackSha` — the state file follows the canonical recovery frame
-// even while the legacy event wire field above does not yet).
-exarchos:exarchos_workflow({ action: "update", featureId: "<featureId>",
-  updates: { mergeOrchestrator: {
-    phase: "completed",
-    sourceBranch: "<source>", targetBranch: "<target>",
-    taskId: "<task-id>",
-    strategy: "<squash|merge|rebase>",
-    mergeSha: "<the-manual-merge-commit-sha>",
-    recoveryPointSha: "<recovery-point-sha-from-prior-event>",
-  } } });
+})
 ```
 
-This is one of the rare cases where manual event emission is appropriate — the merge happened outside the orchestrator's control, but the event log must reflect the actual state for downstream projections to work.
+For a squash or rebase recovery, `mergeSha` is the commit that landed, an ancestor of the integration branch. That row satisfies `prepare` only. `settle` still needs a `forkCommit` that holds the accepted blocker head.
 
-For `timeout`: investigate disk / lock issues, then re-dispatch with `resume: true` to leverage the executor's idempotency.
+If the append fails or its reply is lost, send the same append again with the same `idempotencyKey`. The event store returns the original row, so the resend adds no second row.
 
-For `verification-failed`: the verification adapter's specific failure determines the recovery path; consult its own documentation.
+## Leave `merge-pending`
 
-## `phase: 'completed'` with unexpected state
+The `merge-pending → delegate` exit guard reads a `merge.executed` row that follows the latest `task.completed`. After the row, run `exarchos_workflow({ action: "transition", featureId: "<featureId>", target: "delegate" })`. If the state document is stale, run `exarchos_workflow({ action: "reconcile", featureId: "<featureId>" })` first, which rebuilds the state from the event log.
 
-If the handler returned `completed` but the integration branch's HEAD doesn't match the recorded `mergeSha`:
+The next worktree-bearing `task.completed` of an older stream can park it in `merge-pending` again. Land that task the same way.
 
-1. Something between the merge and your inspection mutated the branch (concurrent push? local commit?).
-2. Inspect `git reflog show <integration-branch>` to trace the divergence.
-3. The orchestrator's guarantees end at the moment it returns success; no recovery is automatic for post-completion drift.
+## A landing ran twice
 
-## Re-entering `merge-pending`
+Until the `merge-pending` path stops offering the earlier merge executor, a head can reach the integration branch through that executor and through the harness. Both orders are safe. The ancestry check skips a head that landed already, and git merges an ancestor as already up to date.
 
-The HSM `merge-pending → delegate` exit fires when `mergeOrchestrator.phase` enters a terminal value. After a recovery flow that updates state to `completed` manually (e.g., the conflict-resolution flow above), the workflow naturally exits `merge-pending`. The next worktree-bearing `task.completed` re-enters `merge-pending` for the next task.
+## A stranded tree from the earlier executor
 
-To force re-evaluation of the entry guard without waiting for a new `task.completed`, call `exarchos:exarchos_workflow reconcile` to rebuild state from the event log.
+This section is read-side history. The earlier merge executor recorded its recovery in `merge.recovered` (legacy `merge.rollback`). If that row carries `recoveryError` or `recoveryErrorDetail`, its recovery did not finish, and the integration worktree can be stranded.
+
+1. Read the recovery point. Query `exarchos_event({ action: "query", stream: "<featureId>", filter: { type: "merge.recovered" } })` and take `recoveryPointSha` from the latest row. If no such row exists, take `rollbackSha` from the latest legacy `merge.rollback` row. A `merge.preflight` row does not carry the recovery point.
+2. Inspect the branch:
+
+   ```bash
+   git status
+   git log --oneline -5
+   ```
+
+   Each commit above the recovery point must be the merge of that executor. If another commit is there, stop and report. Never reset over a commit that the executor did not make.
+3. Rewind the integration branch from the integration worktree:
+
+   ```bash
+   git switch <integration-branch>
+   git reset --keep <recoveryPointSha>
+   ```
+
+   `--keep` refuses to discard uncommitted work. If it refuses, stop and report. Do not replace `--keep` with a reset that discards work (INV-14).
+
+Then land the accepted head again through the harness, from Step 2 of the skill.

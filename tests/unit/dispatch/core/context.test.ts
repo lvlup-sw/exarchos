@@ -5,6 +5,7 @@ import * as os from 'node:os';
 import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
 import type { ToolResult } from '../../../../src/format.js';
 import type { PruneHandlerDeps } from '../../../../src/verbs/team/prune-stale-workflows.js';
+import type { VerificationHostConnector } from '../../../../src/contract/verification/harness-verification.js';
 
 vi.mock('../../../../src/workflow/state-store.js', async (importOriginal) => {
   const original = await importOriginal<typeof import('../../../../src/workflow/state-store.js')>();
@@ -19,6 +20,14 @@ vi.mock('../../../../src/config/register.js', async (importOriginal) => {
   return {
     ...original,
     registerCustomWorkflows: vi.fn(),
+  };
+});
+
+vi.mock('../../../../src/vcs/factory.js', async (importOriginal) => {
+  const original = await importOriginal<typeof import('../../../../src/vcs/factory.js')>();
+  return {
+    ...original,
+    createVcsProvider: vi.fn(original.createVcsProvider),
   };
 });
 
@@ -151,15 +160,17 @@ describe('initializeContext', () => {
     }
   });
 
-  it('InitializeContext_WithProjectRoot_LoadsConfig', async () => {
+  /** Startup is data-only. The executable configuration file writes a marker when something evaluates it. */
+  it('InitializeContext_WithExecutableConfig_DoesNotEvaluateIt', async () => {
     const { initializeContext } = await import('../../../../src/dispatch/core/context.js');
-    const { writeFile } = await import('node:fs/promises');
-    const { join } = await import('node:path');
 
     const projectRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'ctx-proj-'));
-    await writeFile(
-      join(projectRoot, 'exarchos.config.js'),
-      `export default {
+    const marker = path.join(projectRoot, 'evaluated');
+    await fs.writeFile(
+      path.join(projectRoot, 'exarchos.config.js'),
+      `import { writeFileSync } from 'node:fs';
+      writeFileSync(${JSON.stringify(marker)}, 'evaluated');
+      export default {
         workflows: {
           deploy: {
             phases: ['build', 'ship'],
@@ -170,13 +181,14 @@ describe('initializeContext', () => {
       };`,
     );
 
-    const ctx = await initializeContext(tmpDir, { projectRoot });
+    try {
+      const ctx = await initializeContext(tmpDir, { projectRoot });
 
-    expect(ctx.config).toBeDefined();
-    expect(ctx.config?.workflows?.deploy).toBeDefined();
-    expect(ctx.config?.workflows?.deploy.phases).toEqual(['build', 'ship']);
-
-    await rmrfAsync(projectRoot);
+      expect(ctx.config).toEqual({});
+      await expect(fs.access(marker)).rejects.toMatchObject({ code: 'ENOENT' });
+    } finally {
+      await rmrfAsync(projectRoot);
+    }
   });
 
   it('InitializeContext_WithProjectRootNoConfig_ConfigEmpty', async () => {
@@ -190,7 +202,7 @@ describe('initializeContext', () => {
     await rmrfAsync(projectRoot);
   });
 
-  it('InitializeContext_WithConfigWorkflows_CallsRegisterCustomWorkflows', async () => {
+  it('InitializeContext_WithConfigWorkflows_RegistersNoCustomWorkflow', async () => {
     const { initializeContext } = await import('../../../../src/dispatch/core/context.js');
     const { registerCustomWorkflows } = await import('../../../../src/config/register.js');
     const { writeFile } = await import('node:fs/promises');
@@ -212,15 +224,54 @@ describe('initializeContext', () => {
 
     await initializeContext(tmpDir, { projectRoot });
 
-    expect(registerCustomWorkflows).toHaveBeenCalledWith(
-      expect.objectContaining({
-        workflows: expect.objectContaining({
-          pipeline: expect.objectContaining({ phases: ['start', 'end'] }),
-        }),
-      }),
-    );
+    expect(registerCustomWorkflows).not.toHaveBeenCalled();
 
     await rmrfAsync(projectRoot);
+  });
+
+  /** Startup passes the connector that it read, with no change, and reads no home directory itself. */
+  it('InitializeContext_SuppliedConnector_ReturnsItAsVerificationHost', async () => {
+    const { initializeContext } = await import('../../../../src/dispatch/core/context.js');
+    const unavailable: { kind: 'unavailable'; reason: string } = { kind: 'unavailable', reason: 'fixture' };
+    const connector: VerificationHostConnector = {
+      publicKey: '', gitPath: '', resourceId: '', profileId: '',
+      client: { submit: async () => unavailable, retrieve: async () => unavailable },
+    };
+    const projectRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'ctx-host-'));
+
+    try {
+      expect((await initializeContext(tmpDir, { verificationHost: connector })).verificationHost).toBe(connector);
+      expect((await initializeContext(tmpDir, { projectRoot, verificationHost: connector })).verificationHost).toBe(connector);
+      expect((await initializeContext(tmpDir, { projectRoot })).verificationHost).toBeUndefined();
+    } finally {
+      await rmrfAsync(projectRoot);
+    }
+  });
+
+  /** An executable configuration file or configured event hooks give one warning on the startup logger. */
+  it('InitializeContext_ExecutableConfigOrHooks_LogsOneMigrationFinding', async () => {
+    const { initializeContext } = await import('../../../../src/dispatch/core/context.js');
+    const { logger } = await import('../../../../src/logger.js');
+    const warn = vi.spyOn(logger, 'warn').mockImplementation(() => undefined);
+    const clean = await fs.mkdtemp(path.join(os.tmpdir(), 'ctx-clean-'));
+    const both = await fs.mkdtemp(path.join(os.tmpdir(), 'ctx-both-'));
+    await fs.writeFile(path.join(both, 'exarchos.config.ts'), 'throw new Error("evaluated");\n');
+    await fs.writeFile(path.join(both, '.exarchos.yml'), 'hooks:\n  on:\n    workflow.transition:\n      - command: echo hi\n');
+
+    try {
+      await initializeContext(tmpDir, { projectRoot: clean });
+      expect(warn).not.toHaveBeenCalled();
+      await initializeContext(tmpDir, { projectRoot: both });
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(warn.mock.calls[0]).toEqual([
+        expect.objectContaining({ finding: 'executable-configuration-retired', files: ['exarchos.config.ts'], hookEvents: ['workflow.transition'] }),
+        expect.stringContaining('.exarchos/workflows/'),
+      ]);
+    } finally {
+      warn.mockRestore();
+      await rmrfAsync(clean);
+      await rmrfAsync(both);
+    }
   });
 });
 
@@ -276,7 +327,7 @@ describe('initializeContext — projectConfig (YAML)', () => {
     }
   });
 
-  /** The project root holds a YAML config and a JS config. The context loads both. */
+  /** The project root holds a YAML config and a JS config. The context loads the YAML config and evaluates no JS config. */
   it('initializeContext_ProjectConfigBeforeExarchosConfig', async () => {
     const { initializeContext } = await import('../../../../src/dispatch/core/context.js');
 
@@ -295,7 +346,7 @@ describe('initializeContext — projectConfig (YAML)', () => {
 
       expect(ctx.projectConfig).toBeDefined();
       expect(ctx.projectConfig!.tools.commitStyle).toBe('freeform');
-      expect(ctx.config).toBeDefined();
+      expect(ctx.config).toEqual({});
     } finally {
       await rmrfAsync(projectRoot);
     }
@@ -385,27 +436,66 @@ describe('initializeContext — projectConfig (YAML)', () => {
     expect(ctx.vcsProvider).toBeUndefined();
   });
 
-  it('initializeContext_WithProjectRoot_HookRunnerAvailable', async () => {
+  /**
+   * With `detectVcs: false` and a project root, startup loads the YAML config and applies its durability.
+   * It never calls the VCS factory, and the context holds no `vcsProvider` key.
+   */
+  it('InitializeContext_DetectVcsFalse_AppliesDurabilityWithoutVcsProvider', async () => {
     const { initializeContext } = await import('../../../../src/dispatch/core/context.js');
+    const { EventStore } = await import('../../../../src/events/store.js');
+    const { createVcsProvider } = await import('../../../../src/vcs/factory.js');
+    const durability = vi.spyOn(EventStore.prototype, 'setStorageDurability');
 
-    const projectRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'ctx-hook-'));
+    const projectRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'ctx-novcs-'));
+    await fs.writeFile(
+      path.join(projectRoot, '.exarchos.yml'),
+      `storage:\n  synchronous: full\ntools:\n  commit-style: freeform\n`,
+    );
+
+    try {
+      const ctx = await initializeContext(tmpDir, { projectRoot, detectVcs: false });
+
+      expect(durability).toHaveBeenCalledWith('full');
+      expect(ctx.projectConfig?.storage.synchronous).toBe('full');
+      expect(ctx.projectConfig?.tools.commitStyle).toBe('freeform');
+      expect(ctx.config).toEqual({});
+      expect(Object.keys(ctx)).not.toContain('vcsProvider');
+      expect(vi.mocked(createVcsProvider)).not.toHaveBeenCalled();
+    } finally {
+      durability.mockRestore();
+      await rmrfAsync(projectRoot);
+    }
+  });
+
+  /** The same project root without the option still calls the VCS factory once and holds a provider. */
+  it('InitializeContext_DetectVcsAbsent_CallsTheVcsFactory', async () => {
+    const { initializeContext } = await import('../../../../src/dispatch/core/context.js');
+    const { createVcsProvider } = await import('../../../../src/vcs/factory.js');
+
+    const projectRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'ctx-withvcs-'));
 
     try {
       const ctx = await initializeContext(tmpDir, { projectRoot });
 
-      expect(ctx.hookRunner).toBeDefined();
-      expect(typeof ctx.hookRunner).toBe('function');
+      expect(vi.mocked(createVcsProvider)).toHaveBeenCalledTimes(1);
+      expect(ctx.vcsProvider?.name).toBe('github');
     } finally {
       await rmrfAsync(projectRoot);
     }
   });
 
-  it('initializeContext_NoProjectRoot_HookRunnerUndefined', async () => {
+  /** The context carries no hook runner, with or without a project root. */
+  it('initializeContext_WithProjectRoot_HasNoHookRunner', async () => {
     const { initializeContext } = await import('../../../../src/dispatch/core/context.js');
 
-    const ctx = await initializeContext(tmpDir);
+    const projectRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'ctx-hook-'));
 
-    expect(ctx.hookRunner).toBeUndefined();
+    try {
+      expect(Object.keys(await initializeContext(tmpDir, { projectRoot }))).not.toContain('hookRunner');
+      expect(Object.keys(await initializeContext(tmpDir))).not.toContain('hookRunner');
+    } finally {
+      await rmrfAsync(projectRoot);
+    }
   });
 });
 
@@ -508,6 +598,22 @@ phases:
       const ctx = await initializeContext(tmpDir, { projectRoot });
       expect(ctx.eventStore).toBeDefined();
       expect(() => getTopology()).toThrow(/load.*before/i);
+    } finally {
+      await rmrfAsync(projectRoot);
+    }
+  });
+
+  /** With `detectVcs: false`, startup still loads a valid `topology.yaml` from the project root. */
+  it('Context_InitializeWithDetectVcsFalse_LoadsTopology', async () => {
+    const { initializeContext } = await import('../../../../src/dispatch/core/context.js');
+    const { getTopology } = await import('../../../../src/workflow/topology/loader.js');
+
+    const projectRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'ctx-topo-novcs-'));
+    await fs.writeFile(path.join(projectRoot, 'topology.yaml'), IMPLEMENTING_ONLY_TOPOLOGY, 'utf-8');
+
+    try {
+      await initializeContext(tmpDir, { projectRoot, detectVcs: false });
+      expect(() => getTopology()).not.toThrow();
     } finally {
       await rmrfAsync(projectRoot);
     }

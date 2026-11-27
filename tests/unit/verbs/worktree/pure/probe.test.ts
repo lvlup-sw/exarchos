@@ -125,6 +125,44 @@ describe('probeWorktreeUsage', () => {
     expect(usage.inUse).toBe(true);
     expect(usage.occupantPids).toEqual([700]);
   });
+
+  /**
+   * A foreign process cwd that the resolver refuses with EACCES is outside the worktree, so launcher teardown does not crash.
+   * The other occupants still count, and the worktree path itself still resolves.
+   */
+  it('Probe_ForeignCwdRealpathEacces_IsOutsideTheWorktree', () => {
+    const W = '/repo/.worktrees/W';
+    const realpath: RealpathResolver = (p) => {
+      if (p === '/proc/foreign/cwd') throw Object.assign(new Error('EACCES: permission denied'), { code: 'EACCES' });
+      return p;
+    };
+    const records: ProcessRecord[] = [
+      { pid: 800, ppid: 1, cwd: '/proc/foreign/cwd', startTime: 'f' },
+      { pid: 801, ppid: 1, cwd: `${W}/src`, startTime: 'o' },
+    ];
+
+    const [usage] = probeWorktreeUsage({ worktreePaths: [W], selfPid: 1 }, tableSource(records), realpath);
+
+    expect(usage.occupantPids).toEqual([801]);
+    expect(usage.inUse).toBe(true);
+  });
+
+  /** A worktree path that fails to resolve rethrows, also with EACCES, and a foreign cwd that fails with another code rethrows. */
+  it('Probe_WorktreePathErrorAndOtherForeignCodes_Rethrow', () => {
+    const W = '/repo/.worktrees/W';
+    const failing = (target: string, code: string): RealpathResolver => (p) => {
+      if (p === target) throw Object.assign(new Error(`${code}: resolve failed`), { code });
+      return p;
+    };
+    const records: ProcessRecord[] = [{ pid: 900, ppid: 1, cwd: '/proc/other/cwd', startTime: 'f' }];
+
+    expect(() => probeWorktreeUsage({ worktreePaths: [W], selfPid: 1 }, tableSource(records), failing(W, 'EACCES')))
+      .toThrow(/EACCES/);
+    for (const code of ['ENOTDIR', 'ELOOP']) {
+      expect(() => probeWorktreeUsage({ worktreePaths: [W], selfPid: 1 }, tableSource(records), failing('/proc/other/cwd', code)))
+        .toThrow(new RegExp(code));
+    }
+  });
 });
 
 describe('probeReservations', () => {

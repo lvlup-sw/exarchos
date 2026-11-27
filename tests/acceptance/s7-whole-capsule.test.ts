@@ -14,6 +14,9 @@ import { WorkflowPreparedData, type WorkflowEvent } from '../../src/events/schem
 import { PreparedDetailOutputSchema, PreparedCapsuleReceiptData } from '../../src/verbs/prepare/schemas.js';
 import { ExarchosCapsuleV1Schema } from '../../src/contract/capsule/exarchos-capsule.js';
 import { resolveTaskStanding } from '../../src/verbs/settle/task-standing.js';
+import { handlePrepare } from '../../src/verbs/prepare/handler.js';
+import { enforceResponseEconomy } from '../../src/dispatch/core/response-economy.js';
+import { runAsTrustedCaller } from '../../tools/test-helpers/trusted-context.js';
 import { makeTempDir, rmrfAsync } from '../../tools/test-helpers/temp-dir.js';
 import { execFileAsync } from '../../tools/test-helpers/spawn.js';
 import { scopedRepository } from '../helpers/scoped-repository.js';
@@ -52,7 +55,9 @@ async function fixture(edges: Readonly<Record<string, readonly string[]>>, mediu
   };
   const args = { featureId: stream, repoRoot: repo.checkout, intent: { mode: 'bootstrap', workflowType: 'feature', baseRef: 'integration', designRef: 'design.md',
     approval: { decision: 'approved', designDigest: createHash('sha256').update(text).digest('hex') } } };
-  const preparedResult = await call('prepare', args); expect(preparedResult.success, JSON.stringify(preparedResult)).toBe(true);
+  const prepare = async () => enforceResponseEconomy(await runAsTrustedCaller(stateDir,
+    () => handlePrepare(args, stateDir, ctx, { compilerVersion: 'exarchos-prepare-8' })), 'exarchos_orchestrate', 'prepare');
+  const preparedResult = await prepare(); expect(preparedResult.success, JSON.stringify(preparedResult)).toBe(true);
   const rows = await events.query(stream); const row = rows.find(r => r.type === 'workflow.prepared');
   const record = WorkflowPreparedData.parse(row?.data);
   const claim = events.getAppender().ensureSqliteBackendSync().lookupOperationClaim(record.operationId);
@@ -74,7 +79,7 @@ async function fixture(edges: Readonly<Record<string, readonly string[]>>, mediu
     claims: ids.map(taskId => ({ taskId, fields: { worktreePath: trees.get(taskId), ...((edges[taskId]?.length ?? 0) ? { forkCommit: forks.get(taskId) } : {}) }, evidence: [] })) });
   const standing = async (taskId: string) => resolveTaskStanding({ streamId: stream, taskId, rows: await events.query(stream), bundles: events.bundleStore,
     lookupClaim: key => events.getAppender().ensureSqliteBackendSync().lookupOperationClaim(key) });
-  return { events, stream, repo, tasks, record, receipt, claim, capsule, preparedResult, call, args, build, settle, standing, trees, heads, forks, journal };
+  return { events, stream, ctx, repo, tasks, record, receipt, claim, capsule, preparedResult, prepare, call, args, build, settle, standing, trees, heads, forks, journal };
 }
 
 describe('activated whole capsule', () => {
@@ -112,10 +117,12 @@ describe('activated whole capsule', () => {
       expect(standing.proof.coordinate.observedHeadCommit).toBe(f.heads.get(id));
     }
     const logs: { mode: string; paths: string[]; sources: Record<string, string>; cwd: string }[] = (await readFile(f.journal, 'utf8')).trim().split('\n').map(line => JSON.parse(line));
-    const root = logs.filter(row => row.mode === 'probe' && row.cwd === f.trees.get('root'));
+    const probes = logs.filter(row => row.mode === 'probe');
+    expect(probes.filter(row => [f.repo.checkout, ...f.trees.values()].includes(row.cwd))).toEqual([]);
+    const root = probes.filter(row => row.paths.includes('tests/root.test.cjs'));
     expect(root.map(row => row.paths)).toEqual([['tests/root.test.cjs'], ['tests/root.test.cjs']]);
     expect(root.map(row => row.sources['root.cjs'])).toEqual(['module.exports = 1;\n', 'module.exports = 0;\n']);
-    const child = logs.filter(row => row.mode === 'probe' && row.cwd === f.trees.get('child'));
+    const child = probes.filter(row => row.paths.includes('tests/child.test.cjs'));
     expect(child.map(row => row.paths)).toEqual([['tests/child.test.cjs'], ['tests/child.test.cjs']]);
     expect(child.map(row => row.sources['root.cjs'])).toEqual(['module.exports = 1;\n', 'module.exports = 1;\n']);
     expect(child.map(row => row.sources['child.cjs'])).toEqual(['module.exports = 1;\n', 'module.exports = 0;\n']);
@@ -135,7 +142,6 @@ describe('activated whole capsule', () => {
     const invocation = data.detailRead;
     if (!invocation || typeof invocation !== 'object' || !('arguments' in invocation)) throw new Error('Missing read arguments');
     const before = await f.events.query(f.stream); const telemetryBefore = await f.events.query(TELEMETRY_STREAM);
-    expect(telemetryBefore.some(row => row.type === 'tool.invoked' && row.data?.tool === 'exarchos_orchestrate')).toBe(true);
     const items = [];
     let args = invocation.arguments as Record<string, unknown>;
     for (let pages = 0; ; pages++) {
@@ -151,8 +157,12 @@ describe('activated whole capsule', () => {
     expect(items.map(item => item.resultContract)).toEqual(f.tasks.map(task => f.capsule.contracts.taskResults[task.id]));
     expect(await f.events.query(f.stream)).toEqual(before);
     expect(await f.events.query(TELEMETRY_STREAM)).toEqual(telemetryBefore);
+    const telemetered = await dispatch('exarchos_orchestrate', { action: 'settle', featureId: f.stream, capsuleVersion: f.record.capsuleVersion, batchId: 'telemetry-probe', claims: [] }, f.ctx);
+    expect(telemetered.success).toBe(false);
+    await vi.waitFor(async () => expect((await f.events.query(TELEMETRY_STREAM)).filter(row => row.type === 'tool.invoked'
+      && row.data?.tool === 'exarchos_orchestrate').length).toBeGreaterThan(telemetryBefore.filter(row => row.type === 'tool.invoked').length));
     expect(f.events.getAppender().ensureSqliteBackendSync().lookupOperationClaim(f.record.operationId)).toEqual(f.claim);
-    expect((await f.call('prepare', f.args)).data).toEqual(f.preparedResult.data);
+    expect((await f.prepare()).data).toEqual(f.preparedResult.data);
     expect(f.events.getAppender().ensureSqliteBackendSync().lookupOperationClaim(f.record.operationId)).toEqual(f.claim);
     expect(f.capsule.graph.tasks).toHaveLength(30);
   }, 60000);

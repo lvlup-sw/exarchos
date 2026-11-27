@@ -42,6 +42,11 @@ import { seedActivePhaseAttempt } from '../../../../tools/test-helpers/trusted-c
 import { inScopeObserver, scopeOfCheckout, withScope } from '../../../helpers/scoped-capsule.js';
 import { nodeTestProfile, pinnedTestProfile } from '../../../helpers/verification-profile.js';
 
+vi.mock('../../../../src/verbs/verification/check-executor.js', async (importOriginal) => ({
+  ...await importOriginal<typeof import('../../../../src/verbs/verification/check-executor.js')>(),
+  runApprovedCheck: (await import('../../../helpers/verification/check-executor.js')).spawningExecutor().executor,
+}));
+
 /** The gates that the mocks below wrap, and the profile in the args of each call, in call order. */
 const gateCalls = vi.hoisted(() => {
   const calls: { readonly gate: string; readonly profile: unknown }[] = [];

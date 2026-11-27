@@ -12,9 +12,8 @@ metadata:
 
 ## VCS Provider
 
-This skill uses VCS operations through Exarchos MCP actions (`create_issue`, etc.).
-These actions automatically detect and route to the correct VCS provider (GitHub, GitLab, Azure DevOps).
-No `gh`/`glab`/`az` commands needed — the MCP server handles provider dispatch.
+This skill makes no VCS provider call through Exarchos.
+It drafts issues, and the coordinator files each approved issue through its harness, outside governance.
 
 ## Overview
 
@@ -160,13 +159,9 @@ Produce the report using the template from `references/report-template.md`. Incl
 
 ### Step 6: Offer to File Issues
 
-For findings in the **Code Bug** and **Documentation Issue** buckets, offer to create GitHub issues:
+For findings in the **Code Bug** and **Documentation Issue** buckets, offer to file issues. Present each draft from the report first: its title (`<type>: <summary>`), its body and its labels.
 
-```typescript
-exarchos_orchestrate({ action: "create_issue", title: "<type>: <summary>", body: "<issue body>", labels: ["bug"] })
-```
-
-Only file issues with user confirmation — present the draft first.
+Only file issues with user confirmation. After the user confirms a draft, the coordinator files the issue through its harness, outside governance.
 
 ## Required Output Format
 

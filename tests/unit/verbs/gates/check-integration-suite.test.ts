@@ -22,7 +22,9 @@ const mockStore = {
 
 import { parseVitestResult } from '../../../../src/config/suite-reports.js';
 import { handleCheckIntegrationSuite, isSpawnFailure } from '../../../../src/verbs/gates/check-integration-suite.js';
-import { runIntegrationSuite, LOAD_FAILURE_LIST_CAP } from '../../../../src/verbs/pure/integration-suite.js';
+import { interpretReducedIntegration, runIntegrationSuite, LOAD_FAILURE_LIST_CAP } from '../../../../src/verbs/pure/integration-suite.js';
+import { contentDigest } from '../../../../src/contract/capsule/capsule-digest.js';
+import { fakeExecutor } from '../../../helpers/verification/check-executor.js';
 import { integrationTerm, pinnedIntegrationProfile, pinnedTestProfile } from '../../../helpers/verification-profile.js';
 
 const STATE_DIR = '/tmp/test-integration-suite';
@@ -88,7 +90,7 @@ describe('handleCheckIntegrationSuite', () => {
       args,
       STATE_DIR,
       mockStore as unknown as EventStore,
-      runner,
+      fakeExecutor(runner).executor,
     );
 
     expect(result.success).toBe(true);
@@ -117,7 +119,7 @@ describe('handleCheckIntegrationSuite', () => {
       { featureId: 'feat-1', repoRoot: '/repo', verificationProfile: EXIT_CODE_PIN },
       STATE_DIR,
       mockStore as unknown as EventStore,
-      runner,
+      fakeExecutor(runner).executor,
     );
 
     const data = result.data as { passed: boolean; failCount: number; loadFailures: number };
@@ -133,7 +135,7 @@ describe('handleCheckIntegrationSuite', () => {
       { featureId: 'feat-1', repoRoot: '/repo', verificationProfile: EXIT_CODE_PIN },
       STATE_DIR,
       mockStore as unknown as EventStore,
-      runner,
+      fakeExecutor(runner).executor,
     );
 
     expect(mockStore.append).not.toHaveBeenCalled();
@@ -146,7 +148,7 @@ describe('handleCheckIntegrationSuite', () => {
       { featureId: 'feat-1', repoRoot: '/worktrees/agent-x', verificationProfile: EXIT_CODE_PIN },
       STATE_DIR,
       mockStore as unknown as EventStore,
-      runner,
+      fakeExecutor(runner).executor,
     );
 
     expect(runner).toHaveBeenCalledTimes(1);
@@ -166,7 +168,7 @@ describe('handleCheckIntegrationSuite', () => {
       { featureId: 'feat-1', repoRoot: '/repo', verificationProfile: VITEST_JSON_PIN },
       STATE_DIR,
       mockStore as unknown as EventStore,
-      runner,
+      fakeExecutor(runner).executor,
     );
 
     const data = result.data as { passed: boolean; failCount: number; parseError: boolean };
@@ -181,7 +183,7 @@ describe('handleCheckIntegrationSuite', () => {
       { featureId: '' },
       STATE_DIR,
       mockStore as unknown as EventStore,
-      runner,
+      fakeExecutor(runner).executor,
     );
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe('INVALID_INPUT');
@@ -215,7 +217,7 @@ describe('handleCheckIntegrationSuite', () => {
       { featureId: 'feat-1', repoRoot: '/repo', verificationProfile: VITEST_JSON_PIN },
       STATE_DIR,
       mockStore as unknown as EventStore,
-      runner,
+      fakeExecutor(runner).executor,
     );
 
     expect(result.success).toBe(true);
@@ -390,5 +392,48 @@ describe('check_integration_suite command resolution (#1537, DR-15)', () => {
     expect(shape.parseFailureKind).toBe('shape-mismatch');
     expect(spawn.report).not.toBe(shape.report);
     expect(spawn.report.toLowerCase()).toContain('spawn');
+  });
+});
+
+describe('check_integration_suite in the local executor', () => {
+  /** The suite runs as the one approved leg of the local executor, read-only in the checkout, under the digest of the pinned profile. */
+  it('CheckIntegrationSuite_TheSuite_RunsAsTheOneApprovedLegOfTheLocalExecutor', async () => {
+    const fake = fakeExecutor(stubRunnerReturning('{}', 0));
+    const result = await handleCheckIntegrationSuite(
+      { featureId: 'feat-1', repoRoot: '/repo', verificationProfile: EXIT_CODE_PIN }, STATE_DIR, mockStore as unknown as EventStore, fake.executor,
+    );
+    expect(result.success).toBe(true);
+    expect(fake.requests).toHaveLength(1);
+    expect(fake.requests[0]).toMatchObject({
+      operation: 'integration-suite', workspace: 'checkout', checkout: '/repo', streamId: 'feat-1', profileDigest: contentDigest(EXIT_CODE_PIN.profile),
+    });
+    const command = EXIT_CODE_PIN.profile.integration.command;
+    expect(fake.requests[0]?.plan.legs.map(leg => leg.argv)).toEqual(command.state === 'resolved' ? [command.argv] : []);
+  });
+
+  /** A refusal of the executor runs no suite and gives the refusal code, which the producer records with no verdict. */
+  it('CheckIntegrationSuite_ARefusedCheck_RunsNoSuiteAndGivesTheRefusal', async () => {
+    const runner = stubRunnerReturning('{}', 0);
+    const result = await handleCheckIntegrationSuite(
+      { featureId: 'feat-1', repoRoot: '/repo', verificationProfile: EXIT_CODE_PIN }, STATE_DIR, mockStore as unknown as EventStore,
+      fakeExecutor(runner, 'The working directory is not a registered branch checkout.').executor,
+    );
+    expect(result).toMatchObject({ success: false, error: { code: 'LOCAL_CHECK_REFUSED' } });
+    expect(runner).not.toHaveBeenCalled();
+  });
+
+  /** The verifier reduces the report with the same parser. The judgement of the reduced report equals the local judgement, and the file total stays exact. */
+  it('CheckIntegrationSuite_AReducedReport_GivesTheLocalVerdictAndTheExactFileTotal', () => {
+    const files = Array.from({ length: LOAD_FAILURE_LIST_CAP + 25 }, (_, index) => ({ name: `/repo/f${index}.test.ts`, status: 'failed', assertionResults: [] }));
+    const raw = JSON.stringify({ numFailedTestSuites: files.length, numFailedTests: 0, numTotalTests: 3, testResults: files });
+    const parsed = parseVitestResult(raw);
+    expect(parsed).not.toBeNull();
+    if (parsed === null) return;
+    const reduced = interpretReducedIntegration({ repoRoot: '/repo', integration: VITEST_JSON_TERM, run: { exitCode: 1, stdout: '', stderr: '' },
+      report: { ...parsed, loadFailureFiles: parsed.loadFailureFiles.slice(0, LOAD_FAILURE_LIST_CAP), loadFailureFileTotal: parsed.loadFailureFiles.length } });
+    expect(reduced).toMatchObject({ verdict: 'fail', passed: false, parseError: false, loadFailures: 45, failCount: 45, totalTests: 3, exitCode: 1 });
+    expect(reduced.loadFailureFiles).toHaveLength(LOAD_FAILURE_LIST_CAP);
+    expect(reduced.report).toContain('**Load failures (folded in):** 45');
+    expect(reduced.report).toContain('…and 25 more (45 load failures total)');
   });
 });

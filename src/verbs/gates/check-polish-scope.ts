@@ -1,6 +1,6 @@
 /**
- * Checks whether a polish refactor has grown past its scope limits, from the git diff against a
- * base branch. Four triggers expand the scope:
+ * Checks whether a polish refactor has grown past its scope limits, from the committed diff against a
+ * base branch through the constrained Git reader. Four triggers expand the scope:
  *
  * 1. More than 5 modified files.
  * 2. More than 2 top-level directories.
@@ -9,10 +9,11 @@
  *    more than one top-level directory.
  */
 
-import { execFileSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import type { ToolResult } from '../../format.js';
+import { decideRelation, locateObservational, observeHead, resolveObservedBase } from '../../utils/git-observer.js';
+import { observationalReader } from '../../utils/git-tree.js';
 
 export interface CheckPolishScopeArgs {
   readonly repoRoot: string;
@@ -34,27 +35,28 @@ export interface CheckPolishScopeResult {
   readonly triggers: readonly string[];
 }
 
-function getModifiedFiles(repoRoot: string, baseBranch: string): readonly string[] | null {
-  let output = '';
+/**
+ * The changed file names from the merge base of the base name and the head, through the constrained reader.
+ * A decided "no merge base" reads from the base itself. A missing checkout, a refused check, an unresolvable name or an undecided answer gives null.
+ */
+async function getModifiedFiles(repoRoot: string, baseBranch: string, gitPath: string | undefined): Promise<readonly string[] | null> {
+  const observation = await locateObservational(repoRoot, observationalReader(gitPath));
+  if (observation.kind !== 'located') return null;
+  const { located } = observation;
   try {
-    output = execFileSync('git', ['diff', '--name-only', `${baseBranch}...HEAD`], {
-      cwd: repoRoot,
-      encoding: 'utf-8',
-    });
+    const { head } = await observeHead(located);
+    const base = await resolveObservedBase(located, baseBranch);
+    const relation = await decideRelation(located, 'merge-base', base, head);
+    if (relation.kind === 'unreadable') return null;
+    const from = relation.kind === 'related' ? relation.commit : base;
+    const output = await located.reads.nameOnly(located.gitDir, located.checkout, from, head);
+    return output
+      .split('\n')
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0);
   } catch {
-    try {
-      output = execFileSync('git', ['diff', '--name-only', baseBranch, 'HEAD'], {
-        cwd: repoRoot,
-        encoding: 'utf-8',
-      });
-    } catch {
-      return null;
-    }
+    return null;
   }
-  return output
-    .split('\n')
-    .map((line) => line.trim())
-    .filter((line) => line.length > 0);
 }
 
 function getTopLevelDir(filePath: string): string {
@@ -82,7 +84,11 @@ function isStructuralFile(filePath: string): boolean {
   );
 }
 
-export function handleCheckPolishScope(args: CheckPolishScopeArgs): ToolResult {
+/**
+ * Check the polish scope of the diff of `repoRoot` against `baseBranch`. The diff reads Git through the constrained reader.
+ * A non-empty `gitPath` is the connector Git path. Without it, the read uses the process-wide Git path. An unreadable diff gives DIFF_FAILED.
+ */
+export async function handleCheckPolishScope(args: CheckPolishScopeArgs, gitPath?: string): Promise<ToolResult> {
   if (!args.repoRoot) {
     return {
       success: false,
@@ -93,7 +99,7 @@ export function handleCheckPolishScope(args: CheckPolishScopeArgs): ToolResult {
   const { repoRoot } = args;
   const baseBranch = args.baseBranch ?? 'main';
 
-  const modifiedFiles = getModifiedFiles(repoRoot, baseBranch);
+  const modifiedFiles = await getModifiedFiles(repoRoot, baseBranch, gitPath);
 
   if (modifiedFiles === null) {
     return {

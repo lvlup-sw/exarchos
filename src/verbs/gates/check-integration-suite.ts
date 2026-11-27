@@ -6,6 +6,7 @@
  *
  * The suite runs with the store keys of a scratch directory, so its tests do not write the live store.
  * A verdict is not a tool error. Thus the result is `success: true` with the verdict in `data`.
+ * The suite runs in the local approved-check executor, read-only in the checkout. The verdict reads the stored run.
  */
 
 import { mkdtempSync } from 'node:fs';
@@ -18,6 +19,13 @@ import type { EventStore } from '../../events/store.js';
 import type { ResolvedProjectConfig } from '../../config/resolve.js';
 import type { RiskTier } from '../../workflow/verification-policy.js';
 import { runDurableGateProducer } from './durable-gate-producer.js';
+import { contentDigest } from '../../contract/capsule/capsule-digest.js';
+import type { CheckPlan } from '../../contract/verification/harness-verification.js';
+import {
+  commandResultOf, pendingOfDirectCall, PROBE_SCRATCH_PREFIX, probeTestEnvironment, refusedCheckResult, removeProbeScratch, runApprovedCheck,
+  type CheckExecutor,
+} from '../verification/check-executor.js';
+import type { VerificationProfile } from '../../workflow/verification/profile.js';
 import {
   profileOf,
   profilePathOf,
@@ -29,7 +37,6 @@ import {
   type ClosedGateVerdict,
   type ProfiledGateArgs,
 } from './gate-utils.js';
-import { PROBE_SCRATCH_PREFIX, probeTestEnvironment, removeProbeScratch } from './test-adequacy-handler.js';
 import { runGatePreflight } from '../pure/gate-preflight.js';
 import {
   NO_EXIT_STATUS,
@@ -152,6 +159,7 @@ function scratchFailure(err: unknown): CommandResult {
  * Thus the tests of a task cannot write the live store that settle writes in the same call.
  * The limits are the limits of a whole suite. A test sets a short time limit with `timeoutMs`.
  *
+ * No gate route calls it, because the suite runs in the local executor.
  * @internal Exported so a test can run the real spawn and parse chain without the suite of this repository.
  */
 export const execCommandRunner: RunCommandFn = (
@@ -214,19 +222,52 @@ function suiteCarrier(
   };
 }
 
+/** The reviewed typed scope of a resolved integration term: its argv and its report format. */
+export function integrationSuitePlan(integration: VerificationProfile['integration']): CheckPlan {
+  return {
+    operation: 'integration-suite',
+    legs: integration.command.state === 'resolved' ? [{ name: 'integration', kind: 'integration', argv: [...integration.command.argv] }] : [],
+    report: integration.report,
+  };
+}
+
+/**
+ * Runs a resolved term as the one approved leg of the local executor, then judges the stored run with the pure interpreter.
+ * An unresolved term starts no executor. A refusal of the executor is a failed carrier, which the producer records with no verdict.
+ */
+async function runLocalSuite(
+  args: CheckIntegrationSuiteArgs, repoRoot: string, eventStore: EventStore, executor: CheckExecutor,
+): Promise<ToolResult> {
+  const profile = profileOf(args, repoRoot);
+  const { integration } = profile;
+  if (integration.command.state === 'unresolved') {
+    const suite = runIntegrationSuite({ repoRoot, integration, runCommand: () => { throw new Error('an unresolved term runs no command'); } });
+    return { success: true, data: suiteCarrier(args, repoRoot, suite) };
+  }
+  const ran = await executor({
+    eventStore, operation: 'integration-suite', streamId: args.featureId, ...(args.taskId === undefined ? {} : { taskId: args.taskId }),
+    plan: integrationSuitePlan(integration), profileDigest: contentDigest(profile), checkout: repoRoot, coordinate: args.coordinate,
+    workspace: 'checkout',
+  }, async (session) => {
+    const run = commandResultOf(await session.run({ leg: 0 }));
+    return runIntegrationSuite({ repoRoot, integration, runCommand: () => run });
+  });
+  return ran.kind === 'refused' ? refusedCheckResult(ran.reason) : { success: true, data: suiteCarrier(args, repoRoot, ran.value) };
+}
+
 /**
  * Runs the shared gate preflight, then runs the gate inside the durable gate
  * producer. The preflight rejects a miswired event store and an absent
  * `featureId`, and resolves `repoRoot`. `taskId` is optional for this gate.
  * A policy skip gives a passing result with `skipped: true`, and it records a row as a run does.
  *
- * @param runCommand - The runner, {@link execCommandRunner} by default. Tests pass a stub.
+ * @param executor - The local check executor, {@link runApprovedCheck} by default. A test passes its own executor.
  */
 export async function handleCheckIntegrationSuite(
   args: CheckIntegrationSuiteArgs,
   stateDir: string,
   eventStore: EventStore,
-  runCommand: RunCommandFn = execCommandRunner,
+  executor: CheckExecutor = runApprovedCheck,
 ): Promise<ToolResult> {
   const pre = await runGatePreflight(
     {
@@ -241,44 +282,42 @@ export async function handleCheckIntegrationSuite(
   if (!pre.ok) return pre.result;
   const repoRoot = pre.repoRoot;
 
-  return runDurableGateProducer(
-    {
-      coordinate: args.coordinate,
-      gateClass: 'integration-suite',
-      featureId: args.featureId,
-      ...(args.taskId ? { taskId: args.taskId } : {}),
-      ...(args.branch ? { branch: args.branch } : {}),
-      baseRef: args.baseBranch ?? 'main',
-      repoRoot,
-      stateDir,
-      eventStore,
-    },
-    async () => {
-      const policySkip = resolvePolicySkip({
-        gateName: 'check_integration_suite',
-        riskTier: args.riskTier,
-        boundaryTouching: args.boundaryTouching,
-        config: args.projectConfig,
-      });
-      if (policySkip) {
-        return {
-          success: true,
-          data: {
-            passed: true,
-            skipped: true,
-            failCount: 0,
-            report: policySkip.reason,
-            discriminant: SKIPPED_BY_POLICY,
-          },
-        };
-      }
-
-      const suite = runIntegrationSuite({
+  try {
+    return await runDurableGateProducer(
+      {
+        coordinate: args.coordinate,
+        gateClass: 'integration-suite',
+        featureId: args.featureId,
+        ...(args.taskId ? { taskId: args.taskId } : {}),
+        ...(args.branch ? { branch: args.branch } : {}),
+        baseRef: args.baseBranch ?? 'main',
         repoRoot,
-        runCommand,
-        integration: profileOf(args, repoRoot).integration,
-      });
-      return { success: true, data: suiteCarrier(args, repoRoot, suite) };
-    },
-  );
+        stateDir,
+        eventStore,
+      },
+      async () => {
+        const policySkip = resolvePolicySkip({
+          gateName: 'check_integration_suite',
+          riskTier: args.riskTier,
+          boundaryTouching: args.boundaryTouching,
+          config: args.projectConfig,
+        });
+        if (policySkip) {
+          return {
+            success: true,
+            data: {
+              passed: true,
+              skipped: true,
+              failCount: 0,
+              report: policySkip.reason,
+              discriminant: SKIPPED_BY_POLICY,
+            },
+          };
+        }
+        return runLocalSuite(args, repoRoot, eventStore, executor);
+      },
+    );
+  } catch (error) {
+    return pendingOfDirectCall(error, args.coordinate !== undefined);
+  }
 }

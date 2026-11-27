@@ -107,8 +107,8 @@ describe('auditDeliverySafety — live required-delivery modules', () => {
   });
 
   /**
-   * The population is the contract module plus each module that imports it. It includes
-   * `events/composite.ts`. It excludes a channel module with no import edge to the contract.
+   * The population is the contract module plus each module that imports it.
+   * It excludes a channel module with no import edge to the contract.
    * The audit reads exactly the derived modules.
    */
   it('DeliveryPopulation_IsDerivedFromTheImportGraph_NotTranscribed', async () => {
@@ -117,11 +117,6 @@ describe('auditDeliverySafety — live required-delivery modules', () => {
     expect(modules, 'the module declaring the contract is always on the path').toContain(
       DELIVERY_CONTRACT_MODULE,
     );
-
-    expect(
-      modules,
-      'events/composite.ts calls `deliver` and the transcribed list missed it',
-    ).toContain('events/composite.ts');
     expect(modules).toContain('adapters/channel/emitter.ts');
 
     expect(modules).not.toContain('events/channel/priority.ts');

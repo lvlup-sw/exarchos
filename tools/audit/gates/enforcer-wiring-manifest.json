@@ -105,12 +105,6 @@
       "rationale": "grep-gates step (task 013): every dead-in-prod module must declare intent — a RESERVED(issue, owner, expires) header with a future expiry, or a declared allowlist class whose member carries an owner and a rationale (DR-7). Fails closed on a reachability-scan crash (DR-8). Scans the whole tree (not a PR diff), so not diffDependent. Task 080 widened the default root set to BOTH first-party source trees: it was the MCP package alone, so root `src/` — advisory-registry, shim-registry, projection-containment, friction-signal — was outside the gate entirely (DR-9)."
     },
     {
-      "script": "tools/audit/gates/check-mutation-gate.mjs",
-      "disposition": "advisory",
-      "workflow": ".github/workflows/ci.yml",
-      "rationale": "test-mcp step (DR-7), OBSERVE MODE, manual dispatch only: `node tools/audit/gates/check-mutation-gate.mjs --observe` logs the diff-scoped mutation-adequacy verdict and always exits 0 during the CI soak window. DEFERRED (task 009 scope change, #1720): the flip to `gating` does NOT land alongside the coverage ratchet's flip — the diff-scoped mutation gate degrades in CI because StrykerJS dry-run fails on the full server suite. Stays advisory/observe until #1720 resolves; that issue is this entry's exit condition. Advisory disposition MATCHES the actual non-blocking state per the manifest honesty contract; its scripts/ self-test (check-mutation-gate.test.sh) re-asserts unfiltered in grep-gates (DR-10)."
-    },
-    {
       "script": "tools/audit/gates/check-no-state-json.mjs",
       "disposition": "gating",
       "workflow": ".github/workflows/ci.yml",

@@ -1,7 +1,10 @@
 /**
- * Tests that skill content uses MCP actions for VCS operations.
- * A source under `content/` must hold no actionable `gh` command that an `exarchos_orchestrate` action replaces.
+ * Tests that skill content stays harness-neutral for VCS writes and uses MCP actions for VCS reads.
+ * A source under `content/` names no actionable `gh pr create`, `gh pr merge`, `gh pr comment` or `gh issue create`.
+ * The harness of the coordinator owns these writes.
+ * A source under `content/` holds no actionable `gh` read that an `exarchos_orchestrate` read action replaces.
  * A skill that uses VCS operations must hold a VCS provider preamble.
+ * No Markdown source under `content/` names a retired action.
  */
 
 import { describe, it, expect } from 'vitest';
@@ -37,11 +40,11 @@ function collectMarkdownFiles(dir: string): string[] {
 
 /** Patterns for an actionable `gh` command, which is one that the skill tells the agent to run. */
 const ACTIONABLE_GH_PATTERNS = [
-  /** `gh pr create`, which the `create_pr` action replaces. */
+  /** `gh pr create`. The harness of the coordinator creates each PR, so skill content names no command for it. */
   /(?:^|\n)\s*(?:```[\s\S]*?)?gh pr create\b/,
-  /** `gh pr merge`, which the `merge_pr` action replaces. */
+  /** `gh pr merge`. The harness of the coordinator merges each PR, so skill content names no command for it. */
   /(?:^|\n)\s*(?:```[\s\S]*?)?gh pr merge\b/,
-  /** `gh issue create`, which the `create_issue` action replaces. */
+  /** `gh issue create`. The harness of the coordinator files each issue, so skill content names no command for it. */
   /(?:^|\n)\s*(?:```[\s\S]*?)?gh issue create\b/,
   /** `gh pr checks`, which the `check_ci` action replaces. */
   /(?:^|\n)\s*(?:```[\s\S]*?)?gh pr checks\b/,
@@ -49,7 +52,7 @@ const ACTIONABLE_GH_PATTERNS = [
   /gh pr view\s+\S+\s+--json\s+(?:reviews|comments|reviews,comments)/,
   /** `gh pr list` at the start of a line, which the `list_prs` action replaces. */
   /(?:^|\n)\s*gh pr list\b/,
-  /** `gh pr comment`, which the `add_pr_comment` action replaces. */
+  /** `gh pr comment`. The harness of the coordinator posts each comment, so skill content names no command for it. */
   /(?:^|\n)\s*(?:```[\s\S]*?)?gh pr comment\b/,
 ];
 
@@ -69,6 +72,19 @@ const ALLOWED_GH_REFERENCES = [
   /gh pr diff/,
   /** `gh pr view --json autoMergeRequest`, an auto-merge check with no MCP action. */
   /gh pr view\s+\S+\s+--json\s+autoMergeRequest/,
+];
+
+/** Retired action names, and the retired `merge-orchestrate` CLI verb. Each pattern matches a whole word only. */
+const RETIRED_ACTION_PATTERNS = [
+  /\bsetup_worktree\b/,
+  /\bserialize_merge\b/,
+  /\bmerge_orchestrate\b/,
+  /\bprune_worktrees\b/,
+  /\bcreate_pr\b/,
+  /\bmerge_pr\b/,
+  /\badd_pr_comment\b/,
+  /\bcreate_issue\b/,
+  /\bmerge-orchestrate\b/,
 ];
 
 /** Skills that use VCS operations. Each one must hold a VCS preamble. */
@@ -110,7 +126,7 @@ describe('skill-migration — T34: gh to MCP action migration', () => {
 
     expect(
       violations,
-      `Found ${violations.length} actionable 'gh pr create' references that should be migrated to exarchos_orchestrate({ action: "create_pr" }):\n${violations.map((v) => `  ${v.file}:${v.line}: ${v.text}`).join('\n')}`,
+      `Found ${violations.length} actionable 'gh pr create' references. Skill content stays harness-neutral for VCS writes: the coordinator creates each PR through its harness, outside governance:\n${violations.map((v) => `  ${v.file}:${v.line}: ${v.text}`).join('\n')}`,
     ).toEqual([]);
   });
 
@@ -140,7 +156,7 @@ describe('skill-migration — T34: gh to MCP action migration', () => {
 
     expect(
       violations,
-      `Found ${violations.length} actionable 'gh pr merge' references that should be migrated to exarchos_orchestrate({ action: "merge_pr" }):\n${violations.map((v) => `  ${v.file}:${v.line}: ${v.text}`).join('\n')}`,
+      `Found ${violations.length} actionable 'gh pr merge' references. Skill content stays harness-neutral for VCS writes: the coordinator merges each PR through its harness, outside governance:\n${violations.map((v) => `  ${v.file}:${v.line}: ${v.text}`).join('\n')}`,
     ).toEqual([]);
   });
 
@@ -166,7 +182,7 @@ describe('skill-migration — T34: gh to MCP action migration', () => {
 
     expect(
       violations,
-      `Found ${violations.length} actionable 'gh issue create' references that should be migrated to exarchos_orchestrate({ action: "create_issue" }):\n${violations.map((v) => `  ${v.file}:${v.line}: ${v.text}`).join('\n')}`,
+      `Found ${violations.length} actionable 'gh issue create' references. Skill content stays harness-neutral for VCS writes: the coordinator files each issue through its harness, outside governance:\n${violations.map((v) => `  ${v.file}:${v.line}: ${v.text}`).join('\n')}`,
     ).toEqual([]);
   });
 
@@ -244,7 +260,7 @@ describe('skill-migration — T34: gh to MCP action migration', () => {
 
     expect(
       violations,
-      `Found ${violations.length} actionable 'gh pr comment' references that should be migrated to exarchos_orchestrate({ action: "add_pr_comment" }):\n${violations.map((v) => `  ${v.file}:${v.line}: ${v.text}`).join('\n')}`,
+      `Found ${violations.length} actionable 'gh pr comment' references. Skill content stays harness-neutral for VCS writes: the coordinator posts each comment through its harness, outside governance:\n${violations.map((v) => `  ${v.file}:${v.line}: ${v.text}`).join('\n')}`,
     ).toEqual([]);
   });
 
@@ -360,33 +376,39 @@ describe('skill-migration — T34: gh to MCP action migration', () => {
 
   /**
    * Each skill in `SKILLS_REQUIRING_VCS_PREAMBLE` must hold a `## VCS Provider` section.
-   * The loop skips a skill that has no `SKILL.md` at `content/<name>/`.
+   * `resolveSkillPath` finds each skill in its domain, and it throws for a skill that no domain holds.
+   * The case also asserts that each of the six skills resolves, so it cannot pass on an empty set.
    */
   it('VcsPreamble_PresentInAffectedSkills', () => {
     const missing: string[] = [];
+    const resolved: string[] = [];
 
     for (const skillName of SKILLS_REQUIRING_VCS_PREAMBLE) {
-      const skillPath = join(SKILLS_SRC_DIR, skillName, 'SKILL.md');
-      if (!existsSync(skillPath)) continue;
+      const skillPath = resolveSkillPath(skillName);
+      resolved.push(skillName);
       const content = readFileSync(skillPath, 'utf8');
       if (!content.includes('## VCS Provider')) {
         missing.push(skillName);
       }
     }
 
+    expect(resolved).toEqual(SKILLS_REQUIRING_VCS_PREAMBLE);
+    expect(resolved).toHaveLength(6);
     expect(
       missing,
       `Skills missing VCS Provider preamble: ${missing.join(', ')}`,
     ).toEqual([]);
   });
 
-  /** The synthesize skill must name the `create_pr` and `merge_pr` actions. */
-  it('McpActionReferences_PresentInMigratedSkills', () => {
+  /** The synthesize skill names no `create_pr` or `merge_pr` action, and it names the harness hand-off for the PR creation and the auto-merge. */
+  it('McpActionReferences_Synthesize_LeavesPrCreationAndMergeToTheHarness', () => {
     const synthSkillPath = resolveSkillPath('synthesize');
     const content = readFileSync(synthSkillPath, 'utf8');
 
-    expect(content).toContain('action: "create_pr"');
-    expect(content).toContain('action: "merge_pr"');
+    expect(content).not.toContain('action: "create_pr"');
+    expect(content).not.toContain('action: "merge_pr"');
+    expect(content).toContain('the coordinator creates the PR through its harness, outside governance.');
+    expect(content).toContain('the coordinator enables auto-merge on the PR through its harness, outside governance');
   });
 
   it('McpActionReferences_ListPrs_PresentInMigratedSkills', () => {
@@ -396,11 +418,12 @@ describe('skill-migration — T34: gh to MCP action migration', () => {
     expect(content).toContain('action: "list_prs"');
   });
 
-  it('McpActionReferences_CreateIssue_PresentInDogfood', () => {
+  it('McpActionReferences_Dogfood_LeavesIssueFilingToTheHarness', () => {
     const dogfoodPath = resolveSkillPath('dogfood');
     const content = readFileSync(dogfoodPath, 'utf8');
 
-    expect(content).toContain('action: "create_issue"');
+    expect(content).not.toContain('action: "create_issue"');
+    expect(content).toContain('the coordinator files the issue through its harness, outside governance.');
   });
 
   it('McpActionReferences_CheckCi_PresentInTroubleshooting', () => {
@@ -408,5 +431,30 @@ describe('skill-migration — T34: gh to MCP action migration', () => {
     const content = readFileSync(troublePath, 'utf8');
 
     expect(content).toContain('action: "check_ci"');
+  });
+
+  /**
+   * No Markdown source under `content/` names a retired action or the retired `merge-orchestrate` CLI verb, in prose or in an example.
+   * The case also asserts that it scanned at least one file, so it cannot pass on an empty set.
+   */
+  it('RetiredActions_NamedByNoSkillSource', () => {
+    const files = collectMarkdownFiles(SKILLS_SRC_DIR);
+    const violations: Array<{ file: string; line: number; text: string }> = [];
+
+    for (const file of files) {
+      const lines = readFileSync(file, 'utf8').split('\n');
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        if (RETIRED_ACTION_PATTERNS.some((pattern) => pattern.test(line))) {
+          violations.push({ file: relToSkillsSrc(file), line: i + 1, text: line.trim() });
+        }
+      }
+    }
+
+    expect(files.length).toBeGreaterThan(0);
+    expect(
+      violations,
+      `Found ${violations.length} references to a retired action. The coordinator does these effects through its harness, outside governance:\n${violations.map((v) => `  ${v.file}:${v.line}: ${v.text}`).join('\n')}`,
+    ).toEqual([]);
   });
 });

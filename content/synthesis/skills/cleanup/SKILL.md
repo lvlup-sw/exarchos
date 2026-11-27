@@ -13,9 +13,9 @@ metadata:
 
 ## VCS Provider
 
-This skill uses VCS operations through Exarchos MCP actions (`list_prs`, `get_pr_comments`, etc.).
-These actions automatically detect and route to the correct VCS provider (GitHub, GitLab, Azure DevOps).
-No `gh`/`glab`/`az` commands needed — the MCP server handles provider dispatch.
+The Exarchos read actions (`list_prs`, `get_pr_comments`, `check_ci`, `assess_stack`) detect the VCS provider (GitHub, GitLab, Azure DevOps) and route to it.
+Exarchos does no VCS write. The coordinator creates, comments on and merges each PR through its harness, outside governance.
+If the harness cannot do a write, stop and report. Do not fall back to an Exarchos action.
 
 ## Overview
 
@@ -113,32 +113,25 @@ This single call:
 
 ### 4. Worktree Cleanup
 
-Reclaim all worktrees associated with the workflow through the governed
-garbage-collector `prune_worktrees` — **not** ad-hoc `git worktree remove`.
+After the merge, the coordinator removes the worktrees of this workflow through
+its harness, outside governance. Exarchos has no worktree-removal action.
 
-> **GC cadence — after synthesize (INV-12).** Governed worktrees become
-> reclaimable once a workflow reaches synthesis; cleanup runs post-merge (after
-> synthesize completes), so this is the natural point to apply the reclamation.
-> The `next_actions` projection surfaces the same `prune_worktrees` dry-run
-> affordance from synthesis onward.
+- **Subjects.** Remove only the worktrees that this workflow recorded: the
+  `path` of each entry in the `worktrees` record of the workflow state, and the
+  `worktreePath` of each claim or task completion of this workflow. An entry
+  with no path is not a subject. Never remove a directory that a glob or a
+  listing finds.
+- **Skip and resolve first.** Skip a worktree that is in use, that is dirty
+  (untracked files count), or whose HEAD is not an ancestor of the merged
+  branch. Resolve the reason before you remove it. The merged branch is the
+  local tip of the head branch of the merged PR (the `<merged-branch>` of Step 5
+  and `mergedBranches`), not the base, because a squash merge leaves no ancestry
+  to the base.
+- **Never force.** Never force-remove a worktree, and never remove one with
+  uncommitted work.
 
-`prune_worktrees` runs the fail-closed safety ladder (it refuses to destroy a
-worktree with unsaved work) and auto-emits the `worktree.remove.requested` /
-`worktree.remove.executed` pair per deleted worktree. Dry-run first (the default
-— reports candidates + reclaimable bytes + grouped skip reasons, deletes
-nothing), then apply:
-
-```typescript
-// Dry-run (default) — preview candidates, delete nothing
-exarchos:exarchos_orchestrate({ action: "prune_worktrees", repoRoot: "<repo-root>" })
-
-// Apply — reclaim the delete-eligible candidates
-exarchos:exarchos_orchestrate({ action: "prune_worktrees", repoRoot: "<repo-root>", dryRun: false })
-```
-
-Handle gracefully if worktrees are already removed. If the GC skips a worktree
-(e.g. uncommitted work), resolve the reported reason before re-applying — never
-force-remove a dirty worktree by hand.
+Handle gracefully if worktrees are already removed. If the harness cannot
+remove a worktree, stop and report. Do not fall back to an Exarchos action.
 
 ### 5. Branch Sync
 

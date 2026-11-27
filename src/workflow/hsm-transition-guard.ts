@@ -24,8 +24,6 @@ import type { TransitionObligationFloor } from './state-machine.js';
 import type { PhaseKind, ResolvedGate, ResolveGateSetCtx } from './phase-kind.js';
 import { applyPhaseSkips } from './phase-skip.js';
 import { mapInternalToExternalType } from './events.js';
-import { getRegisteredGuard } from '../config/register.js';
-import { executeGuard } from '../config/guards.js';
 import { buildValidatedEvent } from '../events/event-factory.js';
 import type { WorkflowEvent, EventType } from '../events/schemas.js';
 import type { LegacyTransitionObservation } from './admission/shadow-decision.js';
@@ -356,66 +354,27 @@ export class DefaultHSMTransitionGuard implements HSMTransitionGuard {
       };
     }
 
-    if (transition?.guard) {
-      const registeredGuard = getRegisteredGuard(
-        `${context.workflowType}:${transition.guard.id}`,
-      );
-      if (registeredGuard) {
-        const customResult = await executeGuard(registeredGuard);
-        if (!customResult.passed) {
-          await emitGuardFailed(
-            featureId,
-            currentPhase,
-            targetPhase,
-            transition.guard.id,
-            context,
-          );
-          const message = `Custom guard '${transition.guard.id}' failed: ${customResult.error ?? 'command exited non-zero'}`;
-          await notifyShadowObserver(context, {
-            workflowType: context.workflowType,
-            fromPhase: currentPhase,
-            toPhase: targetPhase,
-            legacyOutcome: 'deny',
-            idempotent: false,
-          });
-          return {
-            ok: false,
-            reason: 'guard-failed',
-            failures: [
-              {
-                passed: false,
-                reason:
-                  customResult.error ??
-                  `Custom guard '${transition.guard.id}' failed`,
-              },
-            ],
-            guardId: transition.guard.id,
-            errorCode: 'GUARD_FAILED',
-            errorMessage: message,
-          };
-        }
-      } else if (transition.guard.custom) {
-        await notifyShadowObserver(context, {
-          workflowType: context.workflowType,
-          fromPhase: currentPhase,
-          toPhase: targetPhase,
-          legacyOutcome: 'deny',
-          idempotent: false,
-        });
-        return {
-          ok: false,
-          reason: 'guard-failed',
-          failures: [
-            {
-              passed: false,
-              reason: `Custom guard '${transition.guard.id}' is not registered`,
-            },
-          ],
-          guardId: transition.guard.id,
-          errorCode: 'GUARD_FAILED',
-          errorMessage: `Custom guard '${transition.guard.id}' is not registered. Ensure registerCustomWorkflows() was called.`,
-        };
-      }
+    if (transition?.guard?.custom) {
+      await notifyShadowObserver(context, {
+        workflowType: context.workflowType,
+        fromPhase: currentPhase,
+        toPhase: targetPhase,
+        legacyOutcome: 'deny',
+        idempotent: false,
+      });
+      return {
+        ok: false,
+        reason: 'guard-failed',
+        failures: [
+          {
+            passed: false,
+            reason: `Custom guard '${transition.guard.id}' is not registered`,
+          },
+        ],
+        guardId: transition.guard.id,
+        errorCode: 'GUARD_FAILED',
+        errorMessage: `Custom guard '${transition.guard.id}' is not registered. Command guards do not run.`,
+      };
     }
 
     const priorCoordinate = statedCoordinate(context.priorState);
@@ -592,36 +551,6 @@ export class DefaultHSMTransitionGuard implements HSMTransitionGuard {
         sequence: transitionSequence,
       },
     };
-  }
-}
-
-/**
- * Emit a single `workflow.guard-failed` event. Best-effort: a failure to
- * persist the diagnostic must not mask the underlying guard failure
- * surfaced to the caller. The caller still returns `ok: false`.
- */
-async function emitGuardFailed(
-  featureId: string,
-  fromPhase: string,
-  targetPhase: string,
-  guardId: string,
-  context: GuardContext,
-): Promise<void> {
-  if (!context.eventStore) return;
-  try {
-    const validatedEvent = buildValidatedEvent(featureId, 1, {
-      type: 'workflow.guard-failed',
-      correlationId: featureId,
-      source: 'workflow',
-      data: {
-        from: fromPhase,
-        to: targetPhase,
-        guard: guardId,
-        featureId,
-      },
-    });
-    await context.eventStore.appendValidated(featureId, validatedEvent);
-  } catch {
   }
 }
 

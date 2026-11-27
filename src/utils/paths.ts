@@ -1,7 +1,6 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { runCommandSync } from './process.js';
 
 /**
  * Convert path separators to POSIX forward slashes.
@@ -15,15 +14,15 @@ export function toPosix(p: string): string {
 }
 
 /**
- * Injectable seams for {@link deriveRepoKey}. The defaults spawn git and call
- * `fs.realpathSync.native`. Tests inject them to cover each branch on a POSIX
- * host without git, and to count calls for the memo.
+ * Injectable seams for {@link deriveRepoKey}. The defaults are the process-free
+ * walk {@link gitCommonDirOf} and `fs.realpathSync.native`. Tests inject them to
+ * cover each branch on a host without git, and to count calls for the memo.
  */
 export interface DeriveRepoKeyDeps {
   /**
-   * Returns the absolute git common dir for `cwd`, from `git rev-parse
-   * --git-common-dir`. All linked worktrees of one repository share this dir,
-   * so they get one key. It must throw when `cwd` is not inside a git repository.
+   * Returns the absolute git common dir for `cwd`. All linked worktrees of one
+   * repository share this dir, so they get one key. It must throw when `cwd` is
+   * not inside a git repository.
    */
   readonly gitCommonDir?: (cwd: string) => string;
   /** Resolves symlinks and Windows 8.3 short names. Default: `fs.realpathSync.native`. */
@@ -37,7 +36,7 @@ export interface DeriveRepoKeyDeps {
 const REPO_KEY_MEMO_MAX = 500;
 /**
  * Memo of derived repo keys, keyed by the raw input path. Later calls for one path
- * cost a map lookup, not a git spawn. Eviction is oldest-first.
+ * cost a map lookup, not a filesystem walk. Eviction is oldest-first.
  */
 const repoKeyMemo = new Map<string, string>();
 
@@ -58,29 +57,54 @@ export function resetRepoKeyMemo(): void {
   repoKeyMemo.clear();
 }
 
-/**
- * Timeout in ms for the synchronous git spawn. A client can supply the path, and
- * a hung spawn on a slow filesystem blocks the event loop for every request. On
- * timeout the spawn throws, and {@link deriveRepoKey} falls back to the input path.
- */
-const GIT_COMMON_DIR_TIMEOUT_MS = 5000;
+/** The largest `.git` pointer file or `commondir` file that the walk reads. A larger file is not Git metadata. */
+const GIT_POINTER_MAX_BYTES = 64 * 1024;
+
+/** The first line of a bounded Git pointer file. It throws for a file that is not a regular file of bounded size. */
+function pointerFileLine(file: string): string {
+  const info = fs.lstatSync(file);
+  if (!info.isFile() || info.size > GIT_POINTER_MAX_BYTES) throw new Error('Unsupported Git pointer file');
+  return fs.readFileSync(file, 'utf8').replace(/\r?\n$/, '');
+}
 
 /**
- * Default resolver for the git common dir. It spawns git through the shared
- * `runCommandSync`. `--path-format=absolute` makes git return an absolute path,
- * not a path relative to `cwd`.
+ * The git common dir of the checkout that holds `cwd`, found with no process. It climbs from the real path of `cwd` to the first `.git` entry.
+ * A `.git` directory is the Git directory. A `gitdir:` file names a Git directory that must hold `HEAD`.
+ * A relative `commondir` resolves against the Git directory, and a Git directory with no `commondir` is its own common dir.
+ * The result is a real path, as `git rev-parse --path-format=absolute --git-common-dir` gives.
+ *
+ * A missing real path, a missing `.git` entry and a missing repository throw, so the key stays the canonical input.
+ * A symlinked `.git`, another file type and a file without a `gitdir:` prefix throw too, so no ancestor repository gives the key.
+ * An empty `.git` directory is a repository for this walk. Git also differs for a start inside `.git` or a bare repository.
+ * Git differs for `safe.directory`, `GIT_CEILING_DIRECTORIES`, `GIT_DIR`, `GIT_COMMON_DIR` and a filesystem boundary that it stops at.
  */
-function defaultGitCommonDir(cwd: string): string {
-  const out = runCommandSync(
-    'git',
-    ['-C', cwd, 'rev-parse', '--path-format=absolute', '--git-common-dir'],
-    {
-      encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'ignore'],
-      timeout: GIT_COMMON_DIR_TIMEOUT_MS,
-    },
-  );
-  return String(out).trim();
+export function gitCommonDirOf(cwd: string): string {
+  let dir = fs.realpathSync.native(path.resolve(cwd));
+  for (;;) {
+    const marker = path.join(dir, '.git');
+    let info: fs.Stats | undefined;
+    try {
+      info = fs.lstatSync(marker);
+    } catch (error) {
+      if (!(error instanceof Error && 'code' in error && error.code === 'ENOENT')) throw error;
+    }
+    if (info !== undefined) {
+      let gitDir: string;
+      if (info.isDirectory()) gitDir = fs.realpathSync.native(marker);
+      else if (info.isFile()) {
+        const match = /^gitdir: (.+)$/.exec(pointerFileLine(marker));
+        if (match?.[1] === undefined) throw new Error('Malformed .git pointer file');
+        gitDir = fs.realpathSync.native(path.resolve(dir, match[1]));
+        if (!fs.statSync(gitDir).isDirectory() || !fs.statSync(path.join(gitDir, 'HEAD')).isFile()) throw new Error('The .git pointer names no repository');
+      } else throw new Error('Unsupported .git entry');
+      const commonFile = path.join(gitDir, 'commondir');
+      if (!fs.existsSync(commonFile)) return gitDir;
+      return fs.realpathSync.native(path.resolve(gitDir, pointerFileLine(commonFile)));
+    }
+    const parent = path.dirname(dir);
+    if (parent === dir) throw new Error('No .git entry above the directory');
+    dir = parent;
+  }
 }
 
 /**
@@ -139,7 +163,7 @@ export function deriveRepoKey(inputPath: string, deps: DeriveRepoKeyDeps = {}): 
   const memoized = repoKeyMemo.get(inputPath);
   if (memoized !== undefined) return memoized;
 
-  const gitCommonDir = deps.gitCommonDir ?? defaultGitCommonDir;
+  const gitCommonDir = deps.gitCommonDir ?? gitCommonDirOf;
   const realpath = deps.realpath ?? defaultNativeRealpath;
 
   let key: string;

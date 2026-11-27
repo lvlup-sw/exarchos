@@ -11,13 +11,12 @@
  *     between verbs.
  */
 
-import { runCommandSync } from '../utils/process.js';
 import { splitCommand } from '../config/tokenize-command.js';
 
-/** Injectable seams, so unit tests do not spawn a real process. */
+/** The output writers and the runner of one verb. The runner is the local host of the verb. */
 export interface RunCommandIo {
-  /** Command runner. Returns the child exit code. */
-  run: (cmd: string, args: readonly string[], cwd: string) => number;
+  /** Command runner. Returns the child exit code, or the exit code of a refused run or of a run with no verdict. */
+  run: (cmd: string, args: readonly string[], cwd: string) => number | Promise<number>;
   stdout: (s: string) => void;
   stderr: (s: string) => void;
 }
@@ -41,20 +40,6 @@ export interface RunResolvedCommandArgs {
   readonly io: RunCommandIo;
 }
 
-/**
- * Default runner: it streams the child stdio and returns the exit code of the child.
- * `execFileSync` throws on a non-zero exit, and its `status` holds the code.
- */
-export function defaultRun(cmd: string, args: readonly string[], cwd: string): number {
-  try {
-    runCommandSync(cmd, args as string[], { cwd, stdio: 'inherit' });
-    return 0;
-  } catch (err) {
-    const status = (err as { status?: number }).status;
-    return typeof status === 'number' ? status : 1;
-  }
-}
-
 /** Default stdout writer that ensures a trailing newline. */
 export function defaultStdout(s: string): void {
   process.stdout.write(s.endsWith('\n') ? s : `${s}\n`);
@@ -69,7 +54,7 @@ export function defaultStderr(s: string): void {
  * Runs a resolved command under the shared exit-code contract and returns the exit code. The
  * caller sets `process.exitCode`, so this function does not call `process.exit`.
  */
-export function runResolvedCommand(args: RunResolvedCommandArgs): number {
+export async function runResolvedCommand(args: RunResolvedCommandArgs): Promise<number> {
   const { verb, command, remediation, dryRun, cwd, unresolvedExitCode, io } = args;
 
   if (command === null || command.trim().length === 0) {

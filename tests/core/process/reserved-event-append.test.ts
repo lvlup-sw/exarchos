@@ -22,6 +22,7 @@ import { beforeAll, describe, expect, it } from 'vitest';
 
 import { gateRunnerObservationSource } from '../../../src/verbs/gates/gate-runner.js';
 import { rmrfAsync } from '../../../tools/test-helpers/temp-dir.js';
+import { execFileAsync } from '../../../tools/test-helpers/spawn.js';
 import {
   findRepoRoot,
   ensureBinaryBuilt,
@@ -103,7 +104,7 @@ const PASSING_SCRIPT = 'node -e ""';
 /**
  * Makes a Node project on disk for the static-analysis gate. Its lint, typecheck and quality-check
  * scripts exit with 0. The project has no boundary config and no taint ruleset, so those legs do
- * not run.
+ * not run. The project is committed on a branch, so the local check executor sees a clean registered checkout.
  */
 async function makePassingNodeProject(): Promise<string> {
   const dir = await fsp.realpath(
@@ -119,6 +120,10 @@ async function makePassingNodeProject(): Promise<string> {
     }),
     'utf-8',
   );
+  const identity = ['-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid'];
+  await execFileAsync('git', ['init', '-q', '-b', 'main'], { cwd: dir });
+  await execFileAsync('git', ['add', '.'], { cwd: dir });
+  await execFileAsync('git', [...identity, 'commit', '-q', '-m', 'fixture'], { cwd: dir });
   return dir;
 }
 
@@ -205,7 +210,8 @@ describe('packaged task completion chain', () => {
   const gateName = 'static-analysis';
 
   /**
-   * The three steps share one workflow, one task and one stream. The generic append refuses a
+   * The three steps share one workflow, one task and one stream. The workflow state names the project as the worktree of the task.
+   * The generic append refuses a
    * forged static-analysis row and writes no `gate.executed` row. The gate handler then runs static
    * analysis for the task and writes one runner row. Last, `task_complete` records one
    * `task.completed` row for the task. A binary without the reservation accepts the forged row, so
@@ -221,6 +227,12 @@ describe('packaged task completion chain', () => {
         workflowType: 'feature',
       });
       expect(init.success, JSON.stringify(init.error)).toBe(true);
+      const worktree = await call(fx, 'exarchos_workflow', {
+        action: 'update',
+        featureId,
+        updates: { worktrees: { 'chain-worktree': { branch: 'main', taskId, status: 'active', path: project } } },
+      });
+      expect(worktree.success, JSON.stringify(worktree.error)).toBe(true);
 
       const forged = await call(fx, 'exarchos_event', {
         action: 'append',

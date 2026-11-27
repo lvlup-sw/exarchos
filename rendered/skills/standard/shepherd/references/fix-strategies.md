@@ -262,4 +262,4 @@ mcp__plugin_github_github__add_issue_comment({
   body: "Addressed review feedback:\n- Fixed Sentry bug: ...\n- Replied to DI concern...\n\nAll inline review threads have replies."
 })
 ```
-Fallback (if MCP token lacks write scope): `exarchos_orchestrate({ action: "add_pr_comment", prId: "<number>", body: "..." })`
+If the harness cannot post the comment, stop and report. Do not fall back to an Exarchos action. A comment with a lost reply can post twice. Thus before a re-post, read `get_pr_comments` for the PR and follow its offset until `page.hasMore` is false. Skip the re-post only on an exact match by PR, thread and body text. A truncated or failed read stops the re-post.

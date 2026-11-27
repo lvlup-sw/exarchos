@@ -2,18 +2,23 @@
  * The debug review gate. It checks that the diff of a debug fix changes at least one test file.
  * A changed file is a test when a test-name glob of the verification profile matches it.
  * The gate runs the test command that the resolver gives when the diff is not empty and `skipRun` is not set.
+ *
+ * The local approved-check executor runs that command as a lifecycle check of the phase attempt, with no verifier provisioning.
+ * The changed files come from the constrained reader with the process-wide Git path.
  */
-import { execFileSync } from 'node:child_process';
-import { runCommandSync } from '../../utils/process.js';
 import { existsSync } from 'node:fs';
+import { resolve } from 'node:path';
 import type { ToolResult } from '../../format.js';
 import { resolveRunnableCommand } from '../../config/test-runtime-resolver.js';
 import { matchesTestName } from '../../config/verification-profile.js';
 import type { EventStore } from '../../events/store.js';
 import { createEvidenceSubject } from '../../workflow/admission/evidence-subject.js';
 import { PROFILE_UNRESOLVED } from '../../workflow/verification/profile.js';
-import { runPhaseGateWithEvidence } from '../gates/gate-runner.js';
-import { profileOf, withProfileRoute, type ProfiledGateArgs } from '../gates/gate-utils.js';
+import { processObservationalGitPath } from '../../utils/git-tree.js';
+import { hostedPendingResult, runPhaseGateWithEvidence } from '../gates/gate-runner.js';
+import { observeCurrentCheckout, profileOf, withProfileRoute, type ProfiledGateArgs } from '../gates/gate-utils.js';
+import { admitLifecycleLegs } from '../verification/lifecycle-check.js';
+import type { CheckExecutor } from '../verification/check-executor.js';
 
 export interface DebugReviewGateArgs extends ProfiledGateArgs {
   /** The stream the gate's durable evidence is recorded against. */
@@ -29,14 +34,25 @@ interface CheckCounts {
   skip: number;
 }
 
+/** The event store, the executor and the phase attempt that scope the test run of one call. */
+interface DebugReviewRun {
+  readonly eventStore: EventStore;
+  readonly executor?: CheckExecutor;
+  readonly phaseAttemptId: () => string | undefined;
+}
+
 /**
  * Runs the gate through the shared phase-gate runner, which records durable gate evidence before a
  * success carrier returns. The action declares no catalog emission, so the gate appends no `gate.executed` row.
+ * The tests run in the local executor with no verifier provisioning. A pending result maps to its existing code with no evidence.
+ *
+ * @param executor - The local check executor. The default is the real executor. A test passes its own executor.
  */
 export async function handleDebugReviewGate(
   args: DebugReviewGateArgs,
   stateDir: string,
   eventStore: EventStore,
+  executor?: CheckExecutor,
 ): Promise<ToolResult> {
   if (!args.featureId) {
     return {
@@ -45,28 +61,36 @@ export async function handleDebugReviewGate(
     };
   }
 
-  return runPhaseGateWithEvidence({
-    streamId: args.featureId,
-    gateClass: 'debug-review',
-    requirementId: 'requirement:debug-review',
-    stateDir,
-    eventStore,
-    subject: (phaseAttemptId) =>
-      createEvidenceSubject(
-        { kind: 'phase-attempt', phaseAttemptId },
-        {
-          gate: 'debug-review',
-          phase: 'debug-review',
-          repoRoot: args.repoRoot,
-          baseBranch: args.baseBranch,
-        },
-      ),
-    providerInput: args,
-    executeProvider: async () => executeDebugReviewGate(args),
-  });
+  let attempt: string | undefined;
+  const run: DebugReviewRun = { eventStore, ...(executor === undefined ? {} : { executor }), phaseAttemptId: () => attempt };
+  try {
+    return await runPhaseGateWithEvidence({
+      streamId: args.featureId,
+      gateClass: 'debug-review',
+      requirementId: 'requirement:debug-review',
+      stateDir,
+      eventStore,
+      subject: (phaseAttemptId) => {
+        attempt = phaseAttemptId;
+        return createEvidenceSubject(
+          { kind: 'phase-attempt', phaseAttemptId },
+          {
+            gate: 'debug-review',
+            phase: 'debug-review',
+            repoRoot: args.repoRoot,
+            baseBranch: args.baseBranch,
+          },
+        );
+      },
+      providerInput: args,
+      executeProvider: async () => executeDebugReviewGate(args, run),
+    });
+  } catch (error) {
+    return hostedPendingResult(error);
+  }
 }
 
-function executeDebugReviewGate(args: DebugReviewGateArgs): ToolResult {
+async function executeDebugReviewGate(args: DebugReviewGateArgs, run: DebugReviewRun): Promise<ToolResult> {
   if (!args.repoRoot) {
     return {
       success: false,
@@ -94,7 +118,7 @@ function executeDebugReviewGate(args: DebugReviewGateArgs): ToolResult {
   const checks: CheckCounts = { pass: 0, fail: 0, skip: 0 };
   const results: string[] = [];
 
-  const changedFiles = getChangedFiles(args.repoRoot, args.baseBranch);
+  const changedFiles = await getChangedFiles(processObservationalGitPath(), args.repoRoot, args.baseBranch);
 
   if (changedFiles === null) {
     return {
@@ -139,12 +163,13 @@ function executeDebugReviewGate(args: DebugReviewGateArgs): ToolResult {
     results.push('- **SKIP**: Tests pass (--skip-run)');
     checks.skip++;
   } else if (changedFiles.length > 0) {
-    const run = runTests(args.repoRoot);
-    if (run.passed) {
-      results.push(`- **PASS**: Tests pass (${run.detail})`);
+    const tests = await runLocalTests(args, run);
+    if ('success' in tests) return tests;
+    if (tests.passed) {
+      results.push(`- **PASS**: Tests pass (${tests.detail})`);
       checks.pass++;
     } else {
-      results.push(`- **FAIL**: Tests pass — ${run.detail}`);
+      results.push(`- **FAIL**: Tests pass — ${tests.detail}`);
       checks.fail++;
     }
   } else {
@@ -167,29 +192,32 @@ function executeDebugReviewGate(args: DebugReviewGateArgs): ToolResult {
   };
 }
 
-/** Lists the files changed since `baseBranch` with a three-dot diff, then a two-dot diff. It returns `null` when both fail. */
-function getChangedFiles(repoRoot: string, baseBranch: string): string[] | null {
+/** The lines of a name-only diff, with no empty line. */
+function nameLines(output: string): string[] {
+  return output.trim().split('\n').filter((line) => line.length > 0);
+}
+
+/**
+ * Lists the files changed since `baseBranch` through the constrained reader with the process-wide Git path. It starts no bare `git` name.
+ * The repo root climbs to its checkout root, and the base resolves by the closed base-name order.
+ * The first read is a name-only diff from the merge base of the base and the head, which is the meaning of `base...HEAD`.
+ * When that read fails, the second read is a name-only diff of the base and the head.
+ * It returns `null` when no Git is usable, or when the observation, the base or both reads fail.
+ */
+async function getChangedFiles(gitPath: string | undefined, repoRoot: string, baseBranch: string): Promise<string[] | null> {
+  if (gitPath === undefined) return null;
+  const observed = await observeCurrentCheckout(gitPath, resolve(repoRoot));
+  if (observed.kind === 'refused') return null;
+  const { observer, checkout } = observed;
+  const base = await observer.base(checkout, baseBranch);
+  if (base.kind === 'refused') return null;
+  const { gitDir } = checkout;
   try {
-    const output = execFileSync(
-      'git',
-      ['diff', '--name-only', `${baseBranch}...HEAD`],
-      { cwd: repoRoot, encoding: 'utf-8' },
-    );
-    return output
-      .trim()
-      .split('\n')
-      .filter((line) => line.length > 0);
+    const mergeBase = (await observer.reads.mergeBase(gitDir, checkout.checkout, base.value, checkout.head)).trim();
+    return nameLines(await observer.reads.nameOnly(gitDir, checkout.checkout, mergeBase, checkout.head));
   } catch {
     try {
-      const output = execFileSync(
-        'git',
-        ['diff', '--name-only', baseBranch, 'HEAD'],
-        { cwd: repoRoot, encoding: 'utf-8' },
-      );
-      return output
-        .trim()
-        .split('\n')
-        .filter((line) => line.length > 0);
+      return nameLines(await observer.reads.nameOnly(gitDir, checkout.checkout, base.value, checkout.head));
     } catch {
       return null;
     }
@@ -197,25 +225,22 @@ function getChangedFiles(repoRoot: string, baseBranch: string): string[] | null 
 }
 
 /**
- * Run the test command the toolchain resolver resolves for `repoRoot`. No
- * resolvable test command fails the check. `detail` names the command that ran,
- * or the reason no command ran.
+ * Run the resolved test command in the local executor. No resolvable command fails the check with no run.
+ * A refusal returns as the gate result. A pending result and a run with no verdict throw the pending signal.
  */
-function runTests(repoRoot: string): { readonly passed: boolean; readonly detail: string } {
-  const resolved = resolveRunnableCommand(repoRoot, 'test');
-  if (resolved.kind !== 'runnable') {
-    return { passed: false, detail: `no test command resolved: ${resolved.reason}` };
-  }
-  try {
-    runCommandSync(resolved.bin, resolved.args, {
-      cwd: repoRoot,
-      stdio: 'pipe',
-      timeout: 120_000,
-    });
-    return { passed: true, detail: resolved.command };
-  } catch {
-    return { passed: false, detail: `${resolved.command} failed` };
-  }
+async function runLocalTests(
+  args: DebugReviewGateArgs, run: DebugReviewRun,
+): Promise<{ readonly passed: boolean; readonly detail: string } | ToolResult> {
+  const resolved = resolveRunnableCommand(args.repoRoot, 'test');
+  if (resolved.kind !== 'runnable') return { passed: false, detail: `no test command resolved: ${resolved.reason}` };
+  const phaseAttemptId = run.phaseAttemptId();
+  const legs = await admitLifecycleLegs({
+    eventStore: run.eventStore, checkout: args.repoRoot, legs: [{ kind: 'command', argv: [resolved.bin, ...resolved.args] }],
+    streamId: args.featureId, ...(phaseAttemptId === undefined ? {} : { phaseAttemptId }),
+    ...(run.executor === undefined ? {} : { executor: run.executor }),
+  });
+  if ('success' in legs) return legs;
+  return legs[0]?.run.exitCode === 0 ? { passed: true, detail: resolved.command } : { passed: false, detail: `${resolved.command} failed` };
 }
 
 function buildReport(

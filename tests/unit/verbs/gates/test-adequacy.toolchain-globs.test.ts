@@ -1,11 +1,24 @@
 /**
  * `check_test_adequacy` must classify test files with the test layout of the resolved toolchain.
  * The co-located default globs do not match the pytest layout `tests/test_*.py`. With them, every Python test counts as source, and the probe reports `no-new-tests`.
- * The test dispatches through `handleOrchestrate` and injects `runTests`, so no real pytest runs. Git runs on a real temp repo.
+ * The test dispatches through `handleOrchestrate`. A mock of the local executor answers each probe leg from its real source image, so no real pytest runs.
+ * Git runs on a real temp repo.
  */
 
-import { describe, it, expect, afterEach } from 'vitest';
-import { mkdtempSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
+import { describe, it, expect, afterEach, vi } from 'vitest';
+
+vi.mock('../../../../src/verbs/verification/check-executor.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../../../src/verbs/verification/check-executor.js')>();
+  const { exitedWith, imageExecutor } = await import('../../../helpers/verification/check-executor.js');
+  const { readFileSync: read } = await import('node:fs');
+  const { join } = await import('node:path');
+  return {
+    ...actual,
+    runApprovedCheck: imageExecutor(({ argv, root }) =>
+      exitedWith(argv, read(join(root, 'src', 'calc.py'), 'utf-8').includes('return 1') ? 1 : 0)).executor,
+  };
+});
+import { mkdtempSync, writeFileSync, mkdirSync } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 
@@ -15,7 +28,6 @@ import { handleOrchestrate } from '../../../../src/verbs/composite.js';
 import { runAsTrustedCaller, seedActivePhaseAttempt, withTrustedCaller } from '../../../../tools/test-helpers/trusted-context.js';
 import { execFileAsync } from '../../../../tools/test-helpers/spawn.js';
 import { rmrf } from '../../../../tools/test-helpers/temp-dir.js';
-import type { TestRunFn } from '../../../../src/verbs/gates/test-adequacy.js';
 
 function git(repoRoot: string, args: readonly string[]): Promise<string> {
   return execFileAsync('git', args, { cwd: repoRoot, timeout: 30_000 });
@@ -45,7 +57,7 @@ describe('check_test_adequacy toolchain test-glob threading (FIX-3)', () => {
 
   /**
    * The Python repo keeps its tests under `tests/test_*.py`, which the co-located defaults do not match.
-   * The injected `runTests` passes on the task source and fails on the reverted source, so the probe passes.
+   * The probe leg exits 0 on the head image and 1 on the reverted image, so the probe passes.
    * The test checks the classification and that verdict.
    */
   it(
@@ -78,11 +90,6 @@ describe('check_test_adequacy toolchain test-glob threading (FIX-3)', () => {
         { stateDir, eventStore, enableTelemetry: false } as DispatchContext,
       );
 
-      const runTests: TestRunFn = async () => {
-        const reverted = readFileSync(path.join(repoRoot, 'src', 'calc.py'), 'utf-8').includes('return 1');
-        return { kind: 'ran', result: reverted ? 'red' : 'green', stdout: reverted ? 'red on revert' : 'green on the task source' };
-      };
-
       const result = await orchestrate(
         {
           action: 'check_test_adequacy',
@@ -91,7 +98,6 @@ describe('check_test_adequacy toolchain test-glob threading (FIX-3)', () => {
           branch: 'feature/py',
           repoRoot,
           baseBranch: 'main',
-          runTests,
         },
         ctx,
       );

@@ -9,7 +9,11 @@
  * So the `EventStore` double returns that event for a query with an `operationId` and no `type`.
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, beforeAll, afterAll } from 'vitest';
+import { mkdtempSync } from 'node:fs';
+import { homedir, tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { rmrf } from '../../../tools/test-helpers/temp-dir.js';
 
 const {
   toolRegistrations,
@@ -107,7 +111,36 @@ vi.mock('../../../src/projections/telemetry/middleware.js', () => ({
 import { createServer } from '../../../src/index.js';
 import { TOOL_REGISTRY } from '../../../src/registry.js';
 
+/** The home variables of the run. The file restores them after its last test. */
+const ORIGINAL_HOME: Readonly<Record<'HOME' | 'USERPROFILE', string | undefined>> = {
+  HOME: process.env.HOME,
+  USERPROFILE: process.env.USERPROFILE,
+};
+
+/** The scratch home of this file. `createServer` reads the verifier provisioning under the home once per file, so no test reads the real home. */
+let scratchHome = '';
+
+beforeAll(() => {
+  scratchHome = mkdtempSync(join(tmpdir(), 'create-server-home-'));
+  process.env.HOME = scratchHome;
+  process.env.USERPROFILE = scratchHome;
+});
+
+afterAll(() => {
+  for (const key of ['HOME', 'USERPROFILE'] as const) {
+    const value = ORIGINAL_HOME[key];
+    if (value === undefined) delete process.env[key];
+    else process.env[key] = value;
+  }
+  rmrf(scratchHome);
+});
+
 describe('MCP Server Entry Point', () => {
+  /** `createServer` reads the verifier provisioning under `os.homedir()`, so the home of this file is its scratch home and never the real one. */
+  it('CreateServer_HomeDirectory_IsTheScratchHomeOfThisFile', () => {
+    expect(homedir()).toBe(scratchHome);
+    expect(scratchHome).not.toBe(ORIGINAL_HOME.HOME);
+  });
   beforeEach(() => {
     toolRegistrations.clear();
     vi.clearAllMocks();

@@ -50,6 +50,8 @@ import type { SpecCoverageCheckArgs } from '../../../../src/verbs/gates/spec-cov
 import type { ToolResult } from '../../../../src/format.js';
 import type { EventStore } from '../../../../src/events/store.js';
 import { pinnedTestProfile } from '../../../helpers/verification-profile.js';
+import { fakeExecutor } from '../../../helpers/verification/check-executor.js';
+import type { RunCommandFn } from '../../../../src/verbs/pure/static-analysis.js';
 
 const STATE_DIR = '/tmp/test-spec-coverage-check';
 
@@ -69,8 +71,20 @@ async function runSpecCoverageCheck(
     { featureId: 'feature-under-test', ...args },
     STATE_DIR,
     stubStore,
+    fakeExecutor(mockedExecRunner).executor,
   );
 }
+
+/** A runner over the mocked `execFileSync`. A throw with a numeric status is that exit, and any other throw is exit 1. */
+const mockedExecRunner: RunCommandFn = (cmd, args, options) => {
+  try {
+    vi.mocked(execFileSync)(cmd, [...args], options);
+    return { exitCode: 0, stdout: '', stderr: '' };
+  } catch (error) {
+    const status = typeof error === 'object' && error !== null && 'status' in error ? error.status : undefined;
+    return { exitCode: typeof status === 'number' ? status : 1, stdout: '', stderr: '' };
+  }
+};
 
 const mockedExistsSync = vi.mocked(existsSync);
 const mockedReadFileSync = vi.mocked(readFileSync);

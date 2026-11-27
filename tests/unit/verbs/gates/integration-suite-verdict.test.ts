@@ -19,12 +19,15 @@ import type { ToolResult } from '../../../../src/format.js';
 import { STORE_LOCATION_ENV_KEYS } from '../../../../src/utils/paths.js';
 import { execCommandRunner, handleCheckIntegrationSuite } from '../../../../src/verbs/gates/check-integration-suite.js';
 import { WHOLE_SUITE_MAX_OUTPUT_BYTES } from '../../../../src/verbs/gates/gate-utils.js';
-import { PROBE_SCRATCH_PREFIX } from '../../../../src/verbs/gates/test-adequacy-handler.js';
+import { hostedCommandResult } from '../../../../src/verbs/gates/gate-runner.js';
+import { interpretReducedIntegration } from '../../../../src/verbs/pure/integration-suite.js';
+import { PROBE_SCRATCH_PREFIX } from '../../../../src/verbs/verification/check-executor.js';
 import type { CommandResult, RunCommandFn } from '../../../../src/verbs/pure/static-analysis.js';
 import type { PinnedVerificationProfile, VerificationProfile } from '../../../../src/workflow/verification/profile.js';
 import { isolatedSync } from '../../../../tools/test-helpers/spawn.js';
 import { makeTempDir, rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
 import { withTrustedCaller } from '../../../../tools/test-helpers/trusted-context.js';
+import { fakeExecutor } from '../../../helpers/verification/check-executor.js';
 import {
   UNRESOLVED_INTEGRATION_REASON,
   integrationTerm,
@@ -99,7 +102,7 @@ function stubRunner(run: Partial<CommandResult> = {}) {
 
 /** One gate call at a root with no test command. The arguments pin the term, as a segment does. */
 function runGate(pin: PinnedVerificationProfile, runCommand: RunCommandFn): Promise<ToolResult> {
-  return handleCheckIntegrationSuite({ featureId: FEATURE, repoRoot: '/repo', verificationProfile: pin }, stateDir, store, runCommand);
+  return handleCheckIntegrationSuite({ featureId: FEATURE, repoRoot: '/repo', verificationProfile: pin }, stateDir, store, fakeExecutor(runCommand).executor);
 }
 
 /** The pin of a suite with the given fields of its term. */
@@ -306,7 +309,7 @@ describe('the input of the gate', () => {
       },
       stateDir,
       store,
-      runner,
+      fakeExecutor(runner).executor,
     );
 
     const carrier = carrierOf(result);
@@ -329,11 +332,38 @@ describe('the input of the gate', () => {
       },
       stateDir,
       store,
-      runner,
+      fakeExecutor(runner).executor,
     );
 
     expect(carrierOf(result)).toMatchObject({ passed: false, verdict: 'fail' });
     expect(carrierOf(result)).not.toHaveProperty('skipped');
     expect(runner).toHaveBeenCalledOnce();
+  });
+});
+
+describe('the verdict of a run that the verifier observed', () => {
+  /** Each signed end keeps its own cause. A timeout, an overflow, a missing process and a signal never read as a red exit. */
+  it('IntegrationSuite_EachVerifierEnd_KeepsItsNoVerdictCause', () => {
+    const integration = integrationTerm(['npm', 'run', 'test:run'], { report: 'vitest-json' });
+    const run = (end: 'timeout' | 'output-limit' | 'unavailable' | 'signal') => interpretReducedIntegration({
+      repoRoot: '/repo', integration, report: null,
+      run: hostedCommandResult({ end, exitCode: null, stdout: '', stderr: '', outputDigest: 'a'.repeat(64) }),
+    });
+    expect(run('timeout')).toMatchObject({ verdict: 'indeterminate', noVerdictCause: 'timeout' });
+    expect(run('output-limit')).toMatchObject({ verdict: 'indeterminate', noVerdictCause: 'overflow' });
+    expect(run('unavailable')).toMatchObject({ verdict: 'indeterminate', noVerdictCause: 'spawn-error', parseFailureKind: 'spawn-failure' });
+    expect(run('signal')).toMatchObject({ verdict: 'indeterminate', noVerdictCause: 'signal' });
+  });
+
+  /** A report term with no reduced report is a shape mismatch, and a red code of an exit-code term fails as a local run does. */
+  it('IntegrationSuite_AnObservedExit_IsJudgedAsALocalExit', () => {
+    const exited = (exitCode: number) => hostedCommandResult({ end: 'exited', exitCode, stdout: '', stderr: '', outputDigest: 'a'.repeat(64) });
+    expect(interpretReducedIntegration({ repoRoot: '/repo', report: null, run: exited(0),
+      integration: integrationTerm(['npm', 'run', 'test:run'], { report: 'vitest-json' }) }))
+      .toMatchObject({ verdict: 'indeterminate', noVerdictCause: 'shape-mismatch' });
+    expect(interpretReducedIntegration({ repoRoot: '/repo', report: null, run: exited(1), integration: integrationTerm(['npm', 'run', 'test:run']) }))
+      .toMatchObject({ verdict: 'fail', passed: false, failCount: 1 });
+    expect(interpretReducedIntegration({ repoRoot: '/repo', report: null, run: exited(7), integration: integrationTerm(['npm', 'run', 'test:run']) }))
+      .toMatchObject({ verdict: 'indeterminate', noVerdictCause: 'unknown-exit' });
   });
 });

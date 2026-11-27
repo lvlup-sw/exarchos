@@ -6,4 +6,4 @@ description: Run one adversarial review pass (spec-compliance + code quality + t
 
 Canonical alias for the Exarchos `/review` workflow command.
 
-Invoke `mutation-adequacy`, then `review` skills to handle: $ARGUMENTS
+Invoke the `review` skill to handle: $ARGUMENTS

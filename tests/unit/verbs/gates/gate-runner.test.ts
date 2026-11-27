@@ -1,5 +1,5 @@
 import { mkdtemp } from 'node:fs/promises';
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, realpathSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -36,6 +36,7 @@ import { emitGateEvent, SKIPPED_BY_POLICY } from '../../../../src/verbs/gates/ga
 import { seedActivePhaseAttempt, withTrustedCaller } from '../../../../tools/test-helpers/trusted-context.js';
 import { dispatch, type DispatchContext as HandlerContext } from '../../../../src/dispatch/core/dispatch.js';
 import { rmrf, rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
+import { execFileAsync } from '../../../../tools/test-helpers/spawn.js';
 
 const FIXED_TIME = '2026-07-21T22:30:00.000Z';
 const POLICY_DIGEST: ContentDigestV1 = {
@@ -725,6 +726,7 @@ describe('DR-1 gate-executed signal ownership', () => {
  * The temp repo runs real npm scripts. It declares `lint`, `typecheck` and
  * `quality-check`, because static analysis counts an undeclared script as a skip
  * and degrades the result. Only the `lint` exit code changes between tests.
+ * The repo is committed on a branch, so the local executor sees a clean registered checkout.
  */
 describe('DR-1 acceptance: check_static_analysis → task_complete', () => {
   const cleanups: Array<() => void> = [];
@@ -740,7 +742,7 @@ describe('DR-1 acceptance: check_static_analysis → task_complete', () => {
     }
   });
 
-  function nodeRepo(prefix: string, exitCode: number): string {
+  async function nodeRepo(prefix: string, exitCode: number): Promise<string> {
     const repoRoot = mkdtempSync(join(tmpdir(), prefix));
     cleanups.push(() => rmrf(repoRoot));
     writeFileSync(
@@ -760,10 +762,14 @@ describe('DR-1 acceptance: check_static_analysis → task_complete', () => {
         2,
       ),
     );
-    return repoRoot;
+    const identity = ['-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid'];
+    await execFileAsync('git', ['init', '-q', '-b', 'main'], { cwd: repoRoot });
+    await execFileAsync('git', ['add', '.'], { cwd: repoRoot });
+    await execFileAsync('git', [...identity, 'commit', '-q', '-m', 'fixture'], { cwd: repoRoot });
+    return realpathSync(repoRoot);
   }
 
-  async function startedWorkflow(featureId: string): Promise<HandlerContext> {
+  async function startedWorkflow(featureId: string, repoRoot: string): Promise<HandlerContext> {
     const stateDir = mkdtempSync(join(tmpdir(), 'dr1-accept-state-'));
     cleanups.push(() => rmrf(stateDir));
     const eventStore = new EventStore(stateDir);
@@ -773,6 +779,7 @@ describe('DR-1 acceptance: check_static_analysis → task_complete', () => {
       stateDir,
       eventStore,
       enableTelemetry: false,
+      cwd: repoRoot,
     } as HandlerContext);
     const init = await dispatch(
       'exarchos_workflow',
@@ -786,8 +793,8 @@ describe('DR-1 acceptance: check_static_analysis → task_complete', () => {
   it('TaskComplete_StaticAnalysisPassed_SucceedsWithoutSeededEvent', async () => {
     const featureId = 'dr1-green';
     const taskId = 'DR1-GREEN-1';
-    const repoRoot = nodeRepo('dr1-green-repo-', 0);
-    const ctx = await startedWorkflow(featureId);
+    const repoRoot = await nodeRepo('dr1-green-repo-', 0);
+    const ctx = await startedWorkflow(featureId, repoRoot);
 
     const gate = await dispatch(
       'exarchos_orchestrate',
@@ -814,8 +821,8 @@ describe('DR-1 acceptance: check_static_analysis → task_complete', () => {
   it('TaskComplete_StaticAnalysisRed_ReturnsGateNotPassed', async () => {
     const featureId = 'dr1-red';
     const taskId = 'DR1-RED-1';
-    const repoRoot = nodeRepo('dr1-red-repo-', 1);
-    const ctx = await startedWorkflow(featureId);
+    const repoRoot = await nodeRepo('dr1-red-repo-', 1);
+    const ctx = await startedWorkflow(featureId, repoRoot);
 
     const gate = await dispatch(
       'exarchos_orchestrate',

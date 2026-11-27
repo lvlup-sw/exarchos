@@ -3,6 +3,7 @@
  * string, a file, or a PR number through `gh`.
  */
 
+import { extractSectionsFromTemplateText, validateSections } from '../../vcs/pr-observation.js';
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import type { ToolResult } from '../../format.js';
@@ -44,20 +45,8 @@ interface ValidatePrBodyResult {
 const DEFAULT_SECTIONS: readonly string[] = ['Summary', 'Changes', 'Test Plan'];
 const SKIP_AUTHORS: readonly string[] = ['renovate[bot]', 'dependabot[bot]'];
 
-function escapeRegExp(s: string): string {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-
 function extractSectionsFromTemplate(templatePath: string): readonly string[] {
-  const content = readFileSync(templatePath, 'utf-8');
-  const sections: string[] = [];
-  for (const line of content.split('\n')) {
-    const match = /^##\s+(.+)$/.exec(line);
-    if (match?.[1] !== undefined) {
-      sections.push(match[1].trim());
-    }
-  }
-  return sections;
+  return extractSectionsFromTemplateText(readFileSync(templatePath, 'utf-8'));
 }
 
 interface PrData {
@@ -91,37 +80,6 @@ function shouldSkip(author: string, headRef: string): boolean {
   if (SKIP_AUTHORS.includes(author)) return true;
   if (headRef.startsWith('gh-readonly-queue/')) return true;
   return false;
-}
-
-function validateSections(
-  body: string,
-  requiredSections: readonly string[],
-): { passed: boolean; missingSections: readonly string[]; report: string } {
-  const missing: string[] = [];
-  for (const section of requiredSections) {
-    const pattern = new RegExp(`^##\\s+${escapeRegExp(section)}\\s*$`, 'im');
-    if (!pattern.test(body)) {
-      missing.push(section);
-    }
-  }
-
-  const reportLines: string[] = [];
-  if (missing.length > 0) {
-    reportLines.push('PR body validation failed.');
-    for (const section of missing) {
-      reportLines.push(`  Missing: ## ${section}`);
-    }
-    reportLines.push('');
-    reportLines.push(`Required sections: ${requiredSections.join(', ')}`);
-  } else {
-    reportLines.push('PR body validation passed.');
-  }
-
-  return {
-    passed: missing.length === 0,
-    missingSections: missing,
-    report: reportLines.join('\n'),
-  };
 }
 
 /**

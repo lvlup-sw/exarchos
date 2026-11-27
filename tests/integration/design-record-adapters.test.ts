@@ -16,6 +16,8 @@ import { parseTaskStamps, stampForTask } from '../../src/verbs/tasks/parse-task-
 import { applyPlanStamps } from '../../src/verbs/team/prepare-delegation.js';
 import type { DesignTask } from '../../src/workflow/design-record/schema.js';
 import { makeTempDir, rmrf } from '../../tools/test-helpers/temp-dir.js';
+import type { RunCommandFn } from '../../src/verbs/pure/static-analysis.js';
+import { fakeExecutor } from '../helpers/verification/check-executor.js';
 
 vi.mock('node:fs', async (original) => {
   const actual = await original<typeof import('node:fs')>();
@@ -77,8 +79,15 @@ function record(tasks: DesignTask[], prose = LEGACY_TASK): string {
 }
 
 function coverage(coveragePhase: SpecCoveragePhase = 'plan', skipRun = false): Promise<ToolResult> {
-  return handleSpecCoverageCheck({ featureId: 'adapter-test', planFile: planPath, repoRoot: root, coveragePhase, skipRun }, root, store);
+  return handleSpecCoverageCheck({ featureId: 'adapter-test', planFile: planPath, repoRoot: root, coveragePhase, skipRun }, root, store,
+    fakeExecutor(execRunner).executor);
 }
+
+/** A runner over the stubbed `execFileSync`, so each leg of the fake executor is one call of the stub. */
+const execRunner: RunCommandFn = (cmd, args, options) => {
+  vi.mocked(execFileSync)(cmd, [...args], options);
+  return { exitCode: 0, stdout: '', stderr: '' };
+};
 
 describe('typed task adapters', () => {
   it('Stamps_TypedT01_UsesExactId', () => {

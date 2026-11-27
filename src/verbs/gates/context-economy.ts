@@ -6,7 +6,7 @@ import type { ToolResult } from '../../format.js';
 import type { EventStore } from '../../events/store.js';
 import { createEvidenceSubject } from '../../workflow/admission/evidence-subject.js';
 import { runPhaseGateWithEvidence } from './gate-runner.js';
-import { getDiff, requireGateEvent, sameOperationGateKey } from './gate-utils.js';
+import { readConstrainedDiff, requireGateEvent, sameOperationGateKey } from './gate-utils.js';
 import { checkContextEconomy } from '../pure/context-economy.js';
 import { queryRuntimeMetrics } from '../../projections/telemetry/telemetry-queries.js';
 import type { RuntimeMetrics } from '../../projections/telemetry/telemetry-queries.js';
@@ -32,6 +32,7 @@ export async function handleContextEconomy(
   args: ContextEconomyArgs,
   stateDir: string,
   eventStore: EventStore,
+  gitPath?: string,
 ): Promise<ToolResult> {
   if (!args.featureId) {
     return {
@@ -52,7 +53,7 @@ export async function handleContextEconomy(
         { gate: 'context-economy', phase: 'review' },
       ),
     providerInput: args,
-    executeProvider: async () => executeContextEconomy(args, stateDir, eventStore),
+    executeProvider: async () => executeContextEconomy(args, stateDir, eventStore, gitPath),
   });
 }
 
@@ -63,17 +64,19 @@ async function executeContextEconomy(
   args: ContextEconomyArgs,
   stateDir: string,
   eventStore: EventStore,
+  gitPath: string | undefined,
 ): Promise<ToolResult> {
   const repoRoot = args.repoRoot || process.cwd();
   const baseBranch = args.baseBranch || 'main';
 
-  const diff = getDiff(repoRoot, baseBranch);
-  if (diff === null) {
+  const read = await readConstrainedDiff(gitPath, repoRoot, { kind: 'base', base: baseBranch });
+  if (read.kind === 'refused') {
     return {
       success: false,
-      error: { code: 'DIFF_ERROR', message: `Failed to get diff from git in ${repoRoot}` },
+      error: { code: 'DIFF_ERROR', message: `Failed to get diff from git in ${repoRoot}: ${read.reason}` },
     };
   }
+  const diff = read.diff;
   const tsResult = checkContextEconomy(diff);
 
   const passed = tsResult.pass;

@@ -70,7 +70,7 @@ Under `settle`, correct the cause and settle the claim under a new batch id.
 
 - The workflow records no integration branch. Set `synthesis.integrationBranch`.
 - The repository of the checkout holds no commit of the integration branch. Create the branch, or pass as `repoRoot` a worktree of the repository that holds it.
-- A completed blocker of a batch task has a landed commit that the base commit does not hold. Land the blocker on the integration branch, then `prepare` again. A blocker that landed by a squash or a rebase outside `serialize_merge` needs a `merge.executed` row: `taskId` of the blocker, `targetBranch` the integration branch, `mergeSha` the landed commit, with `sourceBranch` and `rollbackSha`. Append that row, then `prepare` again.
+- A completed blocker of a batch task has a landed commit that the base commit does not hold. Land the accepted head of the blocker on the integration branch through the harness landing (a fast-forward or a merge commit, delegate Step 4), then `prepare` again. A blocker that already landed by a squash or a rebase needs a `merge.executed` row: `taskId` of the blocker, `targetBranch` the integration branch, `mergeSha` the commit that landed (an ancestor of the integration branch), with `sourceBranch` and `rollbackSha`. An `idempotencyKey` built from the `taskId` and the `mergeSha` keeps a resent append from adding a second row. Append that row, then `prepare` again. The row satisfies `prepare` only. `settle` still needs a `forkCommit` that holds the accepted blocker head, so it refuses a compiler 8 dependent whose fork does not hold that head.
 
 ## `settle` Refuses `CAPSULE_UNRESOLVED`
 

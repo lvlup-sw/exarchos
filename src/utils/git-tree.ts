@@ -6,11 +6,19 @@
  * The two path forms follow `normalizeRepoPath` of `paths.ts`. The canonical form is the real path
  * in POSIX form, as `git rev-parse --show-toplevel` prints it. The lexical form reads no file, so it
  * serves a path that does not exist. The module spawns git with the async `execFile`, with a
- * timeout and an output cap. It imports nothing from `src/verbs`.
+ * timeout and an output cap. One constrained read writes exact blob IDs to the stdin of `cat-file --batch`, through `spawnCommand`.
+ * It imports nothing from `src/verbs`.
+ *
+ * It also keeps the process-wide Git path of the observational reads. A PATH search finds it with no process.
  */
 import { execFile } from 'node:child_process';
+import { accessSync, constants as fsConstants, statSync } from 'node:fs';
+import { lstat, realpath } from 'node:fs/promises';
+import { delimiter, isAbsolute, join } from 'node:path';
+import { promisify } from 'node:util';
 
 import { lexicalRepoPath, normalizeRepoPath } from './paths.js';
+import { spawnCommand } from './process.js';
 
 /** The wall-clock budget of one git call. A call that runs longer gives an unobservable tree. */
 const GIT_TIMEOUT_MS = 30_000;
@@ -304,4 +312,250 @@ export async function observeImmutableClaimedTree(dir: string, baseCommit: strin
 function dirtyPathsOf(stdout: string): readonly string[] {
   return stdout.split(/\r?\n/).filter(line => line.length > PORCELAIN_STATUS_WIDTH)
     .slice(0, DIRTY_PATH_LIMIT).map(line => line.slice(PORCELAIN_STATUS_WIDTH));
+}
+
+const OID = /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/;
+
+/** The output bound of a tree, index or untracked listing. A clean-tree check can list more than 1 MiB. */
+const LISTING_MAX_BYTES = 64 * 1024 * 1024;
+
+/** The output bound of a full diff of two commits. A review diff can be large. */
+const FULL_DIFF_MAX_BYTES = 256 * 1024 * 1024;
+
+/** The bytes of the header line of one `cat-file --batch` record, and of its closing newline, above the blob bytes. */
+const BLOB_RECORD_OVERHEAD_BYTES = 100;
+
+/**
+ * Split the output of one `cat-file --batch` read into the blob of each requested ID.
+ * Each record must name the requested ID, the `blob` type and a size inside the total bound. Trailing bytes refuse.
+ */
+function blobRecords(output: Buffer, ids: readonly string[], maxBytes: number): ReadonlyMap<string, Buffer> {
+  const blobs = new Map<string, Buffer>();
+  let offset = 0;
+  let total = 0;
+  for (const id of ids) {
+    const newline = output.indexOf(0x0a, offset);
+    const [returned, kind, encodedSize, extra] = output.toString('ascii', offset, Math.max(offset, newline)).split(' ');
+    const length = Number(encodedSize);
+    if (newline < offset || newline - offset > BLOB_RECORD_OVERHEAD_BYTES || returned !== id || kind !== 'blob' || extra !== undefined
+      || encodedSize === undefined || !/^\d+$/.test(encodedSize) || !Number.isSafeInteger(length)
+      || total + length > maxBytes || output[newline + 1 + length] !== 0x0a) {
+      throw new Error('Malformed or oversized Git blob response');
+    }
+    blobs.set(id, output.subarray(newline + 1, newline + 1 + length));
+    offset = newline + 2 + length;
+    total += length;
+  }
+  if (offset !== output.length) throw new Error('Unexpected Git blob response bytes');
+  return blobs;
+}
+
+/** True when a full ref name has no revision syntax, no control character and no unsafe component. */
+function safeRefName(ref: string): boolean {
+  return !/[\x00-\x20\x7f~^:?*\[\\]/.test(ref) && !ref.includes('..') && !ref.includes('@{') && !ref.endsWith('.')
+    && !ref.split('/').some(part => !part || part.startsWith('.') || part.endsWith('.lock'));
+}
+
+/** Full local branch refs only. No revision expressions or option-looking input. */
+export function constrainedBranchRef(branch: string): string {
+  if (!branch.startsWith('refs/heads/') || !safeRefName(branch)) throw new Error('A full local branch ref is required');
+  return branch;
+}
+
+/**
+ * Full remote-tracking refs only, with a remote name and a branch name under `refs/remotes/`.
+ * A bare remote name such as `refs/remotes/origin` refuses, because git reads it as the HEAD of that remote.
+ */
+function constrainedRemoteRef(ref: string): string {
+  if (!ref.startsWith('refs/remotes/') || ref.split('/').length < 4 || !safeRefName(ref)) throw new Error('A full remote-tracking ref is required');
+  return ref;
+}
+
+/** Exact object names are never interpreted as caller-chosen revision syntax. */
+export function constrainedCommitId(value: string): string {
+  if (!OID.test(value)) throw new Error('A full immutable commit object ID is required');
+  return value;
+}
+
+/**
+ * Supply a closed structural read capability with pinned executable and isolated Git process options.
+ * Each read has a closed argument vector: the safe flags, the explicit directories, then validated operands.
+ * `GIT_NO_LAZY_FETCH` stops a lazy fetch on Git 2.44 and later. Older Git does not know the `--no-lazy-fetch` flag, so the reader sets the variable instead.
+ * On any Git version, `protocol.allow=never` refuses every transport, so a lazy fetch cannot reach a remote.
+ *
+ * The listings and the full diff return bytes up to their own bound. An output above a bound fails, so no read truncates.
+ * The blob read writes exact blob IDs to the stdin of one `cat-file --batch` process, and its output stays inside its bound.
+ */
+export async function createConstrainedGitReads(executable: string) {
+  if (!isAbsolute(executable)) throw new Error('Git executable must be an operator-selected absolute path');
+  const git = await realpath(executable);
+  if (!(await lstat(git)).isFile()) throw new Error('Git executable must be a regular file');
+  const execute = promisify(execFile);
+  const nullFile = process.platform === 'win32' ? 'NUL' : '/dev/null';
+  const env: NodeJS.ProcessEnv = {
+    GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_SYSTEM: nullFile, GIT_CONFIG_GLOBAL: nullFile,
+    GIT_TERMINAL_PROMPT: '0', GIT_OPTIONAL_LOCKS: '0', GIT_NO_REPLACE_OBJECTS: '1', GIT_NO_LAZY_FETCH: '1',
+    LC_ALL: 'C', LANG: 'C',
+    ...(process.platform === 'win32' && process.env.SystemRoot ? { SystemRoot: process.env.SystemRoot } : {}),
+  };
+  const options = { env, encoding: 'utf8', timeout: 30_000, maxBuffer: 1024 * 1024, windowsHide: true } satisfies Parameters<typeof execute>[2];
+  const version = await execute(git, ['--no-replace-objects', '--no-optional-locks', '--no-pager', '--version'], options);
+  if (!/^git version \d+\.\d+(?:\.[\w.-]+)?\s*$/.test(String(version.stdout))) throw new Error('Unsupported Git capability response');
+
+  function argv(gitDir: string, checkout: string, args: readonly string[]): string[] {
+    if (!isAbsolute(gitDir) || !isAbsolute(checkout)) throw new Error('Explicit absolute Git directories are required');
+    return [
+      '--no-replace-objects', '--no-optional-locks', '--no-pager',
+      '-c', 'core.fsmonitor=false', '-c', `core.hooksPath=${nullFile}`, '-c', 'gc.auto=0',
+      '-c', 'maintenance.auto=false', '-c', 'core.commitGraph=false', '-c', 'protocol.allow=never',
+      `--git-dir=${gitDir}`, `--work-tree=${checkout}`, ...args,
+    ];
+  }
+
+  async function run(gitDir: string, checkout: string, args: readonly string[]) {
+    const result = await execute(git, argv(gitDir, checkout, args), { ...options, cwd: checkout });
+    return String(result.stdout);
+  }
+
+  async function runBytes(gitDir: string, checkout: string, args: readonly string[], maxBuffer: number): Promise<Buffer> {
+    const result = await execute(git, argv(gitDir, checkout, args), { env, encoding: 'buffer', timeout: 30_000, maxBuffer, windowsHide: true, cwd: checkout });
+    return Buffer.isBuffer(result.stdout) ? result.stdout : Buffer.from(result.stdout);
+  }
+
+  async function readBlobs(gitDir: string, checkout: string, ids: readonly string[], maxBytes: number): Promise<ReadonlyMap<string, Buffer>> {
+    const unique = [...new Set(ids.map(constrainedCommitId))];
+    if (unique.length === 0) return new Map();
+    const limit = maxBytes + unique.length * BLOB_RECORD_OVERHEAD_BYTES;
+    const output = await new Promise<Buffer>((resolve, reject) => {
+      const child = spawnCommand(git, argv(gitDir, checkout, ['cat-file', '--batch']), {
+        env, timeout: 120_000, killSignal: 'SIGKILL', windowsHide: true, cwd: checkout, stdio: ['pipe', 'pipe', 'ignore'],
+      });
+      const chunks: Buffer[] = [];
+      let total = 0;
+      let overrun = false;
+      child.stdout?.on('data', (bytes: Buffer) => {
+        total += bytes.length;
+        if (total > limit) {
+          overrun = true;
+          child.kill('SIGKILL');
+        } else {
+          chunks.push(bytes);
+        }
+      });
+      child.once('error', reject);
+      child.once('close', (code, signal) => {
+        if (overrun) reject(new Error('The blob read output is above its bound'));
+        else if (code !== 0) reject(new Error(`The blob read ended with ${code === null ? `signal ${String(signal)}` : `exit code ${code}`}`));
+        else resolve(Buffer.concat(chunks));
+      });
+      child.stdin?.once('error', reject);
+      child.stdin?.end(unique.join('\n') + '\n');
+    });
+    return blobRecords(output, unique, maxBytes);
+  }
+
+  return {
+    blobs: readBlobs,
+    treeListing: (gitDir: string, checkout: string, id: string) => runBytes(gitDir, checkout, ['ls-tree', '-r', '-z', '--full-tree', constrainedCommitId(id)], LISTING_MAX_BYTES),
+    indexListing: (gitDir: string, checkout: string) => runBytes(gitDir, checkout, ['ls-files', '--stage', '-z'], LISTING_MAX_BYTES),
+    untrackedListing: (gitDir: string, checkout: string) => runBytes(gitDir, checkout, ['ls-files', '--others', '--exclude-standard', '-z'], LISTING_MAX_BYTES),
+    mergeBase: (gitDir: string, checkout: string, left: string, right: string) => run(gitDir, checkout, ['merge-base', constrainedCommitId(left), constrainedCommitId(right)]),
+    remoteCommit: (gitDir: string, checkout: string, ref: string) => run(gitDir, checkout, ['rev-parse', '--verify', '--quiet', '--end-of-options', `${constrainedRemoteRef(ref)}^{commit}`]),
+    originHead: (gitDir: string, checkout: string) => run(gitDir, checkout, ['symbolic-ref', '--quiet', 'refs/remotes/origin/HEAD']),
+    nameOnly: (gitDir: string, checkout: string, base: string, head: string) => run(gitDir, checkout, [
+      'diff', '--name-only', '--no-ext-diff', '--no-textconv', constrainedCommitId(base), constrainedCommitId(head), '--',
+    ]),
+    commitRange: (gitDir: string, checkout: string, base: string, head: string) => run(gitDir, checkout, [
+      'log', '--oneline', '--graph', '--no-show-signature', `${constrainedCommitId(base)}..${constrainedCommitId(head)}`, '--',
+    ]),
+    fullDiff: async (gitDir: string, checkout: string, base: string, head: string) => (await runBytes(gitDir, checkout, [
+      'diff', '--no-ext-diff', '--no-textconv', '--submodule=short', constrainedCommitId(base), constrainedCommitId(head), '--',
+    ], FULL_DIFF_MAX_BYTES)).toString('utf8'),
+    worktrees: (gitDir: string, checkout: string) => run(gitDir, checkout, ['worktree', 'list', '--porcelain', '-z']),
+    branch: (gitDir: string, checkout: string) => run(gitDir, checkout, ['symbolic-ref', '--quiet', 'HEAD']),
+    commit: (gitDir: string, checkout: string, branch: string) => run(gitDir, checkout, ['rev-parse', '--verify', '--end-of-options', `${constrainedBranchRef(branch)}^{commit}`]),
+    requireCommit: (gitDir: string, checkout: string, id: string) => run(gitDir, checkout, ['cat-file', '-e', `${constrainedCommitId(id)}^{commit}`]),
+    ancestry: (gitDir: string, checkout: string, ancestor: string, descendant: string) => run(gitDir, checkout, ['merge-base', '--is-ancestor', constrainedCommitId(ancestor), constrainedCommitId(descendant)]),
+    diff: (gitDir: string, checkout: string, base: string, head: string) => run(gitDir, checkout, ['diff', '--no-ext-diff', '--no-textconv', '--no-renames', '--submodule=short', constrainedCommitId(base), constrainedCommitId(head), '--']),
+    nameStatus: (gitDir: string, checkout: string, base: string, head: string) => run(gitDir, checkout, [
+      'diff', '--name-status', '-z', '--no-ext-diff', '--no-textconv', '--no-renames',
+      constrainedCommitId(base), constrainedCommitId(head), '--',
+    ]),
+    commitTime: (gitDir: string, checkout: string, id: string) => run(gitDir, checkout, [
+      'log', '-1', '--format=%ct', '--no-show-signature', constrainedCommitId(id), '--',
+    ]),
+    originUrl: (gitDir: string, checkout: string) => run(gitDir, checkout, ['remote', 'get-url', 'origin']),
+    stashList: (gitDir: string, checkout: string) => run(gitDir, checkout, ['stash', 'list', '--no-color', '--no-show-signature']),
+    upstream: (gitDir: string, checkout: string, branch: string) => run(gitDir, checkout, [
+      'for-each-ref', '--format=%(refname)%00%(upstream)', constrainedBranchRef(branch),
+    ]),
+    diffStat: (gitDir: string, checkout: string, base: string, head: string) => run(gitDir, checkout, [
+      'diff', '--stat', '--no-ext-diff', '--no-textconv', constrainedCommitId(base), constrainedCommitId(head), '--',
+    ]),
+  };
+}
+
+/** The closed read capability of one Git executable, after its capability probe. */
+export type ConstrainedGitReads = Awaited<ReturnType<typeof createConstrainedGitReads>>;
+
+/**
+ * The process-wide Git path of the observational reads. It holds no value until the first prime or the first read.
+ * A resolution that found no Git keeps an empty path, so the process searches PATH once.
+ */
+let observationalGitPath: { readonly path: string | undefined } | undefined;
+
+/**
+ * Search PATH for Git with no process. The search skips each empty and each relative entry, because POSIX reads an empty entry as the working directory.
+ * It accepts only a regular file named `git` (`git.exe` on win32) that the process can run.
+ * It keeps the path of the PATH entry, not the real path.
+ */
+function searchPathForGit(): string | undefined {
+  const name = process.platform === 'win32' ? 'git.exe' : 'git';
+  for (const entry of (process.env.PATH ?? '').split(delimiter)) {
+    if (entry === '' || !isAbsolute(entry)) continue;
+    const candidate = join(entry, name);
+    try {
+      if (!statSync(candidate).isFile()) continue;
+      if (process.platform !== 'win32') accessSync(candidate, fsConstants.X_OK);
+      return candidate;
+    } catch {
+      continue;
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Set the process-wide Git path of the observational reads. A non-empty `gitPath` is the Git path of a usable provisioning.
+ * Without it, one PATH search sets the path. The prime starts no process.
+ */
+export function primeObservationalGitPath(gitPath?: string): void {
+  observationalGitPath = { path: gitPath !== undefined && gitPath !== '' ? gitPath : searchPathForGit() };
+}
+
+/**
+ * The process-wide Git path of the observational reads. It gives the primed path.
+ * An unprimed process sets the path with one PATH search and starts no process. No Git on PATH gives no path, and the function never gives a bare `git` name.
+ */
+export function processObservationalGitPath(): string | undefined {
+  observationalGitPath ??= { path: searchPathForGit() };
+  return observationalGitPath.path;
+}
+
+/**
+ * The reader source of one action. A non-empty `gitPath` wins, else the process-wide path, which an unprimed process finds with one PATH search.
+ * The source creates its reader at the first call and gives the same reader, or the same failure, to every later call.
+ * So one action probes one executable once. No path gives a failure, and no read falls back to a bare `git` name.
+ */
+export function observationalReader(gitPath?: string): () => Promise<ConstrainedGitReads> {
+  let reader: Promise<ConstrainedGitReads> | undefined;
+  return () => {
+    reader ??= (async () => {
+      observationalGitPath ??= { path: searchPathForGit() };
+      const selected = gitPath !== undefined && gitPath !== '' ? gitPath : observationalGitPath.path;
+      if (selected === undefined) throw new Error('No usable Git executable for the observational read');
+      return createConstrainedGitReads(selected);
+    })();
+    return reader;
+  };
 }

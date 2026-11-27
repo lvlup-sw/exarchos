@@ -82,17 +82,24 @@ interface CliRun {
  * fails fast and does not touch the repository of the developer. The empty `GH_TOKEN` and
  * `GITHUB_TOKEN` values keep such an action away from a real remote. `LOG_LEVEL=error` keeps log
  * lines out of stdout, where the envelope goes.
+ *
+ * `HOME` and `USERPROFILE` name a fresh scratch home outside the state directory, so no run reads the real home.
+ * The install identity directory is inside that home, and no home file counts as a state write. The run removes the home at the end.
  */
 function runCli(
   binaryPath: string,
   args: readonly string[],
   opts: { readonly cwd: string; readonly stateDir: string; readonly timeoutMs?: number },
 ): Promise<CliRun> {
-  return new Promise((resolve) => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'exq-proof-home-'));
+  return new Promise<CliRun>((resolve) => {
     const child = spawn(binaryPath, [...args, '--json'], {
       cwd: opts.cwd,
       env: {
         ...process.env,
+        HOME: home,
+        USERPROFILE: home,
+        EXARCHOS_INSTALL_STATE_DIR: path.join(home, 'install-identity'),
         WORKFLOW_STATE_DIR: opts.stateDir,
         EXARCHOS_PLUGIN_ROOT: REPO_ROOT,
         LOG_LEVEL: 'error',
@@ -121,7 +128,7 @@ function runCli(
       clearTimeout(timer);
       resolve({ exit: null, stdout, stderr, timedOut });
     });
-  });
+  }).finally(() => rmrfAsync(home).catch(() => undefined));
 }
 
 /** The part of the contract envelope that the tests read. The binary prints it under `--json`. */

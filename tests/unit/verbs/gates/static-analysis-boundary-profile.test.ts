@@ -2,7 +2,7 @@
  * Tests for the boundary legs under the verification profile. A segment runs the boundary checks that the capsule pins, with the `firstParty` term of the pin.
  * The worktree config gives only a load failure. A check of the pin cannot turn off through a change in the worktree.
  *
- * The handler cases replace the process call below `execCommandRunner`, and each fixture root holds an installed bin, so the real lookup finds it.
+ * The handler cases run each approved leg through a fake executor, and each fixture root holds an installed bin, so the real lookup finds it.
  * The cases of the adapters inject the runner and the bin lookup. The durable gate producer is a stub that calls only the provider.
  *
  * @oracle-sources: ../../../../src/verbs/gates/static-analysis.ts, and the argv that reaches the process call
@@ -13,7 +13,8 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 
-import { runBoundaryLint, runRawIoTaint } from '../../../../src/config/boundary-adapters.js';
+import { planBoundaryCheck, positiveCount, runBoundaryLint, runRawIoTaint } from '../../../../src/config/boundary-adapters.js';
+import { runStaticAnalysis } from '../../../../src/verbs/pure/static-analysis.js';
 import { EventStore } from '../../../../src/events/store.js';
 import type { ToolResult } from '../../../../src/format.js';
 import { handleStaticAnalysis } from '../../../../src/verbs/gates/static-analysis.js';
@@ -26,26 +27,17 @@ import {
   taintCheck,
   UNRESOLVED_FIRST_PARTY_REASON,
 } from '../../../helpers/verification-profile.js';
+import { fakeExecutor } from '../../../helpers/verification/check-executor.js';
 
 /** Each argv that reaches the process call, and the report that the stub cruiser prints. A case can change the report. */
 const spawns = vi.hoisted(() => {
   const ran: (readonly string[])[] = [];
-  return { ran, cruiserReport: '' };
+  return { ran, cruiserReport: '', produced: 0 };
 });
 
-vi.mock('../../../../src/utils/process.js', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../../../src/utils/process.js')>();
-  return {
-    ...actual,
-    runCommandSync: (cmd: string, args: readonly string[]): string => {
-      spawns.ran.push([cmd, ...args]);
-      return cmd.includes('depcruise') ? spawns.cruiserReport : '';
-    },
-  };
-});
 
 vi.mock('../../../../src/verbs/gates/durable-gate-producer.js', () => ({
-  runDurableGateProducer: (_scope: unknown, executeProvider: () => Promise<ToolResult>) => executeProvider(),
+  runDurableGateProducer: (_scope: unknown, executeProvider: () => Promise<ToolResult>) => { spawns.produced++; return executeProvider(); },
 }));
 
 /** The version of the capsule of each pinned case. */
@@ -72,6 +64,12 @@ function fixtureRoot(files: Readonly<Record<string, string>>): string {
   return root;
 }
 
+/** The runner of the fake executor. It records each argv, and the cruiser prints the report of the case. */
+const processRunner: RunCommandFn = (cmd, args) => {
+  spawns.ran.push([cmd, ...args]);
+  return { exitCode: 0, stdout: cmd.includes('depcruise') ? spawns.cruiserReport : '', stderr: '' };
+};
+
 /** The argv of each call of the installed bin. */
 function cruiserCalls(): (readonly string[])[] {
   return spawns.ran.filter(([cmd]) => cmd?.includes('depcruise'));
@@ -79,7 +77,7 @@ function cruiserCalls(): (readonly string[])[] {
 
 /** Runs the handler at `repoRoot` with no pin. */
 async function runDirect(repoRoot: string): Promise<ToolResult> {
-  return handleStaticAnalysis({ featureId: 'feat-direct', repoRoot }, tmpDir, new EventStore(tmpDir));
+  return handleStaticAnalysis({ featureId: 'feat-direct', repoRoot }, tmpDir, new EventStore(tmpDir), fakeExecutor(processRunner).executor);
 }
 
 /** Runs the handler at `repoRoot` under `profile`, as a segment does. */
@@ -88,6 +86,7 @@ async function runPinned(repoRoot: string, profile: VerificationProfile): Promis
     { featureId: 'feat-segment', repoRoot, verificationProfile: { capsuleVersion: VERSION, profile } },
     tmpDir,
     new EventStore(tmpDir),
+    fakeExecutor(processRunner).executor,
   );
 }
 
@@ -119,6 +118,7 @@ function stubRunner(result: CommandResult): { readonly runner: RunCommandFn; rea
 beforeEach(() => {
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'boundary-profile-'));
   spawns.ran.splice(0);
+  spawns.produced = 0;
   spawns.cruiserReport = CLEAN_REPORT;
 });
 
@@ -231,7 +231,7 @@ describe('handleStaticAnalysis — the boundary terms of the pin', () => {
 
   /**
    * The pinned entry names a config at a path that the old gate never looks at, and the root holds no `.dependency-cruiser.*`.
-   * The killing assertion: the process call gets that argv, with the found bin as its program and the scan roots after it.
+   * The killing assertion: the executor gets the approved argv of the pin, with the scan roots after it. The executor resolves its program.
    * The old gate finds no config at the root, so the leg does not run.
    */
   it('StaticAnalysis_AConfiguredBoundaryCheck_RunsThePinnedArgvWithTheScanRoots', async () => {
@@ -241,7 +241,7 @@ describe('handleStaticAnalysis — the boundary terms of the pin', () => {
 
     expect(cruiserCalls()).toEqual([
       [
-        path.join(worktree, 'node_modules', '.bin', BIN_NAME),
+        'depcruise',
         '--validate',
         'rules/boundaries.cjs',
         '--output-type',
@@ -380,5 +380,69 @@ describe('boundary adapters — the report reader of a check', () => {
     expect(result.status === 'FAIL' ? result.detail : '').toContain(
       'Re-run `semgrep --error --config rules/taint.yml .` without --quiet to read its message',
     );
+  });
+});
+
+describe('boundary legs that the verifier plans and observes', () => {
+  /** The verifier plans the leg on its image, runs the planned argv, and reads the complete result with the reader of the local runner. */
+  it('BoundaryAdapters_APlannedLeg_RunsTheLocalArgvAndReadsTheSameVerdict', () => {
+    const repoRoot = fixtureRoot({ '.dependency-cruiser.cjs': CRUISER_CONFIG, 'src/a.ts': '' });
+    const bin = path.join(repoRoot, 'node_modules', '.bin', BIN_NAME);
+    const violating = JSON.stringify({ summary: { error: 1, totalCruised: 2,
+      violations: [{ rule: { name: 'no-cycle', severity: 'error' }, from: 'src/a.ts', to: 'src/b.ts' }] } });
+    const report: CommandResult = { exitCode: 0, stdout: violating, stderr: '' };
+    const { runner, calls } = stubRunner(report);
+    const local = runBoundaryLint({ repoRoot, check: cruiserCheck(), runCommand: runner, findDepcruise: () => bin });
+    const planned = planBoundaryCheck(cruiserCheck(), { repoRoot, findDepcruise: () => bin });
+
+    expect(planned).toMatchObject({ adapter: 'dependency-cruiser', name: 'Import boundaries', plan: { kind: 'run' } });
+    if (planned.plan.kind !== 'run') return;
+    expect([planned.plan.bin, ...planned.plan.args]).toEqual(calls[0]);
+    expect(planned.plan.classify(report)).toEqual(local);
+    expect(local).toMatchObject({ status: 'FAIL', cause: 'violations' });
+  });
+
+  /** A missing config settles with no process. The detail names the registered checkout and never the private image. */
+  it('BoundaryAdapters_APlannedLegWithNoConfig_SettlesAndNamesTheDisplayRoot', () => {
+    const repoRoot = fixtureRoot({ 'src/a.ts': '' });
+    const planned = planBoundaryCheck(cruiserCheck(), { repoRoot, displayRoot: '/registered/checkout' });
+
+    expect(planned.plan).toMatchObject({ kind: 'settled', result: { status: 'FAIL', cause: 'config-or-usage' } });
+    expect(JSON.stringify(planned.plan)).toContain('/registered/checkout');
+    expect(JSON.stringify(planned.plan)).not.toContain(repoRoot);
+  });
+
+  /** Observed legs run no boundary command. A scope that cannot be read still fails the import-boundary leg, as on a local run. */
+  it('StaticAnalysis_ObservedBoundaryLegs_RunNoBoundaryCommandAndKeepTheScopeFailure', () => {
+    const repoRoot = fixtureRoot({ '.dependency-cruiser.cjs': CRUISER_CONFIG, 'src/a.ts': '' });
+    const cruised = positiveCount(2);
+    if (cruised === undefined) throw new Error('Missing positive count');
+    const checks: VerificationProfile['staticAnalysis'] = { state: 'resolved', source: 'config',
+      checks: [{ name: 'lint', command: { state: 'resolved', source: 'config', argv: ['lint'] } }] };
+    const observedBoundaryLegs = [{ name: 'Import boundaries', result: { status: 'PASS' as const, cruised, detail: '2 modules checked' } }];
+    const { runner, calls } = stubRunner({ exitCode: 0, stdout: '', stderr: '' });
+    const observed = runStaticAnalysis({ repoRoot, checks, boundaryChecks: [cruiserCheck()], runCommand: runner, observedBoundaryLegs });
+
+    expect(calls).toEqual([['lint']]);
+    expect(observed.status).toBe('pass');
+    expect(observed.output).toContain('Import boundaries — 2 modules checked');
+
+    const broken = runStaticAnalysis({ repoRoot, checks, boundaryChecks: [cruiserCheck()], runCommand: runner, observedBoundaryLegs,
+      projectConfigError: { source: '.exarchos.yml', message: 'bad YAML' } });
+    expect(broken.status).toBe('fail');
+    expect(broken.output).toContain('the project config .exarchos.yml does not load');
+  });
+
+  /** A refusal of the executor runs no leg. The producer records the refusal, which reads with no verdict. */
+  it('StaticAnalysis_ARefusedCheck_RunsNoProcessAndRecordsTheRefusal', async () => {
+    const worktree = fixtureRoot({ '.dependency-cruiser.cjs': CRUISER_CONFIG, 'src/a.ts': '' });
+
+    const result = await handleStaticAnalysis({ featureId: 'feat-refused', repoRoot: worktree,
+      verificationProfile: { capsuleVersion: VERSION, profile: boundaryProfile([cruiserCheck()]) } }, tmpDir, new EventStore(tmpDir),
+      fakeExecutor(processRunner, 'The program depcruise lies inside the checkout.').executor);
+
+    expect(result).toMatchObject({ success: false, error: { code: 'LOCAL_CHECK_REFUSED' } });
+    expect(spawns.ran).toEqual([]);
+    expect(spawns.produced).toBe(1);
   });
 });

@@ -1,17 +1,25 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { fileURLToPath } from 'node:url';
+import { mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { z } from 'zod';
 import {
   applicableEnsures,
   observeActionPostconditions,
 } from '../../src/dispatch/core/action-postconditions.js';
 import {
+  DID_NOT_RUN_CODES,
   dispatch,
   stubCompositeHandler,
   type DispatchContext,
 } from '../../src/dispatch/core/dispatch.js';
+import { deriveMcpCallerIdentity } from '../../src/dispatch/caller-identity.js';
+import { EventStore as DurableEventStore } from '../../src/events/store.js';
+import type { VerificationHostConnector } from '../../src/contract/verification/harness-verification.js';
+import { HostedAdequacyPending, hostedPendingResult } from '../../src/verbs/gates/gate-runner.js';
+import { handleMutationAdequacy } from '../../src/verbs/gates/mutation-adequacy.js';
+import { createInMemoryResolver } from '../../src/workflow/capabilities/resolver.js';
 import { getDispatchContext } from '../../src/dispatch/dispatch-context.js';
 import { replayedEvidence } from '../../src/dispatch/core/effect-carrier.js';
 import { ContentAddressedStore } from '../../src/storage/artifacts/content-addressed-store.js';
@@ -885,5 +893,113 @@ describe('dispatch gates success on applicable ensures', () => {
     expect(result.error?.code).not.toBe('ENSURE_CONTRACT_VIOLATED');
     const rows = await eventStore.query('feat-readonly-abstention');
     expect(rows).toEqual([]);
+  });
+});
+
+/** A usable stub connector. It counts each exchange and never reaches a verifier. */
+function countingConnector(): { connector: VerificationHostConnector; exchanges: () => number } {
+  let exchanges = 0;
+  const unavailable: { kind: 'unavailable'; reason: string } = { kind: 'unavailable', reason: 'stub verifier' };
+  const connector: VerificationHostConnector = {
+    publicKey: 'stub-key', gitPath: '/usr/bin/git', resourceId: 'tree', profileId: 'node',
+    client: {
+      submit: async () => { exchanges += 1; return unavailable; },
+      retrieve: async () => { exchanges += 1; return unavailable; },
+    },
+  };
+  return { connector, exchanges: () => exchanges };
+}
+
+/**
+ * A failed result with a code of a check that did not run keeps that code. Dispatch evaluates no owed ensure for it,
+ * and the emission enforcement still runs before that point.
+ */
+describe('dispatch keeps the code of a check that did not run', () => {
+  afterEach(() => {
+    clearCustomTools();
+  });
+
+  /**
+   * Two literals have a live producer: the pending result and the retired mutation gate.
+   * The hosted refusal and the code of a machine with no verifier stay in the set for stored receipts.
+   * No source file outside dispatch names them.
+   * The census reads every TypeScript file under `src` and must find each reserved literal in dispatch, so an empty scan cannot pass.
+   */
+  it('DidNotRunCodes_TwoLiveProducersAndTwoLiteralsReservedForHistory', async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), 'did-not-run-producers-'));
+    const store = new DurableEventStore(stateDir);
+    await store.initialize();
+    try {
+      const retired = await handleMutationAdequacy({ featureId: 'feat-retired', base: 'main' }, stateDir, store, countingConnector().connector);
+      expect([hostedPendingResult(new HostedAdequacyPending('pending')).error?.code, retired.error?.code])
+        .toEqual(['HOSTED_ADEQUACY_PENDING', 'MUTATION_TESTING_RETIRED']);
+      expect(DID_NOT_RUN_CODES).toEqual([
+        'HOSTED_VERIFICATION_REFUSED', 'HOSTED_ADEQUACY_PENDING', 'MUTATION_TESTING_RETIRED', 'VERIFIER_NOT_PROVISIONED',
+      ]);
+    } finally {
+      store.close();
+      await rmrfAsync(stateDir);
+    }
+    const sourceRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../src');
+    const files = (await readdir(sourceRoot, { recursive: true })).filter((file) => file.endsWith('.ts'));
+    const naming = new Map<string, string[]>();
+    for (const file of files) {
+      const text = await readFile(path.join(sourceRoot, file), 'utf8');
+      for (const code of ['HOSTED_VERIFICATION_REFUSED', 'VERIFIER_NOT_PROVISIONED']) {
+        if (text.includes(`'${code}'`) || text.includes(`"${code}"`) || text.includes(`\`${code}\``)) naming.set(code, [...naming.get(code) ?? [], file.split(path.sep).join('/')]);
+      }
+    }
+    expect(files.length).toBeGreaterThan(500);
+    expect(Object.fromEntries(naming)).toEqual({
+      HOSTED_VERIFICATION_REFUSED: ['dispatch/core/dispatch.ts'],
+      VERIFIER_NOT_PROVISIONED: ['dispatch/core/dispatch.ts'],
+    });
+  });
+
+  /** An always ensure with no observed row masks no did-not-run code. Any other failed code still gives the ensure violation. */
+  it('Dispatch_DidNotRunCode_KeepsItsOwnCodeInsteadOfTheEnsureViolation', async () => {
+    const eventStore = memoryEventStore();
+    const context: DispatchContext = { stateDir: path.join(os.tmpdir(), 'ensure-dispatch-unused'), eventStore, enableTelemetry: false };
+    const contract = probeContract({
+      ensures: declared({ source: 'event-append', when: 'always', event: 'gate.executed' }),
+    });
+    for (const code of [...DID_NOT_RUN_CODES, 'HANDLER_REFUSED']) {
+      clearCustomTools();
+      registerProbe({ action: 'gate', contract, handler: async () => ({ success: false, error: { code, message: 'no run' } }) });
+      const result = await dispatch(PROBE_TOOL, { action: 'gate', featureId: 'feat-did-not-run' }, context);
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe(code === 'HANDLER_REFUSED' ? 'ENSURE_CONTRACT_VIOLATED' : code);
+    }
+    expect(await eventStore.query('feat-did-not-run')).toEqual([]);
+  });
+
+  /**
+   * On a provisioned machine, an unbound `check_test_adequacy` call ignores the connector and runs in the local executor, through real dispatch.
+   * The repo root holds no repository, so the diff read fails closed before any test command. No exchange starts.
+   */
+  it('Dispatch_UnboundAdequacyOnProvisionedMachine_RunsLocallyAndIgnoresTheConnector', async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), 'unbound-adequacy-'));
+    const repoRoot = await mkdtemp(path.join(os.tmpdir(), 'unbound-adequacy-repo-'));
+    const stream = 'feat-unbound-adequacy';
+    const store = new DurableEventStore(stateDir);
+    await store.initialize();
+    try {
+      await store.append(stream, { type: 'workflow.started', data: { featureId: stream, workflowType: 'feature' } });
+      const { connector, exchanges } = countingConnector();
+      const result = await dispatch('exarchos_orchestrate', {
+        action: 'check_test_adequacy', featureId: stream, taskId: 'task-1', repoRoot, baseBranch: 'main',
+        riskTier: 'high', boundaryTouching: true,
+      }, {
+        stateDir, eventStore: store, enableTelemetry: false, verificationHost: connector,
+        callerIdentity: deriveMcpCallerIdentity({ sessionId: 'unbound-adequacy' }),
+        capabilityResolver: createInMemoryResolver(['fs:read', 'fs:write', 'mcp:exarchos', 'shell:exec', 'admission:issue-gate-evidence']),
+      });
+      expect(result, JSON.stringify(result)).toMatchObject({ success: true, data: { passed: false, discriminant: 'diff-failed' } });
+      expect(exchanges()).toBe(0);
+    } finally {
+      store.close();
+      await rmrfAsync(stateDir);
+      await rmrfAsync(repoRoot);
+    }
   });
 });

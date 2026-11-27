@@ -48,6 +48,7 @@ import { createEvidenceSubject } from '../../../../src/workflow/admission/eviden
 import { createInMemoryResolver } from '../../../../src/workflow/capabilities/resolver.js';
 import { execFileAsync } from '../../../../tools/test-helpers/spawn.js';
 import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
+import { deriveRepoKey } from '../../../../src/utils/paths.js';
 import { seedActivePhaseAttempt, withTrustedCaller } from '../../../../tools/test-helpers/trusted-context.js';
 
 /** The registry held 24 provider classes when this was written. A smaller count means a broken read of the registry. */
@@ -495,7 +496,7 @@ describe('a disabled kill probe in the task-completion segment', () => {
     const streamId = 'disabled-segment';
     const taskId = 'task-segment';
     const worktreePath = await vacuousTaskWorktree();
-    await seedActivePhaseAttempt(store, streamId);
+    await seedActivePhaseAttempt(store, streamId, { repoRoot: deriveRepoKey(worktreePath) });
     const ctx: HandlerContext = {
       stateDir,
       eventStore: store,

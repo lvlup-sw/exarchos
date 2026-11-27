@@ -1,11 +1,14 @@
 /**
  * Baseline check for a worktree. It resolves the test command through `resolveTestRuntime`, runs it, and returns a markdown report.
- * When the caller supplies `agentBranch`, it also classifies each uncommitted change as a merge-time leak or as dirt.
+ * The local approved-check executor runs the test command as a lifecycle check with no stream, read-only in the worktree.
+ * When the caller supplies `agentBranch`, the check also classifies each uncommitted change as a merge-time leak or as dirt.
+ * Leak detection reads only the closed Git listings and hashes each working file in this process.
  */
 
 import { existsSync } from 'node:fs';
-import { execFileSync } from 'node:child_process';
-import { runCommandSync } from '../../utils/process.js';
+import { gitCommonDirOf } from '../../utils/paths.js';
+import { processObservationalGitPath } from '../../utils/git-tree.js';
+import type { EventStore } from '../../events/store.js';
 import type { ToolResult } from '../../format.js';
 import {
   packageManagerProjectType,
@@ -14,6 +17,10 @@ import {
 } from '../../config/test-runtime-resolver.js';
 import { BUILTIN_TOOLCHAINS } from '../../config/toolchains.js';
 import { splitCommand } from '../../config/tokenize-command.js';
+import { HostedAdequacyPending, closedListingBlobs, closedListingChanges, hostedPendingResult } from './gate-runner.js';
+import { observeCurrentCheckout } from './gate-utils.js';
+import { admitLifecycleLegs } from '../verification/lifecycle-check.js';
+import type { CheckExecutor } from '../verification/check-executor.js';
 
 interface VerifyWorktreeBaselineArgs {
   readonly worktreePath: string;
@@ -29,7 +36,6 @@ interface VerifyWorktreeBaselineArgs {
  * At merge time, the main worktree can carry an uncommitted change that is byte-identical to a commit on the agent branch tip.
  * Such a path blocks a fast-forward merge, but it is safe to discard.
  * The leak check classifies each dirty path, so the orchestrator can show the `git checkout -- <path>` remediation.
- * The check uses only local git inspection.
  */
 type LeakClassification = 'leaked-committed' | 'dirty';
 
@@ -40,9 +46,11 @@ interface LeakPathEntry {
   readonly remediation?: string;
 }
 
+/** The leak classification of one worktree. `unread` names the cause when the closed listings cannot classify the tree, which counts as dirty. */
 interface LeakDetection {
   readonly dirty: boolean;
   readonly paths: readonly LeakPathEntry[];
+  readonly unread?: string;
 }
 
 /**
@@ -98,93 +106,41 @@ function detectProjectType(worktreePath: string): ProjectDetection | undefined {
   return toProjectDetection(runtime);
 }
 
-/** Run a git command in the worktree, returning trimmed stdout or `null` on error. */
-function gitCapture(worktreePath: string, args: readonly string[]): string | null {
-  try {
-    const out = execFileSync('git', ['-C', worktreePath, ...args], {
-      encoding: 'utf-8',
-      stdio: ['pipe', 'pipe', 'pipe'],
-    }) as string;
-    return out.trim();
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Parses `git status --porcelain` output into paths, each with a `tracked` flag.
- * Each v1 line holds two status columns, then the path.
- * For a rename or copy (`R` or `C`), the line holds `old -> new`, and the function keeps `new`, because `git hash-object` needs the path on disk.
- * An untracked (`??`) entry gets `tracked: false`, so the caller reports it as dirt with no blob comparison.
- */
-function parsePorcelainPaths(porcelain: string): { path: string; tracked: boolean }[] {
-  const entries: { path: string; tracked: boolean }[] = [];
-  for (const rawLine of porcelain.split('\n')) {
-    if (rawLine.trim() === '') continue;
-    const xy = rawLine.slice(0, 2);
-    let path = rawLine.slice(2).trim();
-    if (path === '') continue;
-    if (xy.includes('R') || xy.includes('C')) {
-      const arrowIdx = path.indexOf(' -> ');
-      if (arrowIdx !== -1) {
-        path = path.slice(arrowIdx + 4).trim();
-        if (path === '') continue;
-      }
-    }
-    const tracked = !xy.includes('?');
-    entries.push({ path, tracked });
-  }
-  return entries;
-}
-
-/**
- * True when the working blob at `path` is byte-identical to the blob at the same path on `agentBranch`.
- * Git addresses blobs by hash, so equal hashes mean equal bytes. The function returns `false` when either side does not resolve.
- */
-function workingBlobMatchesBranch(
-  worktreePath: string,
-  path: string,
-  agentBranch: string,
-): boolean {
-  const workingHash = gitCapture(worktreePath, ['hash-object', '--', path]);
-  if (workingHash === null || workingHash === '') return false;
-  const branchHash = gitCapture(worktreePath, ['rev-parse', `${agentBranch}:${path}`]);
-  if (branchHash === null || branchHash === '') return false;
-  return workingHash === branchHash;
-}
-
 /**
  * Single-quote a path for safe inclusion in a copy-paste shell remediation.
- * A crafted filename with spaces or shell metacharacters must not turn a
- * suggested `git checkout` into unintended execution.
+ * A crafted filename with spaces or shell metacharacters must not turn a suggested `git checkout` into unintended execution.
  */
 function shellQuotePath(path: string): string {
   return `'${path.replace(/'/g, `'\\''`)}'`;
 }
 
+/** The leak detection of a tree that the closed listings cannot classify. It counts as dirty. */
+function unreadLeaks(unread: string): LeakDetection {
+  return { dirty: true, paths: [], unread };
+}
+
 /**
- * Classifies each uncommitted path in the worktree against the agent branch tip.
+ * Classifies each uncommitted path in the worktree against the agent branch tip, with the closed listings only.
  * A tracked path with a working blob equal to the branch blob is a recoverable `leaked-committed` leak.
- * Every other path is `dirty` and must still block the merge. The function reads git state and changes nothing.
+ * Every other path is `dirty` and must still block the merge. The function reads Git state and changes nothing.
  */
-function detectLeakedEdits(worktreePath: string, agentBranch: string): LeakDetection {
-  const porcelain = gitCapture(worktreePath, ['status', '--porcelain']);
-  if (porcelain === null || porcelain === '') {
-    return { dirty: false, paths: [] };
-  }
-
-  const paths: LeakPathEntry[] = parsePorcelainPaths(porcelain).map(({ path, tracked }) => {
-    if (tracked && workingBlobMatchesBranch(worktreePath, path, agentBranch)) {
-      return {
-        path,
-        classification: 'leaked-committed' as const,
-        remediation: `git checkout -- ${shellQuotePath(path)}`,
-      };
-    }
-    return { path, classification: 'dirty' as const };
-  });
-
-  return { dirty: paths.length > 0, paths };
+async function detectLeakedEdits(worktreePath: string, agentBranch: string): Promise<LeakDetection> {
+  const gitPath = processObservationalGitPath();
+  if (gitPath === undefined) return unreadLeaks('No usable Git executable reads the worktree.');
+  const observed = await observeCurrentCheckout(gitPath, worktreePath);
+  if (observed.kind === 'refused') return unreadLeaks(observed.reason);
+  const { observer, checkout } = observed;
+  const changes = await closedListingChanges(observer.reads, checkout.gitDir, checkout.checkout, checkout.head);
+  if (changes === undefined) return unreadLeaks('The closed Git listings cannot classify the worktree tree.');
+  if (changes.length === 0) return { dirty: false, paths: [] };
+  const branch = await observer.base(checkout, agentBranch);
+  if (branch.kind === 'refused') return unreadLeaks(`The agent branch does not resolve: ${branch.reason}`);
+  const blobs = await closedListingBlobs(observer.reads, checkout.gitDir, checkout.checkout, branch.value);
+  if (blobs === undefined) return unreadLeaks('The closed Git listing of the agent branch tip cannot be read.');
+  const paths = changes.map((change): LeakPathEntry => change.tracked && change.workingBlob !== undefined && blobs.get(change.path) === change.workingBlob
+    ? { path: change.path, classification: 'leaked-committed', remediation: `git checkout -- ${shellQuotePath(change.path)}` }
+    : { path: change.path, classification: 'dirty' });
+  return { dirty: true, paths };
 }
 
 function formatReport(
@@ -221,9 +177,40 @@ function formatReport(
   return lines.join('\n');
 }
 
+/**
+ * Run the baseline test command in the local executor, read-only in the worktree. A retry of the same operation replays the stored run.
+ * The action names no workflow, so the request names no stream. It is a standalone check of any registered branch checkout with a clean tree.
+ * A refusal and a pending result keep distinct codes. A run with no verdict is pending and never reads as a failed baseline.
+ */
+async function localBaselineRun(
+  eventStore: EventStore, worktreePath: string, detection: ProjectDetection, executor: CheckExecutor | undefined,
+): Promise<{ readonly passed: boolean; readonly output: string; readonly exitCode: number } | ToolResult> {
+  let legs: Awaited<ReturnType<typeof admitLifecycleLegs>>;
+  try {
+    legs = await admitLifecycleLegs({ eventStore, checkout: worktreePath, legs: [{ kind: 'command', argv: [detection.cmd, ...detection.args] }],
+      ...(executor === undefined ? {} : { executor }) });
+  } catch (error) {
+    return hostedPendingResult(error);
+  }
+  if ('success' in legs) return legs;
+  const run = legs[0]?.run;
+  if (run?.exitCode === undefined || run.exitCode === null) return hostedPendingResult(new HostedAdequacyPending('The executor returned no baseline test leg.'));
+  return { passed: run.exitCode === 0, exitCode: run.exitCode, output: [run.stdout, run.stderr].filter(Boolean).join('\n') };
+}
+
+/**
+ * Run the baseline in the local executor, with no verifier provisioning.
+ *
+ * NOT_GIT_WORKTREE comes from the process-free climb of `gitCommonDirOf`, so a subdirectory of a checkout is a Git worktree. A difference from git refuses.
+ * Leak detection comes before the test run. The executor needs a clean tree, so a dirty worktree refuses the run, and the refusal carries the leak detection.
+ *
+ * @param executor - The local check executor. The default is the real executor. A test passes its own executor.
+ */
 export async function handleVerifyWorktreeBaseline(
   args: VerifyWorktreeBaselineArgs,
   _stateDir: string,
+  eventStore: EventStore,
+  executor?: CheckExecutor,
 ): Promise<ToolResult> {
   const { worktreePath, agentBranch } = args;
 
@@ -238,10 +225,7 @@ export async function handleVerifyWorktreeBaseline(
   }
 
   try {
-    execFileSync('git', ['-C', worktreePath, 'rev-parse', '--git-dir'], {
-      encoding: 'utf-8',
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
+    gitCommonDirOf(worktreePath);
   } catch {
     return {
       success: false,
@@ -263,33 +247,12 @@ export async function handleVerifyWorktreeBaseline(
     };
   }
 
-  const { projectType, testCommand, cmd, args: cmdArgs } = detection;
+  const { projectType, testCommand } = detection;
 
-  const leakDetection: LeakDetection | undefined = agentBranch
-    ? detectLeakedEdits(worktreePath, agentBranch)
-    : undefined;
-
-  let passed = true;
-  let output = '';
-  let exitCode = 0;
-
-  try {
-    output = runCommandSync(cmd, cmdArgs as string[], {
-      encoding: 'utf-8',
-      cwd: worktreePath,
-      stdio: ['pipe', 'pipe', 'pipe'],
-    }) as string;
-  } catch (err: unknown) {
-    const execError = err as { status?: number; stdout?: string; stderr?: string };
-    passed = false;
-    exitCode = execError.status ?? 1;
-    output = [execError.stdout ?? '', execError.stderr ?? ''].filter(Boolean).join('\n');
-  }
-
-  const report = formatReport(worktreePath, projectType, testCommand, passed, output, exitCode);
-
-  return {
-    success: true,
-    data: { passed, projectType, testCommand, report, ...(leakDetection ? { leakDetection } : {}) },
-  };
+  const leakDetection = agentBranch ? await detectLeakedEdits(worktreePath, agentBranch) : undefined;
+  const leaks = leakDetection === undefined ? {} : { leakDetection };
+  const local = await localBaselineRun(eventStore, worktreePath, detection, executor);
+  if ('success' in local) return leakDetection === undefined ? local : { ...local, data: leaks };
+  const report = formatReport(worktreePath, projectType, testCommand, local.passed, local.output, local.exitCode);
+  return { success: true, data: { passed: local.passed, projectType, testCommand, report, ...leaks } };
 }

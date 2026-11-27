@@ -1,6 +1,6 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach, beforeAll, afterAll } from 'vitest';
 import { mkdtempSync, mkdirSync, symlinkSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { InMemoryBackend } from '../../src/storage/memory-backend.js';
@@ -16,9 +16,39 @@ vi.mock('../../src/workflow/state-store.js', async (importOriginal) => {
   };
 });
 
+/** The home variables of the run. The file restores them after its last test. */
+const ORIGINAL_HOME: Readonly<Record<'HOME' | 'USERPROFILE', string | undefined>> = {
+  HOME: process.env.HOME,
+  USERPROFILE: process.env.USERPROFILE,
+};
+
+/** The scratch home of this file. `createServer` reads the verifier provisioning under the home once per file, so no test reads the real home. */
+let scratchHome = '';
+
+beforeAll(() => {
+  scratchHome = mkdtempSync(join(tmpdir(), 'create-server-home-'));
+  process.env.HOME = scratchHome;
+  process.env.USERPROFILE = scratchHome;
+});
+
+afterAll(() => {
+  for (const key of ['HOME', 'USERPROFILE'] as const) {
+    const value = ORIGINAL_HOME[key];
+    if (value === undefined) delete process.env[key];
+    else process.env[key] = value;
+  }
+  rmrf(scratchHome);
+});
+
 describe('createServer Backend Wiring', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  /** `createServer` reads the verifier provisioning under `os.homedir()`, so the home of this file is its scratch home and never the real one. */
+  it('CreateServer_HomeDirectory_IsTheScratchHomeOfThisFile', () => {
+    expect(homedir()).toBe(scratchHome);
+    expect(scratchHome).not.toBe(ORIGINAL_HOME.HOME);
   });
 
   it('createServer_WithBackend_ConfiguresStateStoreBackend', async () => {

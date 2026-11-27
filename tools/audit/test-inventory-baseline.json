@@ -4,11 +4,11 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1499,
-    "parsedFiles": 1454,
-    "shellFiles": 45,
-    "cases": 16601,
-    "dynamicTitles": 303,
+    "testFiles": 1515,
+    "parsedFiles": 1471,
+    "shellFiles": 44,
+    "cases": 16865,
+    "dynamicTitles": 342,
     "unparseableFiles": 0
   },
   "unparseable": [],
@@ -4555,6 +4555,67 @@
     }
   ],
   "files": {
+    "tests/acceptance/1928-settle-integration.test.ts": {
+      "file": "tests/acceptance/1928-settle-integration.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "compiler 8-vcs settlement",
+          "name": "SettleIntegration_HarnessLanding_AcceptsAtTheTipAndReplaysTerminally",
+          "dynamic": false
+        },
+        {
+          "suite": "compiler 8-vcs settlement",
+          "name": "SettleIntegration_WrongCheckoutOrDirtyCheckout_RefusesBeforeAnyClaim",
+          "dynamic": false
+        },
+        {
+          "suite": "compiler 8-vcs settlement",
+          "name": "SettleIntegration_UnmergedHead_FailsWithNoSuiteRequest",
+          "dynamic": false
+        },
+        {
+          "suite": "compiler 8-vcs settlement",
+          "name": "SettleIntegration_UnresolvedSuite_FailsWithNoSuiteRunAndReplays",
+          "dynamic": false
+        },
+        {
+          "suite": "compiler 8-vcs settlement",
+          "name": "SettleIntegration_RedSuite_FailsAtTheTip",
+          "dynamic": false
+        },
+        {
+          "suite": "compiler 8-vcs settlement",
+          "name": "SettleIntegration_ASuiteThatChangesTheCheckout_CommitsNothing",
+          "dynamic": false
+        },
+        {
+          "suite": "compiler 8-vcs settlement",
+          "name": "SettleIntegration_MovedTip_OneFreshAttemptThenRetryableRefusal",
+          "dynamic": false
+        },
+        {
+          "suite": "compiler 8-vcs settlement",
+          "name": "SettleIntegration_PartialDagHeldAndCommitFence",
+          "dynamic": false
+        },
+        {
+          "suite": "compiler 8-vcs settlement",
+          "name": "SettleIntegration_OldCompilerEightReceipt_ReplaysUnchanged",
+          "dynamic": false
+        },
+        {
+          "suite": "compiler 8-vcs settlement",
+          "name": "SettleIntegration_PrepareWithoutRecordedIntegrationBranch_RefusesBeforeAnyRecord",
+          "dynamic": false
+        },
+        {
+          "suite": "compiler 8-vcs settlement",
+          "name": "SettleIntegration_CrashAfterTheClaim_RunsTheIncompleteAttemptAgainAfterARestart",
+          "dynamic": false
+        }
+      ]
+    },
     "tests/acceptance/action-admission-parity.test.ts": {
       "file": "tests/acceptance/action-admission-parity.test.ts",
       "runner": "vitest:root",
@@ -5060,6 +5121,21 @@
         {
           "suite": "dispatch gates success on applicable ensures",
           "name": "Dispatch_ReadOnlyAbstention_SkipsAppendCheck",
+          "dynamic": false
+        },
+        {
+          "suite": "dispatch keeps the code of a check that did not run",
+          "name": "DidNotRunCodes_TwoLiveProducersAndTwoLiteralsReservedForHistory",
+          "dynamic": false
+        },
+        {
+          "suite": "dispatch keeps the code of a check that did not run",
+          "name": "Dispatch_DidNotRunCode_KeepsItsOwnCodeInsteadOfTheEnsureViolation",
+          "dynamic": false
+        },
+        {
+          "suite": "dispatch keeps the code of a check that did not run",
+          "name": "Dispatch_UnboundAdequacyOnProvisionedMachine_RunsLocallyAndIgnoresTheConnector",
           "dynamic": false
         }
       ]
@@ -6477,6 +6553,26 @@
           "suite": "identifier stability across decomposition",
           "name": "Snapshot_CountsAgreeWithItsOwnContents",
           "dynamic": false
+        },
+        {
+          "suite": "stored settlement shapes carry a version decision",
+          "name": "StoredShapes_OfThisBuild_MatchTheLatestVersionDecision",
+          "dynamic": false
+        },
+        {
+          "suite": "stored settlement shapes carry a version decision",
+          "name": "StoredShapes_DecisionLog_StartsAtTheOneWayUpgradeAndEachEntryRecordsAChange",
+          "dynamic": false
+        },
+        {
+          "suite": "stored settlement shapes carry a version decision",
+          "name": "StoredShapes_DecisionLog_HoldsEachRecordedDecisionUnchanged",
+          "dynamic": false
+        },
+        {
+          "suite": "stored settlement shapes carry a version decision",
+          "name": "StoredShapes_AnAddedOptionalField_ChangesTheDigestAndADescriptionDoesNot",
+          "dynamic": false
         }
       ]
     },
@@ -7077,6 +7173,27 @@
         {
           "suite": "repo-local skills",
           "name": "RepoLocalSkills_EveryRuleThatThePolicyCites_IsInTheVendoredSkill",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/architecture/reserved-module-importers.test.ts": {
+      "file": "tests/architecture/reserved-module-importers.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "reserved module headers",
+          "name": "ReservedModules_AreFound_TheScanIsNotEmpty",
+          "dynamic": false
+        },
+        {
+          "suite": "reserved module headers",
+          "name": "ReservedModule_HasNoImporterOutsideTheReservedSet",
+          "dynamic": false
+        },
+        {
+          "suite": "reserved module headers",
+          "name": "SeededHeaderOnALiveModule_IsReported",
           "dynamic": false
         }
       ]
@@ -8666,7 +8783,7 @@
         },
         {
           "suite": "fast paths of the compiled binary",
-          "name": "RunTests_FixtureCommand_ReturnsItsExitCode",
+          "name": "RunTests_NoVerifierProvisioning_RunsLocallyAndKeepsExits77And75",
           "dynamic": false
         },
         {
@@ -10163,6 +10280,473 @@
         }
       ]
     },
+    "tests/integration/1928-git-observer.test.ts": {
+      "file": "tests/integration/1928-git-observer.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "constrained Git structural reader",
+          "name": "LinkedRegistration_ExactCoordinatesAndImmutableAncestry",
+          "dynamic": false
+        },
+        {
+          "suite": "constrained Git structural reader",
+          "name": "CopiedPointerForeignRepositoryAndDetachedHead_Refuse",
+          "dynamic": false
+        },
+        {
+          "suite": "constrained Git structural reader",
+          "name": "MetadataAndCapability_UnsupportedInputsRefuseBeforeReads",
+          "dynamic": false
+        },
+        {
+          "suite": "constrained Git structural reader",
+          "name": "StatusCallbacks_ReachableButCleanlinessNeverExecutesThem",
+          "dynamic": false
+        },
+        {
+          "suite": "constrained Git structural reader",
+          "name": "TextconvAndExternalDiff_ReachableButExactDiffSuppressesCallbacks",
+          "dynamic": false
+        },
+        {
+          "suite": "constrained Git structural reader",
+          "name": "PromisorMissingObject_PositiveFetchThenGovernedRefusalWithoutStorageWrites",
+          "dynamic": false
+        },
+        {
+          "suite": "closed reads of the current checkout",
+          "name": "CurrentCheckoutAndBaseNames_ClosedOrderAndDetachedRefusal",
+          "dynamic": false
+        },
+        {
+          "suite": "closed reads of the current checkout",
+          "name": "ArmedRepositoryHooks_ReachableButEveryNewClosedReadRunsNone",
+          "dynamic": false
+        },
+        {
+          "suite": "closed reads of the current checkout",
+          "name": "PopulatedSubmoduleExternalDiff_ReachableButFullDiffRunsNone",
+          "dynamic": false
+        },
+        {
+          "suite": "closed reads of the current checkout",
+          "name": "PopulatedSubmoduleExternalDiff_GovernedDiffOperationRunsNone",
+          "dynamic": false
+        },
+        {
+          "suite": "the observational located form and its storage policy",
+          "name": "LocatedAndHeadForms_SubdirectoryLinkedDetachedAndUnborn",
+          "dynamic": false
+        },
+        {
+          "suite": "the observational located form and its storage policy",
+          "name": "WorktreeConfigWrittenByGit_ExactBytesAcceptedByTheObservationalPolicyOnly",
+          "dynamic": false
+        },
+        {
+          "suite": "the observational located form and its storage policy",
+          "name": "ShallowFile_ReadableByTheObservationalPolicyAndRefusedByTheVerifier",
+          "dynamic": false
+        },
+        {
+          "suite": "the observational located form and its storage policy",
+          "name": "DecisionHelper_ReachableBoundaryLeavesANegativeAnswerUndecided",
+          "dynamic": false
+        },
+        {
+          "suite": "the observational located form and its storage policy",
+          "name": "ObservationalPolicy_IncludesAndOtherExtensionsRefuse",
+          "dynamic": false
+        },
+        {
+          "suite": "the observational located form and its storage policy",
+          "name": "HeaderAtAnyPosition_RefusesInEachLoadedConfigFile",
+          "dynamic": false
+        },
+        {
+          "suite": "the observational located form and its storage policy",
+          "name": "StrictPolicy_MidLineIncludeHeaderRefuses",
+          "dynamic": false
+        },
+        {
+          "suite": "the observational located form and its storage policy",
+          "name": "RefusedCheckout_CreatesNoReader",
+          "dynamic": false
+        },
+        {
+          "suite": "the closed observational operations",
+          "name": "ObservationalOperations_PositiveAnswersAndNoArmedCallbackRuns",
+          "dynamic": false
+        },
+        {
+          "suite": "the closed observational operations",
+          "name": "ObservationalOperations_RefuseRevisionExpressionsAndOptions",
+          "dynamic": false
+        },
+        {
+          "suite": "the decision helper exit rule",
+          "name": "DecideRelation_OnlyExitOneIsANegativeAnswer",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/integration/1928-historical-intents.test.ts": {
+      "file": "tests/integration/1928-historical-intents.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "S7 historical writer provenance",
+          "name": "LegacySynthesis_ActualTerminalAndInterruptedCustody",
+          "dynamic": false
+        },
+        {
+          "suite": "S7 historical writer provenance",
+          "name": "FrozenS7_OriginalMembershipDigestAndInterruptedBoundary",
+          "dynamic": false
+        },
+        {
+          "suite": "historical terminal admission without live compilation",
+          "name": "OriginalCustody_NoCompilerOrWriter_ExactReceiptAndAdmission",
+          "dynamic": false
+        },
+        {
+          "suite": "historical terminal admission without live compilation",
+          "name": "UnfinishedOriginal_RefusesWithLiveAndRetiredCompiler_EmptyFreshRemainsLive",
+          "dynamic": false
+        },
+        {
+          "suite": "historical terminal admission without live compilation",
+          "name": "PhysicalCustodyCorruption_NoFallbackNoMutation",
+          "dynamic": false
+        },
+        {
+          "suite": "historical terminal admission without live compilation",
+          "name": "TerminalWinsDuringMissingObservation_ReauthenticatesExactRequest",
+          "dynamic": false
+        },
+        {
+          "suite": "historical terminal admission without live compilation",
+          "name": "OriginalFailedTerminal_PreservesFailureCarrierWithoutCompiler",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/integration/1928-hosted-adequacy.test.ts": {
+      "file": "tests/integration/1928-hosted-adequacy.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "",
+          "name": "BoundAdequacy_LocalRunInDisposableCopies_LeavesTheCheckoutUnchangedAndColdReplays",
+          "dynamic": false
+        },
+        {
+          "suite": "",
+          "name": "<dynamic-case-1>",
+          "dynamic": true
+        },
+        {
+          "suite": "",
+          "name": "BoundAdequacy_CrashesBeforeAndAfterBinding_LeaveTheAttemptRetryableAndRunOnceMore",
+          "dynamic": false
+        },
+        {
+          "suite": "",
+          "name": "<dynamic-case-2>",
+          "dynamic": true
+        }
+      ]
+    },
+    "tests/integration/1928-integration-retry.test.ts": {
+      "file": "tests/integration/1928-integration-retry.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "integration attempts in the local executor",
+          "name": "IntegrationRetry_CrashesBeforeAndAfterBinding_RunOnceMoreThenReplay",
+          "dynamic": false
+        },
+        {
+          "suite": "integration attempts in the local executor",
+          "name": "IntegrationRetry_TwoTipsInOnePhaseAttempt_EachClaimsExactlyOnce",
+          "dynamic": false
+        },
+        {
+          "suite": "integration attempts in the local executor",
+          "name": "IntegrationRetry_WrongCheckout_RefusesBeforeAnyClaim",
+          "dynamic": false
+        },
+        {
+          "suite": "verifier key stability",
+          "name": "IntegrationRetry_HistoricalTaskPhaseAndCheckoutKeys_KeepTheirBytes",
+          "dynamic": false
+        },
+        {
+          "suite": "verifier key stability",
+          "name": "IntegrationRetry_IntegrationKeyBindsEverySubjectFieldResourceAndCommand",
+          "dynamic": false
+        },
+        {
+          "suite": "verifier key stability",
+          "name": "IntegrationRetry_IntegrationSubjectBindsAtMost64SortedUniqueHeads",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/integration/1928-observational-callers.test.ts": {
+      "file": "tests/integration/1928-observational-callers.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "lifecycle and team routes in the local executor",
+          "name": "LocalRoutes_NoConnector_RunTheApprovedLegsWithNoPlainGitStart",
+          "dynamic": false
+        },
+        {
+          "suite": "lifecycle and team routes in the local executor",
+          "name": "LocalRoutes_ConfigDisabledGate_RecordsTheSkipWithNoRun",
+          "dynamic": false
+        },
+        {
+          "suite": "lifecycle and team routes in the local executor",
+          "name": "LocalRoutes_ThroughRealDispatch_RunInTheLocalExecutor",
+          "dynamic": false
+        },
+        {
+          "suite": "lifecycle and team routes in the local executor",
+          "name": "LocalRoutes_UnusableConnector_IsIgnored",
+          "dynamic": false
+        },
+        {
+          "suite": "converted reads of the lifecycle and team routes",
+          "name": "PreSynthesisBranchRead_ProcessGitPath_NoPathGitAndDetachedFailsClosed",
+          "dynamic": false
+        },
+        {
+          "suite": "converted reads of the lifecycle and team routes",
+          "name": "DebugReviewReads_ProcessGitPath_RefusedBaseAndDetachedGiveDiffFailed",
+          "dynamic": false
+        },
+        {
+          "suite": "converted reads of the lifecycle and team routes",
+          "name": "StandaloneHost_ProcessGitPath_RunsInADirtyTreeAndRefusesANonRootDirectory",
+          "dynamic": false
+        },
+        {
+          "suite": "the mock-boundary diff and the prepare-synthesis changed files",
+          "name": "ThreeDotReads_AdvancedBase_SeeOnlyTheTaskChanges",
+          "dynamic": false
+        },
+        {
+          "suite": "the mock-boundary diff and the prepare-synthesis changed files",
+          "name": "ThreeDotReads_UnrelatedHistory_FailClosed",
+          "dynamic": false
+        },
+        {
+          "suite": "the mock-boundary diff and the prepare-synthesis changed files",
+          "name": "MockBoundary_LargeDiffAndRename_KeepFindingsExact",
+          "dynamic": false
+        },
+        {
+          "suite": "the mock-boundary diff and the prepare-synthesis changed files",
+          "name": "MockBoundary_PopulatedSubmoduleMarker_NeverRuns",
+          "dynamic": false
+        },
+        {
+          "suite": "the mock-boundary diff and the prepare-synthesis changed files",
+          "name": "MockBoundary_RefusedNonCoordinateDiff_GivesDiffError",
+          "dynamic": false
+        },
+        {
+          "suite": "the mock-boundary diff and the prepare-synthesis changed files",
+          "name": "MockBoundary_CoordinateDiff_ExactCommitsAndRefusals",
+          "dynamic": false
+        },
+        {
+          "suite": "the mock-boundary diff and the prepare-synthesis changed files",
+          "name": "MockBoundary_DiffErrorThroughRealDispatch_KeepsItsCode",
+          "dynamic": false
+        },
+        {
+          "suite": "converted observational callers: the recording Git path",
+          "name": "ConvertedCallers_ConnectorGitPath_EveryReadIsAConstrainedRecordedRead",
+          "dynamic": false
+        },
+        {
+          "suite": "converted observational callers: the recording Git path",
+          "name": "ConvertedCallers_NoConnector_ReadThroughTheProcessWidePath",
+          "dynamic": false
+        },
+        {
+          "suite": "converted observational callers: the recording Git path",
+          "name": "ConvertedCallers_NoConnector_FailedMockBoundaryReadGivesDiffError",
+          "dynamic": false
+        },
+        {
+          "suite": "converted observational callers: the recording Git path",
+          "name": "ConvertedCallers_UnusableConnector_DiffGatesUseTheProcessPathAndMockBoundaryRefuses",
+          "dynamic": false
+        },
+        {
+          "suite": "process-free repository walks",
+          "name": "DeriveRepoKey_UnderPathShim_MatchesGitAtEveryLayout",
+          "dynamic": false
+        },
+        {
+          "suite": "process-free repository walks",
+          "name": "WorkflowInitAndPipeline_UnderPathShim_ShareTheMainKey",
+          "dynamic": false
+        },
+        {
+          "suite": "process-free repository walks",
+          "name": "VerifyWorktreeBoundary_UnderPathShim_FindsTheLinkedRoot",
+          "dynamic": false
+        },
+        {
+          "suite": "the home directory of spawned test children",
+          "name": "HomeScrub_RunCliAndSpawnMcpClient_GiveTheChildAScratchHome",
+          "dynamic": false
+        },
+        {
+          "suite": "the home directory of spawned test children",
+          "name": "HomeScrub_ProcessSetupChain_LoadsNoTempDirHelperOrStorageModule",
+          "dynamic": false
+        },
+        {
+          "suite": "constrained observational reads: Git path selection",
+          "name": "ConnectorGitPath_PreferredOverPath_NoShimGitStarts",
+          "dynamic": false
+        },
+        {
+          "suite": "constrained observational reads: Git path selection",
+          "name": "PrimedConnectorGitPath_DetectionWithoutGitPath_OnlyConnectorShimRuns",
+          "dynamic": false
+        },
+        {
+          "suite": "constrained observational reads: Git path selection",
+          "name": "UnprimedProcess_SinglePathResolution_NoRelativeOrEmptyEntryRuns",
+          "dynamic": false
+        },
+        {
+          "suite": "constrained observational reads: Git path selection",
+          "name": "Detection_UnusableGitPath_GivesNullAndNoShimGit",
+          "dynamic": false
+        },
+        {
+          "suite": "constrained observational reads: the outcome of each site",
+          "name": "PruneRecentCommits_TipTimeAndUnreadableOutcomes_BranchNameIsOneArgument",
+          "dynamic": false
+        },
+        {
+          "suite": "constrained observational reads: the outcome of each site",
+          "name": "ShallowUndecidedMergeBase_GivesDiffFailed",
+          "dynamic": false
+        },
+        {
+          "suite": "constrained observational reads: the outcome of each site",
+          "name": "ShallowUndecidedAncestry_BlocksPrepareDelegationWithGitError",
+          "dynamic": false
+        },
+        {
+          "suite": "constrained observational reads: the outcome of each site",
+          "name": "ReviewAndPolishScope_RefusedLoadedConfig_GiveDiffFailed",
+          "dynamic": false
+        },
+        {
+          "suite": "constrained observational reads: acquire_worktree adoption",
+          "name": "AcquireWorktree_ReadableStaleAndOutsideCheckout_KeepTheirOutcomes",
+          "dynamic": false
+        },
+        {
+          "suite": "constrained observational reads: acquire_worktree adoption",
+          "name": "AcquireWorktree_UnreadableListingCauses_RefuseWithNoEvent",
+          "dynamic": false
+        },
+        {
+          "suite": "constrained observational reads: acquire_worktree adoption",
+          "name": "AcquireWorktree_MidLineHeaders_RefuseWithNoEvent",
+          "dynamic": false
+        },
+        {
+          "suite": "constrained observational reads: acquire_worktree adoption",
+          "name": "AcquireWorktree_ShallowRepository_DecidedAndUndecidedOutcomes",
+          "dynamic": false
+        },
+        {
+          "suite": "constrained observational reads: acquire_worktree adoption",
+          "name": "AcquireWorktree_OwnConfigWorktreeBranchSection_GivesHeadUnresolved",
+          "dynamic": false
+        },
+        {
+          "suite": "constrained observational reads: acquire_worktree adoption",
+          "name": "AcquireWorktree_MainWorktreeConfigWorktree_DoesNotMoveALinkedUpstream",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/integration/1928-pr-observation.test.ts": {
+      "file": "tests/integration/1928-pr-observation.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "exact staged PR observation",
+          "name": "OneApprovedGET_BindsExactRecordAndFiveHeadingTemplate",
+          "dynamic": false
+        },
+        {
+          "suite": "exact staged PR observation",
+          "name": "WrongOwnerHeadRefsStateAndMalformedIdentity_Refuse",
+          "dynamic": false
+        },
+        {
+          "suite": "exact staged PR observation",
+          "name": "CapturedTemplate_NoDefaultBotOrQueueBypass",
+          "dynamic": false
+        },
+        {
+          "suite": "exact staged PR observation",
+          "name": "RedirectCredentialAndBoundedResponse_RefuseWithoutSecondFetch",
+          "dynamic": false
+        },
+        {
+          "suite": "exact staged PR observation",
+          "name": "SlowHeadersAndBody_AbortWithinFixedBound",
+          "dynamic": false
+        },
+        {
+          "suite": "exact staged PR observation",
+          "name": "SharedPurePolicy_PreservesLegacyDefaultAndCaseSemantics",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/integration/1928-verifier-protocol.test.ts": {
+      "file": "tests/integration/1928-verifier-protocol.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "private verifier protocol",
+          "name": "Framing_ExactBoundAndMalformedBytesRefuseBeforeDecode",
+          "dynamic": false
+        },
+        {
+          "suite": "private verifier protocol",
+          "name": "Claims_StableOperationAliasesAndUnknownLeasesSurviveRestart",
+          "dynamic": false
+        },
+        {
+          "suite": "private verifier protocol",
+          "name": "AuthorizationFailure_RereadsAConcurrentOriginalClaim",
+          "dynamic": false
+        },
+        {
+          "suite": "private verifier protocol",
+          "name": "SignedStatuses_ExactSubjectAndSignerCannotBeSubstituted",
+          "dynamic": false
+        }
+      ]
+    },
     "tests/integration/action-contract-emissions.test.ts": {
       "file": "tests/integration/action-contract-emissions.test.ts",
       "runner": "vitest:root",
@@ -10206,11 +10790,6 @@
         {
           "suite": "action-contract registration boundary",
           "name": "RegisterCustomTool_InvalidContract_IsRejected",
-          "dynamic": false
-        },
-        {
-          "suite": "action-contract registration boundary",
-          "name": "RegisterExtensionTool_MissingContract_IsRejected",
           "dynamic": false
         },
         {
@@ -11115,6 +11694,439 @@
           "suite": "telemetry action/transport split outcome (#1364)",
           "name": "Telemetry_AfterJsThrow_IncrementsTransportErrors",
           "dynamic": false
+        }
+      ]
+    },
+    "tests/process/1928-data-only.test.ts": {
+      "file": "tests/process/1928-data-only.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "",
+          "name": "DataOnly_PackagedEntries_StartNoGitAndRunNoConfigurationHookOrTestCommand",
+          "dynamic": false
+        },
+        {
+          "suite": "",
+          "name": "<dynamic-case-1>",
+          "dynamic": true
+        },
+        {
+          "suite": "",
+          "name": "DataOnly_OldTerminalWorkflow_ReadsWithNoCheckoutVerifierOrProvider",
+          "dynamic": false
+        },
+        {
+          "suite": "",
+          "name": "<dynamic-case-2>",
+          "dynamic": true
+        },
+        {
+          "suite": "",
+          "name": "DataOnly_UnusableProvisioning_RunTestsIgnoresItAndUnboundAdequacyRunsLocallyWithNoTestCommand",
+          "dynamic": false
+        },
+        {
+          "suite": "",
+          "name": "<dynamic-case-3>",
+          "dynamic": true
+        },
+        {
+          "suite": "",
+          "name": "DataOnly_ProvisionedVerifier_RunTestsRunsLocallyWithTheChildCodeAlsoInADirtyTree",
+          "dynamic": false
+        },
+        {
+          "suite": "",
+          "name": "<dynamic-case-4>",
+          "dynamic": true
+        },
+        {
+          "suite": "",
+          "name": "DataOnly_FormerExecutableConfigurationType_RefusesAsNoDefinitionAndConfigNeverRuns",
+          "dynamic": false
+        },
+        {
+          "suite": "",
+          "name": "<dynamic-case-5>",
+          "dynamic": true
+        },
+        {
+          "suite": "",
+          "name": "DataOnly_Startup_StartsNoGitWithProvisioningAbsentUnusableOrUsable",
+          "dynamic": false
+        },
+        {
+          "suite": "",
+          "name": "<dynamic-case-6>",
+          "dynamic": true
+        }
+      ]
+    },
+    "tests/process/1928-host-recovery.test.ts": {
+      "file": "tests/process/1928-host-recovery.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "",
+          "name": "HostedAdequacy_RecognizesAssertionButNotInfrastructureAndReplaysOriginal",
+          "dynamic": false
+        },
+        {
+          "suite": "",
+          "name": "<dynamic-case-1>",
+          "dynamic": true
+        },
+        {
+          "suite": "",
+          "name": "HostedAdequacy_InterruptedRestorationKeepsOriginalClaimAndResourceLease",
+          "dynamic": false
+        },
+        {
+          "suite": "",
+          "name": "<dynamic-case-2>",
+          "dynamic": true
+        }
+      ]
+    },
+    "tests/process/1928-hosted-gates.test.ts": {
+      "file": "tests/process/1928-hosted-gates.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "",
+          "name": "LocalGates_BoundChecksRunInTheLocalExecutorWithOrWithoutAVerifier",
+          "dynamic": false
+        },
+        {
+          "suite": "",
+          "name": "<dynamic-case-1>",
+          "dynamic": true
+        },
+        {
+          "suite": "",
+          "name": "LocalGates_ARetryOfTheSameOperation_ReplaysTheStoredObservationWithoutARerun",
+          "dynamic": false
+        },
+        {
+          "suite": "",
+          "name": "<dynamic-case-2>",
+          "dynamic": true
+        },
+        {
+          "suite": "",
+          "name": "LocalGates_AWrongWorkingDirectoryAndADirtyCheckout_RefuseWithARecordedOutcome",
+          "dynamic": false
+        },
+        {
+          "suite": "",
+          "name": "<dynamic-case-3>",
+          "dynamic": true
+        },
+        {
+          "suite": "",
+          "name": "LocalGates_AllowlistTimeCapOutputCapAndIncompleteAttempts_StopWithARecordedOutcome",
+          "dynamic": false
+        },
+        {
+          "suite": "",
+          "name": "<dynamic-case-4>",
+          "dynamic": true
+        },
+        {
+          "suite": "",
+          "name": "LocalSpecCoverage_PostImplementationRunsTheDeclaredTestsInTheCheckoutAndPlanningRunsNone",
+          "dynamic": false
+        },
+        {
+          "suite": "",
+          "name": "<dynamic-case-5>",
+          "dynamic": true
+        }
+      ]
+    },
+    "tests/process/1928-launch-ownership.test.ts": {
+      "file": "tests/process/1928-launch-ownership.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "",
+          "name": "LaunchOwnership_GovernorImportWalk_ReachesNoLauncherWriter",
+          "dynamic": false
+        },
+        {
+          "suite": "",
+          "name": "LaunchOwnership_GovernorStub_RefusesEachHarnessVerbWithNoEffect",
+          "dynamic": false
+        },
+        {
+          "suite": "",
+          "name": "<dynamic-case-1>",
+          "dynamic": true
+        },
+        {
+          "suite": "",
+          "name": "LaunchOwnership_McpToolList_OffersNoLaunch",
+          "dynamic": false
+        },
+        {
+          "suite": "",
+          "name": "<dynamic-case-2>",
+          "dynamic": true
+        },
+        {
+          "suite": "",
+          "name": "LaunchOwnership_HarnessDryRun_PrintsThePlanAndStartsNoGit",
+          "dynamic": false
+        },
+        {
+          "suite": "",
+          "name": "<dynamic-case-3>",
+          "dynamic": true
+        },
+        {
+          "suite": "",
+          "name": "LaunchOwnership_HarnessLegacyJsonlState_RefusesAndCreatesNoDatabase",
+          "dynamic": false
+        },
+        {
+          "suite": "",
+          "name": "<dynamic-case-4>",
+          "dynamic": true
+        },
+        {
+          "suite": "",
+          "name": "LaunchOwnership_HarnessRealLaunch_CreatesLaunchesAndReleasesInTheSharedStore",
+          "dynamic": false
+        },
+        {
+          "suite": "",
+          "name": "<dynamic-case-5>",
+          "dynamic": true
+        },
+        {
+          "suite": "",
+          "name": "LaunchOwnership_Recovery_FinishesAPendingIntentAndNeverRecreatesAfterItsTerminal",
+          "dynamic": false
+        },
+        {
+          "suite": "",
+          "name": "<dynamic-case-6>",
+          "dynamic": true
+        }
+      ]
+    },
+    "tests/process/1928-lifecycle-host.test.ts": {
+      "file": "tests/process/1928-lifecycle-host.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "",
+          "name": "LocalLifecycle_ApprovedOperationsRunInTheLocalExecutorWithNoVerifier",
+          "dynamic": false
+        },
+        {
+          "suite": "",
+          "name": "<dynamic-case-1>",
+          "dynamic": true
+        },
+        {
+          "suite": "",
+          "name": "LocalLifecycle_ARetryOfTheSameOperation_ReplaysTheStoredRunWithoutARerun",
+          "dynamic": false
+        },
+        {
+          "suite": "",
+          "name": "<dynamic-case-2>",
+          "dynamic": true
+        },
+        {
+          "suite": "",
+          "name": "LocalLifecycle_DirtyTreeRefusesOnlyTheLifecycleCheck_WrongDirectoryAndProgramInsideTheCheckoutRefuseWithNoRun",
+          "dynamic": false
+        },
+        {
+          "suite": "",
+          "name": "<dynamic-case-3>",
+          "dynamic": true
+        },
+        {
+          "suite": "",
+          "name": "LocalLifecycle_APreparedStream_ConfinesTheCheckToTheWorkflowRepository",
+          "dynamic": false
+        },
+        {
+          "suite": "",
+          "name": "<dynamic-case-4>",
+          "dynamic": true
+        },
+        {
+          "suite": "",
+          "name": "LocalLifecycle_AnUnpreparedStream_ConfinesTheCheckToTheWorkflowWorktrees",
+          "dynamic": false
+        },
+        {
+          "suite": "",
+          "name": "<dynamic-case-5>",
+          "dynamic": true
+        },
+        {
+          "suite": "",
+          "name": "LocalLifecycle_StoredEvidenceWithNoLocalObservation_ReplaysTheOriginalVerdictWithNoRun",
+          "dynamic": false
+        },
+        {
+          "suite": "",
+          "name": "<dynamic-case-6>",
+          "dynamic": true
+        },
+        {
+          "suite": "",
+          "name": "LocalLifecycle_StopAfterTestFailureTimeCapAndMissingProgram_GiveNoFalseVerdict",
+          "dynamic": false
+        },
+        {
+          "suite": "",
+          "name": "<dynamic-case-7>",
+          "dynamic": true
+        },
+        {
+          "suite": "",
+          "name": "LocalLifecycle_LeakDetection_ClassifiesTheDirtyPathsWithTheClosedListings",
+          "dynamic": false
+        },
+        {
+          "suite": "",
+          "name": "<dynamic-case-8>",
+          "dynamic": true
+        }
+      ]
+    },
+    "tests/process/1928-observational-reads.test.ts": {
+      "file": "tests/process/1928-observational-reads.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "",
+          "name": "ObservationalReads_Startup_StartsNoGitWithProvisioningAbsentOrPresent",
+          "dynamic": false
+        },
+        {
+          "suite": "",
+          "name": "<dynamic-case-1>",
+          "dynamic": true
+        },
+        {
+          "suite": "",
+          "name": "ObservationalReads_Unprovisioned_ResolvesOnceFromPathAndRunsTheConstrainedFlags",
+          "dynamic": false
+        },
+        {
+          "suite": "",
+          "name": "<dynamic-case-2>",
+          "dynamic": true
+        },
+        {
+          "suite": "",
+          "name": "ObservationalReads_EmptyAndRelativePathEntries_NeverRun",
+          "dynamic": false
+        },
+        {
+          "suite": "",
+          "name": "<dynamic-case-3>",
+          "dynamic": true
+        },
+        {
+          "suite": "",
+          "name": "ObservationalReads_UsableProvisioning_PrefersTheConnectorGitPath",
+          "dynamic": false
+        },
+        {
+          "suite": "",
+          "name": "<dynamic-case-4>",
+          "dynamic": true
+        },
+        {
+          "suite": "",
+          "name": "ObservationalReads_UsableProvisioning_PrimesTheDetectionOfAnUnownedCaller",
+          "dynamic": false
+        },
+        {
+          "suite": "",
+          "name": "<dynamic-case-5>",
+          "dynamic": true
+        },
+        {
+          "suite": "",
+          "name": "ObservationalReads_ConvertedCallers_PathShimRunsOnlyConstrainedReads",
+          "dynamic": false
+        },
+        {
+          "suite": "",
+          "name": "<dynamic-case-6>",
+          "dynamic": true
+        },
+        {
+          "suite": "",
+          "name": "ObservationalReads_ConvertedCallers_ProvisionedRecordingGitPathRunsOnlyConstrainedReads",
+          "dynamic": false
+        },
+        {
+          "suite": "",
+          "name": "<dynamic-case-7>",
+          "dynamic": true
+        }
+      ]
+    },
+    "tests/process/1928-read-boundary.test.ts": {
+      "file": "tests/process/1928-read-boundary.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "",
+          "name": "StagedReader_ProcessEnvironmentCannotRedirectCoordinates",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/process/1928-verifier-binary.test.ts": {
+      "file": "tests/process/1928-verifier-binary.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "",
+          "name": "IndependentVerifier_RealConfinementOriginalReplayAndProtectedProvisioning",
+          "dynamic": false
+        },
+        {
+          "suite": "",
+          "name": "<dynamic-case-1>",
+          "dynamic": true
+        },
+        {
+          "suite": "",
+          "name": "IndependentVerifier_CrashRetainsUnknownClaimAndStopsOwnedChildren",
+          "dynamic": false
+        },
+        {
+          "suite": "",
+          "name": "<dynamic-case-2>",
+          "dynamic": true
+        },
+        {
+          "suite": "",
+          "name": "VerifierBundle_ReachesOnlyReportParsersOfConfig",
+          "dynamic": false
+        },
+        {
+          "suite": "",
+          "name": "HostedRuntime_RefusesUnsafeSourcesAndRunnerProfilesBeforeAnyClaim",
+          "dynamic": false
+        },
+        {
+          "suite": "",
+          "name": "<dynamic-case-3>",
+          "dynamic": true
         }
       ]
     },
@@ -16207,28 +17219,43 @@
       "runner": "vitest:root",
       "cases": [
         {
-          "suite": "exarchos <harness> launcher CLI wiring (DR-1 / DR-6, R-1)",
+          "suite": "exarchos-harness launcher entry wiring (DR-1 / DR-6, R-1)",
           "name": "LauncherCli_NonDryRun_ActuallySpawns",
           "dynamic": false
         },
         {
-          "suite": "exarchos <harness> launcher CLI wiring (DR-1 / DR-6, R-1)",
+          "suite": "exarchos-harness launcher entry wiring (DR-1 / DR-6, R-1)",
           "name": "LauncherCli_DryRun_SpawnsNothing",
           "dynamic": false
         },
         {
-          "suite": "exarchos <harness> launcher CLI wiring (DR-1 / DR-6, R-1)",
+          "suite": "exarchos-harness launcher entry wiring (DR-1 / DR-6, R-1)",
           "name": "LauncherCli_NonDryRun_RunsStartupRecovery",
           "dynamic": false
         },
         {
-          "suite": "exarchos <harness> launcher CLI wiring (DR-1 / DR-6, R-1)",
+          "suite": "exarchos-harness launcher entry wiring (DR-1 / DR-6, R-1)",
           "name": "LauncherCli_LaunchRejection_MapsToUncaughtException",
           "dynamic": false
         },
         {
-          "suite": "exarchos <harness> launcher CLI wiring (DR-1 / DR-6, R-1)",
+          "suite": "exarchos-harness launcher entry wiring (DR-1 / DR-6, R-1)",
           "name": "LauncherCli_UnknownHarness_NeverRegistered",
+          "dynamic": false
+        },
+        {
+          "suite": "exarchos-harness launcher entry wiring (DR-1 / DR-6, R-1)",
+          "name": "LauncherCli_EmptyFeature_RefusesBeforeTheContext",
+          "dynamic": false
+        },
+        {
+          "suite": "exarchos-harness launcher entry wiring (DR-1 / DR-6, R-1)",
+          "name": "LauncherCli_NonDryRunWithoutJson_WritesOneToolResultLine",
+          "dynamic": false
+        },
+        {
+          "suite": "exarchos-harness launcher entry wiring (DR-1 / DR-6, R-1)",
+          "name": "LauncherCli_GovernorHarnessVerb_RefusesWithTheHarnessEntryName",
           "dynamic": false
         }
       ]
@@ -19494,32 +20521,6 @@
         }
       ]
     },
-    "tests/unit/config/guards.test.ts": {
-      "file": "tests/unit/config/guards.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "Custom Guard Execution",
-          "name": "ExecuteGuard_CommandSucceeds_GuardPasses",
-          "dynamic": false
-        },
-        {
-          "suite": "Custom Guard Execution",
-          "name": "ExecuteGuard_CommandFails_GuardFails",
-          "dynamic": false
-        },
-        {
-          "suite": "Custom Guard Execution",
-          "name": "ExecuteGuard_Timeout_GuardFails",
-          "dynamic": false
-        },
-        {
-          "suite": "Custom Guard Execution",
-          "name": "ExecuteGuard_CommandNotFound_GuardFailsGracefully",
-          "dynamic": false
-        }
-      ]
-    },
     "tests/unit/config/load-exarchos-config.test.ts": {
       "file": "tests/unit/config/load-exarchos-config.test.ts",
       "runner": "vitest:root",
@@ -19566,6 +20567,11 @@
         },
         {
           "suite": "loadExarchosConfig",
+          "name": "loadConfig_DefaultWalk_MatchesGitTopLevelForADirectoryAndAGitdirFile",
+          "dynamic": false
+        },
+        {
+          "suite": "loadExarchosConfig",
           "name": "loadConfig_RepoRootResolutionFails_FallsBackToWorktreeOnly",
           "dynamic": false
         },
@@ -19597,72 +20603,6 @@
         {
           "suite": "loadExarchosConfig",
           "name": "loadConfigOutcome_FileThatCannotBeRead_IsInvalidWithTheReadError",
-          "dynamic": false
-        }
-      ]
-    },
-    "tests/unit/config/loader.test.ts": {
-      "file": "tests/unit/config/loader.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "loadConfig",
-          "name": "LoadConfig_NoConfigFile_ReturnsEmptyObject",
-          "dynamic": false
-        },
-        {
-          "suite": "loadConfig",
-          "name": "LoadConfig_ValidJsConfig_ReturnsConfig",
-          "dynamic": false
-        },
-        {
-          "suite": "loadConfig",
-          "name": "LoadConfig_InvalidConfig_Throws",
-          "dynamic": false
-        },
-        {
-          "suite": "loadConfig",
-          "name": "LoadConfig_BuiltinWorkflowName_Throws",
-          "dynamic": false
-        },
-        {
-          "suite": "loadConfig",
-          "name": "LoadConfig_PrefersTs_OverJs",
-          "dynamic": false
-        },
-        {
-          "suite": "loadConfig",
-          "name": "LoadConfig_EmptyDefaultExport_ReturnsEmpty",
-          "dynamic": false
-        },
-        {
-          "suite": "loadConfig",
-          "name": "LoadConfig_WithEvents_ParsesEventDefinitions",
-          "dynamic": false
-        },
-        {
-          "suite": "loadConfig",
-          "name": "LoadConfig_WithInvalidEventSource_Fails",
-          "dynamic": false
-        },
-        {
-          "suite": "loadConfig",
-          "name": "LoadConfig_WithViews_ParsesViewDefinitions",
-          "dynamic": false
-        },
-        {
-          "suite": "loadConfig",
-          "name": "LoadConfig_WithInvalidViews_Throws",
-          "dynamic": false
-        },
-        {
-          "suite": "loadConfig",
-          "name": "LoadConfig_WithTools_ParsesToolDefinitions",
-          "dynamic": false
-        },
-        {
-          "suite": "loadConfig",
-          "name": "LoadConfig_WithInvalidTools_Throws",
           "dynamic": false
         }
       ]
@@ -19724,7 +20664,7 @@
         },
         {
           "suite": "Registration Pipeline",
-          "name": "RegisterCustomWorkflows_WithGuards_GuardsRegisteredAndResolved",
+          "name": "RegisterCustomWorkflows_WithGuards_MarksTheGuardCustomAndStoresNoCommand",
           "dynamic": false
         },
         {
@@ -19745,31 +20685,6 @@
         {
           "suite": "Registration Pipeline",
           "name": "RegisterCustomWorkflows_EventRegistrationFails_RollsBack",
-          "dynamic": false
-        },
-        {
-          "suite": "View Registration",
-          "name": "RegisterCustomWorkflows_WithViews_RegistersViews",
-          "dynamic": false
-        },
-        {
-          "suite": "View Registration",
-          "name": "RegisterCustomWorkflows_NoViews_Noop",
-          "dynamic": false
-        },
-        {
-          "suite": "Tool Registration",
-          "name": "RegisterCustomWorkflows_WithTools_RegistersTools",
-          "dynamic": false
-        },
-        {
-          "suite": "Tool Registration",
-          "name": "RegisterCustomTools_PartialFailure_RollsBackPreviousTools",
-          "dynamic": false
-        },
-        {
-          "suite": "Tool Registration",
-          "name": "RegisterCustomWorkflows_NoTools_Noop",
           "dynamic": false
         }
       ]
@@ -21767,12 +22682,37 @@
         },
         {
           "suite": "capsule reference integrity",
+          "name": "CapsuleReferences_AStepCollectionNestedInALooseObject_DoesNotResolve",
+          "dynamic": false
+        },
+        {
+          "suite": "capsule reference integrity",
           "name": "CapsuleReferences_AStepNestedInsideTheKernelsOwnStructures_DoesResolve",
           "dynamic": false
         },
         {
           "suite": "capsule reference integrity",
           "name": "CapsuleReferences_AnUnsoundDefinition_SuppressesStepResolution",
+          "dynamic": false
+        },
+        {
+          "suite": "compiler 8-vcs integration term",
+          "name": "CompilerPolicy_EightVcsRequiresTheIntegrationRef",
+          "dynamic": false
+        },
+        {
+          "suite": "compiler 8-vcs integration term",
+          "name": "CompilerPolicy_OtherCompilersRefuseTheIntegrationRef",
+          "dynamic": false
+        },
+        {
+          "suite": "compiler 8-vcs integration term",
+          "name": "CompilerPolicy_DecoderKeepsEveryHistoricalMapping",
+          "dynamic": false
+        },
+        {
+          "suite": "compiler 8-vcs integration term",
+          "name": "CompilerPolicy_IntegrationRefIsAFullBranchRefPattern",
           "dynamic": false
         }
       ]
@@ -24539,7 +25479,7 @@
         },
         {
           "suite": "initializeContext",
-          "name": "InitializeContext_WithProjectRoot_LoadsConfig",
+          "name": "InitializeContext_WithExecutableConfig_DoesNotEvaluateIt",
           "dynamic": false
         },
         {
@@ -24549,7 +25489,17 @@
         },
         {
           "suite": "initializeContext",
-          "name": "InitializeContext_WithConfigWorkflows_CallsRegisterCustomWorkflows",
+          "name": "InitializeContext_WithConfigWorkflows_RegistersNoCustomWorkflow",
+          "dynamic": false
+        },
+        {
+          "suite": "initializeContext",
+          "name": "InitializeContext_SuppliedConnector_ReturnsItAsVerificationHost",
+          "dynamic": false
+        },
+        {
+          "suite": "initializeContext",
+          "name": "InitializeContext_ExecutableConfigOrHooks_LogsOneMigrationFinding",
           "dynamic": false
         },
         {
@@ -24589,12 +25539,17 @@
         },
         {
           "suite": "initializeContext — projectConfig (YAML)",
-          "name": "initializeContext_WithProjectRoot_HookRunnerAvailable",
+          "name": "InitializeContext_DetectVcsFalse_AppliesDurabilityWithoutVcsProvider",
           "dynamic": false
         },
         {
           "suite": "initializeContext — projectConfig (YAML)",
-          "name": "initializeContext_NoProjectRoot_HookRunnerUndefined",
+          "name": "InitializeContext_DetectVcsAbsent_CallsTheVcsFactory",
+          "dynamic": false
+        },
+        {
+          "suite": "initializeContext — projectConfig (YAML)",
+          "name": "initializeContext_WithProjectRoot_HasNoHookRunner",
           "dynamic": false
         },
         {
@@ -24610,6 +25565,11 @@
         {
           "suite": "initializeContext — topology loader wired at startup (T58, DR-7)",
           "name": "Context_InitializeWithProjectRootButNoTopologyYaml_DoesNotThrow",
+          "dynamic": false
+        },
+        {
+          "suite": "initializeContext — topology loader wired at startup (T58, DR-7)",
+          "name": "Context_InitializeWithDetectVcsFalse_LoadsTopology",
           "dynamic": false
         },
         {
@@ -25681,6 +26641,52 @@
         }
       ]
     },
+    "tests/unit/dispatch/core/verifier-client.test.ts": {
+      "file": "tests/unit/dispatch/core/verifier-client.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "loadVerifierProvisioning",
+          "name": "LoadVerifierProvisioning_EnoentOnly_IsAbsent",
+          "dynamic": false
+        },
+        {
+          "suite": "loadVerifierProvisioning",
+          "name": "LoadVerifierProvisioning_Enotdir_IsUnusableNotAbsent",
+          "dynamic": false
+        },
+        {
+          "suite": "loadVerifierProvisioning",
+          "name": "LoadVerifierProvisioning_DanglingFileLink_IsUnusable",
+          "dynamic": false
+        },
+        {
+          "suite": "loadVerifierProvisioning",
+          "name": "LoadVerifierProvisioning_SymlinkedAncestor_IsUnusable",
+          "dynamic": false
+        },
+        {
+          "suite": "loadVerifierProvisioning",
+          "name": "LoadVerifierProvisioning_StrictSchema_RefusesAnUnknownField",
+          "dynamic": false
+        },
+        {
+          "suite": "loadVerifierProvisioning",
+          "name": "LoadVerifierProvisioning_Usable_KeepsTheExactIdentityBytes",
+          "dynamic": false
+        },
+        {
+          "suite": "loadVerifierProvisioning",
+          "name": "LoadVerifierProvisioning_IntegrationIdentity_IsExposedToSettle",
+          "dynamic": false
+        },
+        {
+          "suite": "loadVerifierProvisioning",
+          "name": "LoadVerifierProvisioning_MalformedIntegrationIdentity_IsUnusable",
+          "dynamic": false
+        }
+      ]
+    },
     "tests/unit/dispatch/dispatch-context.test.ts": {
       "file": "tests/unit/dispatch/dispatch-context.test.ts",
       "runner": "vitest:root",
@@ -26712,47 +27718,6 @@
         {
           "suite": "DR-5: concurrent CLI append safety",
           "name": "ConcurrentCliEventAppend_SameFeatureId_ProducesConsistentStore",
-          "dynamic": false
-        }
-      ]
-    },
-    "tests/unit/events/composite-hooks.test.ts": {
-      "file": "tests/unit/events/composite-hooks.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "handleEvent — hook runner wiring (R7)",
-          "name": "handleEvent_AppendWithHookRunner_FiresHookAfterAppend",
-          "dynamic": false
-        },
-        {
-          "suite": "handleEvent — hook runner wiring (R7)",
-          "name": "handleEvent_AppendWithoutHookRunner_SucceedsNormally",
-          "dynamic": false
-        },
-        {
-          "suite": "handleEvent — hook runner wiring (R7)",
-          "name": "handleEvent_AppendFailure_DoesNotFireHook",
-          "dynamic": false
-        },
-        {
-          "suite": "handleEvent — hook runner wiring (R7)",
-          "name": "handleEvent_QueryAction_DoesNotFireHook",
-          "dynamic": false
-        },
-        {
-          "suite": "handleEvent — hook runner wiring (R7)",
-          "name": "handleEvent_HookRunnerThrows_DoesNotAffectResult",
-          "dynamic": false
-        },
-        {
-          "suite": "handleEvent — hook runner wiring (R7)",
-          "name": "handleEvent_BatchAppendWithHookRunner_FiresHookForEachEvent",
-          "dynamic": false
-        },
-        {
-          "suite": "handleEvent — hook runner wiring (R7)",
-          "name": "handleEvent_BatchAppendWithoutHookRunner_SucceedsNormally",
           "dynamic": false
         }
       ]
@@ -31851,68 +32816,6 @@
         }
       ]
     },
-    "tests/unit/hooks/config-hooks-integration.test.ts": {
-      "file": "tests/unit/hooks/config-hooks-integration.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "Config Hook Integration",
-          "name": "EventStore_Append_TriggersConfigHook",
-          "dynamic": false
-        },
-        {
-          "suite": "Config Hook Integration",
-          "name": "EventStore_Append_NoProjectConfig_NoHooks",
-          "dynamic": false
-        },
-        {
-          "suite": "Config Hook Integration",
-          "name": "EventStore_BatchAppend_TriggersHooksForEach",
-          "dynamic": false
-        }
-      ]
-    },
-    "tests/unit/hooks/config-hooks.test.ts": {
-      "file": "tests/unit/hooks/config-hooks.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "createConfigHookRunner",
-          "name": "ConfigHookRunner_MatchingEvent_ExecutesCommand",
-          "dynamic": false
-        },
-        {
-          "suite": "createConfigHookRunner",
-          "name": "ConfigHookRunner_NoMatchingHooks_Noop",
-          "dynamic": false
-        },
-        {
-          "suite": "createConfigHookRunner",
-          "name": "ConfigHookRunner_StdinReceivesEventJson",
-          "dynamic": false
-        },
-        {
-          "suite": "createConfigHookRunner",
-          "name": "ConfigHookRunner_EnvVarsSet_Correctly",
-          "dynamic": false
-        },
-        {
-          "suite": "createConfigHookRunner",
-          "name": "ConfigHookRunner_CommandFailure_DoesNotThrow",
-          "dynamic": false
-        },
-        {
-          "suite": "createConfigHookRunner",
-          "name": "ConfigHookRunner_MultipleHooks_AllFired",
-          "dynamic": false
-        },
-        {
-          "suite": "createConfigHookRunner",
-          "name": "ConfigHookRunner_TestEnv_SkipsExecution",
-          "dynamic": false
-        }
-      ]
-    },
     "tests/unit/index.init-hardening.test.ts": {
       "file": "tests/unit/index.init-hardening.test.ts",
       "runner": "vitest:root",
@@ -31940,6 +32843,11 @@
       "cases": [
         {
           "suite": "DR-6 slim tools/list registration",
+          "name": "CreateServer_HomeDirectory_IsTheScratchHomeOfThisFile",
+          "dynamic": false
+        },
+        {
+          "suite": "DR-6 slim tools/list registration",
           "name": "toolsList_SlimRegistration_MeasuresUnder3800Tokens",
           "dynamic": false
         },
@@ -31954,6 +32862,11 @@
       "file": "tests/unit/index.test.ts",
       "runner": "vitest:root",
       "cases": [
+        {
+          "suite": "createServer Backend Wiring",
+          "name": "CreateServer_HomeDirectory_IsTheScratchHomeOfThisFile",
+          "dynamic": false
+        },
         {
           "suite": "createServer Backend Wiring",
           "name": "createServer_WithBackend_ConfiguresStateStoreBackend",
@@ -36275,7 +37188,7 @@
         },
         {
           "suite": "skill-migration — T34: gh to MCP action migration",
-          "name": "McpActionReferences_PresentInMigratedSkills",
+          "name": "McpActionReferences_Synthesize_LeavesPrCreationAndMergeToTheHarness",
           "dynamic": false
         },
         {
@@ -36285,12 +37198,17 @@
         },
         {
           "suite": "skill-migration — T34: gh to MCP action migration",
-          "name": "McpActionReferences_CreateIssue_PresentInDogfood",
+          "name": "McpActionReferences_Dogfood_LeavesIssueFilingToTheHarness",
           "dynamic": false
         },
         {
           "suite": "skill-migration — T34: gh to MCP action migration",
           "name": "McpActionReferences_CheckCi_PresentInTroubleshooting",
+          "dynamic": false
+        },
+        {
+          "suite": "skill-migration — T34: gh to MCP action migration",
+          "name": "RetiredActions_NamedByNoSkillSource",
           "dynamic": false
         }
       ]
@@ -36689,16 +37607,6 @@
       "cases": [
         {
           "suite": "handleRunTests",
-          "name": "RunTests_ResolvedCommand_ExecsItAndReturnsExitCode",
-          "dynamic": false
-        },
-        {
-          "suite": "handleRunTests",
-          "name": "RunTests_TestProcessFails_PropagatesNonZeroExitCode",
-          "dynamic": false
-        },
-        {
-          "suite": "handleRunTests",
           "name": "RunTests_Unresolved_SkipsVisiblyAndExitsZero",
           "dynamic": false
         },
@@ -36710,6 +37618,37 @@
         {
           "suite": "handleRunTests",
           "name": "RunTests_DryRun_PrintsResolvedCommandWithoutExecuting",
+          "dynamic": false
+        },
+        {
+          "suite": "handleRunTests",
+          "name": "RunTests_LocalHost_ReturnsTheChildExitCodeAndOutput",
+          "dynamic": false
+        },
+        {
+          "suite": "handleRunTests",
+          "name": "RunTests_LocalHost_RefusalExits77AndNoVerdictExits75WithDistinctMessages",
+          "dynamic": false
+        },
+        {
+          "suite": "handleRunTests",
+          "name": "RunTests_LocalHost_UnresolvedMalformedAndDryRunRunNothing",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/lifecycle/run-verification-command.test.ts": {
+      "file": "tests/unit/lifecycle/run-verification-command.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "the default writers of a verification verb",
+          "name": "DefaultStdout_EndsEachTextWithOneNewline",
+          "dynamic": false
+        },
+        {
+          "suite": "the default writers of a verification verb",
+          "name": "DefaultStderr_EndsEachTextWithOneNewlineOnStderr",
           "dynamic": false
         }
       ]
@@ -53085,6 +54024,26 @@
           "suite": "detectVcsProvider — edge cases",
           "name": "detectVcsProvider_WhitespaceInUrl_TrimsAndParses",
           "dynamic": false
+        },
+        {
+          "suite": "detectVcsProvider — constrained remote read",
+          "name": "DetectVcsProvider_ConstrainedRead_NeverRunsGitThroughExec",
+          "dynamic": false
+        },
+        {
+          "suite": "detectVcsProvider — constrained remote read",
+          "name": "DetectVcsProvider_SubdirectoryCwd_ClimbsToTheCheckout",
+          "dynamic": false
+        },
+        {
+          "suite": "detectVcsProvider — constrained remote read",
+          "name": "DetectVcsProvider_UnreadableRead_GivesNullOrTheOverrideWithAnEmptyUrl",
+          "dynamic": false
+        },
+        {
+          "suite": "detectVcsProvider — constrained remote read",
+          "name": "DetectVcsProvider_InjectedReader_IsTheOnlyReader",
+          "dynamic": false
         }
       ]
     },
@@ -54089,6 +55048,11 @@
         {
           "suite": "handleOrchestrate > composite actions",
           "name": "HandleOrchestrate_CheckPostMerge_DelegatesToHandler",
+          "dynamic": false
+        },
+        {
+          "suite": "handleOrchestrate > composite actions",
+          "name": "HandleOrchestrate_ProvisionedLifecycleActions_GetNoConnector",
           "dynamic": false
         },
         {
@@ -56043,7 +57007,7 @@
         },
         {
           "suite": "task-completion leaf that returns a stored completion row",
-          "name": "StoredCompletionAndAStaleStateDocument_HaltsOnTheRowsOfTheLeafAndAppendsNoRow",
+          "name": "StoredCompletionAndAStaleStateDocument_PassesOnTheStoredRowAndAppendsNoRow",
           "dynamic": false
         }
       ]
@@ -56496,6 +57460,21 @@
           "suite": "check_integration_suite command resolution (#1537, DR-15)",
           "name": "checkIntegrationSuite_RunnerSpawnFailure_DistinctFromJsonShapeMismatch",
           "dynamic": false
+        },
+        {
+          "suite": "check_integration_suite in the local executor",
+          "name": "CheckIntegrationSuite_TheSuite_RunsAsTheOneApprovedLegOfTheLocalExecutor",
+          "dynamic": false
+        },
+        {
+          "suite": "check_integration_suite in the local executor",
+          "name": "CheckIntegrationSuite_ARefusedCheck_RunsNoSuiteAndGivesTheRefusal",
+          "dynamic": false
+        },
+        {
+          "suite": "check_integration_suite in the local executor",
+          "name": "CheckIntegrationSuite_AReducedReport_GivesTheLocalVerdictAndTheExactFileTotal",
+          "dynamic": false
         }
       ]
     },
@@ -56619,6 +57598,16 @@
           "suite": "Check Polish Scope",
           "name": "default baseBranch is \"main\"",
           "dynamic": false
+        },
+        {
+          "suite": "Check Polish Scope",
+          "name": "CheckPolishScope_UnreadableChecksAndGitPath_GiveDiffFailed",
+          "dynamic": false
+        },
+        {
+          "suite": "Check Polish Scope",
+          "name": "CheckPolishScope_UnrelatedBase_ReadsFromTheBaseDirectly",
+          "dynamic": false
         }
       ]
     },
@@ -56670,6 +57659,21 @@
           "suite": "handleContextEconomy > gate event append failure",
           "name": "ContextEconomy_GateEventAppendFails_WithholdsTheSuccessCarrier",
           "dynamic": false
+        },
+        {
+          "suite": "handleContextEconomy constrained base diff",
+          "name": "ContextEconomy_NoMergeBase_GivesDiffErrorAndNoFindings",
+          "dynamic": false
+        },
+        {
+          "suite": "handleContextEconomy constrained base diff",
+          "name": "ContextEconomy_HeadBase_GivesDiffErrorAndNoFindings",
+          "dynamic": false
+        },
+        {
+          "suite": "handleContextEconomy constrained base diff",
+          "name": "ContextEconomy_NoGitPath_GivesDiffErrorAndNoFindings",
+          "dynamic": false
         }
       ]
     },
@@ -56690,6 +57694,16 @@
         {
           "suite": "check_contract_drift registration + dispatch + steer",
           "name": "NextActions_OnPass_CarriesOneSemanticTestSteer",
+          "dynamic": false
+        },
+        {
+          "suite": "check_contract_drift registration + dispatch + steer",
+          "name": "HandleOrchestrate_AProvisionedVerifier_IsIgnoredAndTheLegsRun",
+          "dynamic": false
+        },
+        {
+          "suite": "check_contract_drift registration + dispatch + steer",
+          "name": "ContractDrift_TheLegs_RunInADisposableCopyOfTheLocalExecutor",
           "dynamic": false
         }
       ]
@@ -56907,6 +57921,41 @@
         {
           "suite": "readGateEvidenceRecords",
           "name": "ReadGateEvidenceRecords_SupersededAndFailingRecords_StayInTheMap",
+          "dynamic": false
+        },
+        {
+          "suite": "runDurableGateProducer — the selected coordinate checkout",
+          "name": "SelectedCheckout_CleanFilterMarker_NeverRunsAndTheCleanCheckoutPasses",
+          "dynamic": false
+        },
+        {
+          "suite": "runDurableGateProducer — the selected coordinate checkout",
+          "name": "SelectedCheckout_DirtyCheckout_Refuses",
+          "dynamic": false
+        },
+        {
+          "suite": "runDurableGateProducer — the selected coordinate checkout",
+          "name": "SelectedCheckout_WrongRepository_Refuses",
+          "dynamic": false
+        },
+        {
+          "suite": "runDurableGateProducer — the selected coordinate checkout",
+          "name": "SelectedCheckout_MovedHead_Refuses",
+          "dynamic": false
+        },
+        {
+          "suite": "runDurableGateProducer — the selected coordinate checkout",
+          "name": "SelectedCheckout_UnheldBase_Refuses",
+          "dynamic": false
+        },
+        {
+          "suite": "runDurableGateProducer — the scanned tree and the subject head",
+          "name": "ScannedTree_BranchUnbornDetachedAndOutsideCheckout_StampByTheConstrainedRule",
+          "dynamic": false
+        },
+        {
+          "suite": "runDurableGateProducer — the scanned tree and the subject head",
+          "name": "NoTaskRun_ObservedHead_CommitSubjectOnABranchAndArtifactWhenDetached",
           "dynamic": false
         }
       ]
@@ -57547,16 +58596,6 @@
           "suite": "resolvePhaseMode",
           "name": "gatherKind_NoGates_DefaultsEnforce",
           "dynamic": false
-        },
-        {
-          "suite": "getDiff",
-          "name": "getDiff_DiffLargerThanNodeDefaultMaxBuffer_ReturnsTheDiff",
-          "dynamic": false
-        },
-        {
-          "suite": "getDiff",
-          "name": "getDiff_UnresolvableBaseRef_ReturnsNull",
-          "dynamic": false
         }
       ]
     },
@@ -58180,6 +59219,11 @@
           "suite": "mutation-adequacy real runner — cwd is the config package (DR-8)",
           "name": "RealRunner_ShellsOutInTheConfigPackage_ProvenByTheChildsOwnCwd",
           "dynamic": false
+        },
+        {
+          "suite": "mutation adequacy on a provisioned route",
+          "name": "MutationAdequacy_ProvisionedRoute_ReturnsRetirementErrorWithNoRowOrRun",
+          "dynamic": false
         }
       ]
     },
@@ -58246,6 +59290,11 @@
           "suite": "handleNeedsSchemaSync > git error handling",
           "name": "returns GIT_ERROR when all git diff attempts fail",
           "dynamic": false
+        },
+        {
+          "suite": "handleNeedsSchemaSync > uncommitted changes",
+          "name": "NeedsSchemaSync_UncommittedApiChange_IsNotReported",
+          "dynamic": false
         }
       ]
     },
@@ -58281,6 +59330,21 @@
         {
           "suite": "handleOperationalResilience > gate event append failure",
           "name": "OperationalResilience_GateEventAppendFails_WithholdsTheSuccessCarrier",
+          "dynamic": false
+        },
+        {
+          "suite": "handleOperationalResilience constrained base diff",
+          "name": "OperationalResilience_NoMergeBase_GivesDiffErrorAndNoFindings",
+          "dynamic": false
+        },
+        {
+          "suite": "handleOperationalResilience constrained base diff",
+          "name": "OperationalResilience_HeadBase_GivesDiffErrorAndNoFindings",
+          "dynamic": false
+        },
+        {
+          "suite": "handleOperationalResilience constrained base diff",
+          "name": "OperationalResilience_NoGitPath_GivesDiffErrorAndNoFindings",
           "dynamic": false
         }
       ]
@@ -58668,12 +59732,17 @@
         },
         {
           "suite": "handlePostMerge",
-          "name": "handlePostMerge_PassesRunCommandAdapter",
+          "name": "handlePostMerge_PassesOnlyTheLocalTestRunner",
           "dynamic": false
         },
         {
           "suite": "handlePostMerge",
-          "name": "handlePostMerge_RunCommandAdapter_RunsInRepoRoot",
+          "name": "handlePostMerge_LocalTestRunner_RunsInRepoRoot",
+          "dynamic": false
+        },
+        {
+          "suite": "handlePostMerge",
+          "name": "handlePostMerge_LocalRefusal_ReturnsTheRefusalWithNoGateEvent",
           "dynamic": false
         },
         {
@@ -58684,6 +59753,16 @@
         {
           "suite": "handlePostMerge",
           "name": "PostMerge_GateEventAppendFails_WithholdsTheSuccessCarrier",
+          "dynamic": false
+        },
+        {
+          "suite": "handlePostMerge",
+          "name": "handlePostMerge_LocalExecutor_TheLegExitCodeReadsAsTheSuiteResult",
+          "dynamic": false
+        },
+        {
+          "suite": "handlePostMerge",
+          "name": "handlePostMerge_MissingLeg_GivesNoVerdict",
           "dynamic": false
         }
       ]
@@ -58795,6 +59874,26 @@
         {
           "suite": "handlePreSynthesisCheck",
           "name": "MalformedStateFileWithEventStoreFallback_SurfacesInvalidJson",
+          "dynamic": false
+        },
+        {
+          "suite": "handlePreSynthesisCheck",
+          "name": "LocalRoute_TestsRunThroughOneStoppingLifecycleCheck",
+          "dynamic": false
+        },
+        {
+          "suite": "handlePreSynthesisCheck",
+          "name": "TestCommandOverride_BecomesTheApprovedTestLeg",
+          "dynamic": false
+        },
+        {
+          "suite": "handlePreSynthesisCheck",
+          "name": "LocalRefusal_ReturnsTheRefusalAndSkipTestsRunsNoCheck",
+          "dynamic": false
+        },
+        {
+          "suite": "handlePreSynthesisCheck",
+          "name": "PrStack_ConstrainedBranchRead_UsesTheProcessGitPathAndFailsClosed",
           "dynamic": false
         }
       ]
@@ -59704,7 +60803,7 @@
       "cases": [
         {
           "suite": "TestAdequacy_CommittedBranchDiscovery (WFQ-005)",
-          "name": "discovers task-added files from a named branch when HEAD is a different branch",
+          "name": "refuses a named branch that the checkout does not hold, and discovers the added files on its checkout",
           "dynamic": false
         },
         {
@@ -59800,7 +60899,7 @@
         },
         {
           "suite": "check_test_adequacy routing + idempotency (task 014)",
-          "name": "CheckTestAdequacy_ADiffThatDoesNotParse_IsADiffFailure",
+          "name": "CheckTestAdequacy_ADiffThatCannotBeRead_IsADiffFailure",
           "dynamic": false
         },
         {
@@ -59875,57 +60974,57 @@
           "dynamic": false
         },
         {
-          "suite": "buildScopedTestRunner — each end of a real test run",
+          "suite": "the probe leg of the local executor — each end of a real test run",
           "name": "ScopedTestRunner_NoVerdictTable_HoldsEachCauseOnce",
           "dynamic": false
         },
         {
-          "suite": "buildScopedTestRunner — each end of a real test run",
+          "suite": "the probe leg of the local executor — each end of a real test run",
           "name": "<dynamic-case-1>",
           "dynamic": true
         },
         {
-          "suite": "buildScopedTestRunner — each end of a real test run",
+          "suite": "the probe leg of the local executor — each end of a real test run",
           "name": "<dynamic-case-2>",
           "dynamic": true
         },
         {
-          "suite": "buildScopedTestRunner — each end of a real test run",
+          "suite": "the probe leg of the local executor — each end of a real test run",
           "name": "ScopedTestRunner_ScratchDirectoryNotMade_IsNoVerdictAndStartsNoCommand",
           "dynamic": false
         },
         {
-          "suite": "buildScopedTestRunner — each end of a real test run",
+          "suite": "the probe leg of the local executor — each end of a real test run",
           "name": "ScopedTestRunner_ExitZero_IsAGreenRun",
           "dynamic": false
         },
         {
-          "suite": "buildScopedTestRunner — each end of a real test run",
+          "suite": "the probe leg of the local executor — each end of a real test run",
           "name": "ScopedTestRunner_ExitOne_IsARedRunWithItsOutput",
           "dynamic": false
         },
         {
-          "suite": "buildScopedTestRunner — each end of a real test run",
+          "suite": "the probe leg of the local executor — each end of a real test run",
           "name": "ScopedTestRunner_RustToolchain_ReadsExit101AsRedAndExit1AsNoVerdict",
           "dynamic": false
         },
         {
-          "suite": "buildScopedTestRunner — each end of a real test run",
+          "suite": "the probe leg of the local executor — each end of a real test run",
           "name": "ScopedTestRunner_PythonToolchain_ReadsExit2AsRedAndExit4AsNoVerdict",
           "dynamic": false
         },
         {
-          "suite": "buildScopedTestRunner — each end of a real test run",
+          "suite": "the probe leg of the local executor — each end of a real test run",
           "name": "ScopedTestRunner_RealPytestCollectionErrorAfterTheRevert_IsARedRun",
           "dynamic": false
         },
         {
-          "suite": "buildScopedTestRunner — each end of a real test run",
+          "suite": "the probe leg of the local executor — each end of a real test run",
           "name": "ScopedTestRunner_WrapperRefusalThroughNpm_PassesExit2ThroughAsNoVerdict",
           "dynamic": false
         },
         {
-          "suite": "buildScopedTestRunner — the test:files wrapper with a real vitest",
+          "suite": "the probe leg of the local executor — the test:files wrapper with a real vitest",
           "name": "DefaultRunTests_TestFilesWrapper_RunsEachNamedFileInItsProjectAndReadsItsResult",
           "dynamic": false
         }
@@ -60063,102 +61162,102 @@
           "dynamic": false
         },
         {
-          "suite": "snapshot/revert/restore (INV-14: refuse-to-discard recovery)",
-          "name": "Snapshot_BeforeProbe_UsesRefuseToDiscardRef",
+          "suite": "the reverted source image (no Git write)",
+          "name": "RevertedImage_WritesNoRefNoStashAndNoLiveFile",
           "dynamic": false
         },
         {
-          "suite": "snapshot/revert/restore (INV-14: refuse-to-discard recovery)",
-          "name": "Restore_AfterProbe_TreeHashMatchesSnapshot",
+          "suite": "the reverted source image (no Git write)",
+          "name": "RevertedImage_HoldsTheBaseSourceAndTheHeadTest",
           "dynamic": false
         },
         {
-          "suite": "snapshot/revert/restore (INV-14: refuse-to-discard recovery)",
-          "name": "RevertSourceFiles_MixedExistingAndAddedSource_RevertsAndRestores",
+          "suite": "the reverted source image (no Git write)",
+          "name": "RevertedImage_MixedExistingAndAddedSource_HoldsTheBaseAndLeavesOutTheAdded",
           "dynamic": false
         },
         {
-          "suite": "snapshot/revert/restore (INV-14: refuse-to-discard recovery)",
-          "name": "Restore_OnProbeError_StillRestores",
+          "suite": "the reverted source image (no Git write)",
+          "name": "RevertedImage_ARunThatThrows_LeavesTheLiveCheckoutUnchanged",
           "dynamic": false
         },
         {
-          "suite": "snapshot/revert/restore (INV-14: refuse-to-discard recovery)",
-          "name": "Revert_Conflict_ReturnsRevertConflictDiscriminant",
+          "suite": "the reverted source image (no Git write)",
+          "name": "RevertedImage_ASourceInNeitherTree_Refuses",
           "dynamic": false
         },
         {
-          "suite": "snapshot/revert/restore (INV-14: refuse-to-discard recovery)",
-          "name": "Revert_TaskAddedSource_RemovesThenRestoresCleanly",
+          "suite": "the reverted source image (no Git write)",
+          "name": "RevertedImage_TaskAddedSource_IsAbsentAndTheLiveIndexKeepsIt",
           "dynamic": false
         },
         {
-          "suite": "runProbe (compose split → snapshot → revert → run → restore)",
+          "suite": "runProbe (split, then the head run, then the reverted run)",
           "name": "Probe_NoNewTests_ReturnsNoNewTestsDiscriminant",
           "dynamic": false
         },
         {
-          "suite": "runProbe (compose split → snapshot → revert → run → restore)",
+          "suite": "runProbe (split, then the head run, then the reverted run)",
           "name": "Probe_NewTestFailsOnRevert_RedObservedTrue_PassedTrue",
           "dynamic": false
         },
         {
-          "suite": "runProbe (compose split → snapshot → revert → run → restore)",
+          "suite": "runProbe (split, then the head run, then the reverted run)",
           "name": "Probe_NewTestPassesOnRevert_PassedFalse",
           "dynamic": false
         },
         {
-          "suite": "runProbe (compose split → snapshot → revert → run → restore)",
+          "suite": "runProbe (split, then the head run, then the reverted run)",
           "name": "Probe_Result_CarriesProbedTestsAndRestoredClean",
           "dynamic": false
         },
         {
-          "suite": "runProbe (compose split → snapshot → revert → run → restore)",
+          "suite": "runProbe (split, then the head run, then the reverted run)",
           "name": "Probe_TestCommandAlwaysFails_IsBaselineRedAndBlocksAtEveryTier",
           "dynamic": false
         },
         {
-          "suite": "runProbe (compose split → snapshot → revert → run → restore)",
+          "suite": "runProbe (split, then the head run, then the reverted run)",
           "name": "Probe_BaselineRed_DetailEndsWithTheTailOfTheRunnerOutput",
           "dynamic": false
         },
         {
-          "suite": "runProbe (compose split → snapshot → revert → run → restore)",
+          "suite": "runProbe (split, then the head run, then the reverted run)",
           "name": "Probe_TestOnlyTask_RunsTheTestsOnceAndNeverPasses",
           "dynamic": false
         },
         {
-          "suite": "runProbe (compose split → snapshot → revert → run → restore)",
+          "suite": "runProbe (split, then the head run, then the reverted run)",
           "name": "Probe_DeletedTestFile_IsNeverProbed",
           "dynamic": false
         },
         {
-          "suite": "runProbe (compose split → snapshot → revert → run → restore)",
-          "name": "Probe_RenamedAndDeletedSource_RestoresTheTreeAndTheIndexExactly",
+          "suite": "runProbe (split, then the head run, then the reverted run)",
+          "name": "Probe_RenamedAndDeletedSource_TheRevertedImageHoldsTheBasePathsAndTheLiveTreeStays",
           "dynamic": false
         },
         {
-          "suite": "runProbe (compose split → snapshot → revert → run → restore)",
-          "name": "Probe_RestoreFailsAfterBaselineRed_IsRestoreFailed",
+          "suite": "runProbe (split, then the head run, then the reverted run)",
+          "name": "Probe_AnUnbuiltHeadImage_IsRunNoVerdictBeforeAnyRevert",
           "dynamic": false
         },
         {
-          "suite": "runProbe (compose split → snapshot → revert → run → restore)",
+          "suite": "runProbe (split, then the head run, then the reverted run)",
           "name": "Probe_RunOnTheTaskSourceWithNoVerdict_IsRunNoVerdictAndBlocksAtEveryTier",
           "dynamic": false
         },
         {
-          "suite": "runProbe (compose split → snapshot → revert → run → restore)",
+          "suite": "runProbe (split, then the head run, then the reverted run)",
           "name": "Probe_RunAfterTheRevertWithNoVerdict_IsNeverAKill",
           "dynamic": false
         },
         {
-          "suite": "runProbe (compose split → snapshot → revert → run → restore)",
-          "name": "Probe_RestoreFailsAfterARunWithNoVerdict_IsRestoreFailed",
+          "suite": "runProbe (split, then the head run, then the reverted run)",
+          "name": "Probe_AnUnbuiltRevertedImage_IsRunNoVerdictAndNeverAKill",
           "dynamic": false
         },
         {
-          "suite": "runProbe (compose split → snapshot → revert → run → restore)",
+          "suite": "runProbe (split, then the head run, then the reverted run)",
           "name": "Probe_BaselineRed_DetailKeepsTheFirstStderrLineAheadOfTheTail",
           "dynamic": false
         }
@@ -60353,22 +61452,27 @@
         },
         {
           "suite": "handleVerifyWorktreeBaseline",
+          "name": "detectProjectType_PnpmProject_ReturnsPnpmTest",
+          "dynamic": false
+        },
+        {
+          "suite": "handleVerifyWorktreeBaseline",
           "name": "VerifyWorktreeBaseline_LeakedEditByteIdenticalToCommittedAgentChange_IsDetected",
           "dynamic": false
         },
         {
           "suite": "handleVerifyWorktreeBaseline",
-          "name": "VerifyWorktreeBaseline_RenamedLeak_ParsesNewPathNotRawArrow",
+          "name": "VerifyWorktreeBaseline_CleanWorktreeWithLeakRequest_ReportsNoLeakAndRunsTheBaseline",
           "dynamic": false
         },
         {
           "suite": "handleVerifyWorktreeBaseline",
-          "name": "VerifyWorktreeBaseline_UnrelatedDirtyTree_IsGenuineBlocker",
+          "name": "VerifyWorktreeBaseline_UnreadableTreeOrBranch_CountsAsDirtyWithACause",
           "dynamic": false
         },
         {
           "suite": "handleVerifyWorktreeBaseline",
-          "name": "detectProjectType_PnpmProject_ReturnsPnpmTest",
+          "name": "VerifyWorktreeBaseline_LocalRefusalAndPendingRun_KeepTheirCodes",
           "dynamic": false
         }
       ]
@@ -60436,6 +61540,21 @@
         {
           "suite": "handleWorkflowDeterminism > gate event append failure",
           "name": "WorkflowDeterminism_GateEventAppendFails_WithholdsTheSuccessCarrier",
+          "dynamic": false
+        },
+        {
+          "suite": "handleWorkflowDeterminism constrained base diff",
+          "name": "WorkflowDeterminism_NoMergeBase_GivesDiffErrorAndNoFindings",
+          "dynamic": false
+        },
+        {
+          "suite": "handleWorkflowDeterminism constrained base diff",
+          "name": "WorkflowDeterminism_HeadBase_GivesDiffErrorAndNoFindings",
+          "dynamic": false
+        },
+        {
+          "suite": "handleWorkflowDeterminism constrained base diff",
+          "name": "WorkflowDeterminism_NoGitPath_GivesDiffErrorAndNoFindings",
           "dynamic": false
         }
       ]
@@ -62789,6 +63908,11 @@
         },
         {
           "suite": "the capped prepare receipt",
+          "name": "PrepareEconomy_ASparseReceiptOverTheBudget_SummarisesWithoutItsAbsentFields",
+          "dynamic": false
+        },
+        {
+          "suite": "the capped prepare receipt",
           "name": "PrepareEconomy_ASummaryOverTheBudget_LosesItsTaskPageBeforeAnyRecompileTask",
           "dynamic": false
         },
@@ -62799,7 +63923,17 @@
         },
         {
           "suite": "the capped prepare receipt",
+          "name": "PrepareEconomy_ACappedResponse_NamesTheReadsOfTheDetailAndNoWindow",
+          "dynamic": false
+        },
+        {
+          "suite": "the capped prepare receipt",
           "name": "PrepareEconomy_Compiler8Invocation_PreservesOriginalReceipt",
+          "dynamic": false
+        },
+        {
+          "suite": "the capped prepare receipt",
+          "name": "PrepareEconomy_Compiler8VcsInvocation_KeepsTheCustodyPointer",
           "dynamic": false
         }
       ]
@@ -64716,6 +65850,11 @@
       "cases": [
         {
           "suite": "handleDebugReviewGate",
+          "name": "runs the tests in the local executor with no verifier provisioning",
+          "dynamic": false
+        },
+        {
+          "suite": "handleDebugReviewGate",
           "name": "returns passed when test files exist and tests pass",
           "dynamic": false
         },
@@ -64762,6 +65901,16 @@
         {
           "suite": "handleDebugReviewGate",
           "name": "returns error when baseBranch is empty",
+          "dynamic": false
+        },
+        {
+          "suite": "handleDebugReviewGate",
+          "name": "DebugReviewGate_LocalRefusalAndNoGit_FailClosed",
+          "dynamic": false
+        },
+        {
+          "suite": "handleDebugReviewGate",
+          "name": "DebugReviewGate_ConstrainedDiff_ThreeDotThenTwoDotThenDiffFailed",
           "dynamic": false
         }
       ]
@@ -64970,6 +66119,16 @@
         {
           "suite": "handleReviewDiff",
           "name": "reviewDiff_LargeDiffFixture_StaysUnderBudget",
+          "dynamic": false
+        },
+        {
+          "suite": "handleReviewDiff",
+          "name": "handleReviewDiff_DetachedUnknownBaseAndUnusableGit_KeepTheirOutcomes",
+          "dynamic": false
+        },
+        {
+          "suite": "handleReviewDiff",
+          "name": "handleReviewDiff_Rename_KeepsRenameDetection",
           "dynamic": false
         }
       ]
@@ -65420,7 +66579,7 @@
       "cases": [
         {
           "suite": "settle — a blocking gate that blocks",
-          "name": "Settle_AKillProbeThatBlocks_RejectsTheBatchAndLeavesNoCompletion",
+          "name": "Settle_AKillProbeThatBlocks_LeavesTheTaskUnresolvedAndLeavesNoCompletion",
           "dynamic": false
         }
       ]
@@ -66283,6 +67442,37 @@
         {
           "suite": "settle — the text of the action",
           "name": "SettleAction_ItsRequiresRationale_NoLongerSaysTheVerdictReadsNoCurrentState",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/verbs/settle/integration-attempts.test.ts": {
+      "file": "tests/unit/verbs/settle/integration-attempts.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "integration attempts",
+          "name": "IntegrationAttempt_ARedSuite_FailsWithTheTipAndTheVerdict",
+          "dynamic": false
+        },
+        {
+          "suite": "integration attempts",
+          "name": "IntegrationAttempt_TheBoundRequest_IsIntactAndNoOtherIs",
+          "dynamic": false
+        },
+        {
+          "suite": "integration attempts",
+          "name": "IntegrationAttempt_TheSameIdentityOnAnotherCheckout_IsRefused",
+          "dynamic": false
+        },
+        {
+          "suite": "integration attempts",
+          "name": "IntegrationAttempt_AnUnresolvedTerm_NamesTheReasonThatTheSuiteDidNotRun",
+          "dynamic": false
+        },
+        {
+          "suite": "integration observation",
+          "name": "IntegrationObservation_AHeadOutsideTheTip_IsUnmerged",
           "dynamic": false
         }
       ]
@@ -67915,6 +69105,16 @@
           "dynamic": false
         },
         {
+          "suite": "constrained dispatch reads",
+          "name": "ReadObservedBranch_BranchDetachedAbsentAndRefused_GiveClosedOutcomes",
+          "dynamic": false
+        },
+        {
+          "suite": "constrained dispatch reads",
+          "name": "ValidateObservedAncestry_AncestorMissingAndUnreadable_GiveClosedOutcomes",
+          "dynamic": false
+        },
+        {
           "suite": "probeStashAndEmit",
           "name": "DispatchGuard_StashObservedInWorktree_EmitsStashDetected",
           "dynamic": false
@@ -67922,6 +69122,11 @@
         {
           "suite": "probeStashAndEmit",
           "name": "DispatchGuard_NoStashInWorktree_DoesNotEmit",
+          "dynamic": false
+        },
+        {
+          "suite": "probeStashAndEmit",
+          "name": "DispatchGuard_UnreadableStashRead_DoesNotEmit",
           "dynamic": false
         }
       ]
@@ -67933,6 +69138,11 @@
         {
           "suite": "handlePostDelegationCheck",
           "name": "allTasksComplete_testsPass_returnsPassed",
+          "dynamic": false
+        },
+        {
+          "suite": "handlePostDelegationCheck",
+          "name": "localRoute_checksEachWorktreeInTheLocalExecutor",
           "dynamic": false
         },
         {
@@ -67968,6 +69178,11 @@
         {
           "suite": "handlePostDelegationCheck",
           "name": "skipTests_skipsWorktreeTestExecution",
+          "dynamic": false
+        },
+        {
+          "suite": "handlePostDelegationCheck",
+          "name": "localRefusal_returnsTheRefusalWithNoGateEvent",
           "dynamic": false
         },
         {
@@ -68356,6 +69571,11 @@
         },
         {
           "suite": "handlePrepareDelegation",
+          "name": "handlePrepareDelegation_UnreadableBranchRead_BlocksWithGitErrorBeforeTheProtectedGuard",
+          "dynamic": false
+        },
+        {
+          "suite": "handlePrepareDelegation",
           "name": "handlePrepareDelegation_NativeIsolationOnProtectedBranch_SkipsGuardAndProceeds",
           "dynamic": false
         },
@@ -68557,6 +69777,16 @@
         {
           "suite": "handlePrepareDelegation > handler config threading",
           "name": "PrepareDelegation_WithCtx_UsesProjectConfigForModelResolution",
+          "dynamic": false
+        },
+        {
+          "suite": "handlePrepareDelegation > handler config threading",
+          "name": "PrepareDelegation_AnnouncesEachTaskTheStreamHasNotHeardOf_BeforeReadiness",
+          "dynamic": false
+        },
+        {
+          "suite": "handlePrepareDelegation > handler config threading",
+          "name": "PrepareDelegation_AnnouncementRacesAnotherWriter_DecidesAgainFromAFreshRead",
           "dynamic": false
         },
         {
@@ -68993,6 +70223,16 @@
         },
         {
           "suite": "handlePrepareSynthesis",
+          "name": "PrepareSynthesis_LocalRoute_RunsBothLegsInOneLifecycleCheck",
+          "dynamic": false
+        },
+        {
+          "suite": "handlePrepareSynthesis",
+          "name": "PrepareSynthesis_CommandThatResolvesOnlyOnALaterRead_NeverRuns",
+          "dynamic": false
+        },
+        {
+          "suite": "handlePrepareSynthesis",
           "name": "PrepareSynthesis_NoTestCommandResolves_IsNotReady",
           "dynamic": false
         },
@@ -69024,6 +70264,21 @@
         {
           "suite": "handlePrepareSynthesis",
           "name": "PrepareSynthesis_RelativeRepoRoot_IsRefusedLikeAMissingOne",
+          "dynamic": false
+        },
+        {
+          "suite": "handlePrepareSynthesis",
+          "name": "PrepareSynthesis_LocalRefusal_ReturnsTheRefusalBeforeAnyGateEvent",
+          "dynamic": false
+        },
+        {
+          "suite": "handlePrepareSynthesis",
+          "name": "PrepareSynthesis_BaseName_OriginHeadTargetThenMainFallback",
+          "dynamic": false
+        },
+        {
+          "suite": "handlePrepareSynthesis",
+          "name": "PrepareSynthesis_RefusedObservationOrNoMergeBase_FailsClosed",
           "dynamic": false
         },
         {
@@ -71047,6 +72302,93 @@
         }
       ]
     },
+    "tests/unit/verbs/verification/check-executor.test.ts": {
+      "file": "tests/unit/verbs/verification/check-executor.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "the approved-check policy",
+          "name": "CheckExecutor_AnApprovedLeg_RunsInTheCheckout",
+          "dynamic": false
+        },
+        {
+          "suite": "the approved-check policy",
+          "name": "CheckExecutor_AProgramInsideTheCheckout_RefusesAndARunnerOfNodeModulesRuns",
+          "dynamic": false
+        },
+        {
+          "suite": "the approved-check policy",
+          "name": "CheckExecutor_AnArgvOutsideThePlan_IsNeverFormed",
+          "dynamic": false
+        },
+        {
+          "suite": "the approved-check policy",
+          "name": "CheckExecutor_AWrongWorkingDirectory_RefusesBeforeAnyProcess",
+          "dynamic": false
+        },
+        {
+          "suite": "the approved-check policy",
+          "name": "CheckExecutor_AnUnpreparedStream_ConfinesTheCheckToTheWorkflowWorktrees",
+          "dynamic": false
+        },
+        {
+          "suite": "the time and output caps",
+          "name": "CheckExecutor_ATimeout_StopsTheWholeProcessGroup",
+          "dynamic": false
+        },
+        {
+          "suite": "the time and output caps",
+          "name": "CheckExecutor_AnOutputPastTheCap_StopsTheLeg",
+          "dynamic": false
+        },
+        {
+          "suite": "claims, replay and incomplete attempts",
+          "name": "CheckExecutor_ARetryOfTheSameRequest_ReplaysWithoutARerun",
+          "dynamic": false
+        },
+        {
+          "suite": "claims, replay and incomplete attempts",
+          "name": "CheckExecutor_ACrashBeforeTheTerminalObservation_LeavesTheAttemptIncomplete",
+          "dynamic": false
+        },
+        {
+          "suite": "claims, replay and incomplete attempts",
+          "name": "CheckExecutor_ALegThatChangesTheCheckout_IsRefusedAndReplaysTheRefusal",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/verbs/verification/disposable-copy.test.ts": {
+      "file": "tests/unit/verbs/verification/disposable-copy.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "withDisposableCopy",
+          "name": "DisposableCopy_HoldsTheCommittedHead",
+          "dynamic": false
+        },
+        {
+          "suite": "withDisposableCopy",
+          "name": "DisposableCopy_APrivateGitDirectory_ReadsTheHeadAndKeepsEachWritePrivate",
+          "dynamic": false
+        },
+        {
+          "suite": "withDisposableCopy",
+          "name": "DisposableCopy_AWriteInTheCopy_LeavesTheLiveCheckoutUnchanged",
+          "dynamic": false
+        },
+        {
+          "suite": "withDisposableCopy",
+          "name": "DisposableCopy_ABodyThatThrows_StillDeletesTheCopy",
+          "dynamic": false
+        },
+        {
+          "suite": "withDisposableCopy",
+          "name": "DisposableCopy_AHeadWithALink_Refuses",
+          "dynamic": false
+        }
+      ]
+    },
     "tests/unit/verbs/workflow-transition.test.ts": {
       "file": "tests/unit/verbs/workflow-transition.test.ts",
       "runner": "vitest:root",
@@ -71861,6 +73203,16 @@
         {
           "suite": "probeWorktreeUsage",
           "name": "Probe_SymlinkedWorktreePath_ContainmentMatches",
+          "dynamic": false
+        },
+        {
+          "suite": "probeWorktreeUsage",
+          "name": "Probe_ForeignCwdRealpathEacces_IsOutsideTheWorktree",
+          "dynamic": false
+        },
+        {
+          "suite": "probeWorktreeUsage",
+          "name": "Probe_WorktreePathErrorAndOtherForeignCodes_Rethrow",
           "dynamic": false
         },
         {
@@ -76982,7 +78334,7 @@
         },
         {
           "suite": "handleSet_CustomGuardExecution",
-          "name": "HandleSet_CustomGuardPasses_TransitionSucceeds",
+          "name": "HandleSet_CommandGuard_FailsClosedWithoutRunningTheCommand",
           "dynamic": false
         },
         {
@@ -77028,6 +78380,21 @@
         {
           "suite": "handleSet_PlanRevisionCapInjection",
           "name": "DefaultCap_NoInjection_BlockedAtOneRevision",
+          "dynamic": false
+        },
+        {
+          "suite": "handleSet_PlanRevisionCapInjection",
+          "name": "DefaultCap_InitialReviewOnly_BlockedIsGuarded",
+          "dynamic": false
+        },
+        {
+          "suite": "handleSet_PlanRevisionCapInjection",
+          "name": "GuardAndPrepareReview_AgreeOnTheCap_ForEachDispatchCount",
+          "dynamic": false
+        },
+        {
+          "suite": "handleSet_PlanRevisionCapInjection",
+          "name": "Overhaul_ReReviewAfterReviseEdge_IsProvisionedAtDefaultCap",
           "dynamic": false
         },
         {
@@ -78415,7 +79782,7 @@
         },
         {
           "suite": "HsmTransitionGuard_AllEmittedEvents_HaveCanonicalEnvelope",
-          "name": "hsm-transition-guard.ts:429 — custom-async-guard failure event has canonical envelope",
+          "name": "hsm-transition-guard.ts — command guard fails closed and appends no guard event",
           "dynamic": false
         }
       ]
@@ -78578,6 +79945,11 @@
       "file": "tests/unit/workflow/index.test.ts",
       "runner": "vitest:root",
       "cases": [
+        {
+          "suite": "MCP Server Entry Point",
+          "name": "CreateServer_HomeDirectory_IsTheScratchHomeOfThisFile",
+          "dynamic": false
+        },
         {
           "suite": "MCP Server Entry Point > createServer",
           "name": "should register only non-hidden composite tools",
@@ -88780,11 +90152,6 @@
       "runner": "shell",
       "cases": []
     },
-    "tests/scripts/check-mutation-gate.test.sh": {
-      "file": "tests/scripts/check-mutation-gate.test.sh",
-      "runner": "shell",
-      "cases": []
-    },
     "tests/scripts/check-type-debt.test.sh": {
       "file": "tests/scripts/check-type-debt.test.sh",
       "runner": "shell",
@@ -89078,7 +90445,7 @@
         },
         {
           "suite": "the kill probe measures a task from the branch it forked from",
-          "name": "KillProbe_ThroughSettle_RunsUnderTheBaseTheCapsuleFroze_AndRejectsTheBatch",
+          "name": "KillProbe_ThroughSettle_RunsUnderTheBaseTheCapsuleFroze_AndLeavesTheTaskUnresolved",
           "dynamic": false
         },
         {
@@ -90368,6 +91735,16 @@
           "suite": "the input of the gate",
           "name": "CheckIntegrationSuite_AHighTierTask_RunsTheSuite",
           "dynamic": false
+        },
+        {
+          "suite": "the verdict of a run that the verifier observed",
+          "name": "IntegrationSuite_EachVerifierEnd_KeepsItsNoVerdictCause",
+          "dynamic": false
+        },
+        {
+          "suite": "the verdict of a run that the verifier observed",
+          "name": "IntegrationSuite_AnObservedExit_IsJudgedAsALocalExit",
+          "dynamic": false
         }
       ]
     },
@@ -90491,6 +91868,26 @@
         {
           "suite": "boundary adapters — the report reader of a check",
           "name": "BoundaryAdapters_TheTaintRerun_NamesItsArgvWithoutTheQuietFlag",
+          "dynamic": false
+        },
+        {
+          "suite": "boundary legs that the verifier plans and observes",
+          "name": "BoundaryAdapters_APlannedLeg_RunsTheLocalArgvAndReadsTheSameVerdict",
+          "dynamic": false
+        },
+        {
+          "suite": "boundary legs that the verifier plans and observes",
+          "name": "BoundaryAdapters_APlannedLegWithNoConfig_SettlesAndNamesTheDisplayRoot",
+          "dynamic": false
+        },
+        {
+          "suite": "boundary legs that the verifier plans and observes",
+          "name": "StaticAnalysis_ObservedBoundaryLegs_RunNoBoundaryCommandAndKeepTheScopeFailure",
+          "dynamic": false
+        },
+        {
+          "suite": "boundary legs that the verifier plans and observes",
+          "name": "StaticAnalysis_ARefusedCheck_RunsNoProcessAndRecordsTheRefusal",
           "dynamic": false
         }
       ]
@@ -90690,6 +92087,11 @@
         {
           "suite": "a term that is not resolved",
           "name": "SpecCoverage_AnUnresolvedGlobTerm_FailsInEachPhaseWithProfileUnresolved",
+          "dynamic": false
+        },
+        {
+          "suite": "spec coverage in the local executor",
+          "name": "SpecCoverage_TheDeclaredTests_RunOnlyInTheLocalExecutor",
           "dynamic": false
         }
       ]
@@ -95024,12 +96426,17 @@
       "cases": [
         {
           "suite": "the complete delegation fallback",
-          "name": "CallShape_ThePhaseFallback_IncludesLandingAndBothBackstops",
+          "name": "CallShape_ThePhaseFallback_IncludesBothBackstopsAndNoLandingCall",
           "dynamic": false
         },
         {
           "suite": "the complete delegation fallback",
-          "name": "CallShape_TheNormalPath_KeepsItsCount",
+          "name": "CallShape_TheNormalPath_HasNoPerTaskCall",
+          "dynamic": false
+        },
+        {
+          "suite": "the complete delegation fallback",
+          "name": "CallShape_TheRollback_AppendsNoEvent",
           "dynamic": false
         }
       ]
@@ -95556,6 +96963,11 @@
         },
         {
           "suite": "prepared custody",
+          "name": "Custody_EightVcsRequiresAFullDefinition_AndOtherNamesKeepTheirRule",
+          "dynamic": false
+        },
+        {
+          "suite": "prepared custody",
           "name": "Custody_MarkerAndSourceCannotHideChangedRawText",
           "dynamic": false
         },
@@ -95957,6 +97369,11 @@
         },
         {
           "suite": "immutable segment input",
+          "name": "LeafCommittedBeforeCrash_EightVcsRestartReplaysOriginalInput",
+          "dynamic": false
+        },
+        {
+          "suite": "immutable segment input",
           "name": "InterruptedClaimRequiredLeaf_RefusesWithoutReplacement",
           "dynamic": false
         },
@@ -96241,7 +97658,7 @@
         },
         {
           "suite": "selected coordinate execution",
-          "name": "DirtyAdequacy_CannotPublishPassingReplayPair",
+          "name": "DirtyAdequacy_ProbeOutputStaysInTheCopyAndThePassingPairReplays",
           "dynamic": false
         }
       ]

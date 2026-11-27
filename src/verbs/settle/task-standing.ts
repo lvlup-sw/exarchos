@@ -17,6 +17,7 @@ import type { SettledCapsuleIdentity } from './types.js';
 import { SettlementReceiptData } from './schemas.js';
 import { decodeSettlementBundle, type SettlementBundleV1 } from './settlement-bundle.js';
 import { settlementClaimKey, verificationOperationId } from './settlement-reads.js';
+import { compilerPolicy } from '../../contract/capsule/compiler-policy.js';
 
 /** Full persisted envelopes retain the random event identifier used by operation claims. */
 interface StandingRow {
@@ -282,7 +283,7 @@ async function segmentProof(request: StandingRequest, session: ResolutionSession
     receipt.leaves), 'Run leaves differ from receipt');
   const origin = await originOf(request, identity);
   const coordinate = run.input?.args.coordinate;
-  if (coordinate === undefined) throw new StandingFault(origin.capsule.provenance.compilerVersion === 'exarchos-prepare-8' ? 'corrupt' : 'missing', 'Segment lacks a complete immutable coordinate');
+  if (coordinate === undefined) throw new StandingFault(compilerPolicy(origin.capsule.provenance.compilerVersion).immutable ? 'corrupt' : 'missing', 'Segment lacks a complete immutable coordinate');
   requireFact(same(coordinate.capsule, origin.capsule.identity) && coordinate.taskId === request.taskId, 'Coordinate identity mismatch');
   if (trace !== undefined) requireFact(same(trace.coordinate, coordinate) && trace.treeCommit === coordinate.observedHeadCommit, 'Settlement coordinate mismatch');
   const input = run.input;

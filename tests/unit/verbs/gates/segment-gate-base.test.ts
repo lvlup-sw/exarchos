@@ -5,7 +5,7 @@
 // A direct run of either gate with no base does not guess one. Contract drift blocks with `base-missing`.
 // Mock boundary is advisory, so it reports `base-missing` and does not block.
 //
-// A pass-through spy over the default git runner records each git call, so a case can name the diff range that a gate read.
+// A pass-through spy over the constrained diff read records each range, so a case can name the base that a gate read.
 
 import { mkdir, mkdtemp, realpath, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -33,23 +33,24 @@ import { compileIntent, PRODUCTION_COMPILE_DEPS } from '../../../../src/verbs/ex
 import { handleExecuteIntent, productionExecuteDeps } from '../../../../src/verbs/execute/executor.js';
 import { selectSubject } from '../../../../src/verbs/gates/durable-gate-producer.js';
 import { createInMemoryResolver } from '../../../../src/workflow/capabilities/resolver.js';
+import type { ConstrainedDiffRange } from '../../../../src/verbs/gates/gate-utils.js';
 import { execFileAsync, isolatedSync } from '../../../../tools/test-helpers/spawn.js';
 import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
 import { seedActivePhaseAttempt, withTrustedCaller } from '../../../../tools/test-helpers/trusted-context.js';
 
-/** The argument list of each call of the default git runner, in call order. The spy keeps the real git result. */
-const { gitCalls } = vi.hoisted(() => {
-  const calls: string[][] = [];
-  return { gitCalls: calls };
+/** The range of each call of the constrained diff read, in call order. The spy keeps the result of the real read. */
+const { diffCalls } = vi.hoisted(() => {
+  const calls: ConstrainedDiffRange[] = [];
+  return { diffCalls: calls };
 });
 
 vi.mock('../../../../src/verbs/gates/gate-utils.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../../../src/verbs/gates/gate-utils.js')>();
   return {
     ...actual,
-    defaultGitExec: (repoRoot: string, args: readonly string[]) => {
-      gitCalls.push([...args]);
-      return actual.defaultGitExec(repoRoot, args);
+    readConstrainedDiff: (gitPath: string | undefined, repoRoot: string, range: ConstrainedDiffRange) => {
+      diffCalls.push(range);
+      return actual.readConstrainedDiff(gitPath, repoRoot, range);
     },
   };
 });
@@ -76,7 +77,7 @@ let store: EventStore;
 const scratchDirs: string[] = [];
 
 beforeEach(async () => {
-  gitCalls.splice(0);
+  diffCalls.splice(0);
   stateDir = await mkdtemp(path.join(tmpdir(), 'segment-gate-base-state-'));
   store = new EventStore(stateDir);
   await store.initialize();
@@ -119,9 +120,9 @@ async function signalsOf(streamId: string, gateClass: string) {
     .filter((row) => row.gateName === gateClass);
 }
 
-/** The diff range of each `git diff` call that the spy recorded. */
+/** The base of each base-range read that the spy recorded. */
 function diffRanges(): string[] {
-  return gitCalls.flatMap((args) => (args[0] === 'diff' ? [args.at(-1) ?? ''] : []));
+  return diffCalls.flatMap((range) => (range.kind === 'base' ? [range.base] : []));
 }
 
 /** A correlation context with a trusted caller identity, as the dispatch entry mints it. */
@@ -262,8 +263,8 @@ describe('the base of the diff gates in the task-completion segment', () => {
       const subjects = (await evidenceOf(streamId, action)).map((record) => record.evidence.subject);
       expect(subjects, action).toEqual([fromBase]);
     }
-    expect(diffRanges()).toContain(`${BASE}...HEAD`);
-    expect(diffRanges()).not.toContain('main...HEAD');
+    expect(diffCalls).toContainEqual({ kind: 'base', base: BASE });
+    expect(diffRanges()).not.toContain('main');
   }, 120_000);
 });
 
@@ -302,13 +303,16 @@ describe('a direct diff-gate run with no base', () => {
   it('MockBoundary_ADirectRunWithNoBase_ReportsBaseMissingAndDoesNotBlock', async () => {
     const featureId = 'mock-boundary-no-base';
     const repoRoot = await scratchDir('segment-gate-base-mock-');
+    for (const gitArgs of [['init', '--initial-branch=main', '-q'], ['-c', 'user.email=test@example.com', '-c', 'user.name=Test', '-c', 'commit.gpgsign=false', 'commit', '-q', '--allow-empty', '-m', 'base']]) {
+      await execFileAsync('git', gitArgs, { cwd: repoRoot, timeout: 30_000 });
+    }
     const ctx = await startedWorkflow(featureId);
     const args = { action: 'check_mock_boundary', featureId, repoRoot, riskTier: 'medium', boundaryTouching: true };
 
     const control = await dispatch('exarchos_orchestrate', { ...args, taskId: 'task-with-base', baseBranch: 'main' }, ctx);
     expect(control.success).toBe(true);
     expect(dataOf(control).discriminant).toBeUndefined();
-    expect(diffRanges()).toEqual(['main...HEAD']);
+    expect(diffRanges()).toEqual(['main']);
 
     const result = await dispatch('exarchos_orchestrate', { ...args, taskId: 'task-no-base' }, ctx);
 
@@ -316,7 +320,7 @@ describe('a direct diff-gate run with no base', () => {
     expect(result.success).toBe(true);
     expect(dataOf(result)).toMatchObject({ passed: true, findings: [], discriminant: 'base-missing' });
     expect(dataOf(result).skipped).toBeUndefined();
-    expect(diffRanges()).toEqual(['main...HEAD']);
+    expect(diffRanges()).toEqual(['main']);
     const verdicts = (await evidenceOf(featureId, 'check_mock_boundary')).map((record) => record.evidence.verdict);
     expect(verdicts.at(-1)).toBe('indeterminate');
   }, 60_000);

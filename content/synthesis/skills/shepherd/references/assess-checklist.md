@@ -135,10 +135,7 @@ mcp__plugin_github_github__pull_request_read({
 ```
 The response includes `autoMergeRequest` — if null, merge-when-ready is not set.
 
-If `autoMergeRequest` is null, merge-when-ready is not set. Re-enable:
-```typescript
-exarchos_orchestrate({ action: "merge_pr", prId: "<number>", strategy: "squash" })
-```
+If `autoMergeRequest` is null, merge-when-ready is not set. Read the PR state first: do not enable auto-merge on a PR that is already merged, and stop and report on a closed one. Then the coordinator re-enables auto-merge through its harness, outside governance, with the squash strategy.
 
 ## 7. Aggregate and Report
 

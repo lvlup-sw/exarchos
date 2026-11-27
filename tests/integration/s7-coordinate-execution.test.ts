@@ -29,6 +29,7 @@ import { nodeTestProfile } from '../helpers/verification-profile.js';
 import { scopedRepository } from '../helpers/scoped-repository.js';
 import { makeTempDir, rmrfAsync } from '../../tools/test-helpers/temp-dir.js';
 import { execFileAsync } from '../../tools/test-helpers/spawn.js';
+import { deriveRepoKey } from '../../src/utils/paths.js';
 import { runAsTrustedCaller, seedActivePhaseAttempt } from '../../tools/test-helpers/trusted-context.js';
 
 const closes: (() => Promise<void>)[] = [];
@@ -48,7 +49,7 @@ async function setup(dirtyProbe = false) {
   const events = new EventStore(stateDir); await events.initialize();
   closes.push(async () => { events.close(); await rmrfAsync(stateDir); });
   const identity = profiledValidCapsule().identity;
-  await seedActivePhaseAttempt(events, identity.workflowId);
+  await seedActivePhaseAttempt(events, identity.workflowId, { repoRoot: deriveRepoKey(tree) });
   const repository = await observeRepository(tree); if (repository.kind !== 'repository') throw new Error('Missing Git repository');
   const profile = nodeTestProfile();
   profile.tests.probe = { ...profile.tests.probe, command: { state: 'resolved', argv: [process.execPath, 'probe.cjs'], source: 'config' }, globs: ['**/*.test.json'], files: 'after-separator' };
@@ -257,8 +258,11 @@ describe('selected coordinate execution', () => {
     expect(legacy.success).toBe(true);expect(legacy.data).toMatchObject({passed:true});
   });
 
-  /** A real probe leaves untracked output after a valid kill, so repair cannot turn its unchecked result into replay authority. */
-  it('DirtyAdequacy_CannotPublishPassingReplayPair',async()=>{
+  /**
+   * A real probe that writes output writes it in its disposable copy, so the live checkout stays clean after a valid kill.
+   * An interruption after the pair leaves a passing pair, and the retry replays it on the clean selected checkout with no new probe run.
+   */
+  it('DirtyAdequacy_ProbeOutputStaysInTheCopyAndThePassingPairReplays',async()=>{
     const f=await preparedRun(true);
     const leftover=join(f.tree,'PROBE_DIRTY');
     await f.publish();
@@ -266,19 +270,19 @@ describe('selected coordinate execution', () => {
       await ACTION_HANDLERS.check_test_adequacy!(...args);throw new Error('stop after genuine adequacy endpoint and pair');
     }};
     await f.call(interrupted).catch(()=>undefined);
-    expect(existsSync(leftover)).toBe(true);
+    expect(existsSync(leftover)).toBe(false);
+    expect(await git(f.tree,'status','--porcelain')).toBe('');
     expect((await f.snapshots()).map(row=>(row as {source:string}).source)).toEqual(['task','root']);
     const before=await f.events.query(f.identity.workflowId);
     const pair=before.filter(row=>row.type==='admission.evidence-recorded'||row.type==='gate.executed');
     expect(pair).toHaveLength(2);expect(before.some(row=>row.type==='orchestrate.intent_executed')).toBe(false);
-    await unlink(leftover);expect(await git(f.tree,'status','--porcelain')).toBe('');
+    expect(pair.find(row=>row.type==='admission.evidence-recorded')?.data?.evidence).toMatchObject({verdict:'pass'});
+    expect(pair.find(row=>row.type==='gate.executed')?.data?.passed).toBe(true);
     await f.call();
     const after=await f.events.query(f.identity.workflowId);
     expect(await f.snapshots()).toHaveLength(2);
-    expect(after.filter(row=>row.type==='task.completed')).toEqual([]);
-    expect(after.filter(row=>row.type==='admission.evidence-recorded'||row.type==='gate.executed')).toEqual(pair);
-    expect(pair.find(row=>row.type==='admission.evidence-recorded')?.data?.evidence).not.toMatchObject({verdict:'pass'});
-    expect(pair.find(row=>row.type==='gate.executed')?.data?.passed).toBe(false);
+    expect(after.filter(row=>row.type==='admission.evidence-recorded'&&row.operationId===pair[0]?.operationId)).toEqual(pair.filter(row=>row.type==='admission.evidence-recorded'));
+    expect(after.filter(row=>row.type==='gate.executed'&&row.operationId===pair[1]?.operationId)).toEqual(pair.filter(row=>row.type==='gate.executed'));
   });
 
 });

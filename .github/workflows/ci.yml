@@ -151,14 +151,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          # fetch-depth: 0 — the mutation gate (check-mutation-gate.mjs) diffs
-          # `<base>...HEAD` (merge-base, three-dot) to scope the changed `src`. A
-          # shallow checkout lacks the merge-base commit, so the diff fails with
-          # "no merge base" (fail-closed).
+          # fetch-depth: 0 keeps the full history and the release tags. The suites in
+          # this job run git against this checkout, so they see the same history as a
+          # local clone.
           fetch-depth: 0
-          # The mutation gate only reads history, and this job then runs
-          # repo/dependency code (test runners, bun build, npm postinstalls), so
-          # don't persist the checkout token into .git/config for those steps.
+          # This job runs repo/dependency code (test runners, bun build, npm
+          # postinstalls), so do not persist the checkout token into .git/config for
+          # those steps.
           persist-credentials: false
 
       - uses: actions/setup-node@v6
@@ -234,18 +233,6 @@ jobs:
         env:
           RUN_EVALS: '1'
         run: npx vitest run tools/evals/evals/harness.test.ts tools/evals/evals/graders/llm-rubric.test.ts
-
-      # Diff-scoped mutation gate, OBSERVE MODE, on manual dispatch only (a push to
-      # main has no base to diff). The script fetches the shallow base ref (main on a
-      # dispatch) and runs the in-tree mutation-adequacy handler with
-      # bun (set up above). An empty diff is a logged skip, and a git failure is
-      # fail-closed. Observe mode logs the verdict and always exits 0. The step stays in
-      # observe mode until #1720 resolves: the StrykerJS dry-run fails on the full suite
-      # in CI. Host class: deps, filtered on `mcp`. A grep-gates step re-asserts the
-      # script unfiltered. See docs/guides/ci-gate-hosting.md.
-      - name: Mutation gate — observe mode (DR-7), dispatch only
-        if: github.event_name == 'workflow_dispatch'
-        run: node "$GITHUB_WORKSPACE/tools/audit/gates/check-mutation-gate.mjs" --observe
 
       # Composed-path Stryker smoke test: resolver, handler, adapter, the real pinned
       # Stryker and the parser, on a small fixture scope. It runs in its OWN step,
@@ -599,8 +586,7 @@ jobs:
         run: node tools/audit/gates/check-type-debt.mjs
 
       # Self-test re-asserts: a check script's self-test runs on every PR, unfiltered.
-      # These two are zero-dep node. The bun-dependent check-mutation-gate.test.sh
-      # re-assert is in the tsx tail below, after the install and a bun setup.
+      # These two are zero-dep node.
       - name: check-type-debt self-test re-assert (DR-10)
         run: bash tests/scripts/check-type-debt.test.sh
       - name: check-coverage-ratchet self-test re-assert (DR-10)
@@ -663,7 +649,7 @@ jobs:
       - name: Install root dependencies (for tsx-backed gates)
         run: bash "$GITHUB_WORKSPACE/tools/release/npm-ci-retry.sh"
 
-      # tsx-tail and bun gates. They ride the UNFILTERED grep-gates host, so they fire on
+      # tsx-tail gates. They ride the UNFILTERED grep-gates host, so they fire on
       # every PR, and they use the dependencies installed above.
       # See docs/guides/ci-gate-hosting.md.
 
@@ -776,16 +762,14 @@ jobs:
       - name: Cast-census scope + budget ratchet (DR-14, task 066)
         run: npx --no-install vitest run --project core tests/unit/tsconfig-strictness.test.ts
 
-      # Self-test re-assert for check-mutation-gate. Its invocation seam drives the real
-      # mutation-adequacy handler through a bun bridge (EventStore needs bun:sqlite), so
-      # it needs bun AND the node_modules installed above. grep-gates sets up bun only
-      # here, with the same oven-sh/setup-bun@v2 step as test-mcp. The other two
-      # re-asserts (type-debt, coverage-ratchet) are zero-dep node in the prefix above.
+      # Bun setup for grep-gates, with the same oven-sh/setup-bun@v2 step as test-mcp.
+      # No later step of this job needs bun now. The step stays, so the set of setup-bun
+      # steps that tests/scripts/bun-version-pin.test.ts reads does not change. The
+      # self-test re-asserts (type-debt, coverage-ratchet) are zero-dep node in the
+      # prefix above.
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version-file: .bun-version
-      - name: check-mutation-gate self-test re-assert (DR-10)
-        run: bash tests/scripts/check-mutation-gate.test.sh
 
       - name: Prefix-fingerprint gate — rehydration stable-prefix drift (DR-12)
         run: node tools/audit/gates/check-prefix-fingerprint.mjs

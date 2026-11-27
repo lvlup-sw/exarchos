@@ -79,7 +79,6 @@
       { "id": "lint-envelopes-self-test", "run": "bash tests/scripts/lint-envelopes.test.sh", "paths": ["tools/audit/gates/lint-envelopes.mjs", "tools/eslint-rules/**", "eslint.config.js"] },
       { "id": "lint-comments-self-test", "run": "bash tests/scripts/lint-comments.test.sh", "paths": ["tools/audit/gates/lint-comments.mjs", "tools/audit/comment-quality/**", "tools/eslint-rules/**", ".exarchos/comment-policy.json", "eslint.config.js"] },
       { "id": "eslint-windows-self-test", "run": "bash tests/scripts/check-eslint-windows.test.sh", "paths": ["eslint.config.js", "tools/eslint-rules/**"] },
-      { "id": "mutation-gate-self-test", "run": "bash tests/scripts/check-mutation-gate.test.sh", "paths": ["tools/audit/gates/check-mutation-gate.mjs"] },
       { "id": "cycle-gate-self-test", "run": "bash tests/scripts/audit/cycle-gate.test.sh", "paths": ["tools/audit/cycle-gate.ts"] },
       { "id": "knip-diff-self-test", "run": "bash tests/scripts/audit/knip-diff.test.sh", "paths": ["tools/audit/knip-diff.ts", "knip.json"] },
       { "id": "module-intent-self-test", "run": "bash tests/scripts/check-module-intent.test.sh", "paths": ["tools/audit/gates/check-module-intent.mjs"] }
@@ -115,7 +114,6 @@
     "test-mcp: npm run test:coverage": "The coverage run stays on the push-to-main run of ci.yml.",
     "test-mcp: node tools/audit/gates/check-coverage-ratchet.mjs": "The coverage ratchet reads the coverage run, so it runs after merge.",
     "test-mcp: vitest run tools/evals/evals/harness.test.ts tools/evals/evals/graders/llm-rubric.test.ts": "The eval lane needs model credentials.",
-    "test-mcp: node tools/audit/gates/check-mutation-gate.mjs --observe": "Observe mode does not gate.",
     "test-mcp: vitest run tests/unit/verbs/stryker-adapter.smoke.test.ts": "The Stryker smoke test does not gate.",
     "test-windows: bash tools/release/npm-ci-retry.sh": "Windows runs on Actions.",
     "test-windows: npm run test:core": "Windows runs on Actions.",
@@ -185,7 +183,6 @@
     "grep-gates: tsc -p tsconfig.scripts.json": "static:tsc-scripts",
     "grep-gates: vitest run tests/scripts/tsconfig-scripts-coverage.test.ts": "tests:unit",
     "grep-gates: vitest run --project core tests/unit/tsconfig-strictness.test.ts": "tests:core-forced",
-    "grep-gates: bash tests/scripts/check-mutation-gate.test.sh": "selftest:mutation-gate-self-test",
     "grep-gates: node tools/audit/gates/check-prefix-fingerprint.mjs": "static:prefix-fingerprint",
     "grep-gates: node tools/audit/gates/check-prose-lint.mjs": "static:prose-lint",
     "grep-gates: node tools/audit/core/measure-primary-owner-population.mjs --check": "static:primary-owner-population",

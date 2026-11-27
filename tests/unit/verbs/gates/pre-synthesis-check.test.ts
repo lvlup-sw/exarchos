@@ -3,6 +3,9 @@
 // the evidence over real dispatch. The VCS factory mock keeps `shell.ts` and `detector.ts` unloaded.
 // The cases call the handler below `dispatch()`. `gateWiring` supplies the feature id, the state
 // directory and the event store in place of dispatch.
+//
+// The lifecycle check of the local executor is a stub, so each verdict case passes a stubbed branch
+// observation and stubbed legs.
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { VcsProvider, PrSummary, PrFilter } from '../../../../src/vcs/provider.js';
@@ -17,6 +20,15 @@ vi.mock('node:child_process', () => ({
   execFileSync: vi.fn(),
   execSync: vi.fn(),
   execFile: vi.fn(),
+}));
+
+vi.mock('../../../../src/verbs/verification/lifecycle-check.js', () => ({
+  admitLifecycleLegs: vi.fn(),
+}));
+
+vi.mock('../../../../src/utils/git-tree.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../../../src/utils/git-tree.js')>()),
+  processObservationalGitPath: vi.fn(() => '/usr/bin/git'),
 }));
 
 vi.mock('../../../../src/verbs/gates/gate-runner.js', () => ({
@@ -40,10 +52,16 @@ vi.mock('../../../../src/verbs/gates/gate-runner.js', () => ({
       };
     }
   }),
+  hostedPendingResult: vi.fn((error: unknown) => { throw error; }),
 }));
 
 vi.mock('../../../../src/vcs/factory.js', () => ({
   createVcsProvider: vi.fn(),
+}));
+
+vi.mock('../../../../src/verbs/gates/gate-utils.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../../../src/verbs/gates/gate-utils.js')>()),
+  observeCurrentCheckout: vi.fn(),
 }));
 
 import { existsSync, readFileSync } from 'node:fs';
@@ -52,6 +70,10 @@ import * as fsPromises from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as nodePath from 'node:path';
 import { handlePreSynthesisCheck } from '../../../../src/verbs/gates/pre-synthesis-check.js';
+import { runPhaseGateWithEvidence } from '../../../../src/verbs/gates/gate-runner.js';
+import { admitLifecycleLegs } from '../../../../src/verbs/verification/lifecycle-check.js';
+import { observeCurrentCheckout, type CurrentCheckoutRead } from '../../../../src/verbs/gates/gate-utils.js';
+import { createVcsProvider } from '../../../../src/vcs/factory.js';
 import { EventStore } from '../../../../src/events/store.js';
 import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
 
@@ -145,22 +167,33 @@ function createMockProvider(overrides: {
   };
 }
 
-/** Queues the `git branch --show-current` output on `execFileSync`. The branch lookup uses git. */
+/** Queues one constrained observation of the current checkout on the branch. The branch lookup uses the constrained reader. */
 function mockGitBranch(branch: string = 'feature-branch'): void {
-  vi.mocked(execFileSync).mockReturnValueOnce(`${branch}\n` as unknown as Buffer);
+  const read = {
+    kind: 'observed',
+    checkout: { checkout: '/repo', repository: '/repo/.git', gitDir: '/repo/.git', branch: `refs/heads/${branch}`, head: 'c'.repeat(40) },
+    observer: {},
+  } as unknown as CurrentCheckoutRead;
+  vi.mocked(observeCurrentCheckout).mockResolvedValueOnce(read);
 }
 
-/** Queues the test command output and then the typecheck output on `execSync`. */
+/** The observed test leg and typecheck leg of the local executor, both green. */
+function passingLegs() {
+  const run = { argv: ['test'], end: 'exited' as const, exitCode: 0, stdout: 'Tests: 5 passed', stderr: '' };
+  return [{ name: 'test', kind: 'command' as const, run }, { name: 'typecheck', kind: 'typecheck' as const, run }];
+}
+
+/** Queues the green test and typecheck legs of the local executor. */
 function mockTestsOnly(): void {
-  vi.mocked(execSync)
-    .mockReturnValueOnce(Buffer.from('Tests: 5 passed'))
-    .mockReturnValueOnce(Buffer.from(''));
+  vi.mocked(admitLifecycleLegs).mockResolvedValueOnce(passingLegs());
 }
 
 describe('handlePreSynthesisCheck', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     currentStore = unavailableStore();
+    vi.mocked(observeCurrentCheckout).mockResolvedValue({ kind: 'refused', reason: 'No branch is stubbed' });
+    vi.mocked(admitLifecycleLegs).mockResolvedValue(passingLegs());
   });
 
   it('AllChecksPass_ReturnsPassed', async () => {
@@ -202,7 +235,7 @@ describe('handlePreSynthesisCheck', () => {
     vi.mocked(existsSync).mockReturnValue(false);
 
     const result = await handlePreSynthesisCheck({
-      ...gateWiring(), stateFile: '/tmp/missing.json' });
+      ...gateWiring(), stateFile: '/tmp/missing.json' }, undefined);
 
     expect(result.success).toBe(true);
     const data = result.data as CheckReport;
@@ -318,6 +351,7 @@ describe('handlePreSynthesisCheck', () => {
     expect(data.passed).toBe(true);
     expect(data.checks.skip).toBeGreaterThanOrEqual(1);
     expect(data.report).toContain('SKIP');
+    expect(admitLifecycleLegs).not.toHaveBeenCalled();
     expect(vi.mocked(execSync)).not.toHaveBeenCalled();
   });
 
@@ -329,7 +363,7 @@ describe('handlePreSynthesisCheck', () => {
       ...gateWiring(),
       stateFile: '/tmp/state.json',
       skipStack: true,
-    });
+    }, undefined);
 
     expect(result.success).toBe(true);
     const data = result.data as CheckReport;
@@ -415,7 +449,7 @@ describe('handlePreSynthesisCheck', () => {
     vi.mocked(readFileSync).mockReturnValue('{ invalid json }');
 
     const result = await handlePreSynthesisCheck({
-      ...gateWiring(), stateFile: '/tmp/state.json' });
+      ...gateWiring(), stateFile: '/tmp/state.json' }, undefined);
 
     expect(result.success).toBe(true);
     const data = result.data as CheckReport;
@@ -644,5 +678,69 @@ describe('handlePreSynthesisCheck', () => {
     expect(data.passed).toBe(false);
     expect(data.report).toContain('Invalid JSON');
     expect(data.report).not.toContain('Phase is synthesize');
+  });
+
+  /** With no verifier provisioning, the test and typecheck legs run in one stopping lifecycle check of the local executor. */
+  it('LocalRoute_TestsRunThroughOneStoppingLifecycleCheck', async () => {
+    setupValidState(makeState());
+    const run = { argv: ['test'], end: 'exited' as const, exitCode: 0, stdout: '', stderr: '' };
+    vi.mocked(admitLifecycleLegs).mockResolvedValue([{ name: 'test', kind: 'command', run }, { name: 'typecheck', kind: 'typecheck', run }]);
+
+    const result = await handlePreSynthesisCheck({ ...gateWiring(), repoRoot: '/repo', skipStack: true }, createMockProvider());
+
+    expect(result.success).toBe(true);
+    expect((result.data as CheckReport).report).toContain('**PASS**: Tests pass');
+    expect(admitLifecycleLegs).toHaveBeenCalledTimes(1);
+    expect(admitLifecycleLegs).toHaveBeenCalledWith(expect.objectContaining({
+      eventStore: currentStore, checkout: '/repo', stopAfterTestFailure: true, streamId: FEATURE_ID,
+    }));
+    expect(vi.mocked(admitLifecycleLegs).mock.calls[0]?.[0].legs[0]?.kind).toBe('command');
+    expect(execFileSync).not.toHaveBeenCalled();
+  });
+
+  /** A caller test-command override takes the override layer of the resolver, so the approved test leg is the override argv. */
+  it('TestCommandOverride_BecomesTheApprovedTestLeg', async () => {
+    setupValidState(makeState());
+
+    const result = await handlePreSynthesisCheck({ ...gateWiring(), repoRoot: '/repo', skipStack: true, testCommand: 'node test.cjs' }, createMockProvider());
+
+    expect(result.success).toBe(true);
+    expect(vi.mocked(admitLifecycleLegs).mock.calls[0]?.[0].legs[0]).toEqual({ kind: 'command', argv: ['node', 'test.cjs'] });
+    expect(execFileSync).not.toHaveBeenCalled();
+  });
+
+  /** A refusal of the local executor returns as the gate result, before the gate event. `skipTests` runs no lifecycle check. */
+  it('LocalRefusal_ReturnsTheRefusalAndSkipTestsRunsNoCheck', async () => {
+    setupValidState(makeState());
+    vi.mocked(admitLifecycleLegs).mockResolvedValueOnce({ success: false, error: { code: 'LOCAL_CHECK_REFUSED', message: 'refused' } });
+    const refused = await handlePreSynthesisCheck({ ...gateWiring(), repoRoot: '/repo', skipStack: true }, createMockProvider());
+    expect(refused).toEqual({ success: false, error: { code: 'LOCAL_CHECK_REFUSED', message: 'refused' } });
+    expect(vi.mocked(currentStore.append)).not.toHaveBeenCalled();
+
+    vi.mocked(admitLifecycleLegs).mockClear();
+    const skipped = await handlePreSynthesisCheck({ ...gateWiring(), repoRoot: '/repo', skipStack: true, skipTests: true }, createMockProvider());
+    expect(skipped.success).toBe(true);
+    expect((skipped.data as CheckReport).report).toContain('**SKIP**: Tests pass (--skip-tests)');
+    expect(admitLifecycleLegs).not.toHaveBeenCalled();
+    expect(execFileSync).not.toHaveBeenCalled();
+  });
+
+  /**
+   * The PR-stack branch comes from the constrained observation of the absolute checkout root with the process-wide Git path.
+   * A detached HEAD or another refused observation fails the check, and the provider gets no query.
+   */
+  it('PrStack_ConstrainedBranchRead_UsesTheProcessGitPathAndFailsClosed', async () => {
+    setupValidState(makeState());
+    const provider = createMockProvider({
+      listPrs: [{ number: 1, url: '', title: '', headRefName: 'feature-branch', baseRefName: 'main', state: 'OPEN' }],
+    });
+    vi.mocked(observeCurrentCheckout).mockResolvedValueOnce({ kind: 'refused', reason: 'The checkout HEAD is detached' });
+
+    const result = await handlePreSynthesisCheck({ ...gateWiring(), stateFile: '/tmp/state.json' }, provider);
+
+    expect(observeCurrentCheckout).toHaveBeenCalledWith('/usr/bin/git', nodePath.resolve('.'));
+    expect((result.data as CheckReport).report).toContain('Could not determine current branch');
+    expect(provider.listPrs).not.toHaveBeenCalled();
+    expect(execFileSync).not.toHaveBeenCalled();
   });
 });
