@@ -81,7 +81,7 @@ describe('the gate table projects the contract', () => {
     const expected = new Set(Object.values(PHASE_EXPECTED_EVENTS).flat());
     expect(new Set(Object.keys(EVENT_DESCRIPTIONS))).toEqual(expected);
     for (const [type, description] of Object.entries(EVENT_DESCRIPTIONS)) {
-      expect(description, type).toMatch(new RegExp(`^Emit ${type.replace(/\./g, '\\.')} via exarchos_event — `));
+      expect(description, type).toMatch(new RegExp(`^Emit ${type.replace(/[\\^$.*+?()[\]{}|]/g, '\\$&')} via exarchos_event — `));
     }
   });
 });
