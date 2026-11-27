@@ -193,7 +193,7 @@ it.runIf(process.platform === 'linux')('LocalLifecycle_ARetryOfTheSameOperation_
 
     await seedActivePhaseAttempt(f.events, 'lifecycle-retry', { phase: 'synthesize', repoRoot: deriveRepoKey(f.repo.checkout) });
     const merge = correlation();
-    const args = { featureId: 'lifecycle-retry', prUrl: 'https://example.invalid/pull/2', mergeSha: 'abc1234', repoRoot: f.repo.checkout };
+    const args = { featureId: 'lifecycle-retry', prUrl: 'https://example.invalid/acme/widget/pull/2', mergeSha: 'abc1234', repoRoot: f.repo.checkout };
     const once = await f.handle('check_post_merge', args, merge);
     const twice = await f.handle('check_post_merge', args, merge);
     expect(once, JSON.stringify(once)).toMatchObject({ success: true, data: { passed: true } });
@@ -262,7 +262,7 @@ it.runIf(process.platform === 'linux')('LocalLifecycle_APreparedStream_ConfinesT
   } });
   try {
     const stream = await preparedStream(f.events, f.repo.checkout);
-    const args = (repoRoot: string) => ({ featureId: stream, prUrl: 'https://example.invalid/pull/3', mergeSha: 'abc1234', repoRoot });
+    const args = (repoRoot: string) => ({ featureId: stream, prUrl: 'https://example.invalid/acme/widget/pull/3', mergeSha: 'abc1234', repoRoot });
     const foreign = await f.handle('check_post_merge', args(other.checkout));
     expect(foreign).toMatchObject({ success: false, error: { code: 'LOCAL_CHECK_REFUSED',
       message: expect.stringContaining('not a worktree of the repository that the workflow prepared') } });
@@ -287,7 +287,7 @@ it.runIf(process.platform === 'linux')('LocalLifecycle_AnUnpreparedStream_Confin
   } });
   try {
     await seedActivePhaseAttempt(f.events, 'lifecycle-unprepared', { phase: 'synthesize', repoRoot: deriveRepoKey(f.repo.checkout) });
-    const args = (repoRoot: string) => ({ featureId: 'lifecycle-unprepared', prUrl: 'https://example.invalid/pull/4', mergeSha: 'abc1234', repoRoot });
+    const args = (repoRoot: string) => ({ featureId: 'lifecycle-unprepared', prUrl: 'https://example.invalid/acme/widget/pull/4', mergeSha: 'abc1234', repoRoot });
     const foreign = await f.handle('check_post_merge', args(other.checkout));
     expect(foreign).toMatchObject({ success: false, error: { code: 'LOCAL_CHECK_REFUSED',
       message: expect.stringContaining('not a registered worktree of the workflow') } });
@@ -310,7 +310,7 @@ it.runIf(process.platform === 'linux')('LocalLifecycle_StoredEvidenceWithNoLocal
   const f = await lifecycleFixture();
   try {
     await seedActivePhaseAttempt(f.events, 'lifecycle-history', { phase: 'synthesize', repoRoot: deriveRepoKey(f.repo.checkout) });
-    const args = { featureId: 'lifecycle-history', prUrl: 'https://example.invalid/pull/5', mergeSha: 'abc1234', repoRoot: f.repo.checkout };
+    const args = { featureId: 'lifecycle-history', prUrl: 'https://example.invalid/acme/widget/pull/5', mergeSha: 'abc1234', repoRoot: f.repo.checkout };
     const operation = correlation();
     const earlier = fakeExecutor(() => ({ exitCode: 1, stdout: '', stderr: 'red before the local executor\n' }));
     const original = await runWithDispatchContext(operation, () => handlePostMerge(args, join(f.root, 'state'), f.events, earlier.executor));
