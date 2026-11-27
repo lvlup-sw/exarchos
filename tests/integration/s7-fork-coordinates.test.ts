@@ -17,7 +17,8 @@ import { ACTION_HANDLERS } from '../../src/verbs/composite.js';
 import { productionExecuteDeps } from '../../src/verbs/execute/executor.js';
 import { nodeTestProfile } from '../helpers/verification-profile.js';
 import { seedActivePhaseAttempt } from '../../tools/test-helpers/trusted-context.js';
-import { observeClaimedTree, observeImmutableClaimedTree, observeRepository, type TreeObserver } from '../../src/utils/git-tree.js';
+import { observeRepository, type TreeObserver } from '../../src/utils/git-tree.js';
+import { observeConstrainedClaimedTree } from '../../src/verbs/settle/claimed-tree.js';
 import { readDesignRecord } from '../../src/workflow/design-record/read.js';
 import { encodeExecuteIntentBundle, normalizedExecuteRequestDigest, ExecuteIntentInputSchema, SegmentInputBindingV1Schema } from '../../src/verbs/execute/run-bundle.js';
 import { configDigestAt } from '../../src/verbs/prepare/prepare-scope.js';
@@ -244,7 +245,7 @@ describe('immutable task forks', () => {
     expect(after.slice(0, rows.length)).toEqual(rows);
     expect(after.slice(rows.length).some(row => ['task.completed', 'gate.executed', 'orchestrate.intent_executed'].includes(row.type))).toBe(false);
     expect(await footprint(f.tree)).toEqual(before);
-    const observed = await observeImmutableClaimedTree(f.tree, f.repo.baseCommit);
+    const observed = await observeConstrainedClaimedTree(f.tree, f.repo.baseCommit, undefined, 'immutable');
     expect(observed).toMatchObject({ kind: 'tree', head: f.repo.baseCommit, holdsBase: true, dirtyPaths: ['hidden-helper.cjs'] });
     expect(await readFile(hidden, 'utf8')).toBe('module.exports = true;\n');
     await unlink(hidden);
@@ -271,11 +272,11 @@ describe('immutable task forks', () => {
     await git(f.tree, 'config', 'core.fsmonitor', hook);
     const index = await git(f.tree, 'rev-parse', '--path-format=absolute', '--git-path', 'index');
     const before = await readFile(index); const refs = await git(f.tree, 'show-ref');
-    const observed = await observeImmutableClaimedTree(f.tree, f.repo.baseCommit);
+    const observed = await observeConstrainedClaimedTree(f.tree, f.repo.baseCommit, undefined, 'immutable');
     expect(observed).toMatchObject({ kind: 'tree', head: f.repo.baseCommit, holdsBase: true, dirtyPaths: [] });
     expect(existsSync(`${hook}.invoked`)).toBe(false); expect(await readFile(index)).toEqual(before);
     expect(await git(f.tree, 'show-ref')).toBe(refs);
-    await observeClaimedTree(f.tree, f.repo.baseCommit); expect(existsSync(`${hook}.invoked`)).toBe(true);
+    await git(f.tree, 'status', '--porcelain'); expect(existsSync(`${hook}.invoked`)).toBe(true);
   });
 
   /** A captured head cannot borrow ancestry from a later checkout head. */
@@ -283,7 +284,7 @@ describe('immutable task forks', () => {
     const f = await setup(['left']); await f.seed('left', f.repo.baseCommit);
     const later = await f.repo.worktreeFor('later', { 'later.txt': 'later' }); const fork = await git(later, 'rev-parse', 'HEAD');
     const observer: TreeObserver = async (dir, base, repository) => {
-      const captured = await observeImmutableClaimedTree(dir, base, repository); await git(dir, 'merge', '--ff-only', fork); return captured;
+      const captured = await observeConstrainedClaimedTree(dir, base, repository, 'immutable'); await git(dir, 'merge', '--ff-only', fork); return captured;
     };
     const result = await f.run(fork, { observer }); expect(result.success).toBe(false); expect(f.calls()).toBe(0);
     expect(result.error?.code).toBe('TASK_COORDINATE_REFUSED');

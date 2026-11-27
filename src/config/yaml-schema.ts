@@ -6,9 +6,9 @@ import {
   SynthesisConfigSchema,
   EscalationConfigSchema,
   safeCommand,
-  withoutRetiredMutationCommand,
   withoutRetiredMutationReview,
   withoutRetiredRequiredReview,
+  withoutRetiredTopLevelKeys,
   withoutRetiredVcsKey,
 } from './exarchos-config-schema.js';
 import { RETIRED_VERIFICATION_GATE_NAMES, VERIFICATION_GATE_NAMES } from '../workflow/verification-policy.js';
@@ -387,10 +387,10 @@ export type ProjectConfig = z.infer<typeof ProjectConfigSchema>;
  * The full `.exarchos.yml` schema: the merge of `ExarchosConfigBaseSchema` and `ProjectConfigSchema`.
  * It accepts a key that is valid in either schema and rejects a key that is valid in neither.
  * The config loaders and the invariants loader use it, so they reach the same verdict on a file.
- * The parse removes the retired `mutation` and `vcs` keys, and the loader reports each as a migration finding.
+ * The parse removes the retired `mutation`, `vcs` and `feedback` keys, and the loader reports each one as a migration finding.
  */
 export const FullExarchosConfigSchema = ExarchosConfigBaseSchema.merge(ProjectConfigSchema)
   .strict()
-  .transform((document) => withoutRetiredVcsKey(withoutRetiredMutationCommand(document)));
+  .transform((document) => withoutRetiredVcsKey(withoutRetiredTopLevelKeys(document)));
 
 export type FullExarchosConfig = z.infer<typeof FullExarchosConfigSchema>;

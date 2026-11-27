@@ -17,7 +17,7 @@
 packet:
   id: exarchos-semantic-plane
   version: 2
-  as_of: 2026-11-14
+  as_of: 2026-11-25
   main_at: 590223e20975fa228fe334ffb8a27d7a2ba778a2
   owner_issue: 1875            # the decision record and build-order log
   roadmap_issue: 1599
@@ -359,6 +359,7 @@ decisions:
   - date: "2026-10-01"
     source: "delegated judgment, review session"
     decision: "The space invariant (INV-11) is held by the capsule capability manifest, coordinator-only MCP access, and settle observing worktree identity. The WLM is not a chokepoint. The space-moat fork (upstream hook standard, remote sandboxes) moves to v3.1.0."
+    status: "Superseded on 2026-11-25 (Reed): INV-11 rests on the capsule capability manifest and the local worktree observation of settle. Exarchos has no MCP-access mechanism, so coordinator-only MCP access is not part of it."
   - date: "2026-10-01"
     source: "Reed, review page"
     decision: "The context packet lives at .exarchos/knowledge/semantic-plane.context.yaml with a CLAUDE.md pointer."
@@ -738,6 +739,7 @@ decisions:
       The old request digest is SHA-256 of the exact intent/streamId/args JSON envelope, where args is the list of top-level key/value pairs sorted by key after the strict four-field synthesis schema. Reordered keys replay identically; changed values refuse and unknown fields fail parsing. The current executor compiles before claim lookup, so removing the runbook alone loses historical replay. This fixture preserves that current behavior for the migration; it does not authorize a future writer retry.
     status: >-
       T-01 changes records and tests only. Fresh retired requests must later return a precise retirement outcome before any new claim or mutation. Authenticated terminal reads must preserve original receipt and membership without a checkout, compiler, provider or effect. Interrupted or insufficiently authenticated legacy evidence must remain incomplete/refused, never authorize a retired effect. Existing current-mode writer tests must be explicitly migrated in the staged retirement tasks: T-12 provider and closed synthesis routes, T-13 local merge (including serialize_merge), setup and prune routes, with launch and recovery separation in T-14 under the later task partition. T-01 retains its original revision 2 authority. Frozen history must not be recaptured. Keep the original S7 compiler 8 and stored bytes, and reserve the planned 8-vcs policy separately from S8 9 and S9 10.
+      Superseded in part on 2026-11-25: the #1928 stack also retired check_ci, list_prs and get_pr_comments, so no provider read remains, and acquire_worktree, release_worktree and reconcile_worktrees left the registry. The retained observational routes are the constrained Git reads only.
 
   - date: "2026-11-23"
     source: "#1928 revision 26, slice S2 step T-25, the conception of 2026-11-23 (Exarchos is one CLI binary with no separately provisioned verifier)."
@@ -796,7 +798,7 @@ decisions:
       The other launcher modules stay, and their unit tests still reach them, until step T-28 deletes them. launch-reconcile.ts and liveness.ts stay for the historical reconcile_worktrees leg.
       The two test files whose only subject is the harness entry are retired rows of the test inventory oracle.
       The detectVcs context option has no production caller after the harness entry goes.
-    status: "Committed on codex/1928-s3-launcher. The lock waits for Reed to re-approve it."
+    status: "Committed on codex/1928-s3-launcher. Reed approved the contract authority lock re-approval on 2026-11-25, and it is done in its own commit."
 
   - date: "2026-11-23"
     source: "#1928 revision 26, slice S3 step T-28, the conception of 2026-11-23 (the launcher is retired)."
@@ -818,7 +820,7 @@ decisions:
     known: >-
       The live case of tests/integration/1928-historical-intents.test.ts now reads the frozen S7 custody. The failed-terminal case reads a failed terminal frozen from 64a9cf732c1eaf30873d08e177c3c1a093343b7b, the last revision that compiled synthesis closeout.
       The provider write methods stay in src/vcs until the provider layer is deleted. The seven writer suites are retired rows of the test inventory oracle.
-    status: "Committed on codex/1928-s4-remote-integrations. The contract authority lock waits for Reed to re-approve it."
+    status: "Committed on codex/1928-s4-remote-integrations. Reed approved the contract authority lock re-approval on 2026-11-25, and it is done in its own commit."
 
   - date: "2026-11-23"
     source: "#1928 revision 26, slice S4 step T-31, the conception of 2026-11-23 (Exarchos reads no PR)."
@@ -828,7 +830,7 @@ decisions:
     known: >-
       The three actions emitted no catalog event and wrote no receipt, so no stored row changes its read result. windowPrComments stays in src/vcs/provider.ts for the GitHub provider until the provider layer is deleted.
       The packaged-proof process probe now runs review_diff against a checkout whose .git holds only an object directory, so only a spawned git can give its DIFF_FAILED refusal.
-    status: "Committed on codex/1928-s4-remote-integrations. The contract authority lock waits for Reed to re-approve it."
+    status: "Committed on codex/1928-s4-remote-integrations. Reed approved the contract authority lock re-approval on 2026-11-25, and it is done in its own commit."
 
   - date: "2026-11-23"
     source: "#1928 revision 26, slice S4 step T-32, the conception of 2026-11-23 (Exarchos reads no PR)."
@@ -838,7 +840,7 @@ decisions:
     known: >-
       Stored pr-stack evidence and gate.executed rows keep their original reading. The reliability view reads the class from the row source, and isBlockingGate fails closed, as the blocking pr-stack gate did. The view no longer lists an empty pr-stack metric when a stream holds no pr-stack row.
       The only interactive-authentication action is gone. The vocabulary keeps the obligation, and discover_bridge and agent_spec now stand for the host-owned cases in the tests.
-    status: "Committed on codex/1928-s4-remote-integrations. The contract authority lock waits for Reed to re-approve it."
+    status: "Committed on codex/1928-s4-remote-integrations. Reed approved the contract authority lock re-approval on 2026-11-25, and it is done in its own commit."
 
   - date: "2026-11-23"
     source: "#1928 revision 26, slice S4 step T-33, the conception of 2026-11-23 (Exarchos reads no PR)."
@@ -850,7 +852,7 @@ decisions:
       The coordinator decided on 2026-11-23 (option B of the report-coupling census, which Reed can reverse) that the four are also retired as emissions. The shepherd skill appends only shepherd.iteration with exarchos_event. The four keep their schemas, the shepherd-status view and every workflow-state reader, and a replay case of a stored log with all four proves the same read results. The report-coupling census reads 24 against seed 24, with no seed change.
       The shepherd-status verdict still declares the paths the four set. No runtime reader uses the partition, so the view, the projections and old rows read the same. The review registry carries a RESERVED header until the provider layer goes.
       countShepherdIterations lost its last production caller with assess_stack, so it is deleted, and the shepherd_status view is the only iteration count. The governance witness of shepherd.iteration moves from the raw-reader arm to the gate-expectation arm, because the synthesize emission gate still expects the type. The type stays governance, and the partition does not change.
-    status: "Committed on codex/1928-s4-remote-integrations. The contract authority lock waits for Reed to re-approve it."
+    status: "Committed on codex/1928-s4-remote-integrations. Reed approved the contract authority lock re-approval on 2026-11-25, and it is done in its own commit."
 
   - date: "2026-11-23"
     source: "#1928 revision 26, slice S4 step T-34, the conception of 2026-11-23 (Exarchos reads no PR), and Reed's decision to drop both remote parts."
@@ -882,8 +884,8 @@ decisions:
       prune.executing_started and prune.executed are retired as emissions and keep their schemas, readers, the worktrees@v1 projection and the ps and wait reads, so old logs read the same.
       worktree.remove.requested and worktree.remove.executed stay active, because the cancel compensator in compensation.ts still appends them until T-37. exarchos_workflow.cancel now declares both, and the provider of worktree.remove.executed is exarchos_workflow.
       VcsMutationOwner, removeWorktreeForce and burstStagger have no production caller now. T-38 and T-39 own their modules.
-      The measured floors of the primary-owner population, the autoEmits population, the public-root action coverage, the oracle subjects, the emitter closure and the roots-injection partition fall with the two actions. Those floors wait for Reed to approve the lower values.
-    status: "Committed on codex/1928-s5-worktrees-merges-cancel. The contract authority lock waits for Reed to re-approve it."
+      The measured floors of the primary-owner population, the autoEmits population, the public-root action coverage, the oracle subjects, the emitter closure and the roots-injection partition fall with the two actions. Reed approved the lower values on 2026-11-25.
+    status: "Committed on codex/1928-s5-worktrees-merges-cancel. Reed approved the contract authority lock re-approval on 2026-11-25, and it is done in its own commit. Superseded in part by the decision of 2026-11-25 that deletes the worktree lifecycle manager: acquire_worktree, release_worktree and reconcile_worktrees do not keep ledger-only results, because they left the registry and the closed retired-action table refuses each."
 
   - date: "2026-11-23"
     source: "#1928 revision 26, slice S5 step T-36, the conception of 2026-11-23 (the harness lands task branches)."
@@ -896,7 +898,7 @@ decisions:
       merge.executed moved from capability to workflow-local (feature), because no action declares it and the boot weld refuses an active capability weld with no edge. A projection-fold witness keeps it governance. That makes it report-coupled, and the G3 report-coupling seed does not hold it yet: growing that seed waits for Reed.
       vcs/mutation-owner.ts lost its last production importer with local-git-merge.ts, so check-module-intent reports it until T-38 or T-39 deletes it.
       The invariant catalog re-points INV-10, INV-13 and INV-14 off the deleted module. The measured floors of the primary-owner population, the autoEmits population, the emission denominator, the emitter closure, the provider areas, the public-root action coverage, the oracle subjects and the output-schema census fall with the two actions.
-    status: "Committed on codex/1928-s5-worktrees-merges-cancel. The contract authority lock and the merge.executed seed entry wait for Reed."
+    status: "Committed on codex/1928-s5-worktrees-merges-cancel. Reed approved the contract authority lock re-approval and the merge.executed entry of the G3 report-coupling seed on 2026-11-25, and each is done in its own commit. Superseded in part by the decisions of 2026-11-25: the merge-pending detour, its playbook and its runbook are deleted, so no phase expects a merge.executed row. reconcile_worktrees and merge-lease-reconciler.ts are deleted, so worktree.merge_executed is retired. vcs/mutation-owner.ts is deleted in S6."
 
   - date: "2026-11-23"
     source: "#1928 revision 26, slice S5 step T-37, the conception of 2026-11-23 (the harness removes the resources of a cancelled workflow)."
@@ -909,7 +911,7 @@ decisions:
       The emitter closure audit forced the branch.delete and worktree.remove declarations out of exarchos_workflow.cancel, because compensation.ts was their only appender. The four events are retired as emissions and keep their schemas, readers and the worktrees@v1 fold, so old logs read the same. worktree.adopted moved onto the unresolved-append allowance, because its remaining append in manager.ts commits through decide.
       The effect ledger loses the workflow/compensation.ts process rule, vcs-ownership loses the compensation owner, and the WLM wiring gate no longer wires compensation.ts but still scans it. manager.ts loses defaultGitRunner, gitCapture and its spawn import. withIndexLockRetry in git-retry.ts has no production caller now, and T-38 owns it.
       The measured floors of the primary-owner population, the emission denominator, the emitter closure, the provider areas and the cast census fall with the deleted appends, and the stale-cover eligible pin moves from 27 to 26.
-    status: "Committed on codex/1928-s5-worktrees-merges-cancel."
+    status: "Committed on codex/1928-s5-worktrees-merges-cancel. Superseded in part by the decision of 2026-11-25 that deletes the worktree lifecycle manager: release_worktree and reconcile_worktrees left the registry, so no action clears a worktree reservation, and a reservation in an old log stays outstanding."
 
   - date: "2026-11-23"
     source: "#1928 revision 26, slice S5 step T-38, the conception of 2026-11-23 (the harness lands task branches)."
@@ -919,7 +921,7 @@ decisions:
     known: >-
       vcs-ownership names only vcs/mutation-owner.ts, and the live tree holds no merge site. The WLM wiring gate allowlists no file. The TestGen burst-stagger binding holds its own delay function, because the burst stagger had no production caller after T-35.
       vcs/mutation-owner.ts still has no production importer, so check-module-intent reports it. T-39 or a decision of Reed owns it. The cast census baseline falls from 1549 to 1546 with the three deleted casts.
-    status: "Committed on codex/1928-s5-worktrees-merges-cancel."
+    status: "Committed on codex/1928-s5-worktrees-merges-cancel. Reed decided on 2026-11-25 to delete vcs/mutation-owner.ts, and S6 deletes it. vcs-ownership now names no owner."
 
   - date: "2026-11-23"
     source: "#1928 revision 26, slice S5 step T-39, the conception of 2026-11-23 (Exarchos reads and writes no PR)."
@@ -929,7 +931,7 @@ decisions:
     known: >-
       No stored event or receipt came from the deleted modules, so old rows keep their read results. The effect ledger drops the vcs/ process owner, and the layer table drops the review to vcs, vcs to config and dispatch to vcs edges, because no live import uses them.
       ProviderAdapter and ReviewAdapterRegistry stay in review/types.ts as type-only contracts with no implementation. The observational originUrl read in utils/git-tree.ts has no caller now. vcs/mutation-owner.ts still has no production importer. The cast census baseline falls from 1546 to 1509.
-    status: "Committed on codex/1928-s5-worktrees-merges-cancel."
+    status: "Committed on codex/1928-s5-worktrees-merges-cancel. S6 deletes vcs/mutation-owner.ts (Reed, 2026-11-25)."
 
   - date: "2026-11-25"
     source: "Reed, 2026-11-25"
@@ -967,6 +969,55 @@ decisions:
       Items 2 and 3 of #2007 left with manager.prune and git-retry.ts. An old prune.diagnostics record has no mark, so the guard refuses it. The guard fails closed: a store with no query, or a query that throws, gives DRY_RUN_REQUIRED. The window runs on the real clock of the handler deps, never on the now arg, and the guard reads only the records of that one-hour window.
     status: "Committed on codex/1928-s5-worktrees-merges-cancel."
 
+  - date: "2026-11-23"
+    source: "#1928 revision 26, slice S6 step T-40, the conception of 2026-11-23 (one local CLI with no remote integration)."
+    decision: >-
+      The effect ledger owns no network effect, the network adapter has no owner and no narrow port grants network, so any network client fails the census. A new operand rule catches fetch after ??, ||, &&, =>, ?, : or return, and a planted ?? fetch tree proves it.
+      Feedback writes only the local event store. The upstream POST is gone, and the feedback key of .exarchos.yml is retired like the mutation key: the schema accepts it, the parse removes it and the loader reports RETIRED_FEEDBACK_UPSTREAM. The output keeps upstreamConfigured false, configuredEndpoint null and upstreamDelivered false.
+      Process rules name exact measured modules in two classes. The governor owners are utils/process.ts, utils/git-tree.ts, verbs/doctor/probes.ts, verbs/gates/gate-utils.ts, verbs/reconcile-state.ts and verbs/tasks/extract-intent.ts. The install probes are the second allowed class, with the install-probe: owner prefix: install/advisory-kill-probes.ts, install/hooks-guard.ts, install/runtimes/detect.ts, install/skills-guard.ts and install/wizard/prerequisites.ts. They stay in place.
+      task_complete and the settle fallback observe the claimed tree through the constrained reader (verbs/settle/claimed-tree.ts): storage checks with no process, the worktree listing for head and branch, and the closed listings for dirty paths, with no status. The closed listings compare a tracked symbolic link by the blob of its target and a submodule by its gitlink commit. version-check.ts and push-with-lease.ts are deleted with their suites. The plain observeTree, observeClaimedTree and observeImmutableClaimedTree readers are deleted, and their suites observe through the constrained reader.
+      Reed decided on 2026-11-24 ("Remove both"): the onboard step does not run the project install command and does not fall back to npx skills add. It copies the skills from a local source only, through installSkills with localSourceOnly, and it does not install the dependencies of the project. With no local skills for the runtime, the step fails with a refusal that names the Exarchos plugin and exarchos skills get, and the step stays residual. verbs/onboard/install.ts starts no process and is no longer a process owner of the ledger.
+    known: >-
+      tests/process/1928-governor-boundary.test.ts runs prepare, a harness landing, settle and feedback through the packaged binary with recording shims for git, gh, glab, az and node and failing catch-all shims for shells, package managers, network clients and which. It shows Git reads and the approved checks only, no merge and no connection to the retired upstream or the proxy variables. A planted script proves that a gh start, a Git merge and a catch-all start land in the log and fail the assertion. An absolute-path start is outside the log.
+      The MCP tool list stays the four composite tools. Reed decided on 2026-11-27 to remove the private network namespace trap: CI hosts cannot make an unprivileged user namespace, and the effect census already fails any network client.
+      Plain git status and constrained listings differ for global excludes and checkout filters, and for a submodule with new commits that its gitlink does not record. A tree, index or untracked listing beyond 32768 entries makes a claimed tree unobservable. Reed accepts these two limits as known. A stray .git entry in an ancestor directory makes the constrained climb unreadable. The npx skills add branch of src/install/install-skills.ts stays, with its tests, but no production caller reaches it, because the bridge has the onboard step as its only caller. The effect census saw no such spawn at first, because it went through the spawnCommand primitive. The census now charges each caller of a spawn entry of utils/process.ts, so a rule names install/install-skills.ts. exarchos skills get is not in this tree yet, so the refusal names it for a later release. The cast census baseline falls from 1495 to 1494.
+    status: "Committed on codex/1928-s6-boundary-proof. The two process classes became three on 2026-11-25: the census charges each caller of the spawn primitive, and testgen is its own class."
+
+  - date: "2026-11-25"
+    source: "Reed, 2026-11-25"
+    decision: >-
+      The no-MCP and no-network boundary of #1928 covers the governor only. testgen-mcp is its own product (#2223), so it is exempt.
+      The effect census names testgen as a third process class with the testgen: owner prefix, apart from the governor checks and the install-time owners.
+    known: >-
+      testgen/inspection/collect.ts is the only testgen process site. It reads Git metadata only.
+    status: "Committed on codex/1928-s6-boundary-proof."
+
+  - date: "2026-11-25"
+    source: "Reed, 2026-11-25"
+    decision: >-
+      INV-11 rests on the capsule capability manifest and the local worktree observation of settle, in line with C2. Exarchos has no MCP-access mechanism. This supersedes the 2026-10-01 entry that named coordinator-only MCP access.
+    status: "Recorded on codex/1928-s6-boundary-proof."
+
+  - date: "2026-11-25"
+    source: "Reed, 2026-11-25"
+    decision: >-
+      The #1928 stack lands as six pull requests. The T-01 to T-18 commits of codex/1928-vcs-observation go up inside the S1 pull request, not as a pull request of their own.
+      The stack was rebased onto main after the Cursor security rollup (#2252). Each conflict is resolved in the slice that causes it. A slice that deletes a file that main changed keeps the deletion and carries the security fix of main to the file that survives: the operator grant and the mcp --operator entry, the RE2 check patterns, and the numeric pull request ids while their subject lived.
+      Reed pre-approved three gestures for the close-out: the contract authority lock re-approvals through src/contract/authority-lock-cli.ts, the measured floors and baselines that the stack records said wait for Reed, and the merge.executed entry of the G3 report-coupling seed. Each is done in its own commit that names what moved and why.
+    status: "Recorded on codex/1928-s6-boundary-proof."
+
+  - date: "2026-11-25"
+    source: "Reed, 2026-11-25"
+    decision: >-
+      vcs/mutation-owner.ts and its suite are deleted, because no production module imports it since the merge modules went. vcs-ownership names no owner, so a Git worktree, branch or merge mutation anywhere in src fails the census.
+      vcs.requested, vcs.executed and vcs.compensated are retired as emissions. Their schemas stay and the append surface still reserves them, so old logs read the same and no caller can mint one.
+      The effect-event authority row drops the VCS ledger representation, so the row is single-authority and unbound: the promotion sink is the one declaring owner.
+      The effect census charges each module that imports utils/process.ts and names runCommandSync, spawnCommand, spawnCommandSync or spawnHarnessChild. The integration suite and static analysis gates, the post-merge test run, the approved-check executor and the npx skills fallback of the skills installer each have their own rule.
+    known: >-
+      The census still does not charge the consumer of another re-exported primitive, an injected client or a computed global access.
+      The cast census baseline falls from 1494 to 1490 with the four casts of the deleted module.
+    status: "Committed on codex/1928-s6-boundary-proof."
+
 build_order:
   original: "kernel -> capsule contract -> prepare/settle -> one runtime adapter -> divergence loop -> #1249 laws -> second adapter"
   legs:
@@ -996,7 +1047,7 @@ build_order:
       status: "done in four slices (decision of 2026-10-16). The verification-base line of #1929 stays open, on conditions. #1925 landed via #1974 (the kill-probe base, frozen in the capsule). The plan of 2026-10-16 cuts the rest into four slices, by name. 'Honest verdicts' (no capsule change) is done: the forged-row half of #1886 defect 2, #2062 and the first half of #1721. It landed on main on 2026-10-21 in a stack of three pull requests (the reserved gate.executed row and the task_complete reader, then the kill probe, then the boundary check of static analysis): #2135, #2136 and #2137, main 79f59577a. 'Settlement reads inside its commit' (no capsule change) is done: drift row completion-read-before-shape-pass and the races at settlement time. It was built on the integration branch feat/settlement-reads-in-commit, and it landed on main on 2026-10-23 in one pull request, #2158 (main 34a33b4d5). It is the first build of the repository settled through prepare and settle, with one of each per task (capsules v1 to v8). The review sent two medium findings back, and an eighth task fixed them. The MCP server ran a binary built from main 64805bffc. No batch carried a deviation, so the divergence loop did not run on a real settlement. 'The capsule pins the scope' (exarchos-prepare-4) is done: the scope and the base commit in the capsule and the worktree identity check (#1526), with the wrong-tree half of #1886 defect 2, #1886 defect 1, #1813 and #1753. It landed on main on 2026-10-27 in one pull request, #2170 (main 01917ae91). Spec docs/specs/2026-10-23-capsule-pins-the-scope.md, revision 7, approved by Reed on 2026-10-23 with route A for the fixer. Workflow capsule-pins-the-scope, built on the integration branch feat/capsule-pins-the-scope, which forked from main 9d15ee216. It ran as one chain of fifteen tasks: T-01 to T-12, the fix task T-04a that the lead added on 2026-10-25, T-13 (the fixes of review round 1) and T-14 (the fixes of the pull request review). T-01 to T-13 each ran with one prepare and one batch (capsules v1 to v14). T-14 ran in the shepherd loop of synthesize with no capsule. The reason is that prepare runs only in delegate, and the move from synthesize back to delegate needs a recorded synthesis error. On 2026-10-25 Reed accepted two deviations of the kind invalidated-assumption in decision rounds: dev:1b8bef8002812006f51a60b4 of T-09 (batch t09-b1, design-v1 to design-v2) and dev:79610c019d35c77cf036139d of T-10 (batch t10-b1, design-v2 to design-v3). Each added tests/unit/verbs/settle/settle-scope.test.ts to its task. On 2026-10-25 Reed also added three files to T-12: the two mutation-adequacy skill texts and docs/phase-gate-taxonomy.html, which still named the severity helpers that the wrapper replaced. The MCP server of the build ran the PATH binary 2.12.1, so each capsule of the build is exarchos-prepare-3 and pins no scope, and settle did not run the scope rules on these batches. Since 2026-10-27 the PATH binary is a build of main 01917ae91. Review round 1 on head 8314fe1b1 gave APPROVED with 12 low findings (decision of 2026-10-25). Reed sent four of them and the audit-mode skip rule back as fix task T-13, the fourteenth task of the chain (capsule v14). T-13 landed on 2026-10-26 after Reed accepted its deviation dev:ec264160c940b62f046c4acd (batch t13-b1, design-v3 to design-v4), and review round 2 over the T-13 diff gave APPROVED with 7 low findings. With the three accepted deviations of T-09, T-10 and T-13, the design went from design-v1 to design-v4. The integration branch then took in main 6015d68b9. The pull request review (CodeRabbit) found one regression (Minor for CodeRabbit, medium for the lead) that the two review rounds missed. A retry of a stored completion judged its tree again, so a retry after a landing or a prune of the worktree was refused with other-tree. T-14 fixed it (decision of 2026-10-27). 'No per-language code' (exarchos-prepare-5), the fourth slice, is done: #1540 and #1814 (plan of 2026-10-28). It landed on main on 2026-11-05 in one pull request, #2174 (main 00b0a8321). Spec docs/specs/2026-10-28-no-per-language-code.md, revision 13. Workflow no-per-language-code, built on the integration branch feat/no-per-language-code, which forked from main 8a047d8c9. It ran as one chain of thirteen tasks, T-01 to T-12 and T-13 (the fixes of review round 1), each with one prepare (capsules v1 to v13). Reed decided five deviations in decision rounds: dev:a0037e5a4da9a4dfb78391c4 of T-03 (accepted, design-v1 to design-v2), dev:04b1c3f5a3ffd0d3af3f0856 of T-06 (accepted), dev:d969adbdc5035c373740c0f2 of T-08 (accepted, design-v2 to design-v3), and two of T-10, dev:1a2a7d3cb51ec1ee08f921d2 (rejected) and dev:2999813c025129ea18a25bb9 (accepted). The MCP server of the build ran a binary of main 01917ae91, so each capsule of the build is exarchos-prepare-4 and pins no profile, and settle ran the old gates on these batches. Review round 1 on head 97637a167 gave APPROVED with no high finding. Reed sent decision 26 of the spec and four low items back as fix task T-13 (decision of 2026-11-04). T-13 landed as d508b4c10, and review round 2 over its diff gave APPROVED with 4 low findings. The pull request review (CodeRabbit) asked for two Minor changes, which b09b2202d made (decision of 2026-11-05). Since 2026-11-05 the PATH binary is a build of main 00b0a8321."
       refs: "#1929 (children #1925, #1526, #1753, #1813, #1814, #1540, #1886, #1721); gate verdict enforcement #1943 (done, #1975)"
     - leg: "conformance: VCS demotion (serialize_merge, setup_worktree, create_pr off the governance surface)"
-      status: "decided"
+      status: "built on the #1928 stack (codex/1928-vcs-observation and slices S1 to S6), rebased onto main on 2026-11-25. Six pull requests, not merged yet."
       refs: "#1928 (every Git/PR write; related #1884, #1835)"
     - leg: "conformance: workflow-scoped capsule (definitions first; whole workflow per capsule; settlement carries phase; next_actions, playbooks, state document retire)"
       status: "in progress in twelve slices (decisions of 2026-11-05). The four minor pull requests landed first: #2182, #2183 (with #2184), #2180 and #2181. S1 'the baseline' is done (pull request #2185, merge commit e3995630f). S2 is done (pull request #2186, merge commit f275601e4). S3 'any registered definition compiles' is done (pull request #2188, merge commit f4b3484fa). S4 'one guard input, in shadow' is done (pull request #2189, merge commit b3c6085be). S5 'settlement moves the phase' is done (pull request #2194, merge commit 4e6576158edeb290a71067185f6c2c051ed7608f). Revision 14 final G passed 17764 tests with zero failures and 57 skips, all 29 process tests and 62 executable grep gates. Three review lenses and Stage B5 passed. S6 'the plan is a compile input' is done (pull request #2204, merge commit 72d64588e9a69635fcb87dbb65cd8908149fe5ad). S7 'every task in one capsule' is done (pull request #2206, merge commit 590223e20975fa228fe334ffb8a27d7a2ba778a2). #1928 gates S8. S8 to S12 are pending. Live dispositions and the installed-binary swap remain Reed's pending operations."
@@ -1030,8 +1081,8 @@ drift:
     resolution: "decided 2026-09-30: per-workflow target; per-wave recorded as interim (#1927)"
   - id: "vcs-effects"
     design: "runtime mutates Git/PR; WLM/lifecycle/serializer demoted explicitly"
-    built: "#1928 S4 T-29 retires create_pr, merge_pr, add_pr_comment, create_issue and the synthesis-closeout compilation. T-31 retires the check_ci, list_prs and get_pr_comments reads. T-32 retires check_pr_comments, check_coderabbit and validate_pr_stack and the pr-stack gate. T-33 retires assess_stack and its ci and provider emissions. T-34 removes the PR observer, the gh mode of validate_pr_body, the PR-stack leg of pre_synthesis_check, the open-PR prune safeguard and the CI leg of check_post_merge. #1928 S5 T-35 retires setup_worktree and prune_worktrees. T-36 retires merge_orchestrate, its merge-orchestrate verb and serialize_merge, and deletes the local merge modules"
-    resolution: "decided 2026-09-30: demote all three; settle observes (#1928). T-01 recorded the expanded retirement matrix and original S7 custody on 2026-11-14; no writer route has been removed yet. On 2026-11-23 the separately provisioned verifier host was removed, and the governor runs the approved checks in its local executor."
+    built: "#1928 S4 T-29 retires create_pr, merge_pr, add_pr_comment, create_issue and the synthesis-closeout compilation. T-31 retires the check_ci, list_prs and get_pr_comments reads. T-32 retires check_pr_comments, check_coderabbit and validate_pr_stack and the pr-stack gate. T-33 retires assess_stack and its ci and provider emissions. T-34 removes the PR observer, the gh mode of validate_pr_body, the PR-stack leg of pre_synthesis_check, the open-PR prune safeguard and the CI leg of check_post_merge. #1928 S5 T-35 retires setup_worktree and prune_worktrees. T-36 retires merge_orchestrate, its merge-orchestrate verb and serialize_merge, and deletes the local merge modules. T-37 makes a cancel ledger-only. T-38 and T-39 delete the merge retry and the VcsProvider layer. The decisions of 2026-11-25 delete the WLM ledger actions and the merge-pending detour. S6 deletes vcs/mutation-owner.ts, and the governor boundary test shows Git reads and the approved checks only. settle observes the landing by ancestry and runs the integration suite at the integration tip."
+    resolution: "decided 2026-09-30: demote all three; settle observes (#1928). T-01 recorded the expanded retirement matrix and original S7 custody on 2026-11-14. The #1928 stack removes every writer route and every provider read. On 2026-11-23 the separately provisioned verifier host was removed, and the governor runs the approved checks in its local executor."
   - id: "second-adapter"
     design: "second runtime"
     built: "-"
@@ -1189,7 +1240,7 @@ measured:
       check: "grep -rn 'EventTypes).toHaveLength' tests/unit/events/schemas.test.ts"
     - fact: "six of the six semantic event kinds have landed with an emitter: workflow.prepared and capsule.recompiled (prepare), and execution.settled, deviation.proposed, deviation.decided and design.revised (settle). The check also lists task.assigned, which prepare emits and which is not one of the six."
       check: "grep -n \"event: '\" src/registry/actions/orchestrate/prepare.ts src/registry/actions/orchestrate/settle.ts"
-    - fact: "per-intent call census. The delegation normal path is 4 + 1*tasks Exarchos calls (5 at N=1) since S5 of #1927, because settle moves the phase. The delegation exceptions count, in Exarchos calls at N=1: phase-not-moved 6 (5 + 1*tasks, including landing and both backstops before transition), corrective-capsule 3, settlement-rejected 3, deviation-pending 3, design-revised 3, recompile-required 4, material-revision 5. The census holds no exception for three paths, because each has the count of a path that it holds: accepted-with-rationale is the normal path (2 calls to its settle), a reported status is the corrective path (3), and the own-task deviation of a material kind is the material-revision path (5)."
+    - fact: "per-intent call census. The delegation normal path is 4 Exarchos calls at any task count, because settle moves the phase and the harness lands each task with no Exarchos call. The delegation exceptions count, in Exarchos calls at N=1: phase-not-moved 5 (the normal path and one transition), corrective-capsule 3, settlement-rejected 3, deviation-pending 3, design-revised 3, recompile-required 4, material-revision 5. The census holds no exception for three paths, because each has the count of a path that it holds: accepted-with-rationale is the normal path (2 calls to its settle), a reported status is the corrective path (3), and the own-task deviation of a material kind is the material-revision path (5)."
       check: "npx tsx tools/audit/core/call-shape/measure.ts --check; grep -n -E 'phase-not-moved|corrective-capsule|recompile-required|material-revision' tools/audit/core/call-shape/call-shape-census.md   (regenerate without --check; output: tools/audit/core/call-shape/call-shape-census.md)"
     - fact: "the npx skills install pins major version 1 of the skills CLI (skills@1) and names the release tag of a release build (github:lvlup-sw/exarchos#v<version>). The compiled binary reads its version from EXARCHOS_BUILD_VERSION and its release tag from EXARCHOS_BUILD_RELEASE_TAG, which the build inlines. The release tag is v<version> only when HEAD is at that tag, and the release workflow builds at the tag. The npm package ships the binaries that the release job builds at the tag, so they are release builds and pin their tag. A compiled binary with no release tag installs the default branch and says that it is not a release build. Only a run from source has no build version, so there a version of release form installs its tag. The install fails when that tag is not published. A version that is not of release form installs the default branch, and the installer says so."
       check: "grep -n -e 'const SKILLS_CLI' -A3 -e 'export function skillsInstallSource' -e 'EXARCHOS_BUILD_RELEASE_TAG' src/install/install-skills.ts tools/release/build-binary.ts; npx vitest run --project core tests/unit/install/install-skills.test.ts -t 'SkillsInstallSource|CompiledBinary|ConstructsCorrectNpxCommand|EachBuildKind'; npx vitest run --project unit tests/scripts/build-release-manifest.test.ts -t ReadReleaseTag; npx vitest run --project unit tests/scripts/release-workflow.test.ts -t NpmPublish"

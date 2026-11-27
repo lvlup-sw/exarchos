@@ -1,7 +1,7 @@
 /**
  * Failure modes of the `onboard` pipeline.
  *
- * 1. An offline `npx` install failure is forward-only. The install step goes to `residual` with an advisory, and applied steps stay applied.
+ * 1. A missing local skills source is forward-only. The install step goes to `residual` with an advisory, and applied steps stay applied.
  *    The run fails, and a re-run resumes from the residual.
  * 2. A blocking `Fail` in the VERIFY residual gives a failed `ToolResult` with a `suggestedFix` that points at doctor.
  * 3. DETECT omits an unresolved toolchain command and does not make up a default. The run does not crash.
@@ -21,6 +21,7 @@ import type { WriterDeps } from '../../../../src/verbs/init/probes.js';
 import { detectDesiredState } from '../../../../src/dispatch/core/onboarding/reconcile.js';
 
 import { handleOnboard, type HandleOnboardArgs, type OnboardDeps } from '../../../../src/verbs/onboard/index.js';
+import { makeInstallStep } from '../../../../src/verbs/onboard/install.js';
 import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
 
 interface Fixture {
@@ -131,14 +132,27 @@ async function onboardEventTypes(fx: Fixture): Promise<string[]> {
 
 describe('onboard failure modes (DR-10, task 019)', () => {
   /**
-   * DETECT finds a config Fail and an install Fail. The config step applies, and the install step throws a network error.
+   * DETECT finds a config Fail and an install Fail. The config step applies, and the real install step finds no local skills source.
+   * The step refuses, and the advisory names the plugin and `exarchos skills get`.
    * VERIFY still sees the install Fail, so the run fails but keeps the config step. A re-run with a working install reaches green.
+   * A `PATH` with no programs makes a regression fail on a missing `npx`, and not install skills into the real home of the user.
    */
-  it('Install_OfflineNpxFailure_ExitsNonZeroForwardOnly', async () => {
+  it('Install_MissingSkillsSource_ExitsNonZeroForwardOnly', async () => {
     const fx = await createFixture();
+    vi.stubEnv('PATH', path.join(fx.base, 'no-bin'));
     try {
-      const offlineError = new Error('npm ERR! network ENOTFOUND registry.npmjs.org');
-      const installStep = vi.fn().mockRejectedValue(offlineError);
+      const installStep = vi.fn(
+        makeInstallStep({
+          agent: 'claude',
+          resolveSkillsSource: () => undefined,
+          runtimes: [{ name: 'claude', skillsInstallPath: path.join(fx.base, 'home', '.claude', 'skills') }],
+          homeDir: () => path.join(fx.base, 'home'),
+          runMigrate: () => {},
+          registerMcp: () => {},
+          log: () => {},
+          errLog: () => {},
+        }),
+      );
       const seed = vi.fn(() => ({ wrote: true, path: path.join(fx.repoRoot, '.exarchos.yml') }));
       const deps = makeDeps(fx, {
         runDoctorChecks: phasedChecks([CONFIG_FAIL, INSTALL_FAIL], [INSTALL_FAIL]),
@@ -167,7 +181,7 @@ describe('onboard failure modes (DR-10, task 019)', () => {
       expect(data.result?.residual.map((s) => s.key)).toContain('plugin-skill-hash-sync');
       expect(
         (data.result?.advisories ?? []).some((a) =>
-          /install|npx|offline|network|failed/i.test(a.message),
+          /failed: install-skills: No local skills source[\s\S]*Exarchos plugin[\s\S]*`exarchos skills get`/.test(a.message),
         ),
       ).toBe(true);
 
@@ -191,6 +205,7 @@ describe('onboard failure modes (DR-10, task 019)', () => {
       expect(rerunData.plan.steps.map((s) => s.key)).toContain('plugin-skill-hash-sync');
       expect(rerunData.verify.residualBlocking).toBe(0);
     } finally {
+      vi.unstubAllEnvs();
       await cleanup(fx);
     }
   });

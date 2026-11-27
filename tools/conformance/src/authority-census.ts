@@ -226,7 +226,6 @@ export const BOUNDARY_HOP_EVIDENCE: BoundaryHopEvidence = Object.freeze({
         entrypoint: 'measureEffectEvent',
         subjects: Object.freeze([
           'src/dispatch/core/effect-carrier.ts',
-          'src/vcs/mutation-owner.ts',
           'src/install/atomic-promotion.ts',
         ]),
       }),
@@ -241,11 +240,10 @@ export const BOUNDARY_HOP_EVIDENCE: BoundaryHopEvidence = Object.freeze({
         entrypoint: 'measureEffectEvent',
         subjects: Object.freeze([
           'src/dispatch/core/effect-carrier.ts',
-          'src/vcs/mutation-owner.ts',
           'src/install/atomic-promotion.ts',
         ]),
       }),
-      why: 'each declaring owner’s sink is classified from its own source by whether it names what it records off the emission it was handed — which is the fact that separates the ledger owner from the promoter, and exactly the fact a transcribed row rounds off.',
+      why: 'each declaring owner’s sink is classified from its own source by whether it names what it records off the emission it was handed — which is the fact that shows the promoter unbound, and exactly the fact a transcribed row rounds off.',
     }),
     enforcement: Object.freeze({
       boundary: 'effect-event',

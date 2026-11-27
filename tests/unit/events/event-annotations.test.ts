@@ -92,11 +92,11 @@ describe('EventAnnotations — the DR-2 tier and lifecycle assignment for the ev
   });
 
   /**
-   * The git and worktree mutation owner appends these three events around each non-idempotent git
-   * effect. `substrate` with `operation-record` claims only that the code that does the operation
-   * owns the append. It claims no consumer, provider or gate.
+   * An older git and worktree mutation owner appended these three events around each git effect.
+   * Exarchos performs no git mutation now, so no module appends them and each is `retired`.
+   * `substrate` with `operation-record` claims no consumer, provider or gate.
    * The test reads through the port, because `schemas.ts` derives the emission registry through it.
-   * The derived source must be `auto`, so no model has to emit a ledger record.
+   * The derived source must be `retired`, so no model and no module emits a ledger record.
    * `workflow.started` is the negative case: a row of the same table with a different rationale.
    */
   it('VcsLedgerEvents_SubstrateTier_CarryOperationRecordRationale', () => {
@@ -106,14 +106,14 @@ describe('EventAnnotations — the DR-2 tier and lifecycle assignment for the ev
       const registration = ANNOTATED_EVENTS.registrationOf(eventType);
       expect(registration, `${eventType} carries no annotation`).toBeDefined();
       expect(registration).toEqual({
-        lifecycle: 'active',
+        lifecycle: 'retired',
         tier: 'substrate',
         rationale: 'operation-record',
       });
 
       expect(weldReferenceOf(registration!).ref.trim().length).toBeGreaterThan(0);
 
-      expect(EVENT_EMISSION_REGISTRY[eventType]).toBe('auto');
+      expect(EVENT_EMISSION_REGISTRY[eventType]).toBe('retired');
     }
 
     const reportCoupled = reportCoupledEventTypes(EventTypes);

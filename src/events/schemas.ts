@@ -75,11 +75,10 @@ export const INTERNAL_ADMISSION_EVENT_TYPES = [
 ] as const;
 
 /**
- * Server-owned VCS ledger facts.
+ * Retired VCS ledger facts. No module writes them, because Exarchos performs no git mutation.
  *
- * `foldVcsLedger` treats these facts as authoritative fencing and idempotency state. The generic
- * `exarchos_event.append` surface rejects only reserved types. The reservation stops a caller from
- * minting a fact that suppresses or fences a real git mutation outside `VcsMutationOwner`.
+ * The generic `exarchos_event.append` surface rejects only reserved types. The reservation stays, so
+ * a caller cannot mint a ledger fact that an old log reader takes as a recorded git mutation.
  */
 export const INTERNAL_VCS_LEDGER_EVENT_TYPES: readonly [
   'vcs.requested',
@@ -489,10 +488,9 @@ export const EventTypes = [
   'export.requested',
   'export.executed',
   /**
-   * The VCS mutation ledger. The git and worktree mutation owner appends `vcs.requested` before each
-   * non-idempotent git effect. Then it appends one terminal: `vcs.executed` on success, or
-   * `vcs.compensated` on failure with compensation. The fold gives the fencing epoch, the replay cache
-   * and the open intents, so an interrupted run converges on retry.
+   * The retired VCS mutation ledger. An older owner appended `vcs.requested` before each git effect,
+   * then `vcs.executed` on success or `vcs.compensated` on failure. No module appends them now, and
+   * the schemas stay so old logs still parse.
    */
   'vcs.requested',
   'vcs.executed',
@@ -2480,9 +2478,9 @@ export const MutationExecutedData = z.object({
 
 /**
  * An agent friction report. `sessionContext` records the workflow, action and error code.
- * `configuredEndpoint` is the `feedback.upstream` URL at emit time, or null. `upstreamDelivered`
- * records whether the best-effort POST succeeded, and the local write always succeeds. The object
- * is not strict, so an additive field keeps older rows valid.
+ * An older row can hold the retired `feedback.upstream` URL in `configuredEndpoint` and the result of its POST in `upstreamDelivered`.
+ * A new row holds null and false, because the handler sends no report to a remote service.
+ * The object is not strict, so an additive field keeps older rows valid.
  */
 export const FeedbackRecordedData = z.object({
   message: z.string().min(1),

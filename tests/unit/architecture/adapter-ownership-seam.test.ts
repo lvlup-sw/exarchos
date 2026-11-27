@@ -79,6 +79,18 @@ describe('EXIT PROOF — live adapter ownership', () => {
     ).toBe(true);
   });
 
+  /**
+   * The network adapter has no owner, and the live tree has no network occurrence.
+   * So the bypass check above ranges over an empty class today, and each new network client fails it.
+   */
+  it('the network adapter has no owner and the live tree performs no network effect', async () => {
+    const network = ADAPTER_OWNERSHIP.find((rule) => rule.effectClass === 'network');
+    expect(network?.owners).toEqual([]);
+    const occurrences = await scanEffectOccurrences(SRC_ROOT, lexModule);
+    expect(occurrences.length).toBeGreaterThan(0);
+    expect(occurrences.filter((o) => o.effectClass === 'network')).toEqual([]);
+  });
+
   it('every declared adapter owner performs the effect it owns (no phantom owner)', async () => {
     const occurrences = await scanEffectOccurrences(SRC_ROOT, lexModule);
     for (const rule of ADAPTER_OWNERSHIP) {

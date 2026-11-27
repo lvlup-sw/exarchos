@@ -283,6 +283,35 @@ describe('installSkills error handling (task 021)', () => {
   });
 
   /**
+   * With `localSourceOnly`, a missing source and a source with no skills for the runtime both refuse.
+   * The refusal names the plugin and `exarchos skills get`, and the spawn is never called, so no `npx skills add` runs.
+   */
+  it('InstallSkills_LocalSourceOnlyWithNoLocalSkills_RefusesAndSpawnsNothing', async () => {
+    const emptySource = fs.mkdtempSync(path.join(os.tmpdir(), 'install-skills-empty-source-'));
+    try {
+      for (const skillsSource of [undefined, emptySource]) {
+        const spawn = fakeSpawn();
+        await expect(
+          installSkills({
+            agent: 'claude',
+            runtimes: ALL_RUNTIMES,
+            spawn: spawn.fn,
+            log: () => {},
+            errLog: () => {},
+            homeDir: () => '/home/tester',
+            registerMcp: () => {},
+            localSourceOnly: true,
+            ...(skillsSource === undefined ? {} : { skillsSource }),
+          }),
+        ).rejects.toThrow(/for runtime "claude"[\s\S]*Exarchos plugin[\s\S]*`exarchos skills get`/);
+        expect(spawn.calls).toEqual([]);
+      }
+    } finally {
+      rmrf(emptySource);
+    }
+  });
+
+  /**
    * With no version in the options, the source pins the version of this build.
    * From source, that version is the one in the root `package.json`.
    */

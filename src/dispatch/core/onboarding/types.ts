@@ -21,7 +21,7 @@ export type Surface = z.infer<typeof SurfaceSchema>;
  *
  * - `config` reconciles `.exarchos.yml`, `.exarchos/`, or the invariants catalog.
  * - `generate` writes per-runtime artifacts through the `init` writers.
- * - `install` installs the skills bundle or the project dependencies.
+ * - `install` copies the skills bundle from a local source.
  * - `hook` binds or removes lifecycle hooks.
  */
 export const PlanStepKindSchema = z.enum(['config', 'generate', 'install', 'hook']);

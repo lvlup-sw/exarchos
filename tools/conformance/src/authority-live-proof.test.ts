@@ -555,11 +555,11 @@ describe('authority census — the live proof fails closed', () => {
   });
 
   /**
-   * The witness on the row resolves to `measureEffectEvent`. The ledger owner names the event that
-   * it appends from the emission that it gets. The promoter discards the emission and hands a typed
-   * record to a destination that its caller owns. Both mint a receipt, so only this measurement can
-   * tell them apart. A sink rewritten to ignore the emission must be unbound, and the unmutated
-   * sinks must still bind. A deleted commit gate must remove the authority claim.
+   * The witness on the row resolves to `measureEffectEvent`. The promoter discards the emission and
+   * hands a typed record to a destination that its caller owns, so it is unbound. A planted ledger
+   * sink that names the event it appends from the emission binds. Both mint a receipt, so only this
+   * measurement can tell them apart. The planted sink rewritten to ignore the emission must be
+   * unbound. A deleted commit gate must remove the authority claim.
    */
   it('AuthorityLiveProof_EffectEventRow_NamesItsOracleModule', () => {
     for (const hop of ['authority', 'binding'] as const) {
@@ -578,20 +578,25 @@ describe('authority census — the live proof fails closed', () => {
     expect(measured.authority).toEqual({ kind: 'single', authority: EFFECT_PLAN_AUTHORITY });
     const bindingById = new Map(measured.representations.map((r) => [r.id, r.binding.kind]));
     expect(bindingById.get(EFFECT_EVENT_REPRESENTATION_IDS.plan)).toBe('authoritative');
-    expect(bindingById.get(EFFECT_EVENT_REPRESENTATION_IDS.vcsLedger)).toBe('bound');
     expect(bindingById.get(EFFECT_EVENT_REPRESENTATION_IDS.promotion)).toBe('unbound');
+    expect(bindingById.size).toBe(2);
 
-    const vcsSinks = measureEmissionSinks(sources.vcsLedger, EFFECT_EVENT_SOURCES.vcsLedger);
-    expect(vcsSinks.length).toBeGreaterThan(0);
+    const plantedFile = 'planted/ledger-owner.ts';
+    const plantedLedger =
+      'export const sink = emissionRecorder(async (emission) => {\n' +
+      '  await store.append({ type: emission.event });\n' +
+      '});\n';
+    const vcsSinks = measureEmissionSinks(plantedLedger, plantedFile);
+    expect(vcsSinks.length).toBe(1);
     expect(literalSites({ id: 'x', binding: { kind: 'authoritative' }, sites: vcsSinks })).toEqual(
       [],
     );
     const blinded = spliceSites(
-      sources.vcsLedger,
+      plantedLedger,
       vcsSinks,
       () => 'emissionRecorder(async () => { await Promise.resolve(); })',
     );
-    const blindedSinks = measureEmissionSinks(blinded, EFFECT_EVENT_SOURCES.vcsLedger);
+    const blindedSinks = measureEmissionSinks(blinded, plantedFile);
     expect(blindedSinks.every((s) => s.kind === 'literal')).toBe(true);
     expect(bindingFor(blindedSinks, EFFECT_PLAN_AUTHORITY, 'how', 'why').kind).toBe('unbound');
     expect(bindingFor(vcsSinks, EFFECT_PLAN_AUTHORITY, 'how', 'why').kind).toBe('bound');

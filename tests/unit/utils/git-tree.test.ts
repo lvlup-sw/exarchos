@@ -1,16 +1,17 @@
 /**
- * Tests of the shared git observation of a tree, and of its two path forms.
+ * Tests of the constrained observation of a tree, and of the two path forms of the shared git observation.
  *
  * The observation cases make a real repository in which each task has its own linked worktree.
  * Each such case spawns git, so it sets its own timeout and does not raise the budget of its tier.
  * The path cases read the file system only. Each missing path of these cases keeps its text on every platform.
  */
 import { afterEach, describe, expect, it } from 'vitest';
-import { mkdirSync, realpathSync, symlinkSync } from 'node:fs';
+import { lstatSync, mkdirSync, realpathSync, symlinkSync } from 'node:fs';
 import * as path from 'node:path';
 
 import { WIN32_SPAWN_HEADROOM } from '../../../vitest.config.js';
-import { canonicalPath, normalizedPath, observeTree } from '../../../src/utils/git-tree.js';
+import { canonicalPath, normalizedPath } from '../../../src/utils/git-tree.js';
+import { observeConstrainedTree } from '../../../src/verbs/settle/claimed-tree.js';
 import { toPosix } from '../../../src/utils/paths.js';
 import { execFileAsync } from '../../../tools/test-helpers/spawn.js';
 import { makeTempDir, rmrfAsync } from '../../../tools/test-helpers/temp-dir.js';
@@ -55,20 +56,35 @@ function makeLinkedDirectory(prefix: string): { readonly root: string; readonly 
   return { root, real, link };
 }
 
+/**
+ * Refuse a temp root that has a `.git` entry in a host ancestor.
+ * The constrained observation climbs from the directory to the first `.git` entry with no process, and it reads that entry.
+ * The test does not control the host ancestors of the temp directory, so the case states this precondition before the act.
+ */
+function expectNoAncestorGitEntry(root: string): void {
+  const entries: string[] = [];
+  for (let directory = path.dirname(root); ; directory = path.dirname(directory)) {
+    const entry = path.join(directory, '.git');
+    if (lstatSync(entry, { throwIfNoEntry: false }) !== undefined) entries.push(entry);
+    if (path.dirname(directory) === directory) break;
+  }
+  expect(entries, 'a host ancestor of the temp root holds a .git entry').toEqual([]);
+}
+
 /** Runs one git command in a directory and returns its output with no trailing newline. */
 async function git(cwd: string, args: readonly string[]): Promise<string> {
   return (await execFileAsync('git', [...args], { cwd })).trim();
 }
 
-describe('observeTree', () => {
+describe('observeConstrainedTree', () => {
   /** A linked worktree gives its own root and its own head, and the common dir of the checkout. */
-  it('ObserveTree_ALinkedWorktree_GivesItsRootTheCommonDirTheBranchAndTheHead', async () => {
+  it('ObserveConstrainedTree_ALinkedWorktree_GivesItsRootTheCommonDirTheBranchAndTheHead', async () => {
     const repository = await makeRepository();
     const worktree = await repository.worktreeFor('task-a', { 'src/b.js': 'export const b = 2;\n' });
     const head = await git(worktree, ['rev-parse', 'HEAD']);
     expect(head).not.toBe(repository.baseCommit);
 
-    expect(await observeTree(worktree)).toEqual({
+    expect(await observeConstrainedTree(worktree)).toEqual({
       kind: 'tree',
       toplevel: worktree,
       repository: `${repository.checkout}/.git`,
@@ -78,11 +94,11 @@ describe('observeTree', () => {
   }, CASE_TIMEOUT_MS);
 
   /** A directory inside a worktree gives the root of that worktree, not the directory. */
-  it('ObserveTree_ASubdirectory_GivesTheRootOfItsWorkTree', async () => {
+  it('ObserveConstrainedTree_ASubdirectory_GivesTheRootOfItsWorkTree', async () => {
     const repository = await makeRepository();
     const worktree = await repository.worktreeFor('task-b');
 
-    expect(await observeTree(path.join(worktree, 'src'))).toEqual({
+    expect(await observeConstrainedTree(path.join(worktree, 'src'))).toEqual({
       kind: 'tree',
       toplevel: worktree,
       repository: `${repository.checkout}/.git`,
@@ -92,12 +108,12 @@ describe('observeTree', () => {
   }, CASE_TIMEOUT_MS);
 
   /** A worktree with a detached HEAD gives its head and no branch. */
-  it('ObserveTree_ADetachedHead_GivesNoBranch', async () => {
+  it('ObserveConstrainedTree_ADetachedHead_GivesNoBranch', async () => {
     const repository = await makeRepository();
     const worktree = await repository.worktreeFor('task-c');
     await git(worktree, ['switch', '-q', '--detach']);
 
-    const observed = await observeTree(worktree);
+    const observed = await observeConstrainedTree(worktree);
 
     expect(observed).toEqual({
       kind: 'tree',
@@ -108,17 +124,18 @@ describe('observeTree', () => {
     expect(observed).not.toHaveProperty('branch');
   }, CASE_TIMEOUT_MS);
 
-  /** A directory outside git, named through a symbolic link, gives no work tree and the real path of the directory. */
-  it('ObserveTree_ADirectoryOutsideGit_GivesNoWorkTreeWithItsCanonicalPath', async () => {
+  /** A directory outside git, named through a symbolic link, gives no work tree and the real path of the directory. No host ancestor holds a `.git` entry. */
+  it('ObserveConstrainedTree_ADirectoryOutsideGit_GivesNoWorkTreeWithItsCanonicalPath', async () => {
     const { root, link } = makeLinkedDirectory('git-tree-outside-');
     const expected = `${toPosix(realpathSync.native(root))}/real`;
+    expectNoAncestorGitEntry(realpathSync.native(root));
 
-    expect(await observeTree(link)).toEqual({ kind: 'no-work-tree', path: expected });
+    expect(await observeConstrainedTree(link)).toEqual({ kind: 'no-work-tree', path: expected });
   }, CASE_TIMEOUT_MS);
 
   /** A path that does not exist gives no work tree and its lexical form, with no drive on win32. */
-  it('ObserveTree_AMissingPath_GivesNoWorkTreeWithItsLexicalPath', async () => {
-    expect(await observeTree('/nonexistent-git-tree-observation/task/../work')).toEqual({
+  it('ObserveConstrainedTree_AMissingPath_GivesNoWorkTreeWithItsLexicalPath', async () => {
+    expect(await observeConstrainedTree('/nonexistent-git-tree-observation/task/../work')).toEqual({
       kind: 'no-work-tree',
       path: '/nonexistent-git-tree-observation/work',
     });

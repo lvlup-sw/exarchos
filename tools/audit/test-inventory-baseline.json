@@ -4,11 +4,11 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1407,
-    "parsedFiles": 1363,
+    "testFiles": 1406,
+    "parsedFiles": 1362,
     "shellFiles": 44,
-    "cases": 15735,
-    "dynamicTitles": 317,
+    "cases": 15723,
+    "dynamicTitles": 323,
     "unparseableFiles": 0
   },
   "unparseable": [],
@@ -11536,7 +11536,7 @@
         },
         {
           "suite": "",
-          "name": "DataOnly_MalformedOldProvisioningFile_RunTestsIgnoresItAndUnboundAdequacyRunsLocallyWithNoTestCommand",
+          "name": "DataOnly_MalformedOldProvisioningFile_RunTestsIgnoresItAndRetiredAdequacyRefusesWithNoTestCommand",
           "dynamic": false
         },
         {
@@ -11572,6 +11572,42 @@
         {
           "suite": "",
           "name": "<dynamic-case-6>",
+          "dynamic": true
+        }
+      ]
+    },
+    "tests/process/1928-governor-boundary.test.ts": {
+      "file": "tests/process/1928-governor-boundary.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "packaged CLI-only governor boundary",
+          "name": "GovernorBoundary_NormalPath_StartsOnlyGitReadsAndApprovedChecksAndSendsNothing",
+          "dynamic": false
+        },
+        {
+          "suite": "packaged CLI-only governor boundary",
+          "name": "<dynamic-case-1>",
+          "dynamic": true
+        },
+        {
+          "suite": "packaged CLI-only governor boundary",
+          "name": "GovernorBoundary_ShimLog_RecordsAndRefusesAPlantedRemoteToolGitMergeAndCatchAllStart",
+          "dynamic": false
+        },
+        {
+          "suite": "packaged CLI-only governor boundary",
+          "name": "<dynamic-case-2>",
+          "dynamic": true
+        },
+        {
+          "suite": "packaged CLI-only governor boundary",
+          "name": "GovernorBoundary_McpToolList_IsTheFourCompositeTools",
+          "dynamic": false
+        },
+        {
+          "suite": "packaged CLI-only governor boundary",
+          "name": "<dynamic-case-3>",
           "dynamic": true
         }
       ]
@@ -17705,6 +17741,11 @@
         },
         {
           "suite": "EXIT PROOF — live adapter ownership",
+          "name": "the network adapter has no owner and the live tree performs no network effect",
+          "dynamic": false
+        },
+        {
+          "suite": "EXIT PROOF — live adapter ownership",
           "name": "every declared adapter owner performs the effect it owns (no phantom owner)",
           "dynamic": false
         }
@@ -18290,6 +18331,16 @@
         },
         {
           "suite": "DR-13 kill — the widened detector sees evaded network clients",
+          "name": "EffectLedger_PlantedFallbackFetchClient_CensusFailsClosed",
+          "dynamic": false
+        },
+        {
+          "suite": "DR-13 kill — the widened detector sees evaded network clients",
+          "name": "EffectLedger_CallerOfTheSpawnPrimitive_IsAProcessSiteByName",
+          "dynamic": false
+        },
+        {
+          "suite": "DR-13 kill — the widened detector sees evaded network clients",
           "name": "EffectLedger_ReExportOfEffectPrimitive_IsDetectedAtTheReExporter",
           "dynamic": false
         },
@@ -18331,6 +18382,16 @@
         {
           "suite": "DR-13 live tree — the widened census is green and load-bearing",
           "name": "EffectLedger_LiveShippedSource_IsGreenUnderTheWidenedDetector",
+          "dynamic": false
+        },
+        {
+          "suite": "DR-13 live tree — the widened census is green and load-bearing",
+          "name": "EffectLedger_LiveTree_HasNoNetworkOwnerAndNoNetworkOccurrence",
+          "dynamic": false
+        },
+        {
+          "suite": "DR-13 live tree — the widened census is green and load-bearing",
+          "name": "EffectLedger_ProcessOwners_AreTheMeasuredModulesInThreeNamedClasses",
           "dynamic": false
         },
         {
@@ -18447,6 +18508,11 @@
         {
           "suite": "EXIT PROOF — live narrow effect ports",
           "name": "(b) a planted broad effect on a narrow-port module FAILS against the live footprints",
+          "dynamic": false
+        },
+        {
+          "suite": "EXIT PROOF — live narrow effect ports",
+          "name": "no narrow port grants a network effect",
           "dynamic": false
         },
         {
@@ -19388,17 +19454,12 @@
         },
         {
           "suite": "DR-12 live tree — the widened census is green and load-bearing",
-          "name": "the widened detector SEES branch.create on the live tree and finds no local merge",
+          "name": "the widened detector finds no git worktree, branch or merge mutation anywhere in src",
           "dynamic": false
         },
         {
           "suite": "DR-12 live tree — the widened census is green and load-bearing",
-          "name": "every declared owner still claims a live site (STALE_VCS_OWNER ratchet intact)",
-          "dynamic": false
-        },
-        {
-          "suite": "DR-12 live tree — the widened census is green and load-bearing",
-          "name": "dropping a DR-12 owner turns the live census RED (the new owners are load-bearing)",
+          "name": "a mutation site added to the live sites turns the census RED (no owner covers it)",
           "dynamic": false
         }
       ]
@@ -20067,6 +20128,16 @@
           "suite": "FullExarchosConfigSchema — retired vcs key",
           "name": "<dynamic-case-1>",
           "dynamic": true
+        },
+        {
+          "suite": "ExarchosConfigSchema — retired feedback block",
+          "name": "RetiredFeedbackBlock_StillParses_IsRemoved_AndGetsAMigrationFinding",
+          "dynamic": false
+        },
+        {
+          "suite": "ExarchosConfigSchema — retired feedback block",
+          "name": "NoFeedbackBlock_GetsNoFeedbackFinding",
+          "dynamic": false
         },
         {
           "suite": "ExarchosConfigSchema — invariants.devCatalog retirement (DR-31 / T-43)",
@@ -34800,6 +34871,46 @@
         },
         {
           "suite": "installSkills error handling (task 021)",
+          "name": "InstallSkills_LocalSourceOnlyWithNoLocalSkills_RefusesAndSpawnsNothing",
+          "dynamic": false
+        },
+        {
+          "suite": "installSkills error handling (task 021)",
+          "name": "InstallSkills_NoVersionOption_PinsTheTagOfThisBuild",
+          "dynamic": false
+        },
+        {
+          "suite": "installSkills error handling (task 021)",
+          "name": "InstallSkills_NoVersionOptionInTheCompiledBinary_PinsTheBuildTimeVersion",
+          "dynamic": false
+        },
+        {
+          "suite": "installSkills error handling (task 021)",
+          "name": "InstallSkills_CompiledBinaryThatIsNotAReleaseBuild_InstallsTheDefaultBranchAndSaysSo",
+          "dynamic": false
+        },
+        {
+          "suite": "installSkills error handling (task 021)",
+          "name": "InstallSkills_VersionWithNoReleaseTag_InstallsTheDefaultBranchAndSaysSo",
+          "dynamic": false
+        },
+        {
+          "suite": "installSkills error handling (task 021)",
+          "name": "SkillsInstallSource_EachVersionForm_GivesTheTagOrTheDefaultBranch",
+          "dynamic": false
+        },
+        {
+          "suite": "installSkills error handling (task 021)",
+          "name": "SkillsInstallSource_EachBuildKind_PinsOnlyAReleaseBuildOrASourceRun",
+          "dynamic": false
+        },
+        {
+          "suite": "installSkills error handling (task 021)",
+          "name": "InstallSkills_EachBuildKind_RunsThePinnedOrTheDefaultBranchCommand",
+          "dynamic": false
+        },
+        {
+          "suite": "installSkills error handling (task 021)",
           "name": "InstallSkills_AmbiguousDetection_InteractivePrompt",
           "dynamic": false
         },
@@ -35531,72 +35642,6 @@
         {
           "suite": "validateSymlinks (B5)",
           "name": "validateSymlinks_MixedState_ReturnsDetailedReport",
-          "dynamic": false
-        }
-      ]
-    },
-    "tests/unit/install/operations/version-check.test.ts": {
-      "file": "tests/unit/install/operations/version-check.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "checkVersion > when remote version matches local",
-          "name": "should return status current",
-          "dynamic": false
-        },
-        {
-          "suite": "checkVersion > when remote version differs from local",
-          "name": "should return status outdated when local is behind remote",
-          "dynamic": false
-        },
-        {
-          "suite": "checkVersion > when remote version differs from local",
-          "name": "should return status outdated when local is ahead of remote",
-          "dynamic": false
-        },
-        {
-          "suite": "checkVersion > when network request fails",
-          "name": "should return status error on fetch rejection",
-          "dynamic": false
-        },
-        {
-          "suite": "checkVersion > when network request fails",
-          "name": "should return status error on non-200 response",
-          "dynamic": false
-        },
-        {
-          "suite": "checkVersion > when network request fails",
-          "name": "should return status error on invalid JSON response",
-          "dynamic": false
-        },
-        {
-          "suite": "checkVersion > when network request fails",
-          "name": "should return status error when response lacks version field",
-          "dynamic": false
-        },
-        {
-          "suite": "checkVersion > when network request fails",
-          "name": "should return status error when version is not a string",
-          "dynamic": false
-        },
-        {
-          "suite": "checkVersion > options",
-          "name": "should use custom URL when provided",
-          "dynamic": false
-        },
-        {
-          "suite": "checkVersion > options",
-          "name": "should use default GitHub URL when not provided",
-          "dynamic": false
-        },
-        {
-          "suite": "formatVersionWarning",
-          "name": "should include both local and remote versions",
-          "dynamic": false
-        },
-        {
-          "suite": "formatVersionWarning",
-          "name": "should include the cache-busting npx command",
           "dynamic": false
         }
       ]
@@ -51719,28 +51764,28 @@
       "runner": "vitest:root",
       "cases": [
         {
-          "suite": "observeTree",
-          "name": "ObserveTree_ALinkedWorktree_GivesItsRootTheCommonDirTheBranchAndTheHead",
+          "suite": "observeConstrainedTree",
+          "name": "ObserveConstrainedTree_ALinkedWorktree_GivesItsRootTheCommonDirTheBranchAndTheHead",
           "dynamic": false
         },
         {
-          "suite": "observeTree",
-          "name": "ObserveTree_ASubdirectory_GivesTheRootOfItsWorkTree",
+          "suite": "observeConstrainedTree",
+          "name": "ObserveConstrainedTree_ASubdirectory_GivesTheRootOfItsWorkTree",
           "dynamic": false
         },
         {
-          "suite": "observeTree",
-          "name": "ObserveTree_ADetachedHead_GivesNoBranch",
+          "suite": "observeConstrainedTree",
+          "name": "ObserveConstrainedTree_ADetachedHead_GivesNoBranch",
           "dynamic": false
         },
         {
-          "suite": "observeTree",
-          "name": "ObserveTree_ADirectoryOutsideGit_GivesNoWorkTreeWithItsCanonicalPath",
+          "suite": "observeConstrainedTree",
+          "name": "ObserveConstrainedTree_ADirectoryOutsideGit_GivesNoWorkTreeWithItsCanonicalPath",
           "dynamic": false
         },
         {
-          "suite": "observeTree",
-          "name": "ObserveTree_AMissingPath_GivesNoWorkTreeWithItsLexicalPath",
+          "suite": "observeConstrainedTree",
+          "name": "ObserveConstrainedTree_AMissingPath_GivesNoWorkTreeWithItsLexicalPath",
           "dynamic": false
         },
         {
@@ -52279,107 +52324,6 @@
         {
           "suite": "Active store divergence (#1839)",
           "name": "Description_NamesBothPathsAndTheRemedy",
-          "dynamic": false
-        }
-      ]
-    },
-    "tests/unit/vcs/mutation-owner.test.ts": {
-      "file": "tests/unit/vcs/mutation-owner.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "VCS mutation owner (P04-05) > assertVcsEpochCurrent",
-          "name": "rejects a writer below the current epoch, allows equal / greater",
-          "dynamic": false
-        },
-        {
-          "suite": "VCS mutation owner (P04-05) > assertVcsEpochCurrent",
-          "name": "carries the fencing token detail on the error",
-          "dynamic": false
-        },
-        {
-          "suite": "VCS mutation owner (P04-05) > mode is requested, never inferred",
-          "name": "VcsMutationOwner_NoModeRequested_MutatesLive",
-          "dynamic": false
-        },
-        {
-          "suite": "VCS mutation owner (P04-05) > mode is requested, never inferred",
-          "name": "VcsMutationOwner_ExplicitDryRun_IsStillHonoured",
-          "dynamic": false
-        },
-        {
-          "suite": "VCS mutation owner (P04-05) > foldVcsLedger",
-          "name": "computes the max epoch, the terminal cache, and open intents",
-          "dynamic": false
-        },
-        {
-          "suite": "VCS mutation owner (P04-05)",
-          "name": "(b) duplicate branch-create requests create exactly ONE branch and replay the outcome",
-          "dynamic": false
-        },
-        {
-          "suite": "VCS mutation owner (P04-05)",
-          "name": "(c) duplicate worktree-create requests create exactly ONE worktree",
-          "dynamic": false
-        },
-        {
-          "suite": "VCS mutation owner (P04-05)",
-          "name": "(c2) createWorktree after a real remove RE-CREATES instead of replaying the stale terminal",
-          "dynamic": false
-        },
-        {
-          "suite": "VCS mutation owner (P04-05)",
-          "name": "(c3) removeWorktree after a recreate re-runs the remove instead of replaying",
-          "dynamic": false
-        },
-        {
-          "suite": "VCS mutation owner (P04-05)",
-          "name": "(d) duplicate provider mutation (PR/merge) runs the effect exactly ONCE",
-          "dynamic": false
-        },
-        {
-          "suite": "VCS mutation owner (P04-05)",
-          "name": "(e) an interrupted worktree-create leaves an intent (not an event-less orphan) and converges on retry",
-          "dynamic": false
-        },
-        {
-          "suite": "VCS mutation owner (P04-05)",
-          "name": "compensates the minted branch when worktree add fails (no orphaned on-disk state)",
-          "dynamic": false
-        },
-        {
-          "suite": "VCS mutation owner (P04-05)",
-          "name": "MutationOwner_IntentThenTerminalOrdering_IsPreserved",
-          "dynamic": false
-        },
-        {
-          "suite": "VCS mutation owner (P04-05)",
-          "name": "(f) a fenced-out stale owner (lower epoch) is rejected and performs NO mutation",
-          "dynamic": false
-        },
-        {
-          "suite": "VCS mutation owner (P04-05)",
-          "name": "(g) an explicit dry-run creates NO branch, touches NO git, and appends NO event",
-          "dynamic": false
-        },
-        {
-          "suite": "shared git-mutation primitives (P04-05)",
-          "name": "worktreeRemoveForceArgs builds the canonical forced-remove argv",
-          "dynamic": false
-        },
-        {
-          "suite": "shared git-mutation primitives (P04-05)",
-          "name": "branchDeleteForceArgs builds the canonical forced-delete argv",
-          "dynamic": false
-        },
-        {
-          "suite": "shared git-mutation primitives (P04-05)",
-          "name": "removeWorktreeForce runs the forced-remove argv through the caller transport and returns its result",
-          "dynamic": false
-        },
-        {
-          "suite": "shared git-mutation primitives (P04-05)",
-          "name": "deleteBranchForce runs the forced-delete argv through the caller transport and returns its result",
           "dynamic": false
         }
       ]
@@ -59400,17 +59344,17 @@
       "runner": "vitest:root",
       "cases": [
         {
-          "suite": "installStep (DR-2/DR-6 — skills + deps install)",
-          "name": "Install_LocalCopyFastPath_ThenNpxFallback",
+          "suite": "installStep (local skills copy)",
+          "name": "Install_LocalCopyFastPath_MissingSourceRefusesWithNoProcess",
           "dynamic": false
         },
         {
-          "suite": "installStep (DR-2/DR-6 — skills + deps install)",
+          "suite": "installStep (local skills copy)",
           "name": "Install_DoesNotRegisterMcp_SingleRegistrationInGenerate",
           "dynamic": false
         },
         {
-          "suite": "installStep (DR-2/DR-6 — skills + deps install)",
+          "suite": "installStep (local skills copy)",
           "name": "Install_WiredIntoDefaultOnboardDeps_CliSurface",
           "dynamic": false
         },
@@ -59469,6 +59413,16 @@
           "suite": "editor MCP launch written by generate",
           "name": "DoctorFix_FreshRepo_DoesNotPublishFloatingRegistryLaunch",
           "dynamic": false
+        },
+        {
+          "suite": "editor MCP upgrade adds the read-only server",
+          "name": "Onboard_OrchestratorOnlyEditorConfigs_AddsReadOnlyServer",
+          "dynamic": false
+        },
+        {
+          "suite": "editor MCP upgrade adds the read-only server",
+          "name": "DoctorFix_OrchestratorOnlyEditorConfigs_AddsReadOnlyServer",
+          "dynamic": false
         }
       ]
     },
@@ -59524,7 +59478,7 @@
       "cases": [
         {
           "suite": "onboard failure modes (DR-10, task 019)",
-          "name": "Install_OfflineNpxFailure_ExitsNonZeroForwardOnly",
+          "name": "Install_MissingSkillsSource_ExitsNonZeroForwardOnly",
           "dynamic": false
         },
         {
@@ -62526,6 +62480,72 @@
         {
           "suite": "settle — a blocking gate that blocks",
           "name": "Settle_AnIntegrationSuiteThatBlocks_LeavesTheTaskUnresolvedAndLeavesNoCompletion",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/verbs/settle/claimed-tree.test.ts": {
+      "file": "tests/unit/verbs/settle/claimed-tree.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "observeConstrainedClaimedTree reads tracked links and submodules",
+          "name": "ObserveConstrainedClaimedTree_ACleanTreeWithALinkAndASubmodule_IsCleanUnderBothPolicies",
+          "dynamic": false
+        },
+        {
+          "suite": "observeConstrainedClaimedTree reads tracked links and submodules",
+          "name": "<dynamic-case-1>",
+          "dynamic": true
+        },
+        {
+          "suite": "observeConstrainedClaimedTree reads tracked links and submodules",
+          "name": "ObserveConstrainedClaimedTree_ALinkWithANewTarget_IsADirtyPathUnderBothPolicies",
+          "dynamic": false
+        },
+        {
+          "suite": "observeConstrainedClaimedTree reads tracked links and submodules",
+          "name": "<dynamic-case-2>",
+          "dynamic": true
+        },
+        {
+          "suite": "observeConstrainedClaimedTree reads tracked links and submodules",
+          "name": "ObserveConstrainedClaimedTree_AStagedSubmoduleCommit_IsADirtyPathUnderBothPolicies",
+          "dynamic": false
+        },
+        {
+          "suite": "observeConstrainedClaimedTree reads tracked links and submodules",
+          "name": "<dynamic-case-3>",
+          "dynamic": true
+        },
+        {
+          "suite": "observeConstrainedClaimedTree judges the base and the bounds",
+          "name": "ObserveConstrainedClaimedTree_AnUnknownBaseCommit_SplitsThePolicies",
+          "dynamic": false
+        },
+        {
+          "suite": "observeConstrainedClaimedTree judges the base and the bounds",
+          "name": "ObserveConstrainedClaimedTree_ACheckoutWithNoCommit_IsUnobservable",
+          "dynamic": false
+        },
+        {
+          "suite": "observeConstrainedClaimedTree judges the base and the bounds",
+          "name": "ObserveConstrainedClaimedTree_SevenUntrackedFiles_KeepsTheFirstFive",
+          "dynamic": false
+        },
+        {
+          "suite": "observeConstrainedClaimedTree refuses a checkout that is not one registered checkout",
+          "name": "ObserveConstrainedClaimedTree_ABareCheckout_IsUnobservable",
+          "dynamic": false
+        },
+        {
+          "suite": "observeConstrainedClaimedTree refuses a checkout that is not one registered checkout",
+          "name": "ObserveConstrainedClaimedTree_APrunableWorktree_IsUnobservable",
+          "dynamic": false
+        },
+        {
+          "suite": "observeConstrainedClaimedTree refuses a checkout that is not one registered checkout",
+          "name": "ObserveConstrainedClaimedTree_AnUnregisteredCheckout_IsUnobservable",
           "dynamic": false
         }
       ]
@@ -66781,92 +66801,6 @@
         {
           "suite": "OrchestrateToolResponses_AllActions_ReturnEnvelope (T038, DR-7)",
           "name": "describe action returns Envelope",
-          "dynamic": false
-        }
-      ]
-    },
-    "tests/unit/verbs/vcs/push-with-lease.test.ts": {
-      "file": "tests/unit/verbs/vcs/push-with-lease.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "buildForceWithLeaseArgs",
-          "name": "PushWithLease_EmitsExplicitShaForm",
-          "dynamic": false
-        },
-        {
-          "suite": "buildForceWithLeaseArgs",
-          "name": "honors a custom remote",
-          "dynamic": false
-        },
-        {
-          "suite": "buildForceWithLeaseArgs",
-          "name": "rejects an empty ref",
-          "dynamic": false
-        },
-        {
-          "suite": "buildForceWithLeaseArgs",
-          "name": "rejects a ref with unsafe characters",
-          "dynamic": false
-        },
-        {
-          "suite": "buildForceWithLeaseArgs",
-          "name": "rejects an empty or garbage expected SHA",
-          "dynamic": false
-        },
-        {
-          "suite": "parseLsRemoteSha",
-          "name": "parses the leading SHA from an ls-remote line",
-          "dynamic": false
-        },
-        {
-          "suite": "parseLsRemoteSha",
-          "name": "returns undefined for empty / whitespace stdout (branch absent)",
-          "dynamic": false
-        },
-        {
-          "suite": "parseLsRemoteSha",
-          "name": "returns undefined when the leading token is not a full SHA",
-          "dynamic": false
-        },
-        {
-          "suite": "resolveExpectedSha",
-          "name": "PushWithLease_FreshLsRemote_AnchorsToObservedSha — falls back to ls-remote",
-          "dynamic": false
-        },
-        {
-          "suite": "resolveExpectedSha",
-          "name": "prefers observedSha and never shells out when it is supplied",
-          "dynamic": false
-        },
-        {
-          "suite": "resolveExpectedSha",
-          "name": "falls back to ls-remote when observedSha is not a valid SHA",
-          "dynamic": false
-        },
-        {
-          "suite": "resolveExpectedSha",
-          "name": "returns undefined when the branch is absent on the remote",
-          "dynamic": false
-        },
-        {
-          "suite": "readRemoteSha",
-          "name": "reads via git ls-remote --heads against the named remote",
-          "dynamic": false
-        },
-        {
-          "suite": "buildPushWithLease",
-          "name": "PushWithLease_FreshLsRemote_AnchorsToObservedSha — anchors to the ls-remote SHA",
-          "dynamic": false
-        },
-        {
-          "suite": "buildPushWithLease",
-          "name": "prefers the observed SHA (source observed, no git call)",
-          "dynamic": false
-        },
-        {
-          "suite": "buildPushWithLease",
-          "name": "returns undefined when no SHA can be resolved (cannot build an explicit lease)",
           "dynamic": false
         }
       ]
@@ -72423,13 +72357,13 @@
           "dynamic": false
         },
         {
-          "suite": "handleFeedback — optional upstream POST (offline-first / INV-15)",
-          "name": "Feedback_UpstreamConfigured_PostsAndRecordsDelivered",
+          "suite": "handleFeedback — local only, with no network call",
+          "name": "Feedback_AnyReport_CallsNoFetchAndRecordsNoEndpoint",
           "dynamic": false
         },
         {
-          "suite": "handleFeedback — optional upstream POST (offline-first / INV-15)",
-          "name": "Feedback_UpstreamFails_StillRecordsLocallyAsUndelivered",
+          "suite": "handleFeedback — local only, with no network call",
+          "name": "Feedback_OlderRowWithEndpoint_StillParsesWithItsOriginalValues",
           "dynamic": false
         },
         {
@@ -81306,7 +81240,7 @@
         },
         {
           "suite": "EXIT PROOF — live VCS-ownership census",
-          "name": "(a) the live shipped source has ZERO direct bypasses and no stale owner",
+          "name": "(a) the live shipped source has ZERO mutation sites and declares no owner",
           "dynamic": false
         },
         {
@@ -81316,7 +81250,7 @@
         },
         {
           "suite": "EXIT PROOF — live VCS-ownership census",
-          "name": "every declared owner corresponds to a real module path present in the scan root",
+          "name": "an owner rule that claims no live site FAILS the census as stale cover",
           "dynamic": false
         },
         {
@@ -84600,18 +84534,18 @@
       "runner": "vitest:root",
       "cases": [
         {
-          "suite": "observeTree reads the exact branch name",
-          "name": "ObserveTree_ATagWithTheNameOfTheBranch_ReadsTheBranchName",
+          "suite": "observeConstrainedTree reads the exact branch name",
+          "name": "ObserveConstrainedTree_ATagWithTheNameOfTheBranch_ReadsTheBranchName",
           "dynamic": false
         },
         {
-          "suite": "observeClaimedTree reads no status outside the scope repository",
-          "name": "ObserveClaimedTree_ATreeOfAnotherRepository_RunsNoStatus",
+          "suite": "observeConstrainedClaimedTree reads no listing outside the scope repository",
+          "name": "ObserveConstrainedClaimedTree_ATreeOfAnotherRepository_ReadsNoListing",
           "dynamic": false
         },
         {
-          "suite": "observeClaimedTree reads no status outside the scope repository",
-          "name": "ObserveClaimedTree_ATreeOfTheScopeRepository_StillReadsTheStatus",
+          "suite": "observeConstrainedClaimedTree reads no listing outside the scope repository",
+          "name": "ObserveConstrainedClaimedTree_ATreeOfTheScopeRepository_StillReadsTheListings",
           "dynamic": false
         }
       ]

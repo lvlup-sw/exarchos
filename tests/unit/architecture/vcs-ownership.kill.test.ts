@@ -24,7 +24,7 @@ import { rmrfAsync } from '../../../tools/test-helpers/temp-dir.js';
 const SRC_ROOT = join(dirname(fileURLToPath(import.meta.url)), '../../../src');
 
 /** The owner-shaped module planted in every fixture so no STALE_VCS_OWNER noise. */
-const OWNER_MODULE = 'vcs/mutation-owner.ts';
+const OWNER_MODULE = 'planted/merge-owner.ts';
 const OWNER_SOURCE = `
 export function mergeBranch(git: Git, repoRoot: string, source: string): void {
   git.run(['merge', '--no-ff', '--no-edit', source], repoRoot);
@@ -274,40 +274,28 @@ describe('DR-12 live tree — the widened census is green and load-bearing', () 
   });
 
   /**
-   * Without this test the census can be green because the rules match nothing.
-   * The detector must see the branch and worktree mutations of `vcs/mutation-owner.ts`.
-   * The harness lands each merge, so the live tree holds no merge site. The planted merge above proves that the detector sees one.
+   * The harness owns each worktree, branch and landing, so the live tree holds no mutation site of any kind.
+   * The planted trees above prove that the detector sees each kind, so this empty list is not a blind detector.
    */
-  it('the widened detector SEES branch.create on the live tree and finds no local merge', async () => {
-    const { scanVcsMutationSites } = await import('../../../tools/conformance/src/vcs-ownership.js');
-    const sites = await scanVcsMutationSites(SRC_ROOT, lexModule);
-    const kinds = new Set(sites.map((s) => s.mutation));
-    expect(kinds.has('branch.create')).toBe(true);
-    expect(
-      sites.some((s) => s.module === 'vcs/mutation-owner.ts' && s.mutation === 'branch.create'),
-    ).toBe(true);
-    expect(sites.filter((s) => s.mutation === 'merge')).toEqual([]);
+  it('the widened detector finds no git worktree, branch or merge mutation anywhere in src', async () => {
+    const { scanVcsTree } = await import('../../../tools/conformance/src/vcs-ownership.js');
+    const scan = await scanVcsTree(SRC_ROOT, lexModule);
+    expect(scan.moduleCount).toBeGreaterThan(0);
+    expect(scan.sites).toEqual([]);
+    expect(VCS_MUTATION_OWNERS).toEqual([]);
   });
 
-  it('every declared owner still claims a live site (STALE_VCS_OWNER ratchet intact)', async () => {
-    const { scanVcsMutationSites } = await import('../../../tools/conformance/src/vcs-ownership.js');
+  /** No owner exists, so a mutation that a change adds anywhere in src is a direct bypass. */
+  it('a mutation site added to the live sites turns the census RED (no owner covers it)', async () => {
+    const { scanVcsMutationSites, runVcsOwnershipCensus } = await import(
+      '../../../tools/conformance/src/vcs-ownership.js'
+    );
     const sites = await scanVcsMutationSites(SRC_ROOT, lexModule);
-    const liveModules = new Set(sites.map((s) => s.module));
-    for (const owner of VCS_MUTATION_OWNERS) {
-      expect(liveModules.has(owner), `${owner} declares cover but claims no site`).toBe(true);
-    }
-  });
-
-  /** The canonical owner is load-bearing: without it, the live tree fails with a direct bypass. */
-  it('dropping a DR-12 owner turns the live census RED (the new owners are load-bearing)', async () => {
-    for (const dropped of ['vcs/mutation-owner.ts']) {
-      const owners = VCS_MUTATION_OWNERS.filter((o) => o !== dropped);
-      const result = await auditVcsOwnership(SRC_ROOT, lexModule, owners);
-      expect(result.ok, `${dropped} should be load-bearing`).toBe(false);
-      expect(
-        bypassesOf(result.diagnostics).some((d) => d.module === dropped),
-        `${dropped} should be reported as a direct bypass`,
-      ).toBe(true);
-    }
+    const result = runVcsOwnershipCensus([
+      ...sites,
+      { module: 'verbs/worktree/rogue.ts', mutation: 'branch.create', evidence: 'git branch <name>' },
+    ]);
+    expect(result.ok).toBe(false);
+    expect(bypassesOf(result.diagnostics).map((d) => d.module)).toEqual(['verbs/worktree/rogue.ts']);
   });
 });

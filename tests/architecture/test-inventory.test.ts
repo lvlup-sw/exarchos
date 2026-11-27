@@ -232,6 +232,7 @@ const RETIRED_TEST_FILES: ReadonlyArray<{ path: string; subject: string }> = [
   { path: 'tests/unit/vcs/azure-devops.test.ts', subject: 'src/vcs/azure-devops.ts' },
   { path: 'tests/unit/vcs/factory.test.ts', subject: 'src/vcs/factory.ts' },
   { path: 'tests/unit/vcs/detector.test.ts', subject: 'src/vcs/detector.ts' },
+  { path: 'tests/unit/vcs/mutation-owner.test.ts', subject: 'src/vcs/mutation-owner.ts' },
   { path: 'tests/unit/review/registry.test.ts', subject: 'src/review/registry.ts' },
   { path: 'tests/unit/review/providers/coderabbit.test.ts', subject: 'src/review/providers/coderabbit.ts' },
   { path: 'tests/unit/review/providers/github-copilot.test.ts', subject: 'src/review/providers/github-copilot.ts' },
@@ -251,6 +252,8 @@ const RETIRED_TEST_FILES: ReadonlyArray<{ path: string; subject: string }> = [
   { path: 'tests/unit/projections/merge-orchestrator/index.test.ts', subject: 'src/projections/merge-orchestrator/index.ts' },
   { path: 'tests/unit/projections/merge-orchestrator/reducer.test.ts', subject: 'src/projections/merge-orchestrator/reducer.ts' },
   { path: 'tests/process/saga-merge-detour.test.ts', subject: 'src/projections/merge-orchestrator/index.ts' },
+  { path: 'tests/unit/install/operations/version-check.test.ts', subject: 'src/install/operations/version-check.ts' },
+  { path: 'tests/unit/verbs/vcs/push-with-lease.test.ts', subject: 'src/verbs/vcs/push-with-lease.ts' },
 ];
 
 describe('test inventory', () => {

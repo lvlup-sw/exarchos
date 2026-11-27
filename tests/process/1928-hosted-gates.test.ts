@@ -12,7 +12,8 @@ import { canonicalJson, requestDigest } from '../../src/contract/request-context
 import type { CheckPlan } from '../../src/contract/verification/harness-verification.js';
 import { runWithDispatchContext } from '../../src/dispatch/dispatch-context.js';
 import { EventStore } from '../../src/events/store.js';
-import { observeRepository, observeTree } from '../../src/utils/git-tree.js';
+import { observeRepository } from '../../src/utils/git-tree.js';
+import { observeConstrainedTree } from '../../src/verbs/settle/claimed-tree.js';
 import { loadPreparedCustody, selectPreparedAuthority } from '../../src/workflow/capsule/prepared-custody.js';
 import { allocatePhaseAttemptId } from '../../src/workflow/phase-attempt-id.js';
 import { readDesignRecord } from '../../src/workflow/design-record/read.js';
@@ -121,7 +122,7 @@ async function boundFixture(actions: readonly TaskAction[]) {
     "process.stdout.write(JSON.stringify({ modules: [], summary: { error: 0, totalCruised: 2, violations: [] } }));")}`);
   await chmod(cruiser, 0o755);
   const repository = await observeRepository(worktree);
-  const observed = await observeTree(worktree);
+  const observed = await observeConstrainedTree(worktree);
   if (repository.kind !== 'repository' || observed.kind !== 'tree' || observed.head === undefined) throw new Error('Missing fixture Git coordinates');
   const text = textOf([task('root', { riskTier: 'high', boundaryTouching: true, testLayer: 'integration', files: ['value.cjs', 'main.test.cjs'], testFiles: ['main.test.cjs'] })]);
   const bundle = preparedFixture(text);

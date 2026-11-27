@@ -2,9 +2,9 @@ import { canonicalJson } from '../../contract/request-context.js';
 import { GateExecutedData, type WorkflowEvent } from '../../events/schemas.js';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { createHash } from 'node:crypto';
-import { lstat, open, realpath } from 'node:fs/promises';
+import { lstat, open, readlink, realpath } from 'node:fs/promises';
 import { constants } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { verificationValueDigest, type HostedCommandRun } from '../../contract/verification/harness-verification.js';
 import type { createGitObserver } from '../../utils/git-observer.js';
 import type { CommandResult } from '../pure/static-analysis.js';
@@ -843,13 +843,70 @@ export async function closedListingBlobs(reads: ObserverReads, gitDir: string, c
   }
 }
 
+/** The Git mode of a symbolic link. Its blob holds the bytes of the link target. */
+const SYMLINK_MODE = '120000';
+
+/** The Git mode of a submodule. Its object ID is the commit that the index records, and no working file is hashed. */
+const GITLINK_MODE = '160000';
+
+/** One index entry at stage zero. */
+interface IndexEntry {
+  readonly mode: string;
+  readonly oid: string;
+}
+
+/** How the working entry of one tracked path compares with its index entry. `size` counts the bytes that the read hashed. */
+interface WorkingRead {
+  readonly matches: boolean;
+  readonly size: number;
+  readonly workingBlob?: string;
+}
+
+/**
+ * Hash the target of one tracked symbolic link as a Git blob. The parent directory must be its own real path, so no link above the entry is followed.
+ * A missing entry or an entry of another type gives undefined. On win32 a checkout with no symbolic links writes the target as a regular file, so that file is hashed.
+ */
+async function symlinkBlobId(full: string, oid: string, budget: number): Promise<{ readonly id: string; readonly size: number } | undefined> {
+  const parent = dirname(full);
+  if (await realpath(parent).catch(() => undefined) !== parent) return undefined;
+  const entry = await lstat(full).catch(() => undefined);
+  if (entry === undefined) return undefined;
+  if (entry.isFile() && process.platform === 'win32') return trackedBlobId(full, oid, budget);
+  if (!entry.isSymbolicLink() || entry.size > budget) return undefined;
+  const target = await readlink(full, { encoding: 'buffer' }).catch(() => undefined);
+  if (target === undefined) return undefined;
+  const id = createHash(oid.length === 64 ? 'sha256' : 'sha1').update(`blob ${target.length}\0`).update(target).digest('hex');
+  return { id, size: target.length };
+}
+
+/**
+ * Compare the working entry of one tracked path with its index entry. The hash of `algorithm` selects the repository hash when no entry is staged.
+ * A regular file matches by blob ID and executable bit. A symbolic link matches by the blob ID of its target.
+ * A submodule matches when its directory exists, because the gitlink object ID in the index is compared with the head entry.
+ */
+async function workingRead(full: string, staged: IndexEntry | undefined, algorithm: string, budget: number): Promise<WorkingRead> {
+  if (staged?.mode === GITLINK_MODE) {
+    const entry = await lstat(full).catch(() => undefined);
+    return { matches: entry?.isDirectory() === true, size: 0 };
+  }
+  if (staged?.mode === SYMLINK_MODE) {
+    const link = await symlinkBlobId(full, staged.oid, budget);
+    return { matches: link?.id === staged.oid, size: link?.size ?? 0 };
+  }
+  const blob = await trackedBlobId(full, staged?.oid ?? algorithm, budget);
+  if (blob === undefined) return { matches: false, size: 0 };
+  const matches = staged !== undefined && blob.id === staged.oid && blob.executable === (staged.mode === '100755');
+  return { matches, size: blob.size, workingBlob: blob.id };
+}
+
 /**
  * The paths of one observed checkout that differ from its exact head, from the closed listings only. It runs no status and no checkout filter.
  * A tracked path differs when its index entry differs from the head entry.
- * It also differs when its working file is missing or differs from its index entry.
- * Each untracked path differs. Each working file is hashed in this process through a handle that follows no link.
+ * It also differs when its working entry is missing or differs from its index entry. Each untracked path differs.
+ * Each working file is hashed in this process through a handle that follows no link.
  *
- * A failed listing, an entry other than a regular file, a conflict stage or a tree beyond the bounds gives undefined.
+ * A symbolic link is compared by its target, and a submodule by the commit of its gitlink. The content of a submodule is not read.
+ * A failed listing, an entry of another mode, a conflict stage or a tree beyond the bounds gives undefined.
  */
 export async function closedListingChanges(reads: ObserverReads, gitDir: string, checkout: string, head: string): Promise<readonly TreeChange[] | undefined> {
   try {
@@ -859,9 +916,9 @@ export async function closedListingChanges(reads: ObserverReads, gitDir: string,
     if (tree.length > CLEAN_TREE_ENTRIES || index.length > CLEAN_TREE_ENTRIES || untracked.length > CLEAN_TREE_ENTRIES) return undefined;
     const headEntries = treeEntries(tree);
     if (headEntries === undefined) return undefined;
-    const indexEntries = new Map<string, { readonly mode: string; readonly oid: string }>();
+    const indexEntries = new Map<string, IndexEntry>();
     for (const record of index) {
-      const [, mode, oid, path] = /^(100644|100755) ([a-f0-9]{40}|[a-f0-9]{64}) 0\t(.+)$/s.exec(record) ?? [];
+      const [, mode, oid, path] = /^(100644|100755|120000|160000) ([a-f0-9]{40}|[a-f0-9]{64}) 0\t(.+)$/s.exec(record) ?? [];
       if (mode === undefined || oid === undefined || path === undefined) return undefined;
       indexEntries.set(path, { mode, oid });
     }
@@ -869,11 +926,10 @@ export async function closedListingChanges(reads: ObserverReads, gitDir: string,
     let budget = CLEAN_TREE_BYTES;
     for (const path of [...new Set([...headEntries.keys(), ...indexEntries.keys()])].sort()) {
       const staged = indexEntries.get(path);
-      const blob = await trackedBlobId(join(checkout, path), staged?.oid ?? head, budget);
-      if (blob !== undefined) budget -= blob.size;
-      const working = blob === undefined ? {} : { workingBlob: blob.id };
-      if (staged === undefined || blob === undefined || blob.id !== staged.oid || blob.executable !== (staged.mode === '100755')
-        || headEntries.get(path) !== `${staged.mode} ${staged.oid}`) changes.push({ path, tracked: true, ...working });
+      const read = await workingRead(join(checkout, path), staged, head, budget);
+      budget -= read.size;
+      const working = read.workingBlob === undefined ? {} : { workingBlob: read.workingBlob };
+      if (staged === undefined || !read.matches || headEntries.get(path) !== `${staged.mode} ${staged.oid}`) changes.push({ path, tracked: true, ...working });
     }
     const reported = new Set(changes.map(change => change.path));
     for (const path of untracked) if (!reported.has(path)) changes.push({ path, tracked: false });

@@ -1,10 +1,9 @@
 /**
  * Tests for the onboard install step and the rename migration.
  *
- * `makeInstallStep` installs the skills bundle through the real `installSkills` seam. All I/O is
- * injected, so no test reaches the network. A resolvable skills source selects the local-copy
- * fast path, and no source selects the `npx skills add` fallback. The project install command
- * comes from `resolveTestRuntime(repoRoot).install` and runs through an injected command runner.
+ * `makeInstallStep` copies the skills bundle from a local source through the real `installSkills` seam.
+ * It starts no process. A missing local source fails the step with a refusal, and the step never runs
+ * `npx skills add` or the install command of the project.
  *
  * The hook has no surface guard. The core `apply` router calls `ctx.installStep` only on the
  * `cli` surface and gives an advisory on other surfaces.
@@ -59,7 +58,7 @@ interface Fixture {
 
 /**
  * Creates a temp Node repo, an isolated home for the skills target, and an isolated store.
- * The `package-lock.json` makes the resolver derive an npm install command.
+ * The `package-lock.json` gives the repo a resolvable npm install command, which the step must not run.
  */
 async function createFixture(): Promise<Fixture> {
   const base = await mkdtemp(path.join(tmpdir(), 'onboard-install-'));
@@ -129,20 +128,20 @@ async function seedSkillsSource(fx: Fixture): Promise<string> {
   return skillsRoot;
 }
 
-describe('installStep (DR-2/DR-6 — skills + deps install)', () => {
+describe('installStep (local skills copy)', () => {
   /**
-   * Fakes for the copy, the spawn, and the command runner record their calls, so nothing runs
-   * `npx` or an install. The test sets `agent` to skip runtime detection, which needs a
-   * `detection` block that the test does not fake. A stub `registerMcp` writes no `~/.claude.json`.
+   * A fake copy records its calls. The test sets `agent` to skip runtime detection, and a stub `registerMcp` writes no `~/.claude.json`.
+   * The local source gives a copy, and a missing source gives the refusal that names the plugin and `exarchos skills get`.
+   * The step forwards `localSourceOnly`, so `installSkills` never reaches `npx skills add`, and the repo gets no `node_modules`.
+   * A `PATH` with no programs makes a regression fail on a missing `npx`, and not install skills into the real home of the user.
    */
-  it('Install_LocalCopyFastPath_ThenNpxFallback', async () => {
+  it('Install_LocalCopyFastPath_MissingSourceRefusesWithNoProcess', async () => {
     const fx = await createFixture();
+    vi.stubEnv('PATH', path.join(fx.base, 'no-bin'));
     try {
       const skillsSource = await seedSkillsSource(fx);
 
       const copyDir = vi.fn((_src: string, _dest: string) => {});
-      const spawn = vi.fn(async () => ({ code: 0, stderr: '' }));
-      const runCommand = vi.fn(async (_cmd: string, _cwd: string) => {});
 
       const deps: InstallStepDeps = {
         agent: 'claude',
@@ -155,8 +154,6 @@ describe('installStep (DR-2/DR-6 — skills + deps install)', () => {
         ],
         homeDir: () => fx.home,
         copyDir,
-        spawn,
-        runCommand,
         registerMcp: () => {},
         log: () => {},
         errLog: () => {},
@@ -169,29 +166,72 @@ describe('installStep (DR-2/DR-6 — skills + deps install)', () => {
       await installStep(step, ctx);
 
       expect(copyDir).toHaveBeenCalled();
-      expect(spawn).not.toHaveBeenCalled();
+      expect(nodeFs.existsSync(path.join(fx.repoRoot, 'node_modules'))).toBe(false);
 
-      expect(runCommand).toHaveBeenCalledTimes(1);
-      const [installCmd, installCwd] = runCommand.mock.calls[0];
-      expect(installCmd).toContain('npm');
-      expect(installCwd).toBe(fx.repoRoot);
-
-      const spawn2 = vi.fn(async () => ({ code: 0, stderr: '' }));
-      const copyDir2 = vi.fn((_src: string, _dest: string) => {});
-      const fallbackStep = makeInstallStep({
+      const forwarded: { localSourceOnly?: boolean }[] = [];
+      await makeInstallStep({
         ...deps,
         resolveSkillsSource: () => undefined,
-        spawn: spawn2,
+        runSkillsInstall: async (opts) => {
+          forwarded.push(opts);
+        },
+      })(step, ctx);
+      expect(forwarded.map((o) => o.localSourceOnly)).toEqual([true]);
+
+      const copyDir2 = vi.fn((_src: string, _dest: string) => {});
+      const missingSourceStep = makeInstallStep({
+        ...deps,
+        resolveSkillsSource: () => undefined,
         copyDir: copyDir2,
       });
-      await fallbackStep(step, ctx);
-
-      expect(spawn2).toHaveBeenCalled();
-      const [npxCmd, npxArgs] = spawn2.mock.calls[0];
-      expect(npxCmd).toBe('npx');
-      expect((npxArgs as string[]).join(' ')).toContain('skills');
+      await expect(missingSourceStep(step, ctx)).rejects.toThrow(
+        /No local skills source was found for runtime "claude"[\s\S]*Exarchos plugin[\s\S]*`exarchos skills get`/,
+      );
       expect(copyDir2).not.toHaveBeenCalled();
+      expect(nodeFs.existsSync(path.join(fx.repoRoot, 'node_modules'))).toBe(false);
     } finally {
+      vi.unstubAllEnvs();
+      await cleanup(fx);
+    }
+  });
+
+  /**
+   * The rename migration removes old skill directories, so it must not run when the install refuses.
+   * With no local source the step refuses and the migration does not run. With a local source the migration runs once, before the first copy.
+   */
+  it('Install_MigrationRunsOnlyBeforeALocalCopy_NeverOnARefusal', async () => {
+    const fx = await createFixture();
+    vi.stubEnv('PATH', path.join(fx.base, 'no-bin'));
+    try {
+      const skillsSource = await seedSkillsSource(fx);
+      const order: string[] = [];
+      const deps: InstallStepDeps = {
+        agent: 'claude',
+        runtimes: [
+          { name: 'claude', skillsInstallPath: path.join(fx.home, '.claude', 'skills') } as never,
+        ],
+        homeDir: () => fx.home,
+        copyDir: () => { order.push('copy'); },
+        registerMcp: () => {},
+        log: () => {},
+        errLog: () => {},
+        runMigrate: () => { order.push('migrate'); },
+      };
+      const step = installPlanStep();
+      const ctx = applyCtx(fx);
+
+      await expect(makeInstallStep({ ...deps, resolveSkillsSource: () => undefined })(step, ctx)).rejects.toThrow(
+        /No local skills source was found for runtime "claude"/,
+      );
+      expect(order).toEqual([]);
+
+      await makeInstallStep({ ...deps, resolveSkillsSource: () => skillsSource })(step, ctx);
+      expect(order[0]).toBe('migrate');
+      expect(order.filter((entry) => entry === 'migrate')).toHaveLength(1);
+      expect(order.slice(1).every((entry) => entry === 'copy')).toBe(true);
+      expect(order.length).toBeGreaterThan(1);
+    } finally {
+      vi.unstubAllEnvs();
       await cleanup(fx);
     }
   });
@@ -220,7 +260,6 @@ describe('installStep (DR-2/DR-6 — skills + deps install)', () => {
         ],
         homeDir: () => fx.home,
         runSkillsInstall,
-        runCommand: vi.fn(async () => {}),
       };
 
       const step = installPlanStep();

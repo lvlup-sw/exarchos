@@ -6,6 +6,7 @@ import {
   validateAgentEvent,
   AGENT_EVENT_TYPES,
   EventTypes,
+  INTERNAL_VCS_LEDGER_EVENT_TYPES,
   WorkflowEventBase,
   WorkflowStartedData,
   TaskAssignedData,
@@ -100,7 +101,6 @@ import {
   type WorkflowEvent,
 } from '../../../src/events/schemas.js';
 import { SETTLEMENT_OUTCOMES } from '../../../src/verbs/settle/adjudicate.js';
-import * as mutationOwner from '../../../src/vcs/mutation-owner.js';
 import { promoteTree, promotionPlan, defaultPromotionIo } from '../../../src/install/atomic-promotion.js';
 import { digestTree } from '../../../src/install/install-identity.js';
 import { DRY_RUN, isDryRun } from '../../../src/dispatch/core/effect-carrier.js';
@@ -3825,20 +3825,15 @@ describe('WLM operational-core merge lease schemas', () => {
   });
 
   /**
-   * The catalog declares the three ledger names as built-in types with a data schema.
+   * The catalog declares the three ledger names as built-in types with a data schema, so old logs still parse.
+   * No module writes them, because Exarchos performs no git mutation. They stay reserved, so a caller cannot mint one.
    * A runtime registration puts a name in the custom set.
    * That name has no `EventDataMap` entry and no coupling annotation.
-   * The test reads the names from the constants of the mutation owner, so a rename on one side fails.
-   * The mutation owner must not export `ensureVcsMutationEventTypes`, because that name implies a live registration path.
    * A custom name still registers, so the two `toThrow` checks are facts about these three names.
    */
   it('VcsLedgerEvents_RuntimeSeam_IsNoLongerUsed', () => {
-    const LEDGER = [
-      mutationOwner.VCS_REQUESTED,
-      mutationOwner.VCS_EXECUTED,
-      mutationOwner.VCS_COMPENSATED,
-    ];
-    expect(LEDGER).toEqual(['vcs.requested', 'vcs.executed', 'vcs.compensated']);
+    const LEDGER = ['vcs.requested', 'vcs.executed', 'vcs.compensated'] as const;
+    expect([...INTERNAL_VCS_LEDGER_EVENT_TYPES]).toEqual([...LEDGER]);
 
     for (const name of LEDGER) {
       expect(isBuiltInEventType(name), `${name} is not a built-in event type`).toBe(true);
@@ -3852,8 +3847,6 @@ describe('WLM operational-core merge lease schemas', () => {
       expect(EVENT_DATA_SCHEMAS[name], `${name} has no data schema`).toBeDefined();
     }
 
-    expect(Object.keys(mutationOwner)).not.toContain('ensureVcsMutationEventTypes');
-
     const custom = `custom.ledger-probe-${randomUUID().slice(0, 8).replace(/[^a-z]/g, 'x')}`;
     expect(() => registerEventType(custom, { source: 'auto' })).not.toThrow();
     expect(isBuiltInEventType(custom)).toBe(false);
@@ -3861,7 +3854,7 @@ describe('WLM operational-core merge lease schemas', () => {
 
     const catalog = serializeEventCatalog();
     for (const name of LEDGER) {
-      expect(catalog.types[name]).toEqual({ source: 'auto', isBuiltIn: true, hasSchema: true });
+      expect(catalog.types[name]).toEqual({ source: 'retired', isBuiltIn: true, hasSchema: true });
     }
   });
 

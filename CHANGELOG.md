@@ -13,6 +13,26 @@ All notable changes to Exarchos are documented in this file. Organized by semver
   - Stored receipts, evidence records and `test.result` rows of the probe still read.
   - `spec_coverage_check` runs the declared tests with `verification.tests.probe`, else with the `test:files` script of `package.json` when it exists, as `npm run test:files -- <files>`. The script must run only the files that it gets.
 
+- **Exarchos opens, merges, comments on and reads no pull request, issue or CI state** ([#1928](https://github.com/lvlup-sw/exarchos/issues/1928)). This is a change of behavior.
+  - `create_pr`, `merge_pr`, `add_pr_comment` and `create_issue` get `PROVIDER_WRITE_RETIRED` before dispatch, and nothing runs.
+  - `check_ci`, `list_prs`, `get_pr_comments`, `check_pr_comments`, `check_coderabbit`, `validate_pr_stack` and `assess_stack` get `PROVIDER_READ_RETIRED` before dispatch, and nothing runs.
+  - The harness does this work with its own tools. Exarchos builds no VCS provider and no review adapter.
+  - The `vcs` key of `.exarchos.yml` still loads. The loader removes it and reports `RETIRED_VCS_KEY`.
+  - Feedback stays in the local event store. The `feedback` key still loads, and the loader removes it and reports `RETIRED_FEEDBACK_UPSTREAM`.
+- **Exarchos creates, lands and removes no worktree or branch** ([#1928](https://github.com/lvlup-sw/exarchos/issues/1928)). This is a change of behavior.
+  - `setup_worktree`, `prune_worktrees`, `acquire_worktree`, `release_worktree` and `reconcile_worktrees` get `PROVIDER_WRITE_RETIRED` with a message that names the harness.
+  - `merge_orchestrate`, the `exarchos merge-orchestrate` verb and `serialize_merge` get `PROVIDER_WRITE_RETIRED`. The harness lands each accepted task head.
+  - The merge-pending phase is removed. A stored merge-pending phase reads as `delegate`. A user definition with a `MERGE` step type no longer loads.
+  - The `worktrees`, `ps` and `wait` views read the worktree rows of old logs only. A reservation in an old log stays outstanding.
+  - The `vcs.requested`, `vcs.executed` and `vcs.compensated` records are retired. Old rows still parse.
+- **A cancel is ledger-only** ([#1928](https://github.com/lvlup-sw/exarchos/issues/1928)). A cancel starts no process. It records each pull request, branch and worktree of the workflow as outstanding, and the harness removes them.
+- **Mutation testing is removed** ([#1928](https://github.com/lvlup-sw/exarchos/issues/1928)). The `mutation-adequacy` verb gets `MUTATION_TESTING_RETIRED`. A top-level `mutation` key or a `commands.mutation` key of a toolchain still loads, and the loader reports `RETIRED_MUTATION_COMMAND`. Stryker is no longer a dependency.
+- **The verifier host and the launcher are removed** ([#1928](https://github.com/lvlup-sw/exarchos/issues/1928)). This is a change of behavior.
+  - `settle` and every check gate run the approved checks in the local check executor. A provisioning file of the old host under `~/.exarchos/verifier` is ignored.
+  - The CLI has no harness verb, so a call such as `exarchos claude-code` is an unknown command. Start the agent runtime directly.
+- **`settle` observes the integration locally** ([#1928](https://github.com/lvlup-sw/exarchos/issues/1928)). After the harness lands a task branch on the integration ref, `settle` observes the landing by ancestry and runs the integration suite in its local executor at the integration tip. A settle refuses an integration checkout that does not hold the integration ref.
+- **Onboard copies the skills from a local source only.** It runs no project install command and no `npx skills add`. When no local source exists, onboard refuses and names the plugin and `exarchos skills get`.
+
 - **An MCP session is read-only unless its server starts with `exarchos mcp --operator`.** This is a change of behavior (#2249).
   - The plugin manifest, `~/.claude.json` registration, the Claude writer and the Cursor and Copilot project writers start the orchestrator entry with `--operator`.
   - Read-only agents, such as the reviewer, name a separate `exarchos-readonly` server. On Claude it is inline in the agent file.
@@ -29,7 +49,7 @@ All notable changes to Exarchos are documented in this file. Organized by semver
 
 - The guard-input preview now runs the pure move emitter after admission and applies frozen gate floors to both sides. Circuit-limit refusals stay denied.
 - A capped settlement reply preserves complete admitted targets in edge order, with an omitted count. If target-field overhead cannot fit, the summary states that detail is omitted. The bundle and settlement event do not recover omitted phase targets. Stored receipts and schemas do not change.
-- The settlement outcome determines the next call before phase fallback advice. Delegation fallback includes landing and both backstops: six calls at one task, or `5 + 1*tasks`. The normal count stays `4 + 1*tasks`.
+- The settlement outcome determines the next call before phase fallback advice. The delegation fallback adds one transition call, so it is five Exarchos calls. The normal count is four at any task count, because the harness lands each task with no Exarchos call.
 
 - **`prepare` pins a verification profile in the capsule, and each gate of a segment runs only what the profile pins.** This is a change of behavior, and the upgrade is one way. The compiler is now `exarchos-prepare-5`.
   - `prepare` resolves the verification profile at the checkout and pins it once for each capsule, as `settlementContract.verificationProfile`. The profile holds each command as an argv, the test globs, the test-support segments, the probe, the static-analysis checks, the integration suite, the contract commands, the boundary checks and the `ownership.firstParty` globs. `prepare` refuses no unresolved term: the capsule pins its reason.

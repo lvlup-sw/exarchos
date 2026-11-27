@@ -404,11 +404,11 @@ export const workflowActions: readonly BuiltinToolAction[] = [
       /**
        * The friction channel from an agent to the runtime. It takes no `featureId` and writes to the
        * shared `meta/feedback` stream, so reports are queryable across workflows. The handler writes
-       * locally first, then makes an optional upstream POST. `/exarchos:dogfood` reads the stream.
+       * only to the local event store. `/exarchos:dogfood` reads the stream.
        */
       name: 'feedback',
       description:
-        'File an agent→runtime friction report onto the shared meta/feedback stream (cross-workflow, queryable). Emits feedback.recorded; optionally POSTs upstream when .exarchos.yml sets feedback.upstream. No featureId — feedback is not feature-scoped.',
+        'File an agent→runtime friction report onto the shared meta/feedback stream (cross-workflow, queryable). Emits feedback.recorded and stays local: it sends no report to a remote service. No featureId — feedback is not feature-scoped.',
       schema: z.object({
         message: z.string().min(1).describe('The friction report (required, non-empty).'),
         /**

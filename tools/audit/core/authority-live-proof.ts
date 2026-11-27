@@ -1266,27 +1266,23 @@ export function measurePhaseEventsLive(repoRoot: string = REPO_ROOT): MeasuredBo
 /** Every source the effect-event measurement reads, repo-relative. */
 export const EFFECT_EVENT_SOURCES: {
   readonly carrier: string;
-  readonly vcsLedger: string;
   readonly promotion: string;
 } = Object.freeze({
   /** The carrier. It declares `EffectPlan.emits` and throws the commit gate. */
   carrier: 'src/dispatch/core/effect-carrier.ts',
   /**
-   * The two owners that declare emissions on a plan. They are named, not
-   * scanned, so a moved owner fails the read and does not shrink the denominator.
+   * The one owner that declares emissions on a plan. It is named, not scanned,
+   * so a moved owner fails the read and does not shrink the denominator.
    */
-  vcsLedger: 'src/vcs/mutation-owner.ts',
   promotion: 'src/install/atomic-promotion.ts',
 });
 
 /** The representation ids the committed row uses. Matched exactly. */
 export const EFFECT_EVENT_REPRESENTATION_IDS: {
   readonly plan: string;
-  readonly vcsLedger: string;
   readonly promotion: string;
 } = Object.freeze({
   plan: 'EffectPlan `emits` (`dispatch/core/effect-carrier.ts`)',
-  vcsLedger: 'the VCS ledger append site (`vcs/mutation-owner.ts`)',
   promotion: 'the promotion record sink (`install/atomic-promotion.ts`)',
 });
 
@@ -1298,7 +1294,6 @@ export const EFFECT_PLAN_AUTHORITY = 'EffectPlan.emits';
 
 export interface EffectEventSources {
   readonly carrier: string;
-  readonly vcsLedger: string;
   readonly promotion: string;
 }
 
@@ -1306,7 +1301,6 @@ export interface EffectEventSources {
 export function readEffectEventSources(repoRoot: string = REPO_ROOT): EffectEventSources {
   return {
     carrier: readOrThrow(repoRoot, EFFECT_EVENT_SOURCES.carrier),
-    vcsLedger: readOrThrow(repoRoot, EFFECT_EVENT_SOURCES.vcsLedger),
     promotion: readOrThrow(repoRoot, EFFECT_EVENT_SOURCES.promotion),
   };
 }
@@ -1453,11 +1447,7 @@ function requireCommitGate(source: string, file: string): number {
 export function measureEffectEvent(sources: EffectEventSources): MeasuredBoundary {
   const gates = requireCommitGate(sources.carrier, EFFECT_EVENT_SOURCES.carrier);
 
-  const planSites = [
-    ...measurePropertyAssignments(sources.vcsLedger, EFFECT_EVENT_SOURCES.vcsLedger, 'emits'),
-    ...measurePropertyAssignments(sources.promotion, EFFECT_EVENT_SOURCES.promotion, 'emits'),
-  ];
-  const vcsSinks = measureEmissionSinks(sources.vcsLedger, EFFECT_EVENT_SOURCES.vcsLedger);
+  const planSites = measurePropertyAssignments(sources.promotion, EFFECT_EVENT_SOURCES.promotion, 'emits');
   const promotionSinks = measureEmissionSinks(sources.promotion, EFFECT_EVENT_SOURCES.promotion);
 
   const representations: MeasuredRepresentation[] = [
@@ -1465,16 +1455,6 @@ export function measureEffectEvent(sources: EffectEventSources): MeasuredBoundar
       id: EFFECT_EVENT_REPRESENTATION_IDS.plan,
       binding: { kind: 'authoritative' },
       sites: planSites,
-    },
-    {
-      id: EFFECT_EVENT_REPRESENTATION_IDS.vcsLedger,
-      binding: bindingFor(
-        vcsSinks,
-        EFFECT_PLAN_AUTHORITY,
-        'the ledger append is handed the plan\'s emission and names the event it appends from it, so a change to the plan moves the record',
-        'the sink records a fact whose name the plan does not supply, so the ledger cannot follow a change to the plan.',
-      ),
-      sites: vcsSinks,
     },
     {
       id: EFFECT_EVENT_REPRESENTATION_IDS.promotion,
@@ -1501,14 +1481,13 @@ export function measureEffectEvent(sources: EffectEventSources): MeasuredBoundar
     representations,
     siteCount,
     measured:
-      `Measured LIVE from source by \`${EFFECT_EVENT_SOURCES.carrier}\` and its two declaring ` +
-      `owners: ${planSites.length} plan(s) declare \`emits\`, and the carrier throws ` +
+      `Measured LIVE from source by \`${EFFECT_EVENT_SOURCES.carrier}\` and its one declaring ` +
+      `owner: ${planSites.length} plan(s) declare \`emits\`, and the carrier throws ` +
       `\`UnrecordedEmissionError\` at ${gates} site(s), so a declared emission is a precondition ` +
       `of the effect committing rather than a hope. ${unbound.length} of ${subjects.length} ` +
-      'non-authoritative representations are unbound: the VCS ledger appends `emission.event` and ' +
-      'therefore follows the plan, while the promotion sink discards the emission and hands a ' +
-      'typed payload to a caller-supplied destination. The boundary is no longer authority-less — ' +
-      'it is single-authority and PARTIALLY bound, which is not bound.',
+      'non-authoritative representations are unbound: the promotion sink discards the emission and ' +
+      'hands a typed payload to a caller-supplied destination. The VCS ledger owner is deleted, ' +
+      'because Exarchos performs no git mutation. The boundary is single-authority and unbound.',
   };
 }
 

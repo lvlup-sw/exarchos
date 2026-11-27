@@ -323,8 +323,8 @@ const WorkflowCheckpointDataSchema = z
 export const WorkflowCheckpointOutputSchema = EnvelopeSchema(WorkflowCheckpointDataSchema);
 
 /**
- * The success data of `exarchos_workflow.feedback`: the recorded event and the upstream delivery
- * status. `configuredEndpoint` is `null` when no upstream endpoint is configured.
+ * The success data of `exarchos_workflow.feedback`: the recorded event. The upstream fields of older
+ * releases stay with their no-endpoint values: `upstreamConfigured` false, `configuredEndpoint` null and `upstreamDelivered` false.
  */
 const WorkflowFeedbackDataSchema = z
   .object({

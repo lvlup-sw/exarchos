@@ -1,9 +1,9 @@
 /**
- * Tests of two reads of the shared git observation: the exact branch name, and the status of a tree of another repository.
+ * Tests of two constrained tree reads: the exact branch name, and the listings of a tree of another repository.
  *
  * Each case makes real repositories in which each task has its own linked worktree.
- * A tag with the name of a branch makes the short form of git print `heads/<name>`, so the branch read uses the full ref.
- * The status runs the `core.fsmonitor` command of its repository, so a tree of another repository gets no status.
+ * A tag with the name of a branch makes the short form of git print `heads/<name>`. So the branch read uses the full ref of the worktree listing.
+ * A status runs the `core.fsmonitor` command of its repository, so a tree of another repository gets no listing and no status.
  * Each case spawns git, so it sets its own timeout and does not raise the budget of its tier.
  */
 import { afterEach, describe, expect, it } from 'vitest';
@@ -12,7 +12,7 @@ import { writeFile } from 'node:fs/promises';
 import * as path from 'node:path';
 
 import { WIN32_SPAWN_HEADROOM } from '../../../vitest.config.js';
-import { observeClaimedTree, observeTree } from '../../../src/utils/git-tree.js';
+import { observeConstrainedClaimedTree, observeConstrainedTree } from '../../../src/verbs/settle/claimed-tree.js';
 import { execFileAsync } from '../../../tools/test-helpers/spawn.js';
 import { rmrfAsync } from '../../../tools/test-helpers/temp-dir.js';
 import { scopedRepository, type ScopedRepository } from '../../helpers/scoped-repository.js';
@@ -56,12 +56,12 @@ async function markOnEachStatus(repository: ScopedRepository): Promise<string> {
   return marker;
 }
 
-describe('observeTree reads the exact branch name', () => {
+describe('observeConstrainedTree reads the exact branch name', () => {
   /**
    * The checkout and a linked worktree each hold a branch that a tag of the same name shadows.
    * The short form of git prints `heads/<name>` there. The observation gives the name of the branch.
    */
-  it('ObserveTree_ATagWithTheNameOfTheBranch_ReadsTheBranchName', async () => {
+  it('ObserveConstrainedTree_ATagWithTheNameOfTheBranch_ReadsTheBranchName', async () => {
     const repository = await makeRepository();
     const worktree = await repository.worktreeFor('task-a');
     await git(repository.checkout, ['tag', INTEGRATION_BRANCH]);
@@ -69,31 +69,31 @@ describe('observeTree reads the exact branch name', () => {
     expect(await git(repository.checkout, ['symbolic-ref', '--short', 'HEAD'])).toBe(`heads/${INTEGRATION_BRANCH}`);
     expect(await git(worktree, ['symbolic-ref', '--short', 'HEAD'])).toBe('heads/task/task-a');
 
-    expect(await observeTree(repository.checkout)).toEqual({
+    expect(await observeConstrainedTree(repository.checkout)).toEqual({
       kind: 'tree',
       toplevel: repository.checkout,
       repository: `${repository.checkout}/.git`,
       branch: INTEGRATION_BRANCH,
       head: repository.baseCommit,
     });
-    expect(await observeTree(worktree)).toMatchObject({ kind: 'tree', toplevel: worktree, branch: 'task/task-a' });
+    expect(await observeConstrainedTree(worktree)).toMatchObject({ kind: 'tree', toplevel: worktree, branch: 'task/task-a' });
   }, CASE_TIMEOUT_MS);
 });
 
-describe('observeClaimedTree reads no status outside the scope repository', () => {
+describe('observeConstrainedClaimedTree reads no listing outside the scope repository', () => {
   /**
    * The other repository sets `core.fsmonitor` to a command that writes a marker file. The observation names the scope
-   * repository, so it gives the tree with no ancestry and no status, and the command does not run.
+   * repository, so it gives the tree with no ancestry and no listing, and the command does not run.
    * Then a status in that tree writes the marker, so the command is live in the case.
    */
-  it('ObserveClaimedTree_ATreeOfAnotherRepository_RunsNoStatus', async () => {
+  it('ObserveConstrainedClaimedTree_ATreeOfAnotherRepository_ReadsNoListing', async () => {
     const scope = await makeRepository();
     const other = await makeRepository();
     const worktree = await other.worktreeFor('task-a');
     await writeFile(path.join(worktree, 'notes.txt'), 'not committed\n', 'utf-8');
     const marker = await markOnEachStatus(other);
 
-    const observed = await observeClaimedTree(worktree, other.baseCommit, `${scope.checkout}/.git`);
+    const observed = await observeConstrainedClaimedTree(worktree, other.baseCommit, `${scope.checkout}/.git`, 'immutable');
 
     expect(observed).toEqual({
       kind: 'tree',
@@ -110,24 +110,26 @@ describe('observeClaimedTree reads no status outside the scope repository', () =
   }, CASE_TIMEOUT_MS);
 
   /**
-   * The twin: a tree of the scope repository still gets the ancestry and the status, so its untracked file is listed.
+   * The twin: a tree of the scope repository still gets the ancestry and the listings under both policies, so its untracked file is listed.
    * The same tree observed against another repository gets neither read.
    */
-  it('ObserveClaimedTree_ATreeOfTheScopeRepository_StillReadsTheStatus', async () => {
+  it('ObserveConstrainedClaimedTree_ATreeOfTheScopeRepository_StillReadsTheListings', async () => {
     const repository = await makeRepository();
     const worktree = await repository.worktreeFor('task-a');
     await writeFile(path.join(worktree, 'notes.txt'), 'not committed\n', 'utf-8');
 
-    expect(await observeClaimedTree(worktree, repository.baseCommit, `${repository.checkout}/.git`)).toEqual({
-      kind: 'tree',
-      toplevel: worktree,
-      repository: `${repository.checkout}/.git`,
-      branch: 'task/task-a',
-      head: repository.baseCommit,
-      holdsBase: true,
-      dirtyPaths: ['notes.txt'],
-    });
-    expect(await observeClaimedTree(worktree, repository.baseCommit, `${repository.root}/elsewhere/.git`)).toMatchObject({
+    for (const policy of ['immutable', 'mutable'] as const) {
+      expect(await observeConstrainedClaimedTree(worktree, repository.baseCommit, `${repository.checkout}/.git`, policy)).toEqual({
+        kind: 'tree',
+        toplevel: worktree,
+        repository: `${repository.checkout}/.git`,
+        branch: 'task/task-a',
+        head: repository.baseCommit,
+        holdsBase: true,
+        dirtyPaths: ['notes.txt'],
+      });
+    }
+    expect(await observeConstrainedClaimedTree(worktree, repository.baseCommit, `${repository.root}/elsewhere/.git`, 'immutable')).toMatchObject({
       kind: 'tree',
       holdsBase: false,
       dirtyPaths: [],

@@ -73,13 +73,13 @@ describe('EXIT PROOF — live narrow effect ports', () => {
     expect(result.ruleCount).toBeGreaterThan(0);
   });
 
-  /** `workflow/feedback.ts` declares a network-only port, so the planted process effect is outside its port. */
+  /** `utils/process.ts` declares a filesystem and process port, so the planted network effect is outside its port. */
   it('(b) a planted broad effect on a narrow-port module FAILS against the live footprints', async () => {
     const occurrences = await scanEffectOccurrences(SRC_ROOT, lexModule);
     const planted: EffectOccurrence = {
-      module: 'workflow/feedback.ts',
-      effectClass: 'process',
-      evidence: 'node:child_process',
+      module: 'utils/process.ts',
+      effectClass: 'network',
+      evidence: 'fetch',
     };
     const result = runEffectPortCensus([...occurrences, planted], NARROW_EFFECT_PORTS);
     expect(result.ok).toBe(false);
@@ -88,10 +88,15 @@ describe('EXIT PROOF — live narrow effect ports', () => {
         (d) =>
           d.code === 'BROAD_EFFECT_CONTEXT' &&
           'module' in d &&
-          d.module === 'workflow/feedback.ts' &&
-          d.effectClass === 'process',
+          d.module === 'utils/process.ts' &&
+          d.effectClass === 'network',
       ),
     ).toBe(true);
+  });
+
+  /** No narrow port grants the network class, because the shipped tree owns no network effect. */
+  it('no narrow port grants a network effect', () => {
+    expect(NARROW_EFFECT_PORTS.filter((rule) => rule.port.includes('network'))).toEqual([]);
   });
 
   it('every declared port module performs at least one of its declared classes (no phantom)', async () => {

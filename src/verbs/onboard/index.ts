@@ -321,7 +321,7 @@ function defaultRunDoctorChecks(
 
 /**
  * Production deps: the init writers, the real doctor checks, the SessionStart hook installer and
- * the skills and deps installer. A missing SessionStart binding gives a `hook` step, which `apply`
+ * the local skills copy. A missing SessionStart binding gives a `hook` step, which `apply`
  * routes to `installHook`. `apply` routes an `install` step to `installStep` on the CLI surface
  * only. `repoRoot` is the dispatch cwd.
  */

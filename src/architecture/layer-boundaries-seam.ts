@@ -404,8 +404,8 @@ export const LAYER_ALLOWED_IMPORTS: readonly LayerAllowance[] = Object.freeze([
   ),
   allowance(
     'vcs',
-    ['dispatch', 'events', 'utils'],
-    'The VCS mutation owner reaches the dispatch core, the event store and the process primitive.',
+    [],
+    'The pull request section reader is pure text code. The VCS mutation owner is deleted, so the layer reaches no other layer.',
   ),
   allowance(
     'lifecycle',

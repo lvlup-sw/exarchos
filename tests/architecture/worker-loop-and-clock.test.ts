@@ -67,7 +67,6 @@ const KNOWN_WRAPPERS: ReadonlyArray<{ readonly module: string; readonly name: st
   { module: 'src/utils/process', name: 'spawnCommandSync', condition: 'always' },
   { module: 'src/verbs/gates/static-analysis', name: 'execCommandRunner', condition: 'always' },
   { module: 'src/verbs/gates/check-integration-suite', name: 'execCommandRunner', condition: 'always' },
-  { module: 'src/verbs/vcs/push-with-lease', name: 'readRemoteSha', condition: [{ argument: 2 }] },
 ];
 
 /** The file name that a seeded source has, so that its relative imports resolve as a test file under `tests/architecture/`. */

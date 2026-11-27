@@ -20,6 +20,9 @@ import {
   EXCLUDED_DIRS,
   GOVERNED_SOURCE_ROOT,
   INERT_DEPENDENCIES,
+  INSTALL_PROBE_OWNER_PREFIX,
+  PROCESS_PRIMITIVE_MODULE,
+  TESTGEN_OWNER_PREFIX,
   type EffectLedgerDiagnostic,
   type EffectOccurrence,
   type EffectOwnershipRule,
@@ -351,6 +354,107 @@ describe('DR-13 kill — the widened detector sees evaded network clients', () =
   });
 
   /**
+   * Each plant reaches the global `fetch` as the value of an operand, with no call, alias or global root.
+   * The deleted installer version check had the `?? fetch` shape, and no rule claimed it before the operand rule.
+   * Each plant fails with the operand evidence. A type query and a property key with that name stay inert.
+   */
+  it('EffectLedger_PlantedFallbackFetchClient_CensusFailsClosed', async () => {
+    const root = await plant({
+      [OWNER_MODULE]: OWNER_SOURCE,
+      'rogue/nullish.ts': `
+        export interface Options { readonly fetchFn?: typeof fetch }
+        export const client = (options?: Options) => options?.fetchFn ?? fetch;
+      `,
+      'rogue/or.ts': `export const client = (injected?: typeof fetch) => injected || fetch;`,
+      'rogue/ternary.ts': `export const client = (injected?: typeof fetch) => injected ? injected : fetch;`,
+      'rogue/arrow.ts': `export const client = () => fetch;`,
+      'rogue/returned.ts': `export function client() { return fetch; }`,
+      'rogue/object-value.ts': `export const deps = { client: fetch };`,
+      'inert/type-query.ts': `export interface Options { readonly fetchFn?: typeof fetch; readonly fetch?: number }`,
+    });
+
+    const result = await auditEffectOwnership(root, lexModule, SCOPED_RULES);
+
+    expect(result.ok).toBe(false);
+    expect(result.diagnostics.every((d) => d.code === 'INDETERMINATE_OWNER')).toBe(true);
+    const bad = indeterminateOf(result.diagnostics);
+    expect(bad.map((d) => d.module).sort()).toEqual([
+      'rogue/arrow.ts',
+      'rogue/nullish.ts',
+      'rogue/object-value.ts',
+      'rogue/or.ts',
+      'rogue/returned.ts',
+      'rogue/ternary.ts',
+    ]);
+    for (const diagnostic of bad) {
+      expect(diagnostic.effectClass).toBe('network');
+      expect(diagnostic.evidence).toBe('fetch (operand value)');
+    }
+  });
+
+  /**
+   * A module that imports the spawn primitive and calls one of its entries starts a process.
+   * The planted caller must fail as an indeterminate process owner, and a rule that names it by module clears it.
+   * An import of a non-spawn helper of the primitive, a type-only import and a module of the same name in another directory start no process.
+   * A mixed import whose spawn member has a `type` modifier starts no process, and a namespace read of a spawn entry does.
+   */
+  it('EffectLedger_CallerOfTheSpawnPrimitive_IsAProcessSiteByName', async () => {
+    const primitive = `import { spawnSync } from 'node:child_process';
+export function runCommandSync(cmd: string, args: string[]): string { return String(spawnSync(cmd, args).stdout); }
+export function isPidAlive(pid: number): boolean { return pid > 0; }`;
+    const root = await plant({
+      [OWNER_MODULE]: OWNER_SOURCE,
+      [PROCESS_PRIMITIVE_MODULE]: primitive,
+      'verbs/rogue-caller.ts': `
+        import { runCommandSync as run } from '../utils/process.js';
+        export const head = (): string => run('git', ['rev-parse', 'HEAD']);
+      `,
+      'verbs/pid-reader.ts': `
+        import { isPidAlive } from '../utils/process.js';
+        export const alive = (pid: number): boolean => isPidAlive(pid);
+      `,
+      'verbs/type-reader.ts': `
+        import type { runCommandSync } from '../utils/process.js';
+        export type Runner = typeof runCommandSync;
+      `,
+      'verbs/mixed-reader.ts': `
+        import { isPidAlive, type runCommandSync } from '../utils/process.js';
+        export const alive = (pid: number): boolean => isPidAlive(pid);
+        export type Runner = typeof runCommandSync;
+      `,
+      'verbs/namespace-caller.ts': `
+        import * as proc from '../utils/process.js';
+        export const head = (): string => proc.runCommandSync('git', ['rev-parse', 'HEAD']);
+      `,
+      'verbs/other.ts': `
+        import { runCommandSync } from './utils/process.js';
+        export const go = (): string => runCommandSync('x', []);
+      `,
+      'verbs/utils/process.ts': `export function runCommandSync(cmd: string, args: string[]): string { return cmd + args.join(' '); }`,
+    });
+    const primitiveRule: EffectOwnershipRule = {
+      effectClass: 'process',
+      match: PROCESS_PRIMITIVE_MODULE,
+      owner: 'test-spawn-primitive',
+      idempotency: 'i',
+      compensation: 'c',
+    };
+
+    const result = await auditEffectOwnership(root, lexModule, [...SCOPED_RULES, primitiveRule]);
+
+    const bad = indeterminateOf(result.diagnostics);
+    expect(bad.map((d) => [d.module, d.effectClass, d.evidence]).sort()).toEqual([
+      ['verbs/namespace-caller.ts', 'process', `${PROCESS_PRIMITIVE_MODULE}#runCommandSync`],
+      ['verbs/rogue-caller.ts', 'process', `${PROCESS_PRIMITIVE_MODULE}#runCommandSync`],
+    ]);
+
+    const callerRule: EffectOwnershipRule = { ...primitiveRule, match: 'verbs/rogue-caller.ts', owner: 'test-caller' };
+    const namespaceRule: EffectOwnershipRule = { ...primitiveRule, match: 'verbs/namespace-caller.ts', owner: 'test-namespace-caller' };
+    const claimed = await auditEffectOwnership(root, lexModule, [...SCOPED_RULES, primitiveRule, callerRule, namespaceRule]);
+    expect(claimed.diagnostics).toEqual([]);
+  });
+
+  /**
    * A re-export names the primitive, so the module that re-exports it is the effect site.
    * The scan does not charge the consumer of the re-export, because attribution is per module and never transitive.
    */
@@ -625,6 +729,57 @@ describe('DR-13 live tree — the widened census is green and load-bearing', () 
     const result = await auditEffectOwnership(SRC_ROOT, lexModule);
     expect(result.diagnostics).toEqual([]);
     expect(result.ok).toBe(true);
+  });
+
+  /**
+   * The shipped tree is a local CLI. No rule owns a network effect, and the scan finds no network occurrence.
+   * So any network client that a change adds fails the census as an indeterminate owner.
+   */
+  it('EffectLedger_LiveTree_HasNoNetworkOwnerAndNoNetworkOccurrence', async () => {
+    const scan = await scanEffectTree(SRC_ROOT, lexModule);
+    expect(scan.occurrences.length).toBeGreaterThan(0);
+    expect(scan.occurrences.filter((o) => o.effectClass === 'network')).toEqual([]);
+    expect(EFFECT_OWNERSHIP.filter((r) => r.effectClass === 'network')).toEqual([]);
+  });
+
+  /**
+   * Each process rule names one exact module, and the list equals the measured process sites of the live tree.
+   * A caller of a spawn entry of the process primitive is a process site, so each such caller has its own rule.
+   * The install-time owners are the second allowed process class, and only their owner names carry the install-probe prefix.
+   * The testgen product is the third class, and only its owner names carry the testgen prefix.
+   * A new process site, or a prefix rule that covers a directory, fails here first.
+   */
+  it('EffectLedger_ProcessOwners_AreTheMeasuredModulesInThreeNamedClasses', async () => {
+    const processRules = EFFECT_OWNERSHIP.filter((r) => r.effectClass === 'process');
+    expect(processRules.filter((r) => r.match.endsWith('/'))).toEqual([]);
+    const live = (await scanEffectTree(SRC_ROOT, lexModule)).occurrences
+      .filter((o) => o.effectClass === 'process')
+      .map((o) => o.module)
+      .sort();
+    expect(processRules.map((r) => r.match).sort()).toEqual(live);
+    expect(live).toEqual([
+      'install/advisory-kill-probes.ts',
+      'install/hooks-guard.ts',
+      'install/install-skills.ts',
+      'install/runtimes/detect.ts',
+      'install/skills-guard.ts',
+      'install/wizard/prerequisites.ts',
+      'testgen/inspection/collect.ts',
+      'utils/git-tree.ts',
+      'utils/process.ts',
+      'verbs/doctor/probes.ts',
+      'verbs/gates/check-integration-suite.ts',
+      'verbs/gates/gate-utils.ts',
+      'verbs/gates/static-analysis.ts',
+      'verbs/pure/post-merge.ts',
+      'verbs/reconcile-state.ts',
+      'verbs/tasks/extract-intent.ts',
+      'verbs/verification/check-executor.ts',
+    ]);
+    for (const r of processRules) {
+      expect(r.owner.startsWith(INSTALL_PROBE_OWNER_PREFIX), `${r.match} owner ${r.owner}`).toBe(r.match.startsWith('install/'));
+      expect(r.owner.startsWith(TESTGEN_OWNER_PREFIX), `${r.match} owner ${r.owner}`).toBe(r.match.startsWith('testgen/'));
+    }
   });
 
   /**

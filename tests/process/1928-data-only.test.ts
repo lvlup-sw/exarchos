@@ -8,8 +8,8 @@
  */
 import { generateKeyPairSync } from 'node:crypto';
 import { constants } from 'node:fs';
-import { access, chmod, mkdir, readFile, realpath, rm, writeFile } from 'node:fs/promises';
-import { delimiter, join, resolve } from 'node:path';
+import { access, chmod, lstat, mkdir, readFile, realpath, rm, writeFile } from 'node:fs/promises';
+import { delimiter, dirname, join, resolve } from 'node:path';
 import { expect, it } from 'vitest';
 import { runCli } from '../helpers/cli-runner.js';
 import { spawnMcpClient } from '../helpers/mcp-client.js';
@@ -38,11 +38,27 @@ function markerScript(marker: string, body = ''): string {
 }
 
 /**
+ * Refuse a fixture root that has a `.git` entry in a host ancestor.
+ * The binary climbs from its working directory to the first `.git` entry, and then it starts Git to read it.
+ * The test does not control the host ancestors of the temp directory, so the case states this precondition before the act.
+ */
+async function assertNoAncestorGitEntry(root: string): Promise<void> {
+  const entries: string[] = [];
+  for (let directory = dirname(root); ; directory = dirname(directory)) {
+    const entry = join(directory, '.git');
+    try { await lstat(entry); entries.push(entry); } catch {}
+    if (dirname(directory) === directory) break;
+  }
+  expect(entries, 'a host ancestor of the fixture root holds a .git entry').toEqual([]);
+}
+
+/**
  * A scratch HOME, a state directory and a PATH Git shim that logs each call and fails.
  * `cli` runs the packaged binary with the shim first on PATH, and `mcp` calls one tool of the packaged MCP server the same way.
  */
 async function dataOnlyFixture() {
   const root = makeTempDir('1928-data-only-');
+  await assertNoAncestorGitEntry(root);
   const home = join(root, 'home');
   const stateDir = join(root, 'state');
   const shim = join(root, 'shim');
@@ -160,8 +176,9 @@ it.runIf(process.platform === 'linux')('DataOnly_OldTerminalWorkflow_ReadsWithNo
 /**
  * The standalone test verb ignores the files at the old provisioning location. An unreadable or malformed file does not change its outcome.
  * A directory that no checkout holds refuses with exit 77 in the local executor, and the test command does not run.
+ * The source-revert kill probe is retired, so an unbound adequacy call refuses with TEST_ADEQUACY_RETIRED through the CLI and MCP and runs nothing.
  */
-it.runIf(process.platform === 'linux')('DataOnly_MalformedOldProvisioningFile_RunTestsIgnoresItAndUnboundAdequacyRunsLocallyWithNoTestCommand', async () => {
+it.runIf(process.platform === 'linux')('DataOnly_MalformedOldProvisioningFile_RunTestsIgnoresItAndRetiredAdequacyRefusesWithNoTestCommand', async () => {
   const f = await dataOnlyFixture();
   try {
     const checkout = join(f.root, 'checkout');
@@ -184,10 +201,11 @@ it.runIf(process.platform === 'linux')('DataOnly_MalformedOldProvisioningFile_Ru
 
     const adequacy = await f.json(['orchestrate', 'check_test_adequacy', '--feature-id', 'unbound', '--task-id', 'task-1',
       '--repo-root', checkout, '--base-branch', 'main'], checkout);
-    expect(JSON.stringify(adequacy.envelope)).not.toContain('HOSTED_VERIFICATION_REFUSED');
+    expect(adequacy.exitCode, adequacy.stderr).toBe(2);
+    expect(adequacy.envelope).toMatchObject({ success: false, error: { code: 'TEST_ADEQUACY_RETIRED' } });
     const mcpAdequacy = await f.mcp('exarchos_orchestrate', { action: 'check_test_adequacy', featureId: 'unbound', taskId: 'task-1',
       repoRoot: checkout, baseBranch: 'main' });
-    expect(JSON.stringify(mcpAdequacy)).not.toContain('HOSTED_VERIFICATION_REFUSED');
+    expect(mcpAdequacy).toMatchObject({ success: false, error: { code: 'TEST_ADEQUACY_RETIRED' } });
 
     expect(await f.gitCalls()).toEqual([]);
     expect(await exists(f.marker('test'))).toBe(false);

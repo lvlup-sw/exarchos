@@ -1,7 +1,7 @@
 /**
- * The VCS-mutation ownership census. Git worktree, branch and merge mutation must go through one
- * typed owner. This module scans the shipped source for direct mutation sites and fails closed on a
- * site outside {@link VCS_MUTATION_OWNERS}. It is a two-way ratchet:
+ * The VCS-mutation census. Exarchos performs no git worktree, branch or merge mutation, because the
+ * harness owns them. This module scans the shipped source for direct mutation sites and fails closed
+ * on each one. {@link VCS_MUTATION_OWNERS} is empty. It is a two-way ratchet:
  *
  * - `DIRECT_VCS_BYPASS`: a mutation site in a module that no owner rule claims.
  * - `STALE_VCS_OWNER`: a declared owner with no live mutation site.
@@ -67,14 +67,11 @@ export interface VcsOwnershipResult {
 }
 
 /**
- * The modules that can mutate git worktrees, branches and merges directly. `vcs/mutation-owner.ts`
- * is the canonical owner, with idempotency, fencing and compensation.
- *
- * A new mutating module fails the census until it is declared here or routed through the owner.
+ * The modules that can mutate git worktrees, branches and merges directly. The list is empty,
+ * because the harness owns each worktree, branch and landing. A mutation site anywhere in the
+ * governed tree fails the census as a direct bypass.
  */
-export const VCS_MUTATION_OWNERS: readonly string[] = Object.freeze([
-  'vcs/mutation-owner.ts',
-]);
+export const VCS_MUTATION_OWNERS: readonly string[] = Object.freeze([]);
 
 /**
  * The tree that this census governs, repo-relative. The entries of {@link VCS_MUTATION_OWNERS} are
@@ -281,9 +278,9 @@ export function runVcsOwnershipCensus(
         evidence: site.evidence,
         message:
           `Module "${site.module}" performs a direct git ${site.mutation} ` +
-          `(via ${site.evidence}) outside the VCS-owner surface. Route git/worktree ` +
-          `mutation through the typed owner (vcs/mutation-owner.ts) or declare the ` +
-          `module in VCS_MUTATION_OWNERS.`,
+          `(via ${site.evidence}). Exarchos performs no git worktree, branch or merge ` +
+          `mutation, because the harness owns them. Remove the mutation, or record a ` +
+          `decision that names the module in VCS_MUTATION_OWNERS.`,
       });
     }
   }

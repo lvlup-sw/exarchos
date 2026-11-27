@@ -35,7 +35,6 @@ import { TOOL_REGISTRY } from './src/registry.js';
 import { contractEmissionsOf } from './src/registry/action-contract.js';
 import { EVENT_ANNOTATIONS } from './src/events/event-annotations.js';
 import { MODULE_EMISSIONS } from './src/events/module-emissions.js';
-import { VCS_LEDGER_EMISSIONS } from './src/vcs/mutation-owner.js';
 import { PROMOTION_EXECUTED } from './src/install/atomic-promotion.js';
 
 const edges = [];
@@ -63,7 +62,6 @@ for (const [event, registration] of Object.entries(EVENT_ANNOTATIONS)) {
 // than transcribed, so a third sink appearing shows up here instead of going
 // unnoticed.
 const planDeclared = [
-  ...VCS_LEDGER_EMISSIONS.emissions.map((e) => e.event),
   PROMOTION_EXECUTED,
 ];
 

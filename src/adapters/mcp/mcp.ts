@@ -117,7 +117,7 @@ export function surfaceOnboardCliAdvisory(result: ToolResult): ToolResult {
   const cliHint: NextAction = {
     verb: ONBOARD_ACTION,
     reason:
-      'the skills/deps install step is CLI-only; finish it by running onboard from the Exarchos CLI',
+      'the skills install step is CLI-only; finish it by running onboard from the Exarchos CLI',
     hint:
       commands.length > 0
         ? `run \`${commands[0]}\` from the Exarchos CLI to apply the cli-only install step`

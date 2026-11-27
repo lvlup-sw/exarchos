@@ -6,15 +6,18 @@
  *
  * An occurrence that no rule claims fails as `INDETERMINATE_OWNER`. A rule that
  * claims no occurrence fails as `STALE_OWNERSHIP`. The census detects three
- * effect classes: `filesystem`, `process` and `network`. VCS and install effects
- * are process owners, not separate classes.
+ * effect classes: `filesystem`, `process` and `network`. No rule owns a network
+ * effect, so any network occurrence in the shipped tree fails. Process rules name
+ * exact modules in three allowed classes: governor checks, install-time owners and
+ * the testgen product. A module that calls a spawn entry of `utils/process.ts` is
+ * a process site too, so the census names each caller of the primitive.
  *
  * The lexer is a required port ({@link ModuleLexer}). Only the TypeScript
  * compiler parses TypeScript soundly, but an import of `typescript` here needs an
  * effect owner, because `ts.sys` gives filesystem and process access.
  */
 import { readdir, readFile } from 'node:fs/promises';
-import { join, relative } from 'node:path';
+import { join, posix, relative } from 'node:path';
 
 /** The three statically-detectable effect primitives. */
 export type EffectClass = 'filesystem' | 'process' | 'network';
@@ -343,6 +346,7 @@ export function maskNonCode(source: string, lex: ModuleLexer): string {
  * - a `fetch(` call that is not a member call
  * - a network global on a global root (`globalThis`, `global`, `self`, `window`)
  * - a `= fetch` alias, or `fetch` destructured from a global root
+ * - `fetch` as the value of an operand: after `??`, `||`, `&&`, `=>`, `?`, `:` or `return`
  * - `new WebSocket(`, `new EventSource(` or `new XMLHttpRequest(`
  *
  * No rule matches a bare `fetch` identifier, which is also a property key or member.
@@ -354,6 +358,10 @@ const AMBIENT_NETWORK_RULES: readonly { readonly re: RegExp; readonly evidence: 
     evidence: 'globalThis.fetch',
   },
   { re: /=\s*fetch(?![\w$])/, evidence: 'fetch (aliased binding)' },
+  {
+    re: /(?:\?\?|\|\||&&|=>|(?<!\?)\?(?![?.])|:|(?<![\w$.])return)\s*fetch(?![\w$])/,
+    evidence: 'fetch (operand value)',
+  },
   {
     re: /\{[^{}]*(?<![\w$.])fetch(?![\w$])[^{}]*\}\s*=\s*(?:globalThis|global|self|window)(?![\w$])/,
     evidence: 'fetch (destructured from globalThis)',
@@ -392,11 +400,79 @@ const AMBIENT_BUN_RULES: readonly {
   },
 ];
 
+/** The repo-relative path of the cross-OS spawn primitive. */
+export const PROCESS_PRIMITIVE_MODULE = 'utils/process.ts';
+
+/**
+ * The spawn entries of {@link PROCESS_PRIMITIVE_MODULE}. A module that imports the
+ * primitive and names one of them starts a process through it. The census charges
+ * that module with a `process` occurrence.
+ */
+export const PROCESS_PRIMITIVE_SPAWNERS: readonly string[] = Object.freeze([
+  'runCommandSync',
+  'spawnCommand',
+  'spawnCommandSync',
+  'spawnHarnessChild',
+]);
+
+/**
+ * A value `import { … } from` or `export { … } from` clause in masked code. The clause text stays code after masking.
+ * A statement-level `import type` or `export type` clause does not match.
+ */
+const VALUE_BINDING_CLAUSE_RE = /(?<![\w$])(?:import|export)\s+(?!type[\s{])(?:[\w$]+\s*,\s*)?\{([^}]*)\}\s*from(?![\w$])/g;
+
+/** A value namespace import, `import * as name from`, in masked code. Group 1 is the local name. */
+const NAMESPACE_IMPORT_RE = /(?<![\w$])import\s+(?!type\s)(?:[\w$]+\s*,\s*)?\*\s*as\s+([\w$]+)\s+from(?![\w$])/g;
+
+/**
+ * The first spawn entry that `masked` binds as a value, or undefined.
+ * A clause member with a `type` modifier binds no value, so it does not count. An alias counts by its imported name.
+ * A namespace import counts when the code reads a spawn entry through the namespace.
+ */
+function valueBoundSpawnEntry(masked: string): string | undefined {
+  for (const clause of masked.matchAll(VALUE_BINDING_CLAUSE_RE)) {
+    for (const raw of (clause[1] ?? '').split(',')) {
+      const member = raw.trim();
+      if (member === '' || /^type\s/.test(member)) continue;
+      const imported = member.split(/\s+as\s+/)[0]?.trim() ?? '';
+      if (PROCESS_PRIMITIVE_SPAWNERS.includes(imported)) return imported;
+    }
+  }
+  for (const namespace of masked.matchAll(NAMESPACE_IMPORT_RE)) {
+    const local = (namespace[1] ?? '').replace(/[\\^$.*+?()[\]{}|]/g, '\\$&');
+    const read = new RegExp(`(?<![\\w$])${local}\\s*\\.\\s*(${PROCESS_PRIMITIVE_SPAWNERS.join('|')})(?![\\w$])`).exec(masked);
+    if (read !== null) return read[1];
+  }
+  return undefined;
+}
+
+/** True when the relative specifier `spec` of `module` names {@link PROCESS_PRIMITIVE_MODULE}. */
+function resolvesToProcessPrimitive(module: string, spec: string): boolean {
+  if (!spec.startsWith('.')) return false;
+  const target = posix.normalize(posix.join(posix.dirname(module), spec));
+  return target.replace(/\.(?:js|ts)$/, '') === PROCESS_PRIMITIVE_MODULE.replace(/\.ts$/, '');
+}
+
+/**
+ * The evidence for a call through the spawn primitive, or undefined. The module
+ * must value-import {@link PROCESS_PRIMITIVE_MODULE}, and a value import or re-export clause
+ * of the module must bind a spawn entry. An alias still counts, and a type-only member does not.
+ */
+function processPrimitiveCall(module: string, lexed: LexedModule): string | undefined {
+  const importsPrimitive = lexed.imports.some(
+    (ref) => !ref.typeOnly && resolvesToProcessPrimitive(module, ref.specifier),
+  );
+  if (!importsPrimitive) return undefined;
+  const spawner = valueBoundSpawnEntry(lexed.maskedSource);
+  return spawner === undefined ? undefined : `${PROCESS_PRIMITIVE_MODULE}#${spawner}`;
+}
+
 /**
  * Lists the distinct effect classes of one module, one occurrence for each
  * class. One `lex` call gives the imports and the masked code. Type-only imports
- * are not effects. The scan does not see an injected client, the consumer of a
- * re-exported primitive, or a computed global access. Tests in
+ * are not effects. A call through a spawn entry of {@link PROCESS_PRIMITIVE_MODULE}
+ * is a `process` occurrence. The scan does not see an injected client, the consumer
+ * of another re-exported primitive, or a computed global access. Tests in
  * `effect-ledger.test.ts` pin these three false negatives.
  *
  * @param module Repo-relative module path, reported on the occurrence.
@@ -417,6 +493,11 @@ export function detectModuleEffects(
     if (hit !== undefined && !found.has(hit.effectClass)) {
       found.set(hit.effectClass, hit.evidence);
     }
+  }
+
+  if (!found.has('process')) {
+    const spawner = processPrimitiveCall(module, lexed);
+    if (spawner !== undefined) found.set('process', spawner);
   }
 
   if (
@@ -620,22 +701,29 @@ const rule = (
 ): EffectOwnershipRule => ({ effectClass, match, owner, idempotency, compensation });
 
 /**
+ * The owner-name prefix of the second allowed process class: the install-time owners.
+ * The probes detect runtimes, check prerequisites and guard derived trees against drift.
+ * The class also holds the `npx skills add` fallback of the skills installer, which no production caller reaches.
+ * They are not settle checks, so the ledger names them apart from the governor process owners.
+ */
+export const INSTALL_PROBE_OWNER_PREFIX = 'install-probe:';
+
+/**
+ * The owner-name prefix of the third allowed process class: the testgen product.
+ * Testgen is its own product, so the governor boundary does not cover it. Its inspection reads Git metadata only.
+ */
+export const TESTGEN_OWNER_PREFIX = 'testgen:';
+
+/**
  * The effect ownership ledger, with one rule for each effect class and module or
- * layer. Process and network rules name exact owners. Filesystem rules work at
- * layer granularity. A new effect site in a layer without a rule fails the census.
+ * layer. Process rules name exact measured modules. Filesystem rules work at
+ * layer granularity. No rule owns a network effect. A new effect site without a
+ * rule fails the census.
  */
 export const EFFECT_OWNERSHIP: readonly EffectOwnershipRule[] = registerLedger();
 
 function registerLedger(): readonly EffectOwnershipRule[] {
   return Object.freeze([
-    rule(
-      'network',
-      'workflow/feedback.ts',
-      'workflow-feedback-network',
-      'idempotent: feedback read/post keyed by operation marker',
-      'marker-scan reconciliation dedupes a retried post',
-    ),
-
     rule(
       'process',
       'utils/process.ts',
@@ -648,10 +736,8 @@ function registerLedger(): readonly EffectOwnershipRule[] {
       'utils/git-tree.ts',
       'git-tree-read-owner',
       'idempotent: read-only git queries — rev-parse --path-format=absolute --show-toplevel ' +
-        '--git-common-dir, rev-parse --verify --quiet <ref>^{commit}, symbolic-ref --quiet ' +
-        'HEAD, rev-parse --verify --quiet HEAD, merge-base --is-ancestor (also ' +
-        '<baseCommit> HEAD) and --no-optional-locks status --porcelain, which writes no index ' +
-        'refresh; the constrained reads add worktree list, cat-file -e, cat-file --batch of exact blob IDs, ls-tree, ls-files ' +
+        '--git-common-dir, rev-parse --verify --quiet <ref>^{commit} and merge-base ' +
+        '--is-ancestor of two commits; the constrained reads add worktree list, cat-file -e, cat-file --batch of exact blob IDs, ls-tree, ls-files ' +
         '--stage, ls-files --others --exclude-standard, merge-base, rev-parse of a ' +
         'refs/remotes ref, symbolic-ref refs/remotes/origin/HEAD, diff --name-only, ' +
         'diff --name-status, diff --submodule=short and log --oneline --graph ' +
@@ -664,26 +750,114 @@ function registerLedger(): readonly EffectOwnershipRule[] {
     ),
     rule(
       'process',
-      'verbs/',
-      'orchestrate-process-owner',
-      'per-call: orchestrate probes/gates own their re-run semantics',
-      'orchestrate saga steps carry their own compensation',
+      'verbs/doctor/probes.ts',
+      'doctor-probe-owner',
+      'idempotent: which <command>, git rev-parse --is-inside-work-tree and git --version are reads',
+      'none: the probes read, so a failed probe leaves nothing to unwind',
     ),
     rule(
       'process',
-      'install/',
-      'install-process-owner',
-      'idempotent: every subprocess here probes or re-renders — runtime detection, ' +
-        'the skills/hooks drift guards, and the prerequisite checks all converge on ' +
-        're-run',
-      'none: the subprocesses read or regenerate a derived tree, so a failed run ' +
-        'leaves nothing to unwind — the next run recomputes it',
+      'verbs/gates/gate-utils.ts',
+      'gate-git-exec-owner',
+      'idempotent: the gate handlers pass read-only git queries, such as the merge base of the live checkout',
+      'none: a read leaves no state, and the gate reads a non-zero exit as a finding',
+    ),
+    rule(
+      'process',
+      'verbs/gates/check-integration-suite.ts',
+      'integration-suite-runner',
+      'idempotent: runCommandSync runs the resolved integration test command of the checkout, which reads the tree',
+      'none: the suite writes no state that the gate keeps, and a non-zero exit is a finding',
+    ),
+    rule(
+      'process',
+      'verbs/gates/static-analysis.ts',
+      'static-analysis-runner',
+      'idempotent: runCommandSync runs the resolved lint and typecheck commands, which read the tree',
+      'none: the tools write no state that the gate keeps, and a non-zero exit is a finding',
+    ),
+    rule(
+      'process',
+      'verbs/pure/post-merge.ts',
+      'post-merge-test-runner',
+      'idempotent: runCommandSync runs the resolved test command of the checkout, which reads the tree',
+      'none: the check reads no provider state, and a failed suite gives the fail status',
+    ),
+    rule(
+      'process',
+      'verbs/verification/check-executor.ts',
+      'approved-check-executor',
+      'idempotent: spawnCommand runs one approved check of the capsule, and taskkill stops its process tree on win32',
+      'none: the executor kills a check that runs past its time limit, and the verdict records the run',
+    ),
+    rule(
+      'process',
+      'verbs/reconcile-state.ts',
+      'reconcile-git-read-owner',
+      'idempotent: git rev-parse --verify of a branch ref and git worktree list --porcelain are reads',
+      'none: a failed read leaves no state, and the reconcile treats it as an absent branch or worktree',
+    ),
+    rule(
+      'process',
+      'verbs/tasks/extract-intent.ts',
+      'extract-intent-git-read-owner',
+      'idempotent: git symbolic-ref refs/remotes/origin/HEAD and git diff --name-only are reads',
+      'none: a failed read gives the default branch or an empty file list',
+    ),
+    rule(
+      'process',
+      'install/advisory-kill-probes.ts',
+      `${INSTALL_PROBE_OWNER_PREFIX}advisory-kill-fixtures`,
+      'idempotent: each probe runs node on a seeded fixture script in a temporary directory',
+      'none: the fixture directory is temporary, so a failed probe leaves nothing to unwind',
+    ),
+    rule(
+      'process',
+      'install/hooks-guard.ts',
+      `${INSTALL_PROBE_OWNER_PREFIX}hooks-drift-guard`,
+      'idempotent: git diff --exit-code over the rendered hook paths is a read',
+      'none: the guard reads, and the next run recomputes the drift',
+    ),
+    rule(
+      'process',
+      'install/install-skills.ts',
+      `${INSTALL_PROBE_OWNER_PREFIX}npx-skills-fallback`,
+      'not idempotent: spawnCommand starts npx skills add --copy only when the caller does not set localSourceOnly; ' +
+        'the onboard bridge always sets it, so no production caller reaches the branch',
+      'none: a non-zero exit throws InstallSkillsError, and a re-run copies the skills again',
+    ),
+    rule(
+      'process',
+      'install/runtimes/detect.ts',
+      `${INSTALL_PROBE_OWNER_PREFIX}runtime-detection`,
+      'idempotent: which <command> is a read',
+      'none: a failed probe reports the runtime as absent',
+    ),
+    rule(
+      'process',
+      'install/skills-guard.ts',
+      `${INSTALL_PROBE_OWNER_PREFIX}skills-drift-guard`,
+      'idempotent: the guard re-renders the derived skills tree and runs git diff --exit-code over it',
+      'none: the rendered tree is derived, so the next run recomputes it',
+    ),
+    rule(
+      'process',
+      'install/wizard/prerequisites.ts',
+      `${INSTALL_PROBE_OWNER_PREFIX}prerequisite-checks`,
+      'idempotent: node --version, bun --version and the command checks are reads',
+      'none: a failed check reports the prerequisite as missing',
     ),
 
     rule('filesystem', 'index.ts', 'server-entry-fs', 'startup read-only', 'none'),
     rule('filesystem', 'testgen/adapters/cli.ts', 'testgen-request-fs', 'read-only request file', 'none'),
     rule('filesystem', 'testgen/inspection/collect.ts', 'testgen-inspection-fs', 'read-only tracked metadata', 'none'),
-    rule('process', 'testgen/inspection/collect.ts', 'testgen-inspection-process', 'read-only git queries', 'none'),
+    rule(
+      'process',
+      'testgen/inspection/collect.ts',
+      `${TESTGEN_OWNER_PREFIX}inspection-git-reads`,
+      'read-only git queries',
+      'none',
+    ),
     rule(
       'filesystem',
       'storage/artifacts/',

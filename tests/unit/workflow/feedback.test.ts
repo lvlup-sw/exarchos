@@ -1,9 +1,9 @@
 /**
- * Tests the `feedback` handler: the local write, the optional upstream POST, the idempotency window
+ * Tests the `feedback` handler: the local write, the absence of any network call, the idempotency window
  * and input validation. One test sends `feedback` through `handleWorkflow` and checks the envelope.
  * `feedback.parity.test.ts` pins CLI and MCP parity.
  */
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -15,7 +15,6 @@ import {
   FEEDBACK_STREAM_ID,
   FEEDBACK_IDEMPOTENCY_WINDOW_MS,
   type FeedbackOptions,
-  type FeedbackUpstreamPayload,
 } from '../../../src/workflow/feedback.js';
 import { handleWorkflow } from '../../../src/workflow/composite.js';
 import type { DispatchContext } from '../../../src/dispatch/core/dispatch.js';
@@ -33,17 +32,10 @@ afterEach(async () => {
   await rmrfAsync(stateDir);
 });
 
-/**
- * Options that touch no config file and no network. `resolveUpstream` returns no endpoint, and
- * `now` is fixed, so the idempotency bucket is deterministic.
- */
+/** Options with a fixed `now`, so the idempotency bucket is deterministic. */
 function localOnlyOptions(overrides?: Partial<FeedbackOptions>): FeedbackOptions {
   return {
     now: () => 1_000_000_000_000,
-    resolveUpstream: () => undefined,
-    postUpstream: async () => {
-      throw new Error('postUpstream must not be called when no endpoint is configured');
-    },
     ...overrides,
   };
 }
@@ -124,62 +116,35 @@ describe('handleFeedback — input validation (M-A discipline)', () => {
   });
 });
 
-describe('handleFeedback — optional upstream POST (offline-first / INV-15)', () => {
-  it('Feedback_UpstreamConfigured_PostsAndRecordsDelivered', async () => {
-    const posted: Array<{ url: string; payload: FeedbackUpstreamPayload }> = [];
-    const result = await handleFeedback(
-      { message: 'federated report', sessionContext: { action: 'feedback' } },
-      stateDir,
-      store,
-      {
-        now: () => 1_000_000_000_000,
-        resolveUpstream: () => 'https://example.test/feedback',
-        postUpstream: async (url, payload) => {
-          posted.push({ url, payload });
-          return true;
-        },
-      },
-    );
+/**
+ * The upstream POST is retired. The handler reads no endpoint and calls no `fetch`.
+ * The event and the output keep the upstream fields with their no-endpoint values, so older readers parse both.
+ */
+describe('handleFeedback — local only, with no network call', () => {
+  it('Feedback_AnyReport_CallsNoFetchAndRecordsNoEndpoint', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('feedback must not call fetch'));
+    try {
+      const result = await handleFeedback(
+        { message: 'report that once went upstream', sessionContext: { action: 'feedback' } },
+        stateDir,
+        store,
+        localOnlyOptions(),
+      );
 
-    expect(posted).toHaveLength(1);
-    expect(posted[0].url).toBe('https://example.test/feedback');
-    expect(posted[0].payload).toEqual({ message: 'federated report', sessionContext: { action: 'feedback' } });
-
-    const data = result.data as { upstreamConfigured: boolean; configuredEndpoint: string | null; upstreamDelivered: boolean };
-    expect(data.upstreamConfigured).toBe(true);
-    expect(data.configuredEndpoint).toBe('https://example.test/feedback');
-    expect(data.upstreamDelivered).toBe(true);
-
-    const [event] = await store.query(FEEDBACK_STREAM_ID);
-    expect(event.data).toMatchObject({
-      configuredEndpoint: 'https://example.test/feedback',
-      upstreamDelivered: true,
-    });
+      expect(fetchSpy).not.toHaveBeenCalled();
+      expect(result.success).toBe(true);
+      expect(result.data).toMatchObject({ upstreamConfigured: false, configuredEndpoint: null, upstreamDelivered: false });
+      const [event] = await store.query(FEEDBACK_STREAM_ID);
+      expect(event.data).toMatchObject({ configuredEndpoint: null, upstreamDelivered: false });
+    } finally {
+      fetchSpy.mockRestore();
+    }
   });
 
-  /**
-   * `postUpstream` returns `false` to act as a failed POST. The local write is the primary effect,
-   * so it must succeed when the POST fails.
-   */
-  it('Feedback_UpstreamFails_StillRecordsLocallyAsUndelivered', async () => {
-    const result = await handleFeedback(
-      { message: 'report while endpoint is down' },
-      stateDir,
-      store,
-      {
-        now: () => 1_000_000_000_000,
-        resolveUpstream: () => 'https://down.test/feedback',
-        postUpstream: async () => false,
-      },
-    );
-
-    expect(result.success).toBe(true);
-    const events = await store.query(FEEDBACK_STREAM_ID);
-    expect(events).toHaveLength(1);
-    expect(events[0].data).toMatchObject({
-      configuredEndpoint: 'https://down.test/feedback',
-      upstreamDelivered: false,
-    });
+  /** A row that an older release wrote with an endpoint and a delivery result still parses with its original values. */
+  it('Feedback_OlderRowWithEndpoint_StillParsesWithItsOriginalValues', () => {
+    const older = { message: 'federated report', configuredEndpoint: 'https://example.test/feedback', upstreamDelivered: true };
+    expect(FeedbackRecordedData.parse(older)).toEqual(older);
   });
 });
 

@@ -922,9 +922,10 @@ jobs:
       - name: CLI derivation allowlist ratchet — G1 shrink-only + enforced expiry (DR-5, task 023)
         run: npx --no-install tsx tools/audit/core/cli-derivation-ratchet-guard.ts
 
-      # G1 DERIVATION entrypoint, direct and BLOCKING. `merge-orchestrate` gets its
-      # top-level promotion from the registry `cli.topLevel` hint, so a clean tree has no
-      # un-allowlisted literal command and this entrypoint passes. `guard-inventory`
+      # G1 DERIVATION entrypoint, direct and BLOCKING. Top-level verbs such as `ps`, `wait`,
+      # `describe` and `export` get their promotion from the registry `cli.topLevel` hint, so a
+      # clean tree has no un-allowlisted literal command and this entrypoint passes. The retired
+      # `merge-orchestrate` verb only refuses now. `guard-inventory`
       # reports it as `enforcement: blocks`, `pathFilteredOnly: false`, `via=direct`.
       #
       # It runs DIRECTLY (no `npm run` wrapper), so the indirection resolver of the

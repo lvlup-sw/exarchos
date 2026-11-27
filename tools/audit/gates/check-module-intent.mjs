@@ -250,13 +250,6 @@ const ALLOWLIST_CLASSES = [
         rationale:
           'Wizard-era installed-layout migration. Distinct from the live event-store and workflow-state migrations, which are fully wired. Delete with the wizard subtree at expiry.',
       },
-      'install/operations/version-check.ts': {
-        owner: 'exarchos',
-        issue: '#1764',
-        expires: '2027-02-28',
-        rationale:
-          'Wizard-era installed-version comparison. The live version surface is `verbs/version.ts`. Delete with the wizard subtree at expiry.',
-      },
 
       /**
        * An install-tree ratchet. Its subject is a shipped projection, so it has an expiry and is

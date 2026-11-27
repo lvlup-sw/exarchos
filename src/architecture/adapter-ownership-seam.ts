@@ -5,8 +5,8 @@
  * the effect is a `STALE_ADAPTER_OWNER`.
  *
  * Only the network adapter is declared. The `filesystem` and `process` classes have
- * many owners in `effect-ledger.ts`. For network, this census is stricter than the
- * ledger: a second network module is a bypass until it is added to the owners.
+ * many owners in `effect-ledger.ts`. The network adapter has no owner, so each
+ * network occurrence in the shipped tree is a bypass.
  */
 import {
   scanEffectOccurrences,
@@ -135,8 +135,8 @@ export const ADAPTER_OWNERSHIP: readonly AdapterOwnershipRule[] = Object.freeze(
   adapter(
     'network-adapter',
     'network',
-    ['workflow/feedback.ts'],
-    'All network I/O (http/https/net/tls/dgram/undici/fetch) is owned by the feedback client. ' +
-      'A second network caller must be a conscious ADAPTER_OWNERSHIP change, not a silent bypass.',
+    [],
+    'Exarchos is a local CLI with no remote integration, so no module owns network I/O ' +
+      '(http/https/net/tls/dgram/undici/fetch). An owner is a conscious ADAPTER_OWNERSHIP change, not a silent bypass.',
   ),
 ]);
