@@ -7,8 +7,8 @@
     "testFiles": 1406,
     "parsedFiles": 1362,
     "shellFiles": 44,
-    "cases": 15727,
-    "dynamicTitles": 325,
+    "cases": 15723,
+    "dynamicTitles": 323,
     "unparseableFiles": 0
   },
   "unparseable": [],
@@ -11592,7 +11592,7 @@
         },
         {
           "suite": "packaged CLI-only governor boundary",
-          "name": "GovernorBoundary_NormalPathInAPrivateNetworkNamespace_SendsNoPacket",
+          "name": "GovernorBoundary_ShimLog_RecordsAndRefusesAPlantedRemoteToolGitMergeAndCatchAllStart",
           "dynamic": false
         },
         {
@@ -11602,32 +11602,12 @@
         },
         {
           "suite": "packaged CLI-only governor boundary",
-          "name": "GovernorBoundary_NamespaceTrap_RecordsAPlantedConnection",
-          "dynamic": false
-        },
-        {
-          "suite": "packaged CLI-only governor boundary",
-          "name": "<dynamic-case-3>",
-          "dynamic": true
-        },
-        {
-          "suite": "packaged CLI-only governor boundary",
-          "name": "GovernorBoundary_ShimLog_RecordsAndRefusesAPlantedRemoteToolGitMergeAndCatchAllStart",
-          "dynamic": false
-        },
-        {
-          "suite": "packaged CLI-only governor boundary",
-          "name": "<dynamic-case-4>",
-          "dynamic": true
-        },
-        {
-          "suite": "packaged CLI-only governor boundary",
           "name": "GovernorBoundary_McpToolList_IsTheFourCompositeTools",
           "dynamic": false
         },
         {
           "suite": "packaged CLI-only governor boundary",
-          "name": "<dynamic-case-5>",
+          "name": "<dynamic-case-3>",
           "dynamic": true
         }
       ]
