@@ -783,6 +783,26 @@ describe('Integration', () => {
       expect(state.workflowType).toBe('feature');
     });
 
+    /**
+     * A log whose last transition went to the retired `merge-pending` phase reconciles to `delegate`.
+     * The test reads the raw file, because a store that does not run the schema reads the phase as written.
+     */
+    it('ReconcileFromEvents_ALastTransitionToMergePending_WritesDelegate', async () => {
+      const eventStore = new EventStore(stateDir);
+      await initAndAdvanceTo('reconcile-merge-pending', 'delegate', eventStore);
+      await eventStore.append('reconcile-merge-pending', {
+        type: 'workflow.transition',
+        data: { featureId: 'reconcile-merge-pending', from: 'delegate', to: 'merge-pending', trigger: 'legacy' },
+      });
+      const stateFile = path.join(stateDir, 'reconcile-merge-pending.state.json');
+      await fs.unlink(stateFile);
+
+      await reconcileFromEvents(stateDir, 'reconcile-merge-pending', eventStore);
+
+      const raw = JSON.parse(await fs.readFile(stateFile, 'utf8')) as { phase: string };
+      expect(raw.phase).toBe('delegate');
+    });
+
     it('should detect and recover stale state after simulated crash', async () => {
       const eventStore = new EventStore(stateDir);
 

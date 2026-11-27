@@ -8,7 +8,7 @@
  */
 import { recordedInitialPhaseOf } from '../events/event-validation.js';
 
-import { WorkflowStateSchema, ErrorCode } from './schemas.js';
+import { WorkflowStateSchema, ErrorCode, readStoredPhase } from './schemas.js';
 import { getInitialPhase } from './state-machine.js';
 import { resetCounter } from './checkpoint.js';
 import {
@@ -883,7 +883,8 @@ export async function reconcileFromEvents(
   stateRecord._eventSequence = maxSequence;
 
   if (lastTransition?.data) {
-    const eventPhase = (lastTransition.data as Record<string, unknown>).to as string | undefined;
+    const target = (lastTransition.data as Record<string, unknown>).to as string | undefined;
+    const eventPhase = target === undefined ? undefined : readStoredPhase(stateRecord.workflowType, target);
     if (eventPhase && stateRecord.phase !== eventPhase) {
       stateRecord.phase = eventPhase;
       if (!eventsApplied) eventsApplied = 1;
