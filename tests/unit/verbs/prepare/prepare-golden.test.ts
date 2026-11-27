@@ -106,9 +106,13 @@ const CATALOG: readonly CatalogInvariant[] = listAt(INPUTS.catalog, 'inputs.cata
 /**
  * The paths at which a live wave differs from the golden. The pin of the full definition moves the digests,
  * the claim key and the bundle reference, and the definition gains the `exarchos` key. The compiler name moves twice.
+ * The retirement of the source-revert kill probe drops `test-adequacy` from the evidence kinds and from the two pattern texts.
  */
 const NAMED_DELTA: readonly string[] = [
+  '.capsule.contracts.evidenceKinds',
   '.capsule.identity.definitionVersion',
+  '.capsule.knowledge.patterns[0].statement',
+  '.capsule.knowledge.patterns[1].statement',
   '.capsule.provenance.compilerVersion',
   '.capsule.provenance.sources[0].digest',
   '.capsule.settlementContract',

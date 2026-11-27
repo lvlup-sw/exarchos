@@ -314,14 +314,14 @@ async function verifyListedHead(worktreePath: string, reader: () => Promise<Cons
 }
 
 /**
- * The default probe over the constrained reader. A non-empty `gitPath` is the connector Git path, else the reads use the process-wide Git path.
+ * The default probe over the constrained reader with the process-wide Git path.
  * One probe instance creates at most one reader, so one action probes the Git executable once.
  * The listing gives the empty list only when no checkout holds `repoRoot`. Each other unreadable cause gives the unreadable value.
  *
  * `verifyHead` reads the listing again at verify time. A worktree with a resolved HEAD is mutable when it has no upstream, or when HEAD contains the upstream tip.
  */
-export function createGitWorktreeProbe(gitPath?: string): GitWorktreeProbe {
-  const reader = observationalReader(gitPath);
+export function createGitWorktreeProbe(): GitWorktreeProbe {
+  const reader = observationalReader();
   return {
     async listWorktrees(repoRoot: string): Promise<WorktreeListing> {
       const observation = await locateObservational(repoRoot, reader);
@@ -534,10 +534,8 @@ export interface WorktreeManagerDeps {
   readonly eventStore: EventStore;
   /** Per-PID source for the owner liveness probe. Defaults to {@link defaultProcessSource}. */
   readonly processSource?: ProcessSource;
-  /** Real-git probe for `adopt`. Defaults to {@link createGitWorktreeProbe} with {@link observationalGitPath}. */
+  /** Real-git probe for `adopt`. Defaults to {@link createGitWorktreeProbe}. */
   readonly gitProbe?: GitWorktreeProbe;
-  /** The connector Git path of the default probe. An empty or absent path selects the process-wide Git path. */
-  readonly observationalGitPath?: string;
   /**
    * Derives the owning `featureId` of an adopted worktree. Defaults to
    * {@link unattachedFeatureIdResolver}.
@@ -675,7 +673,7 @@ export class WorktreeManager {
   constructor(deps: WorktreeManagerDeps) {
     this.eventStore = deps.eventStore;
     this.processSource = deps.processSource ?? defaultProcessSource;
-    this.gitProbe = deps.gitProbe ?? createGitWorktreeProbe(deps.observationalGitPath);
+    this.gitProbe = deps.gitProbe ?? createGitWorktreeProbe();
     this.featureIdResolver = deps.featureIdResolver ?? unattachedFeatureIdResolver;
     this.realpath = deps.realpath ?? defaultRealpath;
     this.gitRunner = deps.gitRunner ?? defaultGitRunner;

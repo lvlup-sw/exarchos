@@ -115,8 +115,8 @@ export function failSafeLadderCell(
  * tier gives `undefined`, so no tier-coupled dimension applies.
  *
  * This direction is the opposite of {@link failSafeLadderCell} on purpose.
- * An `unknown` tier that became `high` adds `mutation-adequacy` to a workflow without a
- * tier stamp. No producer satisfies that dimension there, so the review guard deadlocks.
+ * An `unknown` tier that became `high` adds each high-tier dimension to a workflow without a
+ * tier stamp. No producer satisfies such a dimension there, so the review guard deadlocks.
  */
 export function reviewRosterTier(riskTier: ResolvedRiskTier): RiskTier | undefined {
   return riskTier === 'unknown' ? undefined : riskTier;

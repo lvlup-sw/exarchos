@@ -296,8 +296,8 @@ function deriveVocabulary(
   for (const toolchain of toolchains) {
     identities.add(toolchain.id);
     identities.add(toolchain.projectType);
-    const { test, typecheck, install, mutation, lint, contract } = toolchain.commands;
-    for (const command of [test, typecheck, install, mutation, lint, contract?.codegen ?? null, contract?.diff ?? null]) {
+    const { test, typecheck, install, lint, contract } = toolchain.commands;
+    for (const command of [test, typecheck, install, lint, contract?.codegen ?? null, contract?.diff ?? null]) {
       if (command === null) continue;
       commands.add(command);
       const program = command.trim().split(/\s+/)[0];
@@ -836,7 +836,7 @@ describe('gates carry no language code', () => {
     const { denominator } = measured();
     const unresolved = [...denominator.actions].filter(([, entry]) => entry === undefined).map(([action]) => action);
 
-    expect(registryGateActions().length).toBeGreaterThanOrEqual(28);
+    expect(registryGateActions().length).toBeGreaterThanOrEqual(26);
     expect(unresolved).toEqual([]);
     for (const [action, entry] of denominator.actions) {
       expect(entry?.module, action).toMatch(/^src\/.+\.ts$/);
@@ -867,7 +867,7 @@ describe('gates carry no language code', () => {
     const gates = readdirSync(path.join(REPO_ROOT, 'src/verbs/gates')).filter((name) => name.endsWith('.ts') && !isTestFile(name));
     const pure = readdirSync(path.join(REPO_ROOT, 'src/verbs/pure')).filter((name) => name.endsWith('.ts') && !isTestFile(name));
 
-    expect(gates.length).toBeGreaterThanOrEqual(40);
+    expect(gates.length).toBeGreaterThanOrEqual(37);
     expect(pure.length).toBeGreaterThanOrEqual(11);
     for (const name of gates) expect(denominator.files).toContain(`src/verbs/gates/${name}`);
     for (const name of pure) expect(denominator.files).toContain(`src/verbs/pure/${name}`);
@@ -907,7 +907,7 @@ describe('gates carry no language code', () => {
       id: 'zig',
       projectType: 'Zig',
       markers: ['build.zig', '*.zon'],
-      commands: { test: 'zig build test', typecheck: null, install: null, mutation: null, lint: null, contract: null },
+      commands: { test: 'zig build test', typecheck: null, install: null, lint: null, contract: null },
     };
     const plantedGlobs = (id: string): readonly string[] | null => (id === 'zig' ? ['**/*_test.zig'] : testGlobsForToolchain(id));
     const extended = deriveVocabulary([...BUILTIN_TOOLCHAINS, planted], Object.values(LOCKS), taskRunnerIds(), plantedGlobs);
@@ -1034,7 +1034,7 @@ describe('gates carry no language code', () => {
   it('LanguageCodeGuard_Matcher_IgnoresCommentsImportsGitArgvAndProse', () => {
     const clean = [
       '// The old gate ran npm run test:run here, with -warnaserror.',
-      "import { splitHunks } from './test-adequacy.js';",
+      "import { splitHunks } from './mock-boundary.js';",
       "const loaded = await import('./static-analysis.js');",
       'runCommandSync(argv[0], probeArgv(form, argv, files));',
       "gitExec(repoRoot, ['diff', '-z', '--no-renames', range]);",

@@ -15,7 +15,7 @@ export interface VcsDetectorDeps {
   /** The runner of the provider CLI availability probe. It never reads Git. */
   readonly exec?: (cmd: string, args: string[]) => Promise<string>;
   readonly env?: Record<string, string | undefined>;
-  /** The connector Git path of the remote read. An empty or absent path selects the process-wide Git path. */
+  /** The Git path of the remote read. An empty or absent path selects the process-wide Git path. */
   readonly gitPath?: string;
   /** The directory where the climb to the checkout starts. It defaults to the working directory. */
   readonly cwd?: string;

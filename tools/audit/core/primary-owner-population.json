@@ -1,17 +1,17 @@
 {
   "totals": {
-    "emissionEdges": 119,
-    "edgesCarryingRole": 119,
-    "edgesCarryingOwner": 119,
-    "distinctEventsWithEdges": 81,
+    "emissionEdges": 114,
+    "edgesCarryingRole": 114,
+    "edgesCarryingOwner": 114,
+    "distinctEventsWithEdges": 79,
     "distinctOwners": 3,
     "registeredEvents": 186,
     "moduleEmitterRows": 24
   },
   "keys": {
     "per-event-type/primary-edges": {
-      "populationSize": 81,
-      "satisfyingCount": 71,
+      "populationSize": 79,
+      "satisfyingCount": 69,
       "zeroPrimaryCount": 0,
       "unownedPrimaryCount": 0,
       "multiPrimaryCount": 10,
@@ -20,28 +20,27 @@
       "multiPrimary": [
         {
           "key": "admission.evidence-recorded",
-          "primaryEdges": 5,
+          "primaryEdges": 4,
           "primaryOwners": [
             "orchestrate"
           ],
           "unattributedPrimaryEdges": 0,
-          "declaringEdges": 5,
+          "declaringEdges": 4,
           "declaredBy": [
             "exarchos_orchestrate.check_contract_drift",
             "exarchos_orchestrate.check_integration_suite",
             "exarchos_orchestrate.check_mock_boundary",
-            "exarchos_orchestrate.check_static_analysis",
-            "exarchos_orchestrate.check_test_adequacy"
+            "exarchos_orchestrate.check_static_analysis"
           ]
         },
         {
           "key": "gate.executed",
-          "primaryEdges": 23,
+          "primaryEdges": 21,
           "primaryOwners": [
             "orchestrate"
           ],
           "unattributedPrimaryEdges": 0,
-          "declaringEdges": 23,
+          "declaringEdges": 21,
           "declaredBy": [
             "exarchos_orchestrate.check_context_economy",
             "exarchos_orchestrate.check_contract_drift",
@@ -60,9 +59,7 @@
             "exarchos_orchestrate.check_security_scan",
             "exarchos_orchestrate.check_static_analysis",
             "exarchos_orchestrate.check_task_decomposition",
-            "exarchos_orchestrate.check_test_adequacy",
             "exarchos_orchestrate.check_workflow_determinism",
-            "exarchos_orchestrate.mutation-adequacy",
             "exarchos_orchestrate.post_delegation_check",
             "exarchos_orchestrate.pre_synthesis_check",
             "exarchos_orchestrate.prepare_synthesis"
@@ -204,8 +201,6 @@
         "merge.preflight",
         "merge.recovered",
         "merge.retry_attempt",
-        "mutation.executed",
-        "mutation.executing_started",
         "onboard.executed",
         "onboard.requested",
         "orchestrate.intent_executed",
@@ -258,8 +253,8 @@
       }
     },
     "per-event-type/primary-owners": {
-      "populationSize": 81,
-      "satisfyingCount": 81,
+      "populationSize": 79,
+      "satisfyingCount": 79,
       "zeroPrimaryCount": 0,
       "unownedPrimaryCount": 0,
       "multiPrimaryCount": 0,
@@ -297,8 +292,6 @@
         "merge.preflight",
         "merge.recovered",
         "merge.retry_attempt",
-        "mutation.executed",
-        "mutation.executing_started",
         "onboard.executed",
         "onboard.requested",
         "orchestrate.intent_executed",
@@ -359,8 +352,8 @@
       }
     },
     "per-emission-site/primary-edges": {
-      "populationSize": 119,
-      "satisfyingCount": 116,
+      "populationSize": 114,
+      "satisfyingCount": 111,
       "zeroPrimaryCount": 3,
       "unownedPrimaryCount": 0,
       "multiPrimaryCount": 0,
@@ -404,7 +397,6 @@
         "admission.evidence-recorded@exarchos_orchestrate.check_integration_suite",
         "admission.evidence-recorded@exarchos_orchestrate.check_mock_boundary",
         "admission.evidence-recorded@exarchos_orchestrate.check_static_analysis",
-        "admission.evidence-recorded@exarchos_orchestrate.check_test_adequacy",
         "admission.rollout-decision@exarchos_orchestrate.cutover_decide",
         "branch.delete.executed@exarchos_workflow.cancel",
         "branch.delete.requested@exarchos_workflow.cancel",
@@ -438,9 +430,7 @@
         "gate.executed@exarchos_orchestrate.check_security_scan",
         "gate.executed@exarchos_orchestrate.check_static_analysis",
         "gate.executed@exarchos_orchestrate.check_task_decomposition",
-        "gate.executed@exarchos_orchestrate.check_test_adequacy",
         "gate.executed@exarchos_orchestrate.check_workflow_determinism",
-        "gate.executed@exarchos_orchestrate.mutation-adequacy",
         "gate.executed@exarchos_orchestrate.post_delegation_check",
         "gate.executed@exarchos_orchestrate.pre_synthesis_check",
         "gate.executed@exarchos_orchestrate.prepare_synthesis",
@@ -455,8 +445,6 @@
         "merge.preflight@exarchos_orchestrate.merge_orchestrate",
         "merge.recovered@exarchos_orchestrate.merge_orchestrate",
         "merge.retry_attempt@exarchos_orchestrate.merge_orchestrate",
-        "mutation.executed@exarchos_orchestrate.mutation-adequacy",
-        "mutation.executing_started@exarchos_orchestrate.mutation-adequacy",
         "onboard.executed@exarchos_orchestrate.onboard",
         "onboard.requested@exarchos_orchestrate.onboard",
         "orchestrate.intent_executed@exarchos_orchestrate.execute_intent",
@@ -526,8 +514,8 @@
       }
     },
     "per-event-and-tool/primary-owners": {
-      "populationSize": 84,
-      "satisfyingCount": 84,
+      "populationSize": 82,
+      "satisfyingCount": 82,
       "zeroPrimaryCount": 0,
       "unownedPrimaryCount": 0,
       "multiPrimaryCount": 0,
@@ -565,8 +553,6 @@
         "merge.preflight@exarchos_orchestrate",
         "merge.recovered@exarchos_orchestrate",
         "merge.retry_attempt@exarchos_orchestrate",
-        "mutation.executed@exarchos_orchestrate",
-        "mutation.executing_started@exarchos_orchestrate",
         "onboard.executed@exarchos_orchestrate",
         "onboard.requested@exarchos_orchestrate",
         "orchestrate.intent_executed@exarchos_orchestrate",
@@ -672,7 +658,7 @@
     },
     {
       "tier": "substrate",
-      "eventCount": 50,
+      "eventCount": 48,
       "events": [
         "branch.delete.executed",
         "branch.delete.requested",
@@ -693,8 +679,6 @@
         "issue.create.requested",
         "merge.executing_started",
         "merge.retry_attempt",
-        "mutation.executed",
-        "mutation.executing_started",
         "onboard.executed",
         "onboard.requested",
         "orchestrate.intent_executed",

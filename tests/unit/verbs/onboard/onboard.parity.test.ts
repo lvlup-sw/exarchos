@@ -178,8 +178,8 @@ function normalize(value: unknown): unknown {
 describe('exarchos onboard CLI/MCP parity (DR-6)', () => {
   /**
    * Both arms have the same drift: a config `Fail` before apply and green after. The plan has no install step.
-   * The only difference between the arms is the surface. The plan holds two config steps: the injected `state-dir` drift and the seeded
-   * `verification-command-mutation` step. The node fixture detects `npx stryker run`, and `.exarchos.yml` does not declare it.
+   * The only difference between the arms is the surface. The plan holds one config step: the injected `state-dir` drift.
+   * The node fixture seeds no `lint` command, and no toolchain seeds a `mutation` command.
    */
   it('Parity_StepsOneToThreeAndFive_IdenticalAcrossSurfaces', async () => {
     const cliFx = await createFixture('onboard-parity-cli-');
@@ -207,11 +207,8 @@ describe('exarchos onboard CLI/MCP parity (DR-6)', () => {
       expect(JSON.stringify(normalizedCli)).toEqual(JSON.stringify(normalizedMcp));
 
       const cliData = cliResult.data as { plan: { steps: { kind: string; key: string }[] } };
-      expect(cliData.plan.steps.map((s) => s.kind)).toEqual(['config', 'config']);
-      expect(cliData.plan.steps.map((s) => s.key)).toEqual([
-        'state-dir',
-        'verification-command-mutation',
-      ]);
+      expect(cliData.plan.steps.map((s) => s.kind)).toEqual(['config']);
+      expect(cliData.plan.steps.map((s) => s.key)).toEqual(['state-dir']);
     } finally {
       await cleanup(cliFx);
       await cleanup(mcpFx);

@@ -1,13 +1,16 @@
 import { z } from 'zod';
 import {
   InvariantsConfigSchema,
-  ExarchosConfigSchema,
+  ExarchosConfigBaseSchema,
   StorageConfigSchema,
   SynthesisConfigSchema,
   EscalationConfigSchema,
   safeCommand,
+  withoutRetiredMutationCommand,
+  withoutRetiredMutationReview,
+  withoutRetiredRequiredReview,
 } from './exarchos-config-schema.js';
-import { VERIFICATION_GATE_NAMES } from '../workflow/verification-policy.js';
+import { RETIRED_VERIFICATION_GATE_NAMES, VERIFICATION_GATE_NAMES } from '../workflow/verification-policy.js';
 import {
   PROBE_FILE_FORMS,
   SUITE_REPORT_FORMATS,
@@ -62,10 +65,10 @@ const RoutingConfig = z.object({
 const ReviewConfig = z.object({
   dimensions: DimensionsMap.optional(),
   gates: z.record(z.string(), GateConfig).optional(),
-  /** Mutation-score enforcement at the review to synthesize transition. Advisory by default. */
+  /** Retired. The parse removes it, and the loader reports it as a migration finding. */
   'mutation-enforcement': z.enum(['block', 'advisory']).optional(),
   routing: RoutingConfig.optional(),
-}).strict();
+}).strict().transform(withoutRetiredMutationReview);
 
 const VcsConfig = z.object({
   provider: z.enum(['github', 'gitlab', 'azure-devops']).optional(),
@@ -87,7 +90,7 @@ const WorkflowConfig = z.object({
   'max-plan-revisions': z.number().int().min(1).max(10).optional(),
   'required-reviews': z.array(z.string().min(1)).optional(),
   phases: z.record(z.string(), PhaseConfig).optional(),
-}).strict();
+}).strict().transform(withoutRetiredRequiredReview);
 
 const AgentModelValue = z.enum(['opus', 'sonnet', 'haiku']);
 const AgentSpecIdKey = z.enum(['implementer', 'fixer', 'reviewer', 'scaffolder']);
@@ -177,16 +180,21 @@ const EventsConfig = z
   })
   .strict();
 
+/** The retired gate names as a Set, so a parsed cell can drop them. */
+const RETIRED_GATES: ReadonlySet<string> = new Set(RETIRED_VERIFICATION_GATE_NAMES);
+
 /**
  * Ordered, duplicate-free list of `VERIFICATION_GATE_NAMES` for one policy cell. An empty array
  * means "run nothing for this cell". An omitted cell inherits the base table.
+ * A retired gate name still parses, so an existing `.exarchos.yml` keeps loading, and the parse removes it.
  */
 const VerificationGateSequence = z
-  .array(z.enum(VERIFICATION_GATE_NAMES))
+  .array(z.enum([...VERIFICATION_GATE_NAMES, ...RETIRED_VERIFICATION_GATE_NAMES]))
   .refine(
     (gates) => new Set(gates).size === gates.length,
     { message: 'verification gate sequence must not contain duplicates' },
-  );
+  )
+  .transform((gates) => gates.filter((gate): gate is (typeof VERIFICATION_GATE_NAMES)[number] => !RETIRED_GATES.has(gate)));
 
 /**
  * The boundary-touching sub-policy: per-tier gate sequences applied when a task
@@ -373,12 +381,13 @@ export const ProjectConfigSchema = z.object({
 export type ProjectConfig = z.infer<typeof ProjectConfigSchema>;
 
 /**
- * The full `.exarchos.yml` schema: the merge of `ExarchosConfigSchema` and `ProjectConfigSchema`.
+ * The full `.exarchos.yml` schema: the merge of `ExarchosConfigBaseSchema` and `ProjectConfigSchema`.
  * It accepts a key that is valid in either schema and rejects a key that is valid in neither.
  * The config loaders and the invariants loader use it, so they reach the same verdict on a file.
+ * The parse removes the retired `mutation` key, and the loader reports it as a migration finding.
  */
-export const FullExarchosConfigSchema = ExarchosConfigSchema.merge(
-  ProjectConfigSchema,
-).strict();
+export const FullExarchosConfigSchema = ExarchosConfigBaseSchema.merge(ProjectConfigSchema)
+  .strict()
+  .transform(withoutRetiredMutationCommand);
 
 export type FullExarchosConfig = z.infer<typeof FullExarchosConfigSchema>;

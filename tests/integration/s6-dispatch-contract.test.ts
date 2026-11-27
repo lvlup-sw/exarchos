@@ -1,5 +1,7 @@
 /**
  * The registered actions preserve start epochs, prepared custody and append claims across stores.
+ * A fresh typed prepare compiles compiler 8-vcs. Each settle that accepts first lands the task branch on the integration branch, as a harness does.
+ * The settle then runs the integration suite in its local executor at that tip.
  * @oracle-sources: Authored requests, expected bootstrap rows, and the phase and task facts in this file.
  */
 import { Database } from 'bun:sqlite';
@@ -29,6 +31,7 @@ import { getHSMDefinition, getInitialPhase, registerWorkflowType, unregisterWork
 import { CURRENT_ES_VERSION } from '../../src/workflow/handlers/shared.js';
 import { initStateFile, readStateFile } from '../../src/workflow/state-store.js';
 import { foldGuardInput, foldWorkflowState } from '../../src/projections/guard-input/fold.js';
+import { execFileAsync } from '../../tools/test-helpers/spawn.js';
 import { makeTempDir, rmrfAsync } from '../../tools/test-helpers/temp-dir.js';
 import { task, textOf } from '../helpers/capsule/prepared-authority.js';
 import { releaseCheckDefinition } from '../helpers/definitions/user-definition.js';
@@ -78,6 +81,16 @@ async function fixture(tasks = [task(TASK, { files: ['src/task.ts'], testFiles: 
 }
 
 type Fixture = Awaited<ReturnType<typeof fixture>>;
+
+/** Merge the task branch into the integration branch of the checkout, as a harness landing does. */
+async function land(s: Fixture, taskId: string): Promise<void> {
+  await execFileAsync('git', ['merge', '-q', '--no-edit', `task/${taskId}`], { cwd: s.repository.checkout });
+}
+
+/** Commit an edited plan on the integration branch, so the integration suite later runs in a clean checkout. */
+async function commitPlan(s: Fixture): Promise<void> {
+  await execFileAsync('git', ['commit', '-q', '-m', 'approve the edited plan', '--', PLAN], { cwd: s.repository.checkout });
+}
 
 function caller(store: EventStore, telemetry = false) {
   const context = { eventStore: store, stateDir: store.dir, enableTelemetry: telemetry, callerIdentity: deriveLocalOperatorIdentity(store.dir) };
@@ -168,7 +181,8 @@ describe('registered prepare', () => {
     const first = receipt(await call('exarchos_orchestrate', 'prepare', args));
     expect(estimateOutputTokens(first)).toBeLessThan(PREPARE_ECONOMY_BUDGET_TOKENS);
     expect(first.capsule.graph.tasks.map(({ taskId, stepId }) => [taskId, stepId])).toEqual([[TASK, 'delegate']]);
-    expect(first.capsule.provenance.compilerVersion).toBe('exarchos-prepare-8');
+    expect(first.capsule.provenance.compilerVersion).toBe('exarchos-prepare-8-vcs');
+    expect(first.capsule.settlementContract.integration).toEqual({ ref: `refs/heads/${BASE}` });
     await vi.waitFor(async () => expect((await s.store.query(stream)).filter(telemetryRow)).toHaveLength(1));
     const before = (await s.store.query(stream)).filter(row => !telemetryRow(row));
     expect(before.map(({ type }) => type)).toEqual(PREFIX);
@@ -295,9 +309,11 @@ describe('bootstrap claim replay', () => {
       task(TASK, { testFiles: ['tests/task.test.ts'] }),
       task('T-02', { blockedBy: [TASK], testFiles: ['tests/second.test.ts'] }),
     ]));
+    await commitPlan(s);
     const original = await bootstrapArgs(s, stream);
     const first = receipt(await call('exarchos_orchestrate', 'prepare', original));
     const worktreePath = await s.repository.worktreeFor(TASK, { 'src/task.ts': 'export const task = true;\n' });
+    await land(s, TASK);
     const settled = await call('exarchos_orchestrate', 'settle', {
       featureId: stream, capsuleVersion: first.capsuleVersion, batchId: 'reopen',
       claims: [{ taskId: TASK, fields: { worktreePath, files: ['src/task.ts'] }, evidence: [] }],
@@ -365,9 +381,11 @@ async function assertMixedReplay(s: Fixture, membershipSize: number, legacyExtra
     files: index === 0 ? ['src/task.ts'] : [`src/${id}.ts`],
     testFiles: [`tests/${id}.test.ts`],
   }))));
+  await commitPlan(s);
   const typedReceipt = receipt(await call('exarchos_orchestrate', 'prepare', await bootstrapArgs(s, typed)));
   expect(typedReceipt.capsule.graph.tasks.map(t => t.taskId)).toEqual(ids);
   const worktreePath = await s.repository.worktreeFor(TASK, { 'src/task.ts': 'export const task = true;\n' });
+  await land(s, TASK);
   const evidenceResult = await call('exarchos_orchestrate', 'check_static_analysis', {
     featureId: typed, taskId: TASK, repoRoot: 'auto', worktreePath,
   });
@@ -557,6 +575,7 @@ describe('committing snapshots', () => {
     const settleStream = 'entry-settle';
     const prepared = await directEntry(s, settleStream);
     const worktreePath = await s.repository.worktreeFor(TASK, { 'src/task.ts': 'export const task = true;\n' });
+    await land(s, TASK);
     const settled = await call('exarchos_orchestrate', 'settle', {
       featureId: settleStream, capsuleVersion: prepared.capsuleVersion, batchId: 'entry',
       claims: [{ taskId: TASK, fields: { worktreePath, files: ['src/task.ts'] }, evidence: [] }],

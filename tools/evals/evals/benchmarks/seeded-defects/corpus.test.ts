@@ -43,8 +43,8 @@ describe('seeded-defect corpus', () => {
       expect(controls.length, `${gateClass} controls`).toBeGreaterThanOrEqual(5);
       expect(fixtures.every((f) => f.gateClass === gateClass)).toBe(true);
     }
-    expect(SEEDED_GATE_CLASSES).toHaveLength(6);
-    expect(loadSeededCorpus().length).toBeGreaterThanOrEqual(60);
+    expect(SEEDED_GATE_CLASSES).toHaveLength(5);
+    expect(loadSeededCorpus().length).toBeGreaterThanOrEqual(50);
   });
 
   /**
@@ -121,7 +121,7 @@ describe('seeded-defect corpus', () => {
   });
 
   /**
-   * The defect tiers differ by class: `contract-drift` derives high and `test-adequacy` derives medium.
+   * The defect tiers differ by class: `contract-drift` derives high and `static-analysis` derives medium.
    * `boundaryTouching` also varies across the corpus.
    */
   it('SeededCorpus_DefectClasses_SpanMultipleTiers', () => {
@@ -135,7 +135,7 @@ describe('seeded-defect corpus', () => {
     const tierOfClass = (c: string): string =>
       loadSeededCorpus(c as SeededFixture['gateClass'])[0].manifest.riskTier;
     expect(tierOfClass('contract-drift')).toBe('high');
-    expect(tierOfClass('test-adequacy')).toBe('medium');
+    expect(tierOfClass('static-analysis')).toBe('medium');
 
     const boundaries = new Set(loadSeededCorpus().map((f) => f.manifest.boundaryTouching));
     expect(boundaries).toEqual(new Set([true, false]));

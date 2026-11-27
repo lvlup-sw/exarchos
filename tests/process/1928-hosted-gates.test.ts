@@ -1,5 +1,5 @@
 // @oracle-sources: actual bound executor and prepared custody, real Git worktrees, the local approved-check executor and real check children
-/** Prove that the task gate checks and spec coverage run only in the local approved-check executor, with or without a verifier. */
+/** Prove that the task gate checks and spec coverage run only in the local approved-check executor. */
 import { appendFile, chmod, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
@@ -9,7 +9,7 @@ import { encodePreparedBundle } from '../../src/contract/capsule/prepared-bundle
 import { profiledValidCapsule } from '../../src/contract/capsule/exarchos-capsule-fixtures.js';
 import { TaskVerificationCoordinateSchema } from '../../src/contract/capsule/exarchos-capsule.js';
 import { canonicalJson, requestDigest } from '../../src/contract/request-context.js';
-import type { CheckPlan, VerificationHostConnector } from '../../src/contract/verification/harness-verification.js';
+import type { CheckPlan } from '../../src/contract/verification/harness-verification.js';
 import { runWithDispatchContext } from '../../src/dispatch/dispatch-context.js';
 import { EventStore } from '../../src/events/store.js';
 import { observeRepository, observeTree } from '../../src/utils/git-tree.js';
@@ -66,13 +66,6 @@ function markerScript(marker: string, body: string): string {
 /** The number of runs that a marker records. */
 async function runsOf(marker: string): Promise<number> {
   return existsSync(marker) ? (await readFile(marker, 'utf8')).split('\n').filter(Boolean).length : 0;
-}
-
-/** A connector whose client fails and counts each call. No check gate calls it. */
-function unusedConnector(): { readonly connector: VerificationHostConnector; readonly calls: string[] } {
-  const calls: string[] = [];
-  const unused = async (): Promise<never> => { calls.push('client'); throw new Error('The verifier client must not be called'); };
-  return { calls, connector: { publicKey: '', gitPath: '/usr/bin/git', resourceId: 'r', profileId: 'p', client: { submit: unused, retrieve: unused } } };
 }
 
 const TASK_STEPS = {
@@ -174,10 +167,9 @@ async function boundFixture(actions: readonly TaskAction[]) {
   };
   const phaseAttemptId = allocatePhaseAttemptId(streamId, 'plan', 'delegate', undefined, 1);
   await events.append(streamId, { type: 'workflow.transition', data: { featureId: streamId, from: 'plan', to: 'delegate', trigger: 'fixture', phaseAttemptId } });
-  const run = (connector?: VerificationHostConnector) => runWithDispatchContext(correlation(), () => handleExecuteIntent(
+  const run = () => runWithDispatchContext(correlation(), () => handleExecuteIntent(
     { intent: 'task-completion', featureId: streamId, operationId, args }, root, {
       ...wiring(root, events), verificationProfile: { capsuleVersion: capsule.identity.capsuleVersion, profile },
-      ...(connector === undefined ? {} : { verificationHost: connector }),
     }, deps));
   const leafId = (action: TaskAction) => derivedLeafOperationId(operationId, actions.indexOf(action), action);
   return {
@@ -191,11 +183,10 @@ async function trackedStatus(worktree: string): Promise<string> {
   return execFileAsync('git', ['-C', worktree, 'status', '--porcelain']);
 }
 
-it.runIf(process.platform === 'linux')('LocalGates_BoundChecksRunInTheLocalExecutorWithOrWithoutAVerifier', async () => {
+it.runIf(process.platform === 'linux')('LocalGates_BoundChecksRunInTheLocalExecutorAndARepeatReplays', async () => {
   const f = await boundFixture(['check_static_analysis', 'check_contract_drift', 'check_integration_suite']);
   try {
-    const { connector, calls } = unusedConnector();
-    const result = await f.run(connector);
+    const result = await f.run();
     expect(result.success, JSON.stringify(result)).toBe(true);
     for (const action of ['check_static_analysis', 'check_contract_drift', 'check_integration_suite'] as const) {
       const leaf = await f.events.query(f.streamId, { operationId: f.leafId(action) });
@@ -205,7 +196,6 @@ it.runIf(process.platform === 'linux')('LocalGates_BoundChecksRunInTheLocalExecu
     for (const name of ['lint', 'cruise', 'codegen', 'typecheck', 'diff', 'suite']) expect(await runsOf(f.marker(name)), name).toBe(1);
     expect(existsSync(join(f.worktree, 'generated.cjs'))).toBe(false);
     expect(await trackedStatus(f.worktree)).toBe('');
-    expect(calls).toEqual([]);
     expect(await f.run()).toEqual(result);
     for (const name of ['lint', 'cruise', 'codegen', 'typecheck', 'diff', 'suite']) expect(await runsOf(f.marker(name)), name).toBe(1);
   } finally { await f.close(); }
@@ -329,13 +319,11 @@ it.runIf(process.platform === 'linux')('LocalSpecCoverage_PostImplementationRuns
     profile.tests.globs = { state: 'resolved', source: 'config', globs: ['**/*.test.cjs'] };
     profile.tests.probe = { ...profile.tests.probe, command: { state: 'resolved', source: 'config', argv: ['node', '--test'] },
       globs: ['**/*.test.cjs'], files: 'as-arguments', failureExitCodes: { codes: [1], source: 'config' } };
-    const { connector, calls } = unusedConnector();
     const coverage = (args: Record<string, unknown>) => runWithDispatchContext(correlation(), async () => {
       const handler = ACTION_HANDLERS.spec_coverage_check;
       if (handler === undefined) throw new Error('Missing spec coverage action');
-      return handler({ featureId: streamId, planFile, repoRoot: repo.checkout, verificationProfile: { capsuleVersion: 1, profile }, ...args }, root, {
-        ...wiring(root, events), verificationHost: connector,
-      });
+      return handler({ featureId: streamId, planFile, repoRoot: repo.checkout, verificationProfile: { capsuleVersion: 1, profile }, ...args }, root,
+        wiring(root, events));
     });
     expect(await coverage({ coveragePhase: 'plan' })).toMatchObject({ success: true, data: { phase: 'plan', passed: true } });
     expect(await coverage({ coveragePhase: 'post-implementation', skipRun: true })).toMatchObject({ success: true, data: { passed: true } });
@@ -344,7 +332,6 @@ it.runIf(process.platform === 'linux')('LocalSpecCoverage_PostImplementationRuns
     expect(local, JSON.stringify(local)).toMatchObject({ success: true, data: { phase: 'post-implementation', passed: true } });
     expect(JSON.stringify(local)).toContain('Test passes: main.test.cjs');
     expect(await runsOf(marker)).toBe(1);
-    expect(calls).toEqual([]);
     await appendFile(join(repo.checkout, 'module.cjs'), '// dirty\n');
     const dirty = await coverage({ coveragePhase: 'post-implementation' });
     expect(dirty).toMatchObject({ success: false, error: { code: 'LOCAL_CHECK_REFUSED' } });

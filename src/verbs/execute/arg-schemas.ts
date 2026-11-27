@@ -27,7 +27,7 @@ export const TaskCompletionArgs = z
     /**
      * The branch that the task forked from, frozen in the capsule. The key is `baseRef`, not `baseBranch`.
      * The compiler gives an argument to each leaf whose schema declares that key.
-     * Four gates bind it as `baseBranch: '<baseRef>'`: the kill probe, contract drift, mock boundary and the integration suite.
+     * Three gates bind it as `baseBranch: '<baseRef>'`: contract drift, mock boundary and the integration suite.
      * The integration suite only names it in its evidence subject. Static analysis scans the whole tree and keeps its own base label.
      */
     baseRef: CapsuleBaseRefSchema,

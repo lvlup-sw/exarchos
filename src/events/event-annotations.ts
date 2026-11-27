@@ -280,12 +280,14 @@ export const EVENT_ANNOTATIONS: Readonly<Record<string, EventRegistration>> = Ob
   'invariant.authored': { lifecycle: 'active', tier: 'substrate', rationale: 'operation-record' },
   'invariant.amended': { lifecycle: 'active', tier: 'substrate', rationale: 'operation-record' },
   'catalog.registered': { lifecycle: 'active', tier: 'substrate', rationale: 'operation-record' },
+  /** Retired with the mutation gate. The schema stays so that old logs replay the same, but no code writes this event. */
   'mutation.executing_started': {
-    lifecycle: 'active',
+    lifecycle: 'retired',
     tier: 'substrate',
     rationale: 'operation-record',
   },
-  'mutation.executed': { lifecycle: 'active', tier: 'substrate', rationale: 'operation-record' },
+  /** Retired with the mutation gate. The schema stays so that old logs replay the same, but no code writes this event. */
+  'mutation.executed': { lifecycle: 'retired', tier: 'substrate', rationale: 'operation-record' },
   'feedback.recorded': { lifecycle: 'active', tier: 'substrate', rationale: 'operation-record' },
   'merge.retry_attempt': { lifecycle: 'active', tier: 'substrate', rationale: 'operation-record' },
   'merge.executing_started': {

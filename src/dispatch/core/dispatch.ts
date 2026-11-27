@@ -16,7 +16,6 @@
  */
 
 import type { z } from 'zod';
-import type { VerificationHostConnector } from '../../contract/verification/harness-verification.js';
 import type { TaskVerificationCoordinateSchema } from '../../contract/capsule/exarchos-capsule.js';
 import type { ToolResult } from '../../format.js';
 import { logger } from '../../logger.js';
@@ -158,8 +157,6 @@ export interface DispatchContext {
    * The composition root sets no profile, and a caller over MCP or the CLI cannot set the field.
    */
   readonly verificationProfile?: PinnedVerificationProfile;
-  /** The operator supplies a private closed connector, never a public action argument. */
-  readonly verificationHost?: VerificationHostConnector;
   /** Only the bound executor supplies the winning coordinate and its stable segment identity. */
   readonly verificationInput?: {
     readonly coordinate: z.infer<typeof TaskVerificationCoordinateSchema>;
@@ -224,15 +221,16 @@ function owedEnsures(
 }
 
 /**
- * The closed set of codes of a check that did not run: a pending result and the retired mutation gate.
- * No producer emits the hosted refusal or the code of a machine with no verifier. Both stay reserved for history, so a stored receipt reads unchanged.
- * A failed result with one of these codes owes no ensure, because no work ran. The emission enforcement still runs before this check.
- * The literals stay here, so dispatch imports no gate module.
+ * The closed set of codes of a check that did not run. The pending result is the only live producer.
+ * The hosted refusal and the code of a machine with no verifier stay reserved for history, so a stored receipt reads unchanged.
+ * The adapters refuse a retired action before dispatch, so its code is not in this set.
+ * A failed result with one of these codes owes no ensure, because no work ran.
+ *
+ * The emission enforcement runs before this check. Dispatch holds the literals and imports no gate module.
  */
 export const DID_NOT_RUN_CODES: readonly string[] = Object.freeze([
   'HOSTED_VERIFICATION_REFUSED',
   'HOSTED_ADEQUACY_PENDING',
-  'MUTATION_TESTING_RETIRED',
   'VERIFIER_NOT_PROVISIONED',
 ]);
 

@@ -170,8 +170,9 @@ const COMPLEMENT_EXEMPTIONS: readonly { module: string; owner: string; rationale
       rationale:
         'Scoped-repository test helper. Creates a throwaway repo under os.tmpdir() and adds a ' +
         'linked worktree for each task as a sibling directory INSIDE that temp tree, never in ' +
-        'this repository, so the mutation-owner contract (idempotency, fencing, compensation) ' +
-        'has no subject: the test deletes the whole tree when it ends. Routing it through ' +
+        'this repository. It also merges a task branch into the integration branch of that ' +
+        'temp repo, as a harness lands a task. So the mutation-owner contract (idempotency, ' +
+        'fencing, compensation) has no subject: the test deletes the whole tree when it ends. Routing it through ' +
         'vcs/mutation-owner.ts would make the fixtures depend on the production module that ' +
         'they exist to test around.',
     },

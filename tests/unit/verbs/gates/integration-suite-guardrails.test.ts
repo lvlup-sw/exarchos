@@ -81,13 +81,13 @@ async function carrierOfRun(run: CommandResult): Promise<Readonly<Record<string,
 describe('check_integration_suite guardrails', () => {
   /**
    * Each tool says when not to use it. The killing assertion: the description holds the clause that
-   * sends the scoped tests of one task to `check_static_analysis` and `check_test_adequacy`.
+   * sends the scoped tests of one task to the task worktree.
    */
   it('IntegrationSuite_TheActionDescription_SaysWhenNotToUseIt', () => {
     const action = gateActions.find((candidate) => candidate.name === 'check_integration_suite');
     if (action === undefined) throw new Error('no check_integration_suite action is registered');
 
-    expect(action.description).toMatch(/Do NOT use for one task's scoped tests: use check_static_analysis \/ check_test_adequacy\./);
+    expect(action.description).toMatch(/Do NOT use for one task's scoped tests: run them in the task worktree\./);
     expect(action.description.length).toBeLessThanOrEqual(DESCRIPTION_MAX_CHARS);
   });
 

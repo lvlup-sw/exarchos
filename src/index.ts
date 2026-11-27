@@ -10,7 +10,6 @@
 import type { V2McpServer } from './contract/sdk/seam.js';
 import * as path from 'node:path';
 import * as fs from 'node:fs';
-import * as os from 'node:os';
 import { realpathSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
@@ -23,8 +22,6 @@ import { resolvePackageVersion } from './adapters/cli/version.js';
 import { isHookCommand, handleHookCommand } from './adapters/cli/hooks.js';
 import type { DispatchContext } from './dispatch/core/dispatch.js';
 import type { McpSessionGrant } from './dispatch/caller-identity.js';
-import type { VerifierProvisioning } from './dispatch/core/verifier-client.js';
-import type { VerificationHostConnector } from './contract/verification/harness-verification.js';
 
 export const SERVER_NAME = 'exarchos-mcp';
 /**
@@ -48,29 +45,6 @@ export interface CreateServerOptions {
   backend?: StorageBackend;
   /** The grant of each MCP session. Without it, a session is read-only. */
   grant?: McpSessionGrant;
-  /**
-   * The verifier connector that the caller read. When it is absent, `createServer` reads the provisioning through the same loader once.
-   * No value turns off that read.
-   */
-  verificationHost?: VerificationHostConnector;
-}
-
-/** The one provisioning read of this process. It keeps an unusable result too, and it does not read again after a failure. */
-let provisioningRead: Promise<VerifierProvisioning> | undefined;
-
-/**
- * Read the verifier client provisioning from `os.homedir()/.exarchos/verifier/client.json` once per process.
- * No environment variable overrides the location. A provisioning change needs a restart of a long-lived server.
- */
-function readVerifierProvisioning(): Promise<VerifierProvisioning> {
-  provisioningRead ??= import('./dispatch/core/verifier-client.js').then(({ loadVerifierProvisioning }) =>
-    loadVerifierProvisioning(path.join(os.homedir(), '.exarchos', 'verifier', 'client.json')));
-  return provisioningRead;
-}
-
-/** The connector of a provisioning read. Only an absent provisioning gives no connector. */
-function connectorOfProvisioning(provisioning: VerifierProvisioning): VerificationHostConnector | undefined {
-  return provisioning.kind === 'absent' ? undefined : provisioning.connector;
 }
 
 /**
@@ -153,9 +127,9 @@ export function registerBackendCleanup(backend: StorageBackend): void {
  *
  * The context carries the storage backend, so consumers do not import `bun:sqlite`.
  * The context turns on slim `tools/list` registration. Each tool shows its short `slimDescription`, and `describe` gives the full detail.
+ * It reads no file under the home directory.
  *
- * The context gets the supplied connector. Without one, `createServer` reads the provisioning through the shared loader once.
- * For new code, use `initializeContext()` and `createMcpServer()` directly. A caller on a provisioned machine passes the loader result to `initializeContext()`.
+ * For new code, use `initializeContext()` and `createMcpServer()` directly.
  * A session gets the operator grant only when `options.grant` is `operator`. Otherwise it is read-only.
  */
 export async function createServer(
@@ -183,11 +157,8 @@ export async function createServer(
 
   const capabilityResolver = buildDefaultProcessResolver();
 
-  const verificationHost = options?.verificationHost ?? connectorOfProvisioning(await readVerifierProvisioning());
-
   const ctx: DispatchContext = {
     stateDir, eventStore, enableTelemetry, capabilityResolver, storage: backend, slimRegistration: true,
-    ...(verificationHost === undefined ? {} : { verificationHost }),
   };
 
   const { createMcpServer } = await import('./adapters/mcp/mcp.js');
@@ -233,12 +204,14 @@ function hookReadStdin(): Promise<string> {
  * `--version`, `-V` and a plain `version` print the version with no backend, because concurrent backend opens can race on WAL recovery and fail with SQLITE_BUSY_RECOVERY.
  *
  * `run-tests` runs the consumer test command for the PostToolUse hook. It is not a hook command, because hook commands only observe.
- * It runs the command in the local approved-check executor with no store, and it reads no verifier provisioning.
+ * It runs the command in the local approved-check executor with no store.
  *
  * `verify-worktree-boundary` is the PreToolUse guard. It denies a write outside the worktree with exit code 2, and allows when stdin is a TTY.
  *
+ * A call of a retired action gets its refusal before the backend opens or configuration loads.
+ *
  * Every other command opens the backend and goes through Commander. Only the MCP tool registration reads `slimRegistration` from the context.
- * Before the context starts, it primes the observational Git path from a usable provisioning, else from PATH, with no process.
+ * Before the context starts, it primes the observational Git path from PATH only, with no process. It reads no provisioning file.
  * A `preAction` hook starts the hook-event merge and the lifecycle compaction for `mcp` only. The command-name check still works with flags before `mcp`.
  */
 async function main() {
@@ -286,6 +259,9 @@ async function main() {
     return;
   }
 
+  const { refuseRetiredCliCall } = await import('./adapters/cli/retired-call.js');
+  if (await refuseRetiredCliCall(process.argv)) return;
+
   const stateDir = await resolveStateDir();
 
   fs.mkdirSync(stateDir, { recursive: true });
@@ -293,19 +269,16 @@ async function main() {
   const backend = await initializeBackend(stateDir);
   registerBackendCleanup(backend);
 
-  const provisioning = await readVerifierProvisioning();
   const { primeObservationalGitPath } = await import('./utils/git-tree.js');
-  primeObservationalGitPath(provisioning.kind === 'usable' ? provisioning.connector.gitPath : undefined);
+  primeObservationalGitPath();
 
   const { initializeContext } = await import('./dispatch/core/context.js');
   const { buildCli, runCli } = await import('./adapters/cli/cli.js');
-  const verificationHost = connectorOfProvisioning(provisioning);
 
   const ctx: DispatchContext = {
     ...(await initializeContext(stateDir, {
       backend,
       projectRoot: process.cwd(),
-      ...(verificationHost === undefined ? {} : { verificationHost }),
     })),
     slimRegistration: true,
   };

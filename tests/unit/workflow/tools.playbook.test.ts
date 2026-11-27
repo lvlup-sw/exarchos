@@ -176,10 +176,10 @@ describe('review-contract wiring through handleSet', () => {
   });
 
   /**
-   * `handleSet` reads the risk tier from the state after the updates apply. So a `riskTier` set in the same
-   * call adds `mutation-adequacy` to the required reviews, and the guard rejects the transition.
+   * `handleSet` reads the risk tier from the state after the updates apply. A `riskTier: 'high'` set in the same
+   * call adds no dimension, so a passing `review` dimension admits the transition.
    */
-  it('HandleSet_HighTierStampedInSameTransition_RequiresMutationAdequacy', async () => {
+  it('HandleSet_HighTierStampedInSameTransition_RequiresOnlyTheReviewDimension', async () => {
     await seedFeatureAtReview('contract-wiring-hightier-samecall', {
       review: { status: 'pass' },
     });
@@ -193,11 +193,12 @@ describe('review-contract wiring through handleSet', () => {
       tmpDir, null,
     );
 
-    expect(result.success).toBe(false);
-    expect(getRequiredReviews('feature', 'high')).toContain('mutation-adequacy');
+    expect(result.success).toBe(true);
+    expect(getRequiredReviews('feature', 'high')).toEqual(['review']);
   });
 
-  it('HandleSet_HighTierWithMutationAdequacyPassing_AdvancesPastGuard', async () => {
+  /** A stored `mutation-adequacy` entry is not a required dimension, so the `review` dimension alone decides. */
+  it('HandleSet_HighTierWithAStoredMutationAdequacyEntry_AdvancesPastGuard', async () => {
     await seedFeatureAtReview('contract-wiring-hightier-pass', {
       review: { status: 'pass' },
       'mutation-adequacy': { status: 'pass' },

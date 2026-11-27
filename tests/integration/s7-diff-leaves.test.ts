@@ -33,7 +33,7 @@ afterEach(async () => { for (const close of closes.splice(0).reverse()) await cl
 /** Executes fixture Git operations only in the isolated repository. */
 async function git(tree: string, ...args: string[]) { return (await execFileAsync('git', ['-C', tree, ...args])).trim(); }
 
-/** The real probe runner records source bytes on every baseline, revert and restored run. */
+/** A probe runner that records the source bytes of each run. No leaf of the task segment runs it, so the journal stays absent. */
 async function setup() {
   const stateDir = makeTempDir('s7-diff-');
   const journal = join(stateDir, 'probe.jsonl');
@@ -63,44 +63,6 @@ async function setup() {
 }
 
 describe('immutable diff leaves', () => {
-  /** A landed task still kills under its pinned root while the old moving-ref mode sees no task delta. */
-  it('LandedRoot_NotEmptyAgainstMovedRef', async () => {
-    const f = await setup();
-    await f.repo.commitIn('target', { 'src/value.cjs': 'task', 'value.test.json': JSON.stringify({ source: 'task' }) });
-    const selected = await f.coordinate(); await git(f.tree, 'update-ref', 'refs/heads/main', selected.observedHeadCommit);
-    const result = await f.call('check_test_adequacy', { coordinate: selected }, f.trusted(selected));
-    expect(result.success, JSON.stringify(result)).toBe(true);
-    expect(result.data).toMatchObject({ passed: true, redObserved: true, restoredClean: true, probedTests: ['value.test.json'] });
-    expect(await f.snapshots()).toEqual([
-      { paths: ['value.test.json'], source: 'task', blocker: null },
-      { paths: ['value.test.json'], source: 'root', blocker: null },
-    ]);
-    expect(await readFile(join(f.tree, 'src/value.cjs'), 'utf8')).toBe('task');
-    expect(await git(f.tree, 'status', '--porcelain')).toBe('');
-    const legacy = await f.call('check_test_adequacy', {});
-    expect(legacy.data).toMatchObject({ passed: false, discriminant: 'no-new-tests' });
-    expect(await f.snapshots()).toHaveLength(2);
-  });
-
-  /** The dependent probe retains blocker source and excludes blocker tests while reverting only its own source. */
-  it('DependentKillProbe_ExcludesBlocker', async () => {
-    const f = await setup();
-    await f.repo.commitIn('target', { 'src/blocker.cjs': 'blocker', 'blocker.test.json': JSON.stringify({ source: 'root', blocker: 'blocker' }) });
-    const fork = await git(f.tree, 'rev-parse', 'HEAD');
-    await f.repo.commitIn('target', { 'src/value.cjs': 'dependent', 'dependent.test.json': JSON.stringify({ source: 'dependent', blocker: 'blocker' }) });
-    const selected = await f.coordinate(fork);
-    const result = await f.call('check_test_adequacy', { coordinate: selected }, f.trusted(selected));
-    expect(result.data, JSON.stringify(result)).toMatchObject({ passed: true, probedTests: ['dependent.test.json'], redObserved: true, restoredClean: true });
-    expect(await f.snapshots()).toEqual([
-      { paths: ['dependent.test.json'], source: 'dependent', blocker: 'blocker' },
-      { paths: ['dependent.test.json'], source: 'root', blocker: 'blocker' },
-    ]);
-    expect(await git(f.tree, 'status', '--porcelain')).toBe('');
-    expect(await readFile(join(f.tree, 'src/value.cjs'), 'utf8')).toBe('dependent');
-    expect(await readFile(join(f.tree, 'src/blocker.cjs'), 'utf8')).toBe('blocker');
-    const legacy = await f.call('check_test_adequacy', {});
-    expect(legacy.data).toMatchObject({ passed: false });
-  });
 
   /**
    * Mock detection uses the selected pair on a clean checkout and refuses a changed or missing endpoint.
@@ -144,7 +106,7 @@ describe('immutable diff leaves', () => {
   it('CoordinateAdapter_RejectsPublicAndMismatch_PreservesLegacy', async () => {
     const f = await setup(); const selected = await f.coordinate();
     const before = await f.events.query(f.identity.workflowId);
-    for (const action of ['check_test_adequacy', 'check_mock_boundary']) {
+    for (const action of ['check_contract_drift', 'check_mock_boundary']) {
       const publicResult = await f.call(action, { coordinate: selected });
       expect(publicResult.error?.code).toBe('TASK_COORDINATE_REFUSED');
       const mismatch = await f.call(action, { coordinate: { ...selected, diffBaseCommit: 'f'.repeat(40) } }, f.trusted(selected));
@@ -158,17 +120,6 @@ describe('immutable diff leaves', () => {
     const adapter = adaptLadderGate(async args => { received.push(args); return { success: true }; });
     await adapter({ featureId: f.identity.workflowId, taskId: 'target', baseBranch: 'main' }, f.stateDir, f.ctx);
     expect(received).toEqual([{ featureId: f.identity.workflowId, taskId: 'target', baseBranch: 'main', verificationProfile: f.ctx.verificationProfile }]);
-  });
-
-  /** A changed physical checkout refuses before adequacy can revert source or start its probe. */
-  it('Adequacy_SelectedCheckoutRequiredBeforeRevert', async () => {
-    const f = await setup(); const selected = await f.coordinate();
-    await f.repo.commitIn('target', { 'src/value.cjs': 'later', 'later.test.json': JSON.stringify({ source: 'later' }) });
-    const before = await f.events.query(f.identity.workflowId);
-    const result = await f.call('check_test_adequacy', { coordinate: selected }, f.trusted(selected));
-    expect(result.error?.code).toBe('TASK_COORDINATE_REFUSED');
-    expect(await f.events.query(f.identity.workflowId)).toEqual(before); expect(existsSync(f.journal)).toBe(false);
-    expect(await readFile(join(f.tree, 'src/value.cjs'), 'utf8')).toBe('later');
   });
 
   /** The real bound executor supplies authority to the production adapter and never invokes fsmonitor during clean-tree checks. */
@@ -218,7 +169,7 @@ describe('immutable diff leaves', () => {
     const run = decodeExecuteIntentBundle(await f.events.bundleStore.resolve(refsOfRun[0].digest));
     expect(run.leaves[0]?.verdict.status).toBe('passed');
     expect(run.input?.args.coordinate).toMatchObject({ diffBaseCommit: f.repo.baseCommit, observedHeadCommit: selected.observedHeadCommit });
-    expect(await f.snapshots()).toHaveLength(2);
+    expect(existsSync(f.journal)).toBe(false);
     expect(existsSync(`${hook}.invoked`)).toBe(false); expect(await git(f.tree, '--no-optional-locks', '-c', 'core.fsmonitor=false', 'status', '--porcelain')).toBe(''); expect(await git(f.tree, 'show-ref')).toBe(refs);
     expect(await readFile(join(f.tree, 'src/value.cjs'), 'utf8')).toBe('task');
     expect(await readFile(join(f.tree, 'value.test.json'), 'utf8')).toBe(JSON.stringify({ source: 'task' }));

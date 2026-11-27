@@ -234,20 +234,6 @@ jobs:
           RUN_EVALS: '1'
         run: npx vitest run tools/evals/evals/harness.test.ts tools/evals/evals/graders/llm-rubric.test.ts
 
-      # Composed-path Stryker smoke test: resolver, handler, adapter, the real pinned
-      # Stryker and the parser, on a small fixture scope. It runs in its OWN step,
-      # outside the coverage instrument and outside the default suite glob (excluded in
-      # vitest.config.ts). This keeps it out of the coverage numbers and out of the
-      # Windows lane, which has a known spawn flake. EXARCHOS_SMOKE_ONLY=1 lifts that
-      # exclusion for this one run, because the vitest CLI --exclude is additive and
-      # cannot remove an exclusion.
-      # test-mcp runs on ubuntu-latest, so this test is Linux-only.
-      # Host class: deps, filtered on `mcp`. See docs/guides/ci-gate-hosting.md.
-      - name: Composed-path Stryker smoke test (DR-7, task 012) — Linux-only
-        env:
-          EXARCHOS_SMOKE_ONLY: '1'
-        run: npx vitest run tests/unit/verbs/stryker-adapter.smoke.test.ts
-
       # cli:vocab-guard (#1317) — mechanical gate against CLI vocabulary drift
       # (R-A / Principle 6). Walks the rendered Commander surface via `buildCli`
       # and fails on a banned verb (`info`, `ls`, `rm`) or banned flag alias

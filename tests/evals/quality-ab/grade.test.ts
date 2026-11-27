@@ -1,8 +1,8 @@
 /**
  * Tests for the quality A/B grader.
  *
- * - Discrimination: `gradeAdequacy` runs the real `runProbe` kill-probe in a temporary git
- *   repository, with no injected result. A suite that goes red when the implementation reverts
+ * - Discrimination: `gradeAdequacy` runs the real `runEvalProbe` stub-revert probe in temporary
+ *   images, with no injected result. A suite that goes red when the implementation reverts
  *   to the stub scores 1. A suite that stays green scores 0.
  * - Characterization: `gradeRun` returns the oracle, typecheck and `wroteTests` cells that
  *   `results.json` holds, and it adds the adequacy cells.
@@ -138,9 +138,8 @@ describe.skipIf(WIN32)('gradeAdequacy — mechanical diff-scoped kill-probe (DR-
 });
 
 /**
- * `fixedProbe` replaces the real kill-probe, so these tests pin the oracle, typecheck and
- * `wroteTests` cells without the timing of the probe. The real probe derives `passed` and
- * `disposition` from `verdict`, so the stand-in states all three consistently.
+ * `fixedProbe` replaces the real stub-revert probe, so these tests pin the oracle, typecheck and
+ * `wroteTests` cells without the timing of the probe.
  *
  * The baseline is the committed `results.json`. `beforeAll` copies the csv-line task and the first
  * run directory of each arm to a temporary tree. Thus the grader writes its oracle copy outside
@@ -148,12 +147,8 @@ describe.skipIf(WIN32)('gradeAdequacy — mechanical diff-scoped kill-probe (DR-
  */
 describe.skipIf(WIN32)('gradeRun — characterization: adequacy is additive, existing cells unchanged', () => {
   const fixedProbe: ProbeFn = async () => ({
-    verdict: { kind: 'passed', probedTests: ['test.ts'] },
-    passed: true,
-    disposition: 'proved',
     probedTests: ['test.ts'],
     redObserved: true,
-    restoredClean: true,
   });
 
   const baseline = JSON.parse(

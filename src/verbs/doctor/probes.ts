@@ -105,7 +105,6 @@ export interface VerificationToolchainResolution {
     readonly test: string | null;
     readonly typecheck: string | null;
     readonly install: string | null;
-    readonly mutation: string | null;
     readonly lint: string | null;
   };
   /** Each `(riskTier, boundaryTouching)` cell with its source: the `builtin` table or a `config` override. */
@@ -429,7 +428,6 @@ export async function resolveVerificationToolchain(
     runtime.test === null &&
     runtime.typecheck === null &&
     runtime.install === null &&
-    runtime.mutation === null &&
     runtime.lint === null
   );
 
@@ -454,7 +452,6 @@ export async function resolveVerificationToolchain(
       test: runtime.test,
       typecheck: runtime.typecheck,
       install: runtime.install,
-      mutation: runtime.mutation,
       lint: runtime.lint,
     },
     policyCells,

@@ -4,8 +4,7 @@
  * The node entry holds the npm baseline. The resolver selects the package-manager commands from the vendored lockfile table.
  *
  * Each row also seeds the verification profile: its test globs, its probe file form and its static-analysis checks.
- * The module also holds the co-located test globs, the test-support segments, the mutation tables and the hermetic doubles.
- * The mutation tables give the diff scope of each runner, the files that a runner mutates, and the config files of each runner.
+ * The module also holds the co-located test globs, the test-support segments and the hermetic doubles.
  * The module also holds the file extensions that the task decomposition gate reads as file paths in a plan.
  */
 
@@ -48,8 +47,6 @@ export interface ToolchainCommands {
   readonly test: string | null;
   readonly typecheck: string | null;
   readonly install: string | null;
-  /** The mutation-testing runner, for example `cargo mutants --in-diff`. */
-  readonly mutation: string | null;
   /** The lint command, for example `cargo clippy`. */
   readonly lint: string | null;
   /**
@@ -74,7 +71,7 @@ export interface Toolchain {
   /**
    * The exit codes of a test run with a failing test, or with a test that does not load after a compile or import error.
    * An absent field means {@link DEFAULT_TEST_FAILURE_EXIT_CODES}. Set the field for each runner that uses a different code.
-   * The kill probe reads exit 0 as green, these codes as red, and every other end of a run as no verdict.
+   * A probe run reads exit 0 as green, these codes as red, and every other end of a run as no verdict.
    *
    * Only the built-in registry sets the field. A `.exarchos.yml` toolchain entry has no key for it, so it gets the default.
    */
@@ -118,7 +115,6 @@ export const BUILTIN_TOOLCHAINS: readonly Toolchain[] = [
       test: 'npm run test:run',
       typecheck: 'tsc --noEmit',
       install: 'npm install',
-      mutation: 'npx stryker run',
       lint: null,
       contract: null,
     },
@@ -139,7 +135,6 @@ export const BUILTIN_TOOLCHAINS: readonly Toolchain[] = [
       test: 'dotnet test',
       typecheck: null,
       install: null,
-      mutation: 'dotnet stryker',
       lint: null,
       contract: null,
     },
@@ -162,7 +157,6 @@ export const BUILTIN_TOOLCHAINS: readonly Toolchain[] = [
       test: 'cargo test',
       typecheck: null,
       install: null,
-      mutation: 'cargo mutants --in-diff',
       lint: 'cargo clippy',
       contract: null,
     },
@@ -184,7 +178,6 @@ export const BUILTIN_TOOLCHAINS: readonly Toolchain[] = [
       test: 'go test ./...',
       typecheck: null,
       install: null,
-      mutation: null,
       lint: 'go vet ./...',
       contract: null,
     },
@@ -200,7 +193,6 @@ export const BUILTIN_TOOLCHAINS: readonly Toolchain[] = [
       test: 'pytest',
       typecheck: null,
       install: null,
-      mutation: 'mutmut run',
       lint: 'ruff check',
       contract: null,
     },
@@ -221,7 +213,6 @@ export const BUILTIN_TOOLCHAINS: readonly Toolchain[] = [
       test: './gradlew test',
       typecheck: null,
       install: null,
-      mutation: './gradlew pitest',
       lint: null,
       contract: null,
     },
@@ -236,7 +227,6 @@ export const BUILTIN_TOOLCHAINS: readonly Toolchain[] = [
       test: 'mvn test',
       typecheck: null,
       install: null,
-      mutation: 'mvn org.pitest:pitest-maven:mutationCoverage',
       lint: null,
       contract: null,
     },
@@ -251,7 +241,6 @@ export const BUILTIN_TOOLCHAINS: readonly Toolchain[] = [
       test: 'bundle exec rake test',
       typecheck: null,
       install: null,
-      mutation: 'bundle exec mutant run',
       lint: 'bundle exec rubocop',
       contract: null,
     },
@@ -268,7 +257,6 @@ export const BUILTIN_TOOLCHAINS: readonly Toolchain[] = [
       test: 'composer test',
       typecheck: null,
       install: null,
-      mutation: 'vendor/bin/infection',
       lint: null,
       contract: null,
     },
@@ -288,7 +276,6 @@ export const BUILTIN_TOOLCHAINS: readonly Toolchain[] = [
       test: 'mix test',
       typecheck: null,
       install: null,
-      mutation: 'mix muzak',
       lint: 'mix credo',
       contract: null,
     },
@@ -306,7 +293,6 @@ export const BUILTIN_TOOLCHAINS: readonly Toolchain[] = [
       test: 'swift test',
       typecheck: null,
       install: null,
-      mutation: null,
       lint: null,
       contract: null,
     },
@@ -321,7 +307,6 @@ export const BUILTIN_TOOLCHAINS: readonly Toolchain[] = [
       test: 'ctest',
       typecheck: null,
       install: null,
-      mutation: null,
       lint: null,
       contract: null,
     },
@@ -369,7 +354,6 @@ export interface ConfigToolchain {
     readonly test?: string | undefined;
     readonly typecheck?: string | undefined;
     readonly install?: string | undefined;
-    readonly mutation?: string | undefined;
     readonly lint?: string | undefined;
     readonly contract?: {
       readonly codegen?: string | undefined;
@@ -392,7 +376,6 @@ export function toolchainFromConfig(entry: ConfigToolchain): Toolchain {
       test: entry.commands.test ?? null,
       typecheck: entry.commands.typecheck ?? null,
       install: entry.commands.install ?? null,
-      mutation: entry.commands.mutation ?? null,
       lint: entry.commands.lint ?? null,
       contract:
         contract === undefined
@@ -473,176 +456,6 @@ export function detectToolchain(
 export function testGlobsForToolchain(toolchainId: string): readonly string[] | null {
   return BUILTIN_TOOLCHAINS.find((tc) => tc.id === toolchainId)?.testGlobs ?? null;
 }
-
-/**
- * Resolves the test globs for the probe from the globs that a detected toolchain prescribes.
- * With only the toolchain globs, a polyglot repo (python at the root, `*.test.ts` beside the source) classifies each co-located test as source.
- * So the result is the union of the defaults and the toolchain globs, deduplicated, with the defaults first.
- * A test misclassified as source gives a false pass, so the union errs in the safe direction.
- */
-export function resolveProbeTestGlobs(
-  toolchainGlobs: readonly string[] | null | undefined,
-): readonly string[] {
-  if (!toolchainGlobs || toolchainGlobs.length === 0) return DEFAULT_TEST_GLOBS;
-  const merged = [...DEFAULT_TEST_GLOBS];
-  for (const glob of toolchainGlobs) {
-    if (!merged.includes(glob)) merged.push(glob);
-  }
-  return merged;
-}
-
-/**
- * How to scope the mutation runner of a toolchain to a diff. The handler applies it with no knowledge of runner flags.
- * - `append-flag`: append `flag` to the command. `tokenized` is true when the value is a separate argv token, so the applier can quote it.
- * - `already-native`: the runner scopes itself to the diff, so the applier appends nothing.
- * - `path-restricted`: restrict the run to the changed paths. The applier fills the `<changed>` placeholder in `flag`.
- * - `unscoped-warning`: no scope is known. The run is unscoped and shows `warning`, so a full-tree run is never silent.
- */
-export type MutationDiffScope =
-  | { readonly kind: 'append-flag'; readonly flag: string; readonly tokenized: boolean; readonly warning?: undefined }
-  | { readonly kind: 'already-native'; readonly warning?: undefined }
-  | { readonly kind: 'path-restricted'; readonly flag: string; readonly warning?: undefined }
-  | { readonly kind: 'unscoped-warning'; readonly warning: string };
-
-/**
- * The diff-scope builder for each toolchain id. A toolchain that is not in this table resolves to `unscoped-warning`.
- */
-const MUTATION_DIFF_SCOPE: Readonly<Record<string, (base: string) => MutationDiffScope>> = {
-  /**
-   * StrykerJS has no `--since` option. In this repo the node mutation command is `tools/audit/core/stryker-adapter.mjs`.
-   * The adapter converts `--since=<base>` into a StrykerJS `--mutate` list of the changed `src/**` files.
-   */
-  node: (base) => ({ kind: 'append-flag', flag: `--since=${base}`, tokenized: false }),
-  /** Stryker.NET takes the value as a separate token. */
-  dotnet: (base) => ({ kind: 'append-flag', flag: `--since ${base}`, tokenized: true }),
-  /** The cargo-mutants command already has `--in-diff`. A second scope is wrong. */
-  rust: () => ({ kind: 'already-native' }),
-  /** mutmut has no diff flag, so the run uses `--paths-to-mutate` on the changed paths. */
-  python: () => ({ kind: 'path-restricted', flag: '--paths-to-mutate=<changed>' }),
-  /** PIT uses `-DtargetClasses`. The applier computes the changed classes from `base`. */
-  'java-maven': () => ({ kind: 'append-flag', flag: '-DtargetClasses=<changed>', tokenized: false }),
-  'java-gradle': () => ({ kind: 'append-flag', flag: '-DtargetClasses=<changed>', tokenized: false }),
-};
-
-/** True when the built-in registry declares a mutation runner for this id. */
-function hasMutationRunner(toolchainId: string): boolean {
-  const tc = BUILTIN_TOOLCHAINS.find((t) => t.id === toolchainId);
-  return tc !== undefined && tc.commands.mutation !== null;
-}
-
-/**
- * Resolves how to scope the mutation runner of a toolchain to the diff `base`.
- * An id with no table entry returns `unscoped-warning`. The warning text tells a known runner apart from a toolchain with no runner.
- */
-export function resolveMutationDiffScope(toolchainId: string, base: string): MutationDiffScope {
-  const build = MUTATION_DIFF_SCOPE[toolchainId];
-  if (build) {
-    return build(base);
-  }
-  const reason = hasMutationRunner(toolchainId)
-    ? `no diff-scope augmentation is known for toolchain '${toolchainId}'; its mutation run is unscoped (full-tree) — consider deferring to a nightly/full run (R10/v2.12)`
-    : `toolchain '${toolchainId}' has no resolved mutation runner to diff-scope; the mutation run is unscoped`;
-  return { kind: 'unscoped-warning', warning: reason };
-}
-
-/**
- * Source extensions that a mutation runner can make mutants from. This is a
- * property of the file, not a list of directories, because a directory list
- * goes stale when the tree moves.
- */
-export const MUTATABLE_EXTENSIONS: readonly string[] = [
-  '.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.java', '.py', '.rs', '.cs', '.go', '.kt',
-];
-
-/** Path segments whose contents no runner mutates (tests are the oracle, not the subject). */
-export const NON_MUTATABLE_MARKERS: readonly string[] = [
-  '.test.', '.spec.', '/__tests__/', '/__mocks__/', '/__fixtures__/', '/fixtures/', '/node_modules/', '/dist/',
-];
-
-/**
- * Maps changed `.java` paths to class names for PIT `-DtargetClasses`. The name
- * is the path below `src/main/java/`, `src/test/java/`, or `java/`, with `/`
- * changed to `.` and no extension. A path with no source root uses its full
- * dotted form. Other files are ignored. The result has no duplicates and keeps
- * the order.
- */
-export function changedJavaClasses(files: readonly string[]): string[] {
-  const classes = new Set<string>();
-  for (const file of files) {
-    const posix = file.replace(/\\/g, '/');
-    if (!posix.endsWith('.java')) continue;
-    const noExt = posix.slice(0, -'.java'.length);
-    const rooted = noExt.match(/(?:^|\/)(?:src\/(?:main|test)\/java|java)\/(.+)$/);
-    const rel = (rooted ? rooted[1] : noExt) ?? noExt;
-    classes.add(rel.replace(/\//g, '.'));
-  }
-  return [...classes];
-}
-
-/**
- * The changed `.py` paths for the mutmut `--paths-to-mutate` flag, in POSIX
- * form, with no duplicates, in order. Mutmut also has a line-level scope with
- * `--use-patch-file`, but that needs a patch file on disk.
- */
-export function changedPythonPaths(files: readonly string[]): string[] {
-  const paths = new Set<string>();
-  for (const file of files) {
-    const posix = file.replace(/\\/g, '/');
-    if (posix.endsWith('.py')) paths.add(posix);
-  }
-  return [...paths];
-}
-
-/**
- * Filenames that identify the config of a mutation runner, in this order:
- * StrykerJS, Stryker.NET, Infection (PHP), mutant (Ruby), and cargo-mutants.
- * The directory of the match is the package that owns the config.
- */
-export const MUTATION_CONFIG_FILE_PATTERNS: readonly RegExp[] = [
-  /^\.?stryker\.conf(ig)?\.(mjs|cjs|js|json|jsonc)$/i,
-  /^stryker-config\.(json|ya?ml)$/i,
-  /^infection\.json5?(\.dist)?$/i,
-  /^\.?mutant\.ya?ml$/i,
-  /^\.?(cargo-)?mutants\.toml$/i,
-];
-
-/**
- * Configs inside a file that the project has for other reasons. The basename
- * alone proves nothing, so the file must also contain the section of the
- * runner. That is `[tool.mutmut]` or `[mutmut]` for mutmut, and `pitest` for
- * PIT in Maven or Gradle files.
- */
-export const MUTATION_CONFIG_SECTION_MARKERS: ReadonlyArray<{
-  readonly basename: string;
-  readonly marker: RegExp;
-}> = [
-  { basename: 'pyproject.toml', marker: /^\s*\[tool\.mutmut\]/m },
-  { basename: 'setup.cfg', marker: /^\s*\[mutmut\]/m },
-  { basename: 'pom.xml', marker: /pitest/i },
-  { basename: 'build.gradle', marker: /pitest/i },
-  { basename: 'build.gradle.kts', marker: /pitest/i },
-];
-
-/**
- * Directory names that never hold the config of a project: dependency trees
- * and build output. They are kinds of directory, not named subtrees, so the
- * scan root stays the whole repository.
- */
-export const NON_SCANNABLE_DIRS: ReadonlySet<string> = new Set([
-  'node_modules', 'dist', 'build', 'out', 'coverage', 'reports', 'target', 'vendor', 'tmp',
-]);
-
-/**
- * The extensions that let a command token with no directory part name a file, such as `stryker.conf.mjs`.
- * Each JavaScript or TypeScript form can have a `c` or `m` before its stem and an `x` after it. Four script extensions follow.
- * The mutation gate builds its path-token pattern from this list, and the pattern ignores case.
- */
-export const COMMAND_PATH_EXTENSIONS: readonly string[] = [
-  '.js', '.jsx', '.ts', '.tsx',
-  '.cjs', '.cjsx', '.cts', '.ctsx',
-  '.mjs', '.mjsx', '.mts', '.mtsx',
-  '.sh', '.py', '.rb', '.php',
-];
 
 /**
  * The file extensions that `extractFiles` and `validateTaskStructure` accept as file paths. A token

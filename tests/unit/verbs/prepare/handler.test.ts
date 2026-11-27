@@ -1165,7 +1165,7 @@ describe('prepare — the compilation endpoint', () => {
     expect(profile?.capabilities).toEqual(planeExecutionCapabilities());
     expect(profile?.capabilities).toEqual(['fs:read', 'fs:write', 'mcp:exarchos', 'shell:exec']);
     expect(receipt.capsule.knowledge.patterns.map((p) => p.statement)).toEqual([
-      'A task at riskTier=medium, boundaryTouching=false is verified at settlement by: check_static_analysis, check_test_adequacy.',
+      'A task at riskTier=medium, boundaryTouching=false is verified at settlement by: check_static_analysis.',
       `Each task forks from ${INTEGRATION_BRANCH} at ${BASE_COMMIT}. Settlement refuses a worktree that does not hold ${BASE_COMMIT}.`,
     ]);
   });

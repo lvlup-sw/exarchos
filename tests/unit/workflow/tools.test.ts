@@ -742,8 +742,8 @@ describe('requirement resolution is monotonic and fail-safe (DR-10, T-14)', () =
   });
 
   /**
-   * The review roster does not escalate an unknown tier. A `high` tier adds the `mutation-adequacy`
-   * dimension, which can block review to synthesize for an untiered workflow.
+   * The review roster does not escalate an unknown tier. A tier-coupled dimension can block review to
+   * synthesize for an untiered workflow. The live `high` roster adds no dimension.
    */
   it('ReviewRosterTier_UnknownTier_MakesNoTierClaimAndCannotDeadlock', () => {
     expect(reviewRosterTier('unknown')).toBeUndefined();
@@ -763,6 +763,7 @@ describe('requirement resolution is monotonic and fail-safe (DR-10, T-14)', () =
       boundaryTouching: false,
       workflowType: 'feature',
     }).map((g) => g.gate);
-    expect(highRoster).toContain('mutation-adequacy');
+    expect(highRoster).toEqual(getRequiredReviews('feature', 'high'));
+    expect(highRoster).not.toContain('mutation-adequacy');
   });
 });

@@ -156,9 +156,10 @@ describe('resolveConfig', () => {
     expect(resolveConfig({}).review.mutationEnforcement).toBe('advisory');
   });
 
-  it('resolveConfig_MutationEnforcement_OverridesToBlock', () => {
-    const project: ProjectConfig = { review: { 'mutation-enforcement': 'block' } };
-    expect(resolveConfig(project).review.mutationEnforcement).toBe('block');
+  /** `review.mutation-enforcement` is retired, so a project that still sets it keeps the advisory default. */
+  it('resolveConfig_RetiredMutationEnforcement_StaysAdvisory', () => {
+    const project = { review: { 'mutation-enforcement': 'block' } } as unknown as ProjectConfig;
+    expect(resolveConfig(project).review.mutationEnforcement).toBe('advisory');
   });
 
   it('resolveConfig_ToolsPartial_MergesWithDefaults', () => {

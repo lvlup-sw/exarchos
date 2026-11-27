@@ -4,7 +4,7 @@
   "counts": {
     "tools": 5,
     "visibleTools": 4,
-    "actions": 128,
+    "actions": 126,
     "eventTypes": 186
   },
   "tools": [
@@ -49,7 +49,6 @@
         "check_security_scan",
         "check_static_analysis",
         "check_task_decomposition",
-        "check_test_adequacy",
         "check_workflow_determinism",
         "classify_review_items",
         "create_issue",
@@ -73,7 +72,6 @@
         "list_prs",
         "merge_orchestrate",
         "merge_pr",
-        "mutation-adequacy",
         "needs_schema_sync",
         "onboard",
         "post_delegation_check",
@@ -573,13 +571,13 @@
     },
     {
       "type": "mutation.executed",
-      "lifecycle": "active",
+      "lifecycle": "retired",
       "tier": "substrate",
       "rationale": "operation-record"
     },
     {
       "type": "mutation.executing_started",
-      "lifecycle": "active",
+      "lifecycle": "retired",
       "tier": "substrate",
       "rationale": "operation-record"
     },

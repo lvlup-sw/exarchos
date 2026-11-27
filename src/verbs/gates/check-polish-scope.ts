@@ -86,7 +86,7 @@ function isStructuralFile(filePath: string): boolean {
 
 /**
  * Check the polish scope of the diff of `repoRoot` against `baseBranch`. The diff reads Git through the constrained reader.
- * A non-empty `gitPath` is the connector Git path. Without it, the read uses the process-wide Git path. An unreadable diff gives DIFF_FAILED.
+ * A non-empty `gitPath` names the Git executable. Without it, the read uses the process-wide Git path. An unreadable diff gives DIFF_FAILED.
  */
 export async function handleCheckPolishScope(args: CheckPolishScopeArgs, gitPath?: string): Promise<ToolResult> {
   if (!args.repoRoot) {

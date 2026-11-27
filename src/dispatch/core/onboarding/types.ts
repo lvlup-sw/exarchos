@@ -52,7 +52,6 @@ export const ResolvedCommandsSchema = z.object({
   test: z.string().optional(),
   typecheck: z.string().optional(),
   install: z.string().optional(),
-  mutation: z.string().optional(),
   lint: z.string().optional(),
 });
 export type ResolvedCommands = z.infer<typeof ResolvedCommandsSchema>;

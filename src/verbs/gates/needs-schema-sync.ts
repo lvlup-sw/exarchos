@@ -104,7 +104,7 @@ function buildReport(apiFiles: readonly string[]): string {
 
 /**
  * Report the changed API files of a diff file, or of the committed diff against `baseBranch`.
- * A non-empty `gitPath` is the connector Git path. Without it, the read uses the process-wide Git path. An unreadable diff gives GIT_ERROR.
+ * A non-empty `gitPath` names the Git executable. Without it, the read uses the process-wide Git path. An unreadable diff gives GIT_ERROR.
  */
 export async function handleNeedsSchemaSync(args: NeedsSchemaSyncArgs, gitPath?: string): Promise<ToolResult> {
   if (!args.repoRoot) {

@@ -7,10 +7,17 @@
  */
 import { createHash } from 'node:crypto';
 import { realpathSync } from 'node:fs';
-import { readFile, writeFile } from 'node:fs/promises';
+import { readFile, unlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { Database } from 'bun:sqlite';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { z } from 'zod';
+import { contentDigest } from '../../src/contract/capsule/capsule-digest.js';
 import { ExarchosCapsuleV1Schema, type ExarchosCapsuleV1 } from '../../src/contract/capsule/exarchos-capsule.js';
+import { canonicalJson } from '../../src/contract/request-context.js';
+import {
+  VerificationRequest, verificationDigest, verificationJson, verificationKey, verificationValueDigest, type VerificationRequestTerms,
+} from '../../src/contract/verification/harness-verification.js';
 import { EventStore } from '../../src/events/store.js';
 import { WorkflowPreparedData } from '../../src/events/schemas.js';
 import { ACTION_HANDLERS } from '../../src/verbs/composite.js';
@@ -19,7 +26,9 @@ import { handlePrepare } from '../../src/verbs/prepare/handler.js';
 import { PreparedCapsuleReceiptData } from '../../src/verbs/prepare/schemas.js';
 import { handleSettle } from '../../src/verbs/settle/handler.js';
 import { IntegrationAttemptBindingV1Schema, IntegrationAttemptRequestV1Schema, integrationAttemptId } from '../../src/verbs/settle/integration-attempts.js';
-import { decodeSettlementBundle } from '../../src/verbs/settle/settlement-bundle.js';
+import { decodeSettlementBundle, encodeSettlementBundle } from '../../src/verbs/settle/settlement-bundle.js';
+import { DECIDE_ONCE_CLAIM_STREAM, SEGMENT_INPUT_CLAIM_STREAM } from '../../src/storage/sqlite/constants.js';
+import { handleRehydrate } from '../../src/workflow/rehydrate.js';
 import { settlementClaimKey } from '../../src/verbs/settle/settlement-reads.js';
 import { resolveTaskStanding } from '../../src/verbs/settle/task-standing.js';
 import { makeTempDir, rmrfAsync } from '../../tools/test-helpers/temp-dir.js';
@@ -173,12 +182,78 @@ async function fixture(edges: Readonly<Record<string, readonly string[]>>, optio
   const standing = async (taskId: string) => (await resolveTaskStanding({ streamId: stream, taskId, rows: await rows(), bundles: events.bundleStore,
     lookupClaim: id => backend().lookupOperationClaim(id) })).kind;
   const restart = async () => { events.close(); events = new EventStore(stateDir); await events.initialize(); };
-  return { repo, scope, profile, capsule, record, stream, trees, heads, settle, land, commitOnIntegration, suiteTips, queue,
+  return { repo, scope, profile, capsule, record, stream, stateDir, trees, heads, settle, land, commitOnIntegration, suiteTips, queue,
     backend, rows, bundleOf, attemptId, boundRequest, standing, restart, events: () => events };
 }
 
 /** The settlement records of the stream. */
 function settled(rows: readonly { readonly type: string }[]) { return rows.filter(row => row.type === 'execution.settled'); }
+
+/** Every durable row and claim of a store, with its exact serialized payload. */
+function durableSnapshot(stateDir: string): { readonly events: unknown[]; readonly claims: unknown[] } {
+  const db = new Database(join(stateDir, 'exarchos.db'));
+  try {
+    return { events: db.prepare('SELECT * FROM events ORDER BY streamId,sequence').all(),
+      claims: db.prepare('SELECT * FROM idempotency_claims ORDER BY streamId,idempotencyKey').all() };
+  } finally { db.close(); }
+}
+
+/** The serialized result of a read with its read time removed, so two reads of the same rows compare byte for byte. */
+function withoutReadClock(result: unknown): string {
+  return JSON.stringify(result).replace(/"projectionAsOf":"[^"]*"/, '"projectionAsOf":""');
+}
+
+/**
+ * Rewrite one local settlement of the batch into the records that the retired verifier host wrote at the same tip.
+ * The host attempt identity has no route term, and its binding holds the canonical verifier request.
+ * The settlement bundle names that binding and the digest of the signed suite evidence. The governor never stored the evidence body.
+ * The local binding, the local executor rows and the local suite observation leave the store. Then the store opens again.
+ */
+async function toHostEra(f: Awaited<ReturnType<typeof fixture>>, local: { readonly data?: unknown }, batchId: string, tip: string) {
+  const outerOperationId = settlementClaimKey(f.stream, { ...f.capsule.identity, batchId });
+  const bound = await f.boundRequest(batchId, tip, ['root']);
+  const heads = [f.heads.get('root') ?? ''];
+  const profileDigest = contentDigest(f.profile);
+  const attempt = `settle-integration:${verificationValueDigest({ outerOperationId, ref: 'refs/heads/integration', tip, profileDigest, heads })}`;
+  const terms: Extract<VerificationRequestTerms, { operation: 'integration-suite' }> = {
+    version: 1, operation: 'integration-suite', resourceId: 'integration-checkout', profileId: 'integration-suite', commandDigest: bound.planDigest,
+    subject: { scope: 'integration', streamId: f.stream, phaseAttemptId: bound.phaseAttemptId, outerOperationId, ref: 'refs/heads/integration',
+      headCommit: tip, preparedDigest: bound.preparedDigest, configDigest: bound.configDigest, profileDigest, acceptedHeads: heads },
+  };
+  const request = VerificationRequest.parse({ ...terms, key: verificationKey(terms) });
+  const localBundle = await f.bundleOf(local);
+  const integration = localBundle.integration;
+  if (integration === undefined) throw new Error('The local settlement has no integration record');
+  const signed = { signature: `${'A'.repeat(86)}==`, evidence: { version: 1, hostVersion: 'exarchos-verifier/1', signerId: '5'.repeat(64), request,
+    requestDigest: verificationDigest(request), hostPolicyDigest: '6'.repeat(64), completedAt: integration.observedAt,
+    resources: [{ path: f.scope.checkout, device: '64768', inode: '1835041' }, { path: f.scope.repository, device: '64768', inode: '1835044' }],
+    outcome: { status: 'passed', exitCode: 0, reason: '', stdoutBase64: '', stderrBase64: '', check: { operation: 'integration-suite',
+      run: { end: 'exited', exitCode: 0, stdout: '', stderr: '', outputDigest: createHash('sha256').update('').digest('hex') }, report: null } } } };
+  const evidenceDigest = verificationValueDigest(signed);
+  const events = f.events();
+  const hostRef = await events.bundleStore.put(encodeSettlementBundle({ ...localBundle,
+    integration: { ref: integration.ref, tip: integration.tip, observedAt: integration.observedAt, attemptBinding: attempt, suiteEvidenceDigest: evidenceDigest } }));
+  const requestRef = await events.bundleStore.put(Buffer.from(verificationJson(request)));
+  const binding = f.backend().bindSegmentInput(attempt, canonicalJson(IntegrationAttemptBindingV1Schema.parse({ version: 1, kind: 'settle-integration', request: requestRef })));
+  const localRef = z.object({ bundleRefs: z.array(z.object({ digest: z.object({ value: z.string() }) })).min(1) }).parse(local.data).bundleRefs[0];
+  const localDigest = localRef?.digest.value ?? '';
+  const localEvidence = integration.suiteEvidenceDigest ?? '';
+  const db = new Database(join(f.stateDir, 'exarchos.db'));
+  try {
+    const result = z.object({ idempotencyKey: z.string() }).parse(db.prepare('SELECT idempotencyKey FROM idempotency_claims WHERE streamId=? AND events_json=?')
+      .get(SEGMENT_INPUT_CLAIM_STREAM, canonicalJson({ version: 1, digest: { algorithm: 'sha256', value: localEvidence } })));
+    const prefix = result.idempotencyKey.replace(/:result:[0-9]+$/, '');
+    expect(db.prepare('DELETE FROM idempotency_claims WHERE streamId=? AND (idempotencyKey=? OR idempotencyKey LIKE ?)')
+      .run(SEGMENT_INPUT_CLAIM_STREAM, f.attemptId(batchId, tip, ['root']), `${prefix}:%`).changes).toBe(3);
+    expect(db.prepare('UPDATE idempotency_claims SET events_json=replace(events_json,?,?) WHERE streamId=? AND idempotencyKey=? AND instr(events_json,?)>0')
+      .run(localDigest, hostRef.value, DECIDE_ONCE_CLAIM_STREAM, outerOperationId, localDigest).changes).toBe(1);
+    expect(db.prepare("UPDATE events SET data=replace(data,?,?),payload=replace(payload,?,?) WHERE streamId=? AND type='execution.settled' AND instr(data,?)>0")
+      .run(localDigest, hostRef.value, localDigest, hostRef.value, f.stream, localDigest).changes).toBe(1);
+  } finally { db.close(); }
+  await unlink(join(f.stateDir, 'run-bundles', 'sha256', localEvidence.slice(0, 2), localEvidence.slice(2)));
+  await f.restart();
+  return { attempt, binding, evidenceDigest, observedAt: integration.observedAt, localDigest, hostDigest: hostRef.value };
+}
 
 describe('compiler 8-vcs settlement', () => {
   /**
@@ -387,6 +462,37 @@ describe('compiler 8-vcs settlement', () => {
     expect(await f.settle(['root'], 'history')).toEqual(original);
     expect(await f.settle(['root'], 'history')).toEqual(original);
     expect(await f.suiteTips()).toEqual([]);
+  }, 120000);
+
+  /**
+   * A settlement that the retired verifier host judged reads with its original result. Its bundle names the host attempt and the host evidence digest.
+   * The replay returns the stored receipt and records nothing. It runs no suite, starts no claim and reads no evidence body.
+   * The stored task standing and the rehydrated document read the same as the local settlement at the same tip.
+   */
+  it('SettleIntegration_HostEraReceipt_ReplaysUnchanged', async () => {
+    const f = await fixture({ root: [] });
+    const tip = await f.land('root');
+    const local = await f.settle(['root'], 'host-era');
+    expect(local.success, JSON.stringify(local)).toBe(true);
+    const localDocument = await handleRehydrate({ featureId: f.stream }, { eventStore: f.events(), stateDir: f.stateDir });
+    const host = await toHostEra(f, local, 'host-era', tip);
+    await f.commitOnIntegration('later.txt');
+    const before = durableSnapshot(f.stateDir);
+    const put = vi.spyOn(f.events().bundleStore, 'put');
+    const replay = await f.settle(['root'], 'host-era');
+    expect(replay).toEqual(JSON.parse(JSON.stringify(local).split(host.localDigest).join(host.hostDigest)));
+    expect(await f.settle(['root'], 'host-era')).toEqual(replay);
+    const bundle = await f.bundleOf(replay);
+    expect(bundle.integration).toEqual({ ref: 'refs/heads/integration', tip, observedAt: host.observedAt, attemptBinding: host.attempt, suiteEvidenceDigest: host.evidenceDigest });
+    expect(await f.events().bundleStore.has({ algorithm: 'sha256', value: host.evidenceDigest })).toBe('missing');
+    expect(f.backend().lookupSegmentInput(host.attempt)).toBe(host.binding);
+    expect(f.backend().lookupSegmentInput(f.attemptId('host-era', tip, ['root']))).toBeUndefined();
+    expect(await f.standing('root')).toBe('accepted');
+    expect(durableSnapshot(f.stateDir)).toEqual(before);
+    expect(put).not.toHaveBeenCalled();
+    expect(await f.suiteTips()).toEqual([tip]);
+    const hostDocument = await handleRehydrate({ featureId: f.stream }, { eventStore: f.events(), stateDir: f.stateDir });
+    expect(withoutReadClock(hostDocument)).toBe(withoutReadClock(localDocument));
   }, 120000);
 
   /**

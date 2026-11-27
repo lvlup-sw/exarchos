@@ -216,9 +216,9 @@ const MOCK_BOUNDARY_STEER =
  * from the delegation-record stamp, not from a workflow-type branch. The low
  * tier gets a short note, because a long prompt costs tokens and accuracy.
  *
- * - low: a static-analysis note, with no kill-probe.
- * - medium: scoped tests and the `check_test_adequacy` kill-probe, judged by
- *   outcome. Test-after is acceptable.
+ * - low: a static-analysis note.
+ * - medium: scoped tests that can fail, judged by outcome. Test-after is
+ *   acceptable.
  * - high: the medium note plus the integration-suite rung.
  *
  * The boundary steer comes last when `boundaryTouching` is true.
@@ -241,7 +241,7 @@ export function buildVerificationNote(ctx: ImplementerVerificationContext): stri
     lines.push('- Keep the change minimal and refactor freely while the tests stay green.');
     lines.push('');
     lines.push(
-      'Kill-probe: the `check_test_adequacy` gate runs after your tests — it reverts your source hunks (keeping the tests) and asserts at least one test goes red. This recaptures the one real guarantee of test-first (that a test CAN fail) at lower cost; expect it to flag tests that pass against a stubbed-out implementation.',
+      'Check that a test CAN fail: a test that still passes against a stubbed-out implementation asserts nothing about the change. The review reads your tests for this.',
     );
     if (ctx.riskTier === 'high') {
       lines.push('');
@@ -429,7 +429,7 @@ An implementation task at any verification tier triggers the implementer agent.
     {
       trigger: 'pre-write',
       rule:
-        'For medium/high-tier tasks (whose stamped verification sequence includes check_test_adequacy), the change must be covered by tests judged adequate (test-after is fine); low-tier static-analysis-only dispatches are exempt (#1587, PR #1535 CR-1)',
+        'For medium/high-tier tasks, the change must be covered by tests that can fail (test-after is fine); low-tier static-analysis-only dispatches are exempt (#1587, PR #1535 CR-1)',
     },
     { trigger: 'post-test', rule: 'All tests must pass', command: POST_TEST_COMMAND },
   ],
@@ -445,7 +445,7 @@ export const FIXER: AgentSpec = {
 
 <example>
 Context: A delegated task failed its quality gates or tests
-user: "Task-005 failed its test-adequacy gate — fix it"
+user: "Task-005 failed its static-analysis gate — fix it"
 assistant: "I'll dispatch the exarchos-fixer agent to diagnose and repair the failure."
 <commentary>
 Failed task requiring root cause analysis and targeted fix triggers the fixer agent.

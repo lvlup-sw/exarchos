@@ -152,7 +152,7 @@ export function assertMainWorktree(cwd?: string): WorktreeAssertionResult {
 
 /**
  * Locate the checkout of the dispatch guards with the observational located form. With no `repoRoot`, the climb starts at the server directory.
- * A non-empty `gitPath` is the connector Git path, else the reads use the process-wide Git path. The guards of one call share the one reader.
+ * A non-empty `gitPath` names the Git executable, else the reads use the process-wide Git path. The guards of one call share the one reader.
  */
 export function observeDispatchCheckout(repoRoot: string | undefined, gitPath: string | undefined): Promise<Observation> {
   return locateObservational(repoRoot ?? process.cwd(), observationalReader(gitPath));

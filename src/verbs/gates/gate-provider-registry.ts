@@ -113,6 +113,10 @@ export type GateProviderRegistryBuildResult =
  * receives one owner. Object insertion order is the stable registry order.
  */
 const BUILTIN_REGISTRATIONS = {
+  /**
+   * The class of the retired source-revert kill probe. No action produces it now.
+   * The registration stays, so stored evidence of the class keeps its provider and still reads.
+   */
   'test-adequacy': {
     actionName: 'check_test_adequacy',
   },
@@ -199,6 +203,12 @@ export const SUPPORTED_GATE_CLASSES = Object.freeze(
 const SUPPORTED_GATE_CLASS_SET: ReadonlySet<string> = new Set(
   SUPPORTED_GATE_CLASSES,
 );
+
+/**
+ * The gate classes whose action is retired. Each keeps its registration, so stored evidence of the class keeps its provider.
+ * The retired-action table refuses a call of the action, so no new evidence of the class is written.
+ */
+export const RETIRED_GATE_CLASSES: ReadonlySet<SupportedGateClass> = new Set<SupportedGateClass>(['test-adequacy']);
 
 /**
  * Edit distance between two strings, with two typed-array rows.

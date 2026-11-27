@@ -117,8 +117,11 @@ describe('ReconcileTypes_PlanStepSurface_TaggedCliOnly', () => {
     ).toBe(false);
   });
 
-  /** `mutation` and `lint` are optional strings, as `test`, `typecheck` and `install` are. */
-  it('ResolvedCommandsSchema_MutationAndLint_Optional', () => {
+  /**
+   * `lint` is an optional string, as `test`, `typecheck` and `install` are.
+   * The retired `mutation` field is not a field. The non-strict schema strips it.
+   */
+  it('ResolvedCommandsSchema_LintOptional_RetiredMutationStripped', () => {
     const both = ResolvedCommandsSchema.safeParse({
       test: 'npm run test:run',
       typecheck: 'tsc --noEmit',
@@ -132,7 +135,6 @@ describe('ReconcileTypes_PlanStepSurface_TaggedCliOnly', () => {
         test: 'npm run test:run',
         typecheck: 'tsc --noEmit',
         install: 'npm install',
-        mutation: 'npx stryker run',
         lint: 'eslint .',
       });
     }
@@ -140,20 +142,17 @@ describe('ReconcileTypes_PlanStepSurface_TaggedCliOnly', () => {
     const neither = ResolvedCommandsSchema.safeParse({ test: 'npm run test:run' });
     expect(neither.success).toBe(true);
     if (neither.success) {
-      expect('mutation' in neither.data).toBe(false);
       expect('lint' in neither.data).toBe(false);
       expect(neither.data).toEqual({ test: 'npm run test:run' });
     }
 
-    const mutationOnly = ResolvedCommandsSchema.parse({ mutation: 'npx stryker run' });
-    expect(mutationOnly.mutation).toBe('npx stryker run');
-    expect('lint' in mutationOnly).toBe(false);
+    const lintOnly = ResolvedCommandsSchema.parse({ lint: 'eslint .' });
+    expect(lintOnly.lint).toBe('eslint .');
+    expect('test' in lintOnly).toBe(false);
 
-    expect(ResolvedCommandsSchema.safeParse({ mutation: 123 }).success).toBe(false);
     expect(ResolvedCommandsSchema.safeParse({ lint: false }).success).toBe(false);
 
-    const typed: ResolvedCommands = { mutation: 'npx stryker run', lint: 'eslint .' };
-    expect(typed.mutation).toBe('npx stryker run');
+    const typed: ResolvedCommands = { lint: 'eslint .' };
     expect(typed.lint).toBe('eslint .');
   });
 

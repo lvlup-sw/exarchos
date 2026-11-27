@@ -70,7 +70,7 @@
 ### User Errors
 
 #### [UE-1] [Title]
-- **Tool:** `exarchos_orchestrate` action `check_test_adequacy`
+- **Tool:** `exarchos_orchestrate` action `check_static_analysis`
 - **Error:** [error message]
 - **What happened:** [agent did X]
 - **What should have happened:** [both docs and describe agree on Y]

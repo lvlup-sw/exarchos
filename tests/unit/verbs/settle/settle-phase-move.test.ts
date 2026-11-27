@@ -7,6 +7,9 @@
  * The commit decides on the ledger fold of its own rows under the pinned definition. It moves the phase only when
  * exactly one plain explicit edge out of the batch step admits. It appends the rows of the move before its record.
  *
+ * The live review contract adds no dimension at the high tier. The tier escalation examples inject a
+ * review contract whose high tier adds `tier-probe`, so a weakened transition still shows.
+ *
  * @oracle-sources: ../../../../src/verbs/settle/handler.ts, the persisted operation claim
  */
 
@@ -50,6 +53,22 @@ import { makeTempDir, rmrfAsync } from '../../../../tools/test-helpers/temp-dir.
 import { releaseCheckDefinition } from '../../../helpers/definitions/user-definition.js';
 import { inScopeObserver, scopeOfCheckout, withScope } from '../../../helpers/scoped-capsule.js';
 import { seedStaticAnalysisVerdict } from '../../../helpers/static-analysis-verdict.js';
+import type { ReviewContract } from '../../../../src/workflow/review-contract.js';
+
+vi.mock('../../../../src/workflow/review-contract.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../../../src/workflow/review-contract.js')>();
+  const escalating: ReviewContract = {
+    byWorkflowType: actual.REQUIRED_REVIEWS_BY_WORKFLOW_TYPE,
+    byTier: { low: [], medium: [], high: ['tier-probe'] },
+  };
+  return {
+    ...actual,
+    getRequiredReviews: (workflowType: string, riskTier?: string) =>
+      actual.getRequiredReviews(workflowType, riskTier, escalating),
+    getRequiredReviewsPrerequisite: (workflowType: string, riskTier?: string) =>
+      actual.getRequiredReviewsPrerequisite(workflowType, riskTier, escalating),
+  };
+});
 
 /** The stream of most cases. Each case has its own store. */
 const STREAM = 'settle-phase-move';
@@ -835,7 +854,7 @@ describe('settle decides on the fold of its rows', () => {
     const frozen = recordOf(firstEntry?.data).resolvedGates;
     expect(frozen).toEqual([
       { family: 'review', gate: 'review' },
-      { family: 'review', gate: 'mutation-adequacy' },
+      { family: 'review', gate: 'tier-probe' },
     ]);
 
     await store.eventStore.append(STREAM, { type: 'workflow.transition', data: { from: 'review', to: 'delegate' } });

@@ -24,7 +24,7 @@ const subject = createEvidenceSubject(
 );
 
 const STATIC: ResolvedGate = { family: 'ladder', gate: 'check_static_analysis' };
-const ADEQUACY: ResolvedGate = { family: 'ladder', gate: 'check_test_adequacy' };
+const DRIFT: ResolvedGate = { family: 'ladder', gate: 'check_contract_drift' };
 
 const resolved = (over: Partial<ResolvedRequirements> = {}): ResolvedRequirements =>
   deepFreezeRequirements({
@@ -47,7 +47,7 @@ describe('freezeRequirements — faithful projection', () => {
 
   it('Freeze_GateObligations_ProjectOneGateEvidenceRecordEach', () => {
     const { requirements } = freezeRequirements({
-      resolved: resolved({ gates: [STATIC, ADEQUACY] }),
+      resolved: resolved({ gates: [STATIC, DRIFT] }),
       phaseAttemptId,
       subject,
     });
@@ -191,7 +191,7 @@ describe('freezeRequirements — determinism, binding, monotonicity', () => {
     });
     const strong = freezeRequirements({
       resolved: resolved({
-        gates: [STATIC, ADEQUACY],
+        gates: [STATIC, DRIFT],
         minimumApprovals: 1,
         minimumCorroboratingSources: 2,
       }),

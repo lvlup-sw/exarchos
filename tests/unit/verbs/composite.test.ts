@@ -6,7 +6,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { ToolResult } from '../../../src/format.js';
 import type { DispatchContext } from '../../../src/dispatch/core/dispatch.js';
-import type { VerificationHostConnector } from '../../../src/contract/verification/harness-verification.js';
 import { EventStore } from '../../../src/events/store.js';
 
 vi.mock('../../../src/verbs/tasks/tools.js', () => ({
@@ -406,19 +405,9 @@ describe('handleOrchestrate', () => {
       );
     });
 
-    /**
-     * The lifecycle actions run their checks in the local executor, so a provisioned context gives them no connector.
-     * A caller copy of a private verifier term never reaches the handler.
-     */
-    it('HandleOrchestrate_ProvisionedLifecycleActions_GetNoConnector', async () => {
-      const verificationHost: VerificationHostConnector = {
-        publicKey: 'unused', gitPath: '/nonexistent/git', resourceId: 'unused', profileId: 'unused',
-        client: {
-          submit: async () => ({ kind: 'unavailable', reason: 'unused' }),
-          retrieve: async () => ({ kind: 'unavailable', reason: 'unused' }),
-        },
-      };
-      const ctx: DispatchContext = { ...CTX, verificationHost };
+    /** A caller copy of a retired verifier term never reaches a lifecycle handler. */
+    it('HandleOrchestrate_LifecycleActions_DropACallerCopyOfARetiredVerifierTerm', async () => {
+      const ctx: DispatchContext = { ...CTX };
       const expected = successResult({ passed: true });
       vi.mocked(handlePostMerge).mockResolvedValue(expected);
       vi.mocked(handlePrepareSynthesis).mockResolvedValue(expected);

@@ -296,7 +296,6 @@ const allowance = (layer: string, allow: readonly string[], note: string): Layer
  * coupled that layer is, and the census keeps it from growing.
  */
 export const LAYER_ALLOWED_IMPORTS: readonly LayerAllowance[] = Object.freeze([
-  allowance('runtime/verification-host', ['config', 'contract', 'storage', 'utils'], 'Independent verifier uses the shared protocol, its private claim database, the constrained structural Git reader and the shared report parsers of config.'),
   allowance('utils', [], 'Foundation leaf — cross-OS/process/format primitives; imports no first-party directory.'),
   allowance('testgen', ['contract'], 'Independent generation tool. The only first-party dependency is the MCP SDK seam.'),
   allowance('ndjson', [], 'Foundation leaf — NDJSON framing primitives; imports no first-party directory.'),

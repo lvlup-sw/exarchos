@@ -70,10 +70,19 @@ export const DEV_CATALOG_PATH = '.exarchos/invariants.md';
 /** Stable machine-readable code for the retired `invariants.devCatalog` key. */
 export const DEV_CATALOG_DEPRECATION_CODE = 'DEPRECATED_INVARIANTS_DEV_CATALOG';
 
+/** Stable machine-readable code for a retired mutation command key. */
+export const MUTATION_COMMAND_RETIRED_CODE = 'RETIRED_MUTATION_COMMAND';
+
+/** Stable machine-readable code for a retired mutation review setting. */
+export const MUTATION_REVIEW_RETIRED_CODE = 'RETIRED_MUTATION_REVIEW';
+
+/** The name of the retired mutation review. No producer writes it, so a setting that names it has no effect. */
+export const RETIRED_MUTATION_REVIEW = 'mutation-adequacy';
+
 /**
  * A typed `.exarchos.yml` deprecation. A consumer can branch on `code` and show `replacement` as an edit, with no match on prose.
  */
-export interface ConfigDeprecation {
+export interface DevCatalogDeprecation {
   /** Stable identifier for the deprecation. A consumer can branch on it. */
   readonly code: typeof DEV_CATALOG_DEPRECATION_CODE;
   /** Dotted path of the deprecated key as it appears in `.exarchos.yml`. */
@@ -85,19 +94,136 @@ export interface ConfigDeprecation {
 }
 
 /**
+ * A migration finding for a mutation command key. Exarchos runs no mutation testing, so the loader removes the key and has no replacement for it.
+ */
+export interface MutationCommandDeprecation {
+  readonly code: typeof MUTATION_COMMAND_RETIRED_CODE;
+  /** The top-level `mutation` key, or the `commands.mutation` key of one `toolchains:` entry. */
+  readonly key: 'mutation' | `toolchains[${number}].commands.mutation`;
+  readonly replacement: null;
+  readonly message: string;
+}
+
+/**
+ * A migration finding for a mutation review setting. No producer writes the `mutation-adequacy` review, so the loader removes the setting.
+ * A required review that nothing can write blocks its transition, so the loader removes it from `workflow.required-reviews` too.
+ */
+export interface MutationReviewDeprecation {
+  readonly code: typeof MUTATION_REVIEW_RETIRED_CODE;
+  readonly key: 'review.mutation-enforcement' | 'review.gates.mutation-adequacy' | 'workflow.required-reviews.mutation-adequacy';
+  readonly replacement: null;
+  readonly message: string;
+}
+
+/** One typed `.exarchos.yml` deprecation. The loader reports it and removes the key from the parsed config. */
+export type ConfigDeprecation = DevCatalogDeprecation | MutationCommandDeprecation | MutationReviewDeprecation;
+
+/** True when `value` is a plain object, not null and not an array. */
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/** The migration finding for one mutation command key. */
+function mutationCommandFinding(key: MutationCommandDeprecation['key']): MutationCommandDeprecation {
+  return {
+    code: MUTATION_COMMAND_RETIRED_CODE,
+    key,
+    replacement: null,
+    message:
+      `\`${key}\` is retired. Exarchos runs no mutation testing, so the loader ignores the key. ` +
+      'Delete the key from .exarchos.yml.',
+  };
+}
+
+/** Collects one finding for the top-level `mutation` key and one for each `toolchains:` entry with a `commands.mutation` key. */
+function collectMutationCommandFindings(document: Record<string, unknown>): MutationCommandDeprecation[] {
+  const findings: MutationCommandDeprecation[] = [];
+  if ('mutation' in document) findings.push(mutationCommandFinding('mutation'));
+  const toolchains = document.toolchains;
+  if (!Array.isArray(toolchains)) return findings;
+  toolchains.forEach((entry: unknown, index) => {
+    if (!isPlainRecord(entry)) return;
+    const commands = entry.commands;
+    if (isPlainRecord(commands) && 'mutation' in commands) {
+      findings.push(mutationCommandFinding(`toolchains[${index}].commands.mutation`));
+    }
+  });
+  return findings;
+}
+
+/** The migration finding for one mutation review setting. */
+function mutationReviewFinding(key: MutationReviewDeprecation['key']): MutationReviewDeprecation {
+  return {
+    code: MUTATION_REVIEW_RETIRED_CODE,
+    key,
+    replacement: null,
+    message:
+      `\`${key}\` is retired. Exarchos runs no mutation testing and writes no \`${RETIRED_MUTATION_REVIEW}\` review, ` +
+      'so the loader ignores the setting. Delete it from .exarchos.yml.',
+  };
+}
+
+/** Collects one finding for each mutation review setting of the `review` and `workflow` blocks. */
+function collectMutationReviewFindings(document: Record<string, unknown>): MutationReviewDeprecation[] {
+  const findings: MutationReviewDeprecation[] = [];
+  const review = document.review;
+  if (isPlainRecord(review) && 'mutation-enforcement' in review) findings.push(mutationReviewFinding('review.mutation-enforcement'));
+  if (isPlainRecord(review) && isPlainRecord(review.gates) && RETIRED_MUTATION_REVIEW in review.gates) {
+    findings.push(mutationReviewFinding('review.gates.mutation-adequacy'));
+  }
+  const workflow = document.workflow;
+  const required = isPlainRecord(workflow) ? workflow['required-reviews'] : undefined;
+  if (Array.isArray(required) && required.includes(RETIRED_MUTATION_REVIEW)) {
+    findings.push(mutationReviewFinding('workflow.required-reviews.mutation-adequacy'));
+  }
+  return findings;
+}
+
+/**
+ * Removes the retired mutation settings from a parsed `review` block: `mutation-enforcement` and the `mutation-adequacy` gate.
+ * The schema still accepts them, so an existing `.exarchos.yml` keeps loading.
+ */
+export function withoutRetiredMutationReview<T extends { readonly 'mutation-enforcement'?: unknown; readonly gates?: Readonly<Record<string, unknown>> | undefined }>(
+  block: T,
+): Omit<T, 'mutation-enforcement'> {
+  const { 'mutation-enforcement': enforcement, ...rest } = block;
+  if (rest.gates === undefined || !(RETIRED_MUTATION_REVIEW in rest.gates)) return rest;
+  const { [RETIRED_MUTATION_REVIEW]: retired, ...gates } = rest.gates;
+  return { ...rest, gates };
+}
+
+/** Removes the retired `mutation-adequacy` review from a parsed `workflow.required-reviews` list. */
+export function withoutRetiredRequiredReview<T extends { readonly 'required-reviews'?: readonly string[] | undefined }>(block: T): T {
+  const required = block['required-reviews'];
+  if (required === undefined || !required.includes(RETIRED_MUTATION_REVIEW)) return block;
+  return { ...block, 'required-reviews': required.filter((name) => name !== RETIRED_MUTATION_REVIEW) };
+}
+
+/**
+ * Removes the retired `mutation` key from a parsed block. The schema still accepts the key, so an existing `.exarchos.yml` keeps loading.
+ */
+export function withoutRetiredMutationCommand<T extends { readonly mutation?: unknown }>(
+  block: T,
+): Omit<T, 'mutation'> {
+  const { mutation, ...rest } = block;
+  return rest;
+}
+
+/**
  * Collects typed deprecations from a raw `.exarchos.yml` document.
- * It must run before the parse, because `InvariantsConfigSchema` removes `devCatalog`.
+ * It must run before the parse, because the schema removes `invariants.devCatalog` and each `mutation` key.
  * It is a diagnostic, not a validator. It returns `[]` for malformed input and for a document with no deprecated key.
  */
 export function collectConfigDeprecations(document: unknown): ConfigDeprecation[] {
-  if (typeof document !== 'object' || document === null || Array.isArray(document)) {
-    return [];
-  }
-  const invariants = (document as { invariants?: unknown }).invariants;
-  if (typeof invariants !== 'object' || invariants === null || Array.isArray(invariants)) {
-    return [];
-  }
-  const devCatalog = (invariants as { devCatalog?: unknown }).devCatalog;
+  if (!isPlainRecord(document)) return [];
+  return [...collectDevCatalogFindings(document), ...collectMutationCommandFindings(document), ...collectMutationReviewFindings(document)];
+}
+
+/** Collects the finding for the retired `invariants.devCatalog` key, if the document holds it. */
+function collectDevCatalogFindings(document: Record<string, unknown>): DevCatalogDeprecation[] {
+  const invariants = document.invariants;
+  if (!isPlainRecord(invariants)) return [];
+  const devCatalog = invariants.devCatalog;
   if (devCatalog !== 'enabled' && devCatalog !== 'disabled') return [];
 
   const replacement =
@@ -205,10 +331,12 @@ const ToolchainCommandsConfigSchema = z
     test: safeCommand.optional(),
     typecheck: safeCommand.optional(),
     install: safeCommand.optional(),
+    /** Retired. The schema accepts the key, and the transform removes it. `collectConfigDeprecations` reports it. */
     mutation: safeCommand.optional(),
     lint: safeCommand.optional(),
   })
-  .strict();
+  .strict()
+  .transform(withoutRetiredMutationCommand);
 
 const ToolchainConfigSchema = z
   .object({
@@ -297,11 +425,16 @@ export const FeedbackConfigSchema = z
   })
   .strict();
 
-export const ExarchosConfigSchema = z
+/**
+ * The keys of `.exarchos.yml` that the test runtime reads, before the transform removes the retired `mutation` key.
+ * `FullExarchosConfigSchema` merges this object, so it stays a plain object schema.
+ */
+export const ExarchosConfigBaseSchema = z
   .object({
     test: safeCommand.optional(),
     typecheck: safeCommand.optional(),
     install: safeCommand.optional(),
+    /** Retired. The schema accepts the key, and the transform removes it. `collectConfigDeprecations` reports it. */
     mutation: safeCommand.optional(),
     lint: safeCommand.optional(),
     contract: ContractCommandConfigSchema.optional(),
@@ -317,6 +450,9 @@ export const ExarchosConfigSchema = z
     feedback: FeedbackConfigSchema.optional(),
   })
   .strict();
+
+/** The test-runtime keys of `.exarchos.yml`. The parse removes the retired `mutation` key. */
+export const ExarchosConfigSchema = ExarchosConfigBaseSchema.transform(withoutRetiredMutationCommand);
 
 export type ExarchosConfig = z.infer<typeof ExarchosConfigSchema>;
 

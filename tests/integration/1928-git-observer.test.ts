@@ -29,9 +29,12 @@ const gitExecutable = await fixtureGit();
 const nullFile = process.platform === 'win32' ? 'NUL' : '/dev/null';
 
 
-/** Fixture mutation uses ordinary Git only against the owned temporary root. */
+/**
+ * Fixture mutation uses ordinary Git only against the owned temporary root.
+ * Automatic maintenance is off, so no detached Git process writes to storage after a command returns.
+ */
 async function git(cwd: string, ...args: string[]) {
-  return (await exec(gitExecutable, ['-C', cwd, ...args], { timeout: 10_000, env: { ...process.env, GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: nullFile, GIT_AUTHOR_NAME: 'Fixture', GIT_AUTHOR_EMAIL: 'fixture@example.invalid', GIT_COMMITTER_NAME: 'Fixture', GIT_COMMITTER_EMAIL: 'fixture@example.invalid' } })).stdout.trim();
+  return (await exec(gitExecutable, ['-C', cwd, ...args], { timeout: 10_000, env: { ...process.env, GIT_CONFIG_COUNT: '1', GIT_CONFIG_KEY_0: 'maintenance.auto', GIT_CONFIG_VALUE_0: 'false', GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: nullFile, GIT_AUTHOR_NAME: 'Fixture', GIT_AUTHOR_EMAIL: 'fixture@example.invalid', GIT_COMMITTER_NAME: 'Fixture', GIT_COMMITTER_EMAIL: 'fixture@example.invalid' } })).stdout.trim();
 }
 
 /** Two registered checkouts deliberately have different branch heads and index bytes. */

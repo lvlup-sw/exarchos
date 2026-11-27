@@ -118,9 +118,9 @@ describe('handleDescribe', () => {
   /** The `gate` key is always present. Its value is `null` when the action declares no gate metadata. */
   it('HandleDescribe_GateMetadata_IncludedWhenPresent', async () => {
     const orchTool = TOOL_REGISTRY.find(t => t.name === 'exarchos_orchestrate')!;
-    const result = await handleDescribe({ actions: ['check_test_adequacy'] }, orchTool.actions);
+    const result = await handleDescribe({ actions: ['check_contract_drift'] }, orchTool.actions);
     expect(result.success).toBe(true);
-    const desc = (result.data as Record<string, unknown>)['check_test_adequacy'] as Record<string, unknown>;
+    const desc = (result.data as Record<string, unknown>)['check_contract_drift'] as Record<string, unknown>;
     expect('gate' in desc).toBe(true);
   });
 

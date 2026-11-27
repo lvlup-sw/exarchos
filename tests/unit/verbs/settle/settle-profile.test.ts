@@ -64,11 +64,6 @@ const gateCalls = vi.hoisted(() => {
   };
 });
 
-vi.mock('../../../../src/verbs/gates/test-adequacy-handler.js', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../../../src/verbs/gates/test-adequacy-handler.js')>();
-  return { ...actual, handleTestAdequacy: gateCalls.recording('check_test_adequacy', actual.handleTestAdequacy) };
-});
-
 vi.mock('../../../../src/verbs/gates/contract-drift-handler.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../../../src/verbs/gates/contract-drift-handler.js')>();
   return { ...actual, handleContractDrift: gateCalls.recording('check_contract_drift', actual.handleContractDrift) };
@@ -113,7 +108,6 @@ const WORKTREE = '/nonexistent-settle-profile-worktree';
 const CAPABILITIES = ['fs:read', 'fs:write', 'shell:exec', 'mcp:exarchos', 'admission:issue-gate-evidence'];
 /** The gates that the mocks of this file wrap, in the order of the shipped runbook. */
 const WRAPPED_GATES = [
-  'check_test_adequacy',
   'check_contract_drift',
   'check_mock_boundary',
   'check_integration_suite',

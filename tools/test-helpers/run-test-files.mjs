@@ -4,7 +4,7 @@
  * Runs `vitest run` on the test files that it gets as arguments. `npm run test:files -- <files>` starts it.
  *
  * The run has no `--project` filter, so vitest runs each file in the project that collects it.
- * The kill probe uses the script to run the changed test files of a task.
+ * The probe term of this repository uses the script to run named test files.
  *
  * It refuses to start when it gets no file, when an argument is not a file, or when an option holds no value after `=`.
  * vitest reads a file argument as a substring filter. With no file, `vitest run` can start the whole root suite,
@@ -441,7 +441,7 @@ function isEntryScript() {
 
 /**
  * Runs the script when node starts this file. An error that escapes `main` exits 2, because the run has no verdict.
- * Without the catch, node exits 1 on the error, and the kill probe reads exit 1 as a failing test.
+ * Without the catch, node exits 1 on the error, and a probe run reads exit 1 as a failing test.
  * @param {readonly string[]} argv
  * @returns {Promise<number>}
  */

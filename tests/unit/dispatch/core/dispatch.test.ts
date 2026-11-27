@@ -422,7 +422,7 @@ describe('dispatch', () => {
   describe('parent-tool default-key leak (#1188)', () => {
     /**
      * The MCP SDK applies the defaults of the flattened parent schema to each payload. Thus the
-     * sibling defaults `nativeIsolation` and `outputFormat` arrive on a `check_test_adequacy` call,
+     * sibling defaults `nativeIsolation` and `outputFormat` arrive on a `check_integration_suite` call,
      * whose schema is `.strict()`. Dispatch must remove the sibling defaults that the action does
      * not declare. The handler can still fail for another reason, but not on those keys.
      */
@@ -432,7 +432,7 @@ describe('dispatch', () => {
       const result = await dispatch(
         'exarchos_orchestrate',
         {
-          action: 'check_test_adequacy',
+          action: 'check_integration_suite',
           featureId: 'leak-test',
           taskId: 'T1',
           branch: 'feat/leak-test',
@@ -459,7 +459,7 @@ describe('dispatch', () => {
       const result = await dispatch(
         'exarchos_orchestrate',
         {
-          action: 'check_test_adequacy',
+          action: 'check_integration_suite',
           featureId: 'typo-test',
           taskId: 'T1',
           branch: 'feat/typo-test',

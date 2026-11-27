@@ -209,8 +209,7 @@ describe('resolver — pinned gate wiring (IMPLEMENT verification ladder)', () =
     expect(ladder).toEqual(
       expect.arrayContaining([
         'check_static_analysis',
-        'check_test_adequacy',
-        'check_integration_suite',
+          'check_integration_suite',
         'check_contract_drift',
         'check_mock_boundary',
       ]),
@@ -224,8 +223,7 @@ describe('resolver — pinned gate wiring (IMPLEMENT verification ladder)', () =
     expect(ladder).toEqual(
       expect.arrayContaining([
         'check_static_analysis',
-        'check_test_adequacy',
-        'check_integration_suite',
+          'check_integration_suite',
       ]),
     );
     expect(ladder).not.toContain('check_mock_boundary');

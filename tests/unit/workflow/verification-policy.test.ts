@@ -34,11 +34,9 @@ describe('verification-policy', () => {
     expect(resolveVerificationSequence('low', false)).toEqual(['check_static_analysis']);
     expect(resolveVerificationSequence('medium', false)).toEqual([
       'check_static_analysis',
-      'check_test_adequacy',
     ]);
     expect(resolveVerificationSequence('high', false)).toEqual([
       'check_static_analysis',
-      'check_test_adequacy',
       'check_integration_suite',
     ]);
   });
@@ -59,13 +57,11 @@ describe('verification-policy', () => {
     ]);
     expect(resolveVerificationSequence('medium', true)).toEqual([
       'check_static_analysis',
-      'check_test_adequacy',
       'check_contract_drift',
       'check_mock_boundary',
     ]);
     expect(resolveVerificationSequence('high', true)).toEqual([
       'check_static_analysis',
-      'check_test_adequacy',
       'check_integration_suite',
       'check_contract_drift',
       'check_mock_boundary',

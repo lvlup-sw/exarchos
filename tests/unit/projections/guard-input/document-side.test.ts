@@ -3,6 +3,8 @@
  * The guard-state golden holds that state. The case runs the seven transitions of the golden.
  * Inside the guard wrapper, it reads the state document and the rows of the stream.
  * Literal deltas to the frozen golden cover projected obligations, admission records, preserved checkpoint summaries and canonical task defaults.
+ *
+ * One more delta covers the live review roster: the high tier no longer adds `mutation-adequacy` to the required reviews.
  * The handler injects the default review gates also with no options, so the case passes `{}` as the live shadow does.
  *
  * @oracle-sources: ../../../../src/projections/guard-input/fold.ts, ./__fixtures__/handle-set-guard-state.golden.json
@@ -55,6 +57,16 @@ const SEVEN_TRANSITIONS: readonly string[] = [
  */
 function withoutPhaseAttemptId(state: Readonly<Record<string, unknown>>): Record<string, unknown> {
   return Object.fromEntries(Object.entries(state).filter(([key]) => key !== '_pendingPhaseAttemptId'));
+}
+
+/**
+ * Returns a copy of a golden guard state with the live review roster. The golden holds the roster of its capture.
+ * The live review contract adds no `mutation-adequacy` dimension at the high tier, so the copy drops it.
+ */
+function withLiveReviewRoster(state: Readonly<Record<string, unknown>>): Record<string, unknown> {
+  const roster = state._requiredReviews;
+  if (!Array.isArray(roster)) return { ...state };
+  return { ...state, _requiredReviews: roster.filter((dimension) => dimension !== 'mutation-adequacy') };
 }
 
 /** The empty admission record that complete replay adds to every seeded document. */
@@ -112,7 +124,7 @@ describe('the document side of the guard input', () => {
       if (goldenState === undefined) throw new Error(`the golden holds no state for '${entry.name}'`);
 
       const masked = maskGuardState(documentSide);
-      const expected = withoutPhaseAttemptId(goldenState);
+      const expected = withLiveReviewRoster(withoutPhaseAttemptId(goldenState));
       const checkpoint = z.record(z.string(), z.unknown()).parse(expected._checkpoint);
       const tasks = z.array(z.record(z.string(), z.unknown())).parse(expected.tasks);
       expect(masked.phaseObligation, entry.name).toEqual(OBLIGATION_BY_PHASE[entry.from]);

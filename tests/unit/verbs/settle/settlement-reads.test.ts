@@ -29,7 +29,9 @@ import type { ExecuteIntentDeps, LeafHandler } from '../../../../src/verbs/execu
 import { commitPreparedCapsule } from '../../../../src/verbs/prepare/prepared-record.js';
 import type { SettlementClaim, TaskStanding } from '../../../../src/verbs/settle/adjudicate.js';
 import { handleSettle } from '../../../../src/verbs/settle/handler.js';
+import type { IntentReceipt } from '../../../../src/verbs/execute/types.js';
 import {
+  haltIsGateVerdict,
   judgeSettlement,
   settlementFactsOf,
   type EvidenceCheck,
@@ -531,5 +533,55 @@ describe('settle — the read after the segments', () => {
       isRecord(row.data) ? row.data.taskId : undefined,
     );
     expect(completions).toEqual([SECOND, VERIFY]);
+  });
+});
+
+/** A failed receipt of the task-completion runbook that halted at `failedLeaf`. */
+function haltedReceipt(failedLeaf: string | undefined, failure?: IntentReceipt['failure']): IntentReceipt {
+  return {
+    operationId: 'op-halted',
+    intent: 'task-completion',
+    outcome: 'failed',
+    leaves: [],
+    ...(failedLeaf === undefined ? {} : { failedLeaf }),
+    tailSequence: 0,
+    requestDigest: `sha256:${'b'.repeat(64)}`,
+    ...(failure === undefined ? {} : { failure }),
+    interaction: { leavesExecuted: 0, eventsAppended: 0, requests: 1, deferred: [] },
+  };
+}
+
+describe('haltIsGateVerdict — the class of a halt', () => {
+  /** A halt at a gate leaf of the current runbook is a verdict about the work. */
+  it('HaltAtACurrentGateLeaf_IsAVerdict', () => {
+    expect(haltIsGateVerdict(haltedReceipt('check_static_analysis'))).toBe(true);
+    expect(haltIsGateVerdict(haltedReceipt('check_contract_drift'))).toBe(true);
+  });
+
+  /** A stored receipt can name the retired kill probe as its failed leaf. It still reads as a gate verdict. */
+  it('StoredReceiptHaltedAtTheRetiredKillProbe_IsAVerdict', () => {
+    expect(haltIsGateVerdict(haltedReceipt('check_test_adequacy'))).toBe(true);
+  });
+
+  /** A halt at the completion leaf records the result and is not a verdict. */
+  it('HaltAtTheCompletionLeaf_IsNotAVerdict', () => {
+    expect(haltIsGateVerdict(haltedReceipt('task_complete'))).toBe(false);
+  });
+
+  /** A leaf that neither the runbook nor the retired set names is not a verdict. */
+  it('HaltAtAnUnknownLeaf_IsNotAVerdict', () => {
+    expect(haltIsGateVerdict(haltedReceipt('check_does_not_exist'))).toBe(false);
+  });
+
+  /** A receipt without a failed leaf is not a verdict. */
+  it('ReceiptWithoutAFailedLeaf_IsNotAVerdict', () => {
+    expect(haltIsGateVerdict(haltedReceipt(undefined))).toBe(false);
+  });
+
+  /** A broken emission contract is not a verdict, also at a gate leaf and at the retired leaf. */
+  it('BrokenEmissionContract_IsNotAVerdict', () => {
+    const violated = { code: 'INTENT_EMISSION_CONTRACT_VIOLATED', message: 'the leaf emitted no event' } as const;
+    expect(haltIsGateVerdict(haltedReceipt('check_static_analysis', violated))).toBe(false);
+    expect(haltIsGateVerdict(haltedReceipt('check_test_adequacy', violated))).toBe(false);
   });
 });

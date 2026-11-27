@@ -4,7 +4,7 @@
  * Toolchain identity and markers come from `./toolchains.ts`. The task-runner layer comes from `./task-runners.ts`.
  * The result is a {@link ResolvedRuntime} with the commands and the highest layer that supplied one.
  *
- * {@link resolveScopedTestCommand} resolves the test command of the kill probe. It is not a field of that result.
+ * {@link resolveScopedTestCommand} resolves the scoped test command of the probe term. It is not a field of that result.
  * {@link packageManagerProjectType} gives the project-type label of the test command of a Node package manager.
  */
 
@@ -51,19 +51,13 @@ export interface ResolvedRuntime {
 }
 
 /**
- * The verification runtime: the {@link ResolvedRuntime} fields plus `mutation`, `lint` and a structured `contract`.
+ * The verification runtime: the {@link ResolvedRuntime} fields plus `lint` and a structured `contract`.
  * `source` comes from {@link resolveTestRuntime} and covers only test, typecheck and install.
  */
 export interface ResolvedVerificationRuntime extends ResolvedRuntime {
-  mutation: string | null;
   lint: string | null;
   /** Structured contract commands `{ codegen, diff }`, or null when no tool resolves. */
   contract: ContractCommands | null;
-  /**
-   * True when `mutation` came from an override, `.exarchos.yml` direct, or a user toolchain, and not from a task runner or detection.
-   * It is optional, so an injected test runtime reads as "not declared". That is the safe reading for a consumer that gates on it.
-   */
-  mutationProjectDeclared?: boolean;
 }
 
 export interface ResolveOptions {
@@ -71,7 +65,6 @@ export interface ResolveOptions {
     test?: string;
     typecheck?: string;
     install?: string;
-    mutation?: string;
     lint?: string;
     contract?: { codegen?: string; diff?: string };
   };
@@ -210,7 +203,7 @@ function isYarnBerry(repoRoot: string, pkg: PackageJsonShape | null): boolean {
 }
 
 /**
- * The scoped test script of a Node package manager. The kill probe runs `scopedTest -- <files>` when the `scopedTestScript` script exists.
+ * The scoped test script of a Node package manager. The probe term runs `scopedTest -- <files>` when the `scopedTestScript` script exists.
  * The script must run only the test files that it gets as arguments.
  */
 interface ScopedTestProfile {
@@ -308,7 +301,7 @@ export function packageScriptCommand(repoRoot: string, script: string): string |
   return `${pm} run ${script}`;
 }
 
-/** The command that the kill probe runs, and the exit codes that read as a red run of it. */
+/** The command that the probe term runs, and the exit codes that read as a red run of it. */
 export interface ScopedTestCommand {
   readonly command: string;
   /** The exit codes of a run with a failing test, from the toolchain registry. Exit 0 is green, and every other exit gives no verdict. */
@@ -316,7 +309,7 @@ export interface ScopedTestCommand {
 }
 
 /**
- * Resolves the command that the kill probe runs on a list of test files. The probe adds `-- <files>` to it.
+ * Resolves the command that the probe term runs on a list of test files. The probe adds `-- <files>` to it.
  * A `test:files` package script comes first, because it runs only the files that it gets.
  * Without that script, the command is the `test` field of {@link resolveTestRuntime}.
  * The command is not a field of {@link ResolvedRuntime}. It has no source layer and no `command.resolved` event.
@@ -651,10 +644,10 @@ export function resolveRunnableCommand(
   return { kind: 'runnable', command, bin: parts.cmd, args: parts.args };
 }
 
-/** Resolves `mutation` or `lint` through override, config, user toolchain, task runner, and then built-in detection. */
+/** Resolves `lint` through override, config, user toolchain, task runner, and then built-in detection. */
 function resolveScalarField(
   repoRoot: string,
-  field: 'mutation' | 'lint',
+  field: 'lint',
   overrideVal: string | undefined,
   configVal: string | undefined,
   userMatchCommand: string | null,
@@ -672,9 +665,8 @@ function resolveScalarField(
 
 /**
  * Resolves the verification runtime. Test, typecheck, install and `source` come from {@link resolveTestRuntime}, with the same events.
- * `mutation` and `lint` resolve through the same layer order, and the built-in detection runs at most once for both.
+ * `lint` resolves through the same layer order.
  * `contract` resolves through override, config and user toolchain only, because contracts are keyed on schema artifacts.
- * The mutation gate uses `mutationProjectDeclared` to tell a declared command from an inferred one. The two command strings look the same.
  */
 export function resolveVerificationRuntime(
   repoRoot: string,
@@ -682,7 +674,6 @@ export function resolveVerificationRuntime(
 ): ResolvedVerificationRuntime {
   const rawOverride = options?.override;
   if (rawOverride) {
-    if (rawOverride.mutation !== undefined) assertSafe('mutation', rawOverride.mutation);
     if (rawOverride.lint !== undefined) assertSafe('lint', rawOverride.lint);
     if (rawOverride.contract?.codegen !== undefined) {
       assertSafe('contract.codegen', rawOverride.contract.codegen);
@@ -704,46 +695,21 @@ export function resolveVerificationRuntime(
   const userMatch =
     userMatched && userToolchains.includes(userMatched) ? userMatched : undefined;
 
-  let detectedBuiltin: Toolchain | undefined;
-  let detectedBuiltinRan = false;
-  const detectBuiltin = (): Toolchain | undefined => {
-    if (!detectedBuiltinRan) {
-      detectedBuiltinRan = true;
-      detectedBuiltin = detectToolchain(repoRoot);
-    }
-    return detectedBuiltin;
-  };
-
-  const mutation = resolveScalarField(
-    repoRoot,
-    'mutation',
-    rawOverride?.mutation?.trim(),
-    config?.mutation,
-    userMatch?.commands.mutation ?? null,
-    detectBuiltin,
-  );
   const lint = resolveScalarField(
     repoRoot,
     'lint',
     rawOverride?.lint?.trim(),
     config?.lint,
     userMatch?.commands.lint ?? null,
-    detectBuiltin,
+    () => detectToolchain(repoRoot),
   );
 
   const contract = resolveContract(rawOverride?.contract, config?.contract, userMatch?.commands.contract ?? null);
 
-  const mutationProjectDeclared =
-    rawOverride?.mutation?.trim() !== undefined ||
-    config?.mutation !== undefined ||
-    (userMatch?.commands.mutation ?? null) !== null;
-
   return {
     ...base,
-    mutation,
     lint,
     contract,
-    mutationProjectDeclared,
   };
 }
 

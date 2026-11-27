@@ -3,7 +3,7 @@
  * expectation row of the gate for its phase. The outcome table of the delegate skill names each
  * settlement outcome, which outcomes verify, and the next call of each, as the outcome rules state.
  * Each passage that binds the template variables of a completion runbook binds each variable of its static-analysis step.
- * Each passage of `content/` that gives a call of the kill probe has a site, and binds the task tree as the probe step does.
+ * No passage of `content/` gives a call of the retired kill probe.
  * The passage that tells the reviewer how to read `check_static_analysis` reads each closed value and each degraded member of its carrier.
  *
  * @oracle-sources: ../../src/verbs/gates/check-event-emissions.ts, ../../content/synthesis/skills/synthesize/SKILL.md, ../../src/verbs/settle/adjudicate.ts
@@ -44,12 +44,10 @@ interface ProseSite {
    * `outcome-table`: the delegate skill's outcome table, one row per settlement outcome, compared with the outcome rules.
    * `runbook-binding`: the one line that tells the reader to bind the template variables of `check_static_analysis`,
    * compared with the static-analysis step of `runbook`.
-   * `probe-call`: the one passage that tells the reader to run `check_test_adequacy`, compared with the tree binding of
-   * the probe step of `runbook`.
    * `carrier-reading`: the reading lines after the call of `check_static_analysis`, compared with the carrier of that gate.
    */
-  readonly shape: 'line' | 'table' | 'outcome-table' | 'runbook-binding' | 'probe-call' | 'carrier-reading';
-  /** The completion runbook whose gate step a `runbook-binding` or a `probe-call` passage binds. */
+  readonly shape: 'line' | 'table' | 'outcome-table' | 'runbook-binding' | 'carrier-reading';
+  /** The completion runbook whose gate step a `runbook-binding` passage binds. */
   readonly runbook?: RunbookDefinition;
 }
 
@@ -65,35 +63,17 @@ const SITES: readonly ProseSite[] = [
     shape: 'runbook-binding',
     runbook: TASK_FIX,
   },
-  { skill: 'content/review/skills/review/SKILL.md', phase: 'review', shape: 'probe-call', runbook: TASK_COMPLETION },
-  {
-    skill: 'content/review/skills/review/references/spec-compliance-checklist.md',
-    phase: 'review',
-    shape: 'probe-call',
-    runbook: TASK_COMPLETION,
-  },
   { skill: 'content/review/skills/review/references/gate-execution.md', phase: 'review', shape: 'carrier-reading' },
 ];
 
 /** The root of the content source that the census of probe-call passages reads. */
 const CONTENT_ROOT = 'content';
 
-/**
- * How the probe-call sites disagree with the content files. A file with a call of the kill probe needs a site.
- * A site needs a file with a call. The census reads each file with the passage reader of the judge.
- */
-function probeCallCensus(files: ReadonlyMap<string, string>, listed: readonly string[]): readonly string[] {
-  const calling = [...files]
+/** The content files that still call the retired kill probe. The census reads each file with the passage reader. */
+function probeCallCensus(files: ReadonlyMap<string, string>): readonly string[] {
+  return [...files]
     .filter(([, markdown]) => probeCallPassages(markdown).length > 0)
-    .map(([file]) => file);
-  return [
-    ...calling
-      .filter((file) => !listed.includes(file))
-      .map((file) => `${file} calls check_test_adequacy, and no probe-call site lists it`),
-    ...listed
-      .filter((file) => !calling.includes(file))
-      .map((file) => `${file} is a probe-call site and holds no call of check_test_adequacy`),
-  ];
+    .map(([file]) => `${file} calls the retired check_test_adequacy`);
 }
 
 /** The repo-relative paths of the Markdown files under a repo-relative directory, sorted. */
@@ -253,9 +233,6 @@ function runbookBindingDisagreements(markdown: string, runbook: RunbookDefinitio
     .map((variable) => `the passage does not bind \`${variable}\`, which the check_static_analysis step of ${runbook.id} binds`);
 }
 
-/** The two params that `resolveRepoRoot` reads to run a gate in the task worktree. */
-const TREE_BINDING_KEYS: readonly ['repoRoot', 'worktreePath'] = ['repoRoot', 'worktreePath'];
-
 /** A prose line that tells the reader to run the kill probe. */
 const PROBE_CALL_LINE = /^Run `check_test_adequacy`/;
 
@@ -284,29 +261,6 @@ function probeCallPassages(markdown: string): readonly string[] {
     else if (PROBE_CALL_LINE.test(line)) passages.push(line);
   }
   return passages;
-}
-
-/**
- * How the probe-call passage disagrees with the probe step of its runbook. The passage must pass each tree-binding
- * param with the value that the step binds. Then the probe reverts the task tree and not the directory of the server.
- */
-function probeCallDisagreements(markdown: string, runbook: RunbookDefinition | undefined): readonly string[] {
-  if (runbook === undefined) return ['the site names no runbook'];
-  const step = runbook.steps.find((candidate) => candidate.action === 'check_test_adequacy');
-  const bindings = TREE_BINDING_KEYS.map((key) => ({ key, value: step?.params?.[key] }));
-  const missing = bindings.filter(({ value }) => typeof value !== 'string');
-  if (missing.length > 0) {
-    return missing.map(({ key }) => `the check_test_adequacy step of ${runbook.id} binds no ${key}`);
-  }
-  const passages = probeCallPassages(markdown);
-  if (passages.length !== 1) {
-    return [`expected exactly one passage that calls \`check_test_adequacy\`, found ${passages.length}`];
-  }
-  const passage = passages[0] ?? '';
-  return bindings
-    .map(({ key, value }) => `${key}: "${String(value)}"`)
-    .filter((binding) => !passage.includes(binding))
-    .map((binding) => `the passage does not pass \`${binding}\`, which the check_test_adequacy step of ${runbook.id} binds`);
 }
 
 /** The closed verdicts of a gate carrier. The record type does not compile when the type gains or loses a value. */
@@ -472,7 +426,6 @@ function disagreements(
 ): readonly string[] {
   if (shape === 'outcome-table') return outcomeTableDisagreements(markdown);
   if (shape === 'runbook-binding') return runbookBindingDisagreements(markdown, runbook);
-  if (shape === 'probe-call') return probeCallDisagreements(markdown, runbook);
   if (shape === 'carrier-reading') return carrierReadingDisagreements(markdown, STATIC_ANALYSIS_MEMBERS);
   const read = checkedTypesIn(markdown, shape);
   if ('problem' in read) return [read.problem];
@@ -642,73 +595,23 @@ describe('SkillProse — the checked-by sentence names the gate row', () => {
   });
 
   /**
-   * Each probe-call passage gets three seeded defects. One runs the probe in the directory of the server, one renames
-   * the worktree field, and one drops the passage. The judge names each one, so a passage that stops binding the task
-   * tree turns this test red.
-   */
-  it('SkillProse_SeededProbeCallDisagreement_NamesTheUnboundField', () => {
-    const sites = SITES.filter((s) => s.shape === 'probe-call');
-    expect(sites.map((s) => s.skill)).toEqual([
-      'content/review/skills/review/SKILL.md',
-      'content/review/skills/review/references/spec-compliance-checklist.md',
-    ]);
-    for (const site of sites) {
-      expect(site.runbook, site.skill).toBeDefined();
-      if (site.runbook === undefined) continue;
-      const markdown = readFileSync(join(REPO_ROOT, site.skill), 'utf8');
-      expect(disagreements(markdown, site.phase, site.shape, site.runbook), site.skill).toEqual([]);
-
-      const serverDirectory = markdown.replaceAll('repoRoot: "auto"', 'repoRoot: "."');
-      expect(serverDirectory, site.skill).not.toBe(markdown);
-      expect(disagreements(serverDirectory, site.phase, site.shape, site.runbook), site.skill).toEqual([
-        `the passage does not pass \`repoRoot: "auto"\`, which the check_test_adequacy step of ${site.runbook.id} binds`,
-      ]);
-
-      const renamed = markdown.replaceAll('worktreePath: "<worktreePath>"', 'path: "<worktreePath>"');
-      expect(renamed, site.skill).not.toBe(markdown);
-      expect(disagreements(renamed, site.phase, site.shape, site.runbook), site.skill).toEqual([
-        `the passage does not pass \`worktreePath: "<worktreePath>"\`, which the check_test_adequacy step of ${site.runbook.id} binds`,
-      ]);
-
-      const silent = markdown
-        .replace('action: "check_test_adequacy"', 'action: "check_static_analysis"')
-        .replace(/^Run `check_test_adequacy`/m, 'Run the probe');
-      expect(silent, site.skill).not.toBe(markdown);
-      expect(disagreements(silent, site.phase, site.shape, site.runbook), site.skill).toEqual([
-        'expected exactly one passage that calls `check_test_adequacy`, found 0',
-      ]);
-    }
-  });
-
-  /**
    * The census reads each Markdown file of `content/` with the passage reader of the judge.
-   * Each file that holds a call of the kill probe must have a probe-call site, so no such passage escapes the judge.
-   * A seeded file and an omitted review site each produce a finding.
+   * The kill probe is retired, so no file must hold a call of it. A seeded file produces a finding.
    */
-  it('SkillProse_EveryProbeCallPassageOfTheContent_HasAProbeCallSite', () => {
+  it('SkillProse_NoContentPassage_CallsTheRetiredKillProbe', () => {
     const files = new Map(
       markdownFilesUnder(CONTENT_ROOT).map((file): [string, string] => [file, readFileSync(join(REPO_ROOT, file), 'utf8')]),
     );
     expect(files.size).toBeGreaterThan(0);
-    const listed = SITES.filter((site) => site.shape === 'probe-call').map((site) => site.skill);
-    expect(probeCallCensus(files, listed)).toEqual([]);
+    expect(probeCallCensus(files)).toEqual([]);
 
     const seeded = new Map(files).set(
       'content/seeded/SKILL.md',
       '```typescript\nexarchos_orchestrate({\n  action: "check_test_adequacy",\n})\n```\n',
     );
-    expect(probeCallCensus(seeded, listed)).toEqual([
-      'content/seeded/SKILL.md calls check_test_adequacy, and no probe-call site lists it',
-    ]);
-
-    const withoutReview = listed.filter((file) => file !== 'content/review/skills/review/SKILL.md');
-    expect(probeCallCensus(files, withoutReview)).toEqual([
-      'content/review/skills/review/SKILL.md calls check_test_adequacy, and no probe-call site lists it',
-    ]);
-    expect(probeCallCensus(new Map(), listed)).toEqual(
-      listed.map((file) => `${file} is a probe-call site and holds no call of check_test_adequacy`),
-    );
+    expect(probeCallCensus(seeded)).toEqual(['content/seeded/SKILL.md calls the retired check_test_adequacy']);
   });
+
 
   /**
    * The members come from the production mapping. Its verdicts are the closed verdicts, and a complete and a degraded

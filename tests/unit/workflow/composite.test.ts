@@ -115,6 +115,7 @@ describe('handleWorkflow', () => {
     /**
      * The composite reads `maxNoCoverage` and the enforcement mode from `projectConfig`. It passes
      * both in the `handleTransition` options, the same path as the mutation threshold.
+     * `review.mutation-enforcement` is retired, so the enforcement mode stays advisory.
      */
     it('Injection_MaxNoCoverageConfigured_ReachesTransitionOptions_DR6', async () => {
       const projectConfig = resolveConfig({
@@ -130,7 +131,7 @@ describe('handleWorkflow', () => {
       );
       const opts = (handleTransition as unknown as { mock: { calls: unknown[][] } }).mock
         .calls[0][3] as Record<string, unknown>;
-      expect(opts.mutationEnforcement).toBe('block');
+      expect(opts.mutationEnforcement).toBe('advisory');
       expect(opts.maxNoCoverage).toBe(2);
     });
 

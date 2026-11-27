@@ -19,7 +19,7 @@ When reporting task completion, use this format:
 ### Verification (by task tier)
 - [x] Risk tier: [low | medium | high]
 - [x] low → static analysis (typecheck + lint) clean
-- [x] medium/high → scoped tests pass + `check_test_adequacy` kill-probe (tests can actually fail); high adds the integration suite
+- [x] medium/high → scoped tests pass and can actually fail; high adds the integration suite
 - [x] No extra code beyond what the behavior requires
 
 ### Issues (if any)

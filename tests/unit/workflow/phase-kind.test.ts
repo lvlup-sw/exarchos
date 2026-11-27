@@ -242,16 +242,14 @@ describe('review-contract resolver (DR-9)', () => {
     expect(resolved.map((g) => g.gate)).toEqual(['review']);
   });
 
-  it('ResolveGateSet_ReviewKindFeatureHighTier_AppendsMutationAdequacy', () => {
+  /** A fresh high-tier workflow requires only the `review` dimension. */
+  it('ResolveGateSet_ReviewKindFeatureHighTier_ReturnsOnlyTheReviewDimension', () => {
     const resolved = resolveGateSet('REVIEW', {
       riskTier: 'high',
       boundaryTouching: false,
       workflowType: 'feature',
     });
-    expect(resolved.map((g) => g.gate)).toEqual([
-      'review',
-      'mutation-adequacy',
-    ]);
+    expect(resolved.map((g) => g.gate)).toEqual(['review']);
   });
 
   /**

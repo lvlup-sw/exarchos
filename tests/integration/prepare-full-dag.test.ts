@@ -172,7 +172,8 @@ describe('complete approved graph compilation', () => {
   it('DefaultTypedCompiler_ActivatesCompleteApprovedGraph', async () => {
     const s = await fixture(textOf(threeWaves()));
     const receipt = await s.prepare({ compilerVersion: undefined });
-    expect(receipt.capsule.provenance.compilerVersion).toBe('exarchos-prepare-8');
+    expect(receipt.capsule.provenance.compilerVersion).toBe('exarchos-prepare-8-vcs');
+    expect(receipt.capsule.settlementContract.integration).toBeDefined();
     expect(receipt.capsule.graph.tasks.map(node => node.taskId)).toEqual(['root', 'left', 'right', 'finish']);
     expect(receipt.capsule.graph.dependencies).toHaveLength(4);
     expect(receipt.capsule.settlementContract.verificationMode).toBe('immutable-task-diff-v1');

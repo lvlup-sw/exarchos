@@ -14,7 +14,6 @@ import { configureStateStoreBackend } from '../../workflow/state-store.js';
 import { loadTopology } from '../../workflow/topology/loader.js';
 import { assertRegistrationWeldsAtStartup } from '../../events/registration-validate.js';
 import { logger } from '../../logger.js';
-import type { VerificationHostConnector } from '../../contract/verification/harness-verification.js';
 import type { ResolvedProjectConfig } from '../../config/resolve.js';
 
 /** The executable configuration files that startup no longer evaluates. */
@@ -53,8 +52,6 @@ export interface InitializeContextOptions {
   readonly backend?: StorageBackend;
   /** The project root of the YAML configuration, the VCS provider and the topology. */
   readonly projectRoot?: string;
-  /** The verifier connector that startup read. When it is absent, the context is unprovisioned. */
-  readonly verificationHost?: VerificationHostConnector;
   /**
    * Whether startup with a project root creates the VCS provider. An absent value reads true.
    * The harness entry sets false, so its context starts no provider detection and no observational Git read.
@@ -66,7 +63,7 @@ export interface InitializeContextOptions {
  * Creates the DispatchContext for the MCP and CLI adapters. It first checks the event
  * registration welds, so an unresolvable `EffectProviderId` halts startup before the first append.
  *
- * The context returns the supplied connector as `verificationHost`. It never reads the home directory.
+ * The context never reads the home directory.
  * Without `projectRoot`, it skips config, VCS and topology. With it, it lazy-imports the YAML config
  * and VCS modules, applies the storage durability before the first append, and loads `topology.yaml`.
  * With `detectVcs: false` and a project root, it does the same steps without the VCS module, and the context holds no `vcsProvider`.
@@ -92,14 +89,12 @@ export async function initializeContext(
 
   const enableTelemetry = process.env.EXARCHOS_TELEMETRY !== 'false';
   const capabilityResolver = buildDefaultCapabilityResolver();
-  const verificationHost = options?.verificationHost;
   const base = {
     stateDir,
     eventStore,
     enableTelemetry,
     capabilityResolver,
     ...(backend !== undefined ? { storage: backend } : {}),
-    ...(verificationHost !== undefined ? { verificationHost } : {}),
   };
 
   if (!options?.projectRoot) {

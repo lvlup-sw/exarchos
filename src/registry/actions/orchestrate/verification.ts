@@ -423,7 +423,7 @@ export const verificationActions: readonly BuiltinToolAction[] = [
        * `'plan'`, so a declared test file that does not exist yet is not a failure.
        *
        * The name is not `phase`. `buildRegistrationSchema` flattens field names across all actions,
-       * and `check_test_adequacy` declares `phase` as a free-form string. The two base types collide
+       * and other actions declare `phase` as a free-form string. The two base types collide
        * and throw at server construction. A string type here loses the enum check, so the field has
        * its own name.
        */

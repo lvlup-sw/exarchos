@@ -39,11 +39,6 @@ plugins/*/servers/*/node_modules/
 plugins/*/servers/*/dist/
 plugins/*/servers/*/coverage/
 
-# Stryker mutation-testing artifacts (DR-7 runner substrate, task 012)
-reports/
-.stryker-tmp/
-stryker.log
-
 # Local settings
 *.local.json
 

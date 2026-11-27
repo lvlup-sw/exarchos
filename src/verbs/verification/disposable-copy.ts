@@ -4,7 +4,6 @@
  * It holds a private Git directory, whose detached HEAD is the head and whose object store reads the repository objects as an alternate.
  * Thus a leg reads the exact commits, and a Git write in the copy changes only the private directory.
  *
- * A reverted copy holds the head tree with each named source path at its blob of a base commit. A source path that the base lacks is left out.
  * It links node_modules from the live checkout, so a project-local runner resolves as in the checkout.
  * The live checkout and its Git state are never written. The copy is deleted after the body, and a copy that stays refuses.
  */
@@ -76,30 +75,6 @@ async function treeEntries(source: DisposableCopySource, commit: string): Promis
   });
 }
 
-/** The source paths of a reverted copy and the base commit that gives their blobs. */
-export interface SourceRevert {
-  readonly base: string;
-  readonly sources: readonly string[];
-}
-
-/**
- * The entries of the copy: the head tree, with each source path of `revert` at its base entry.
- * A source path that the base lacks is left out. A source path that neither the base nor the head holds refuses.
- */
-async function copyEntries(source: DisposableCopySource, revert: SourceRevert | undefined): Promise<readonly CopyEntry[]> {
-  const head = await treeEntries(source, source.head);
-  if (revert === undefined) return head;
-  const base = new Map((await treeEntries(source, revert.base)).map(entry => [entry.path, entry]));
-  const entries = new Map(head.map(entry => [entry.path, entry]));
-  for (const path of revert.sources) {
-    const original = base.get(path);
-    if (original === undefined && !entries.has(path)) throw new Error(`The source path ${path} is in neither the base nor the head`);
-    if (original === undefined) entries.delete(path);
-    else entries.set(path, original);
-  }
-  return [...entries.values()];
-}
-
 /** True when a path exists, without following a final link. */
 async function present(path: string): Promise<boolean> {
   try {
@@ -138,11 +113,11 @@ async function removeAfterFailure(copy: string, failure: unknown): Promise<unkno
 }
 
 /**
- * Build a copy of the exact head, or of the head with the sources of `revert` at the base.
+ * Build a copy of the exact head.
  * A copy that cannot be built is deleted before the error goes to the caller. A failed delete does not hide the build error.
  */
-export async function buildDisposableCopy(source: DisposableCopySource, revert?: SourceRevert): Promise<DisposableCopy> {
-  const entries = await copyEntries(source, revert);
+export async function buildDisposableCopy(source: DisposableCopySource): Promise<DisposableCopy> {
+  const entries = await treeEntries(source, source.head);
   const blobs = await source.reads.blobs(source.gitDir, source.checkout, [...new Set(entries.map(entry => entry.oid))], MAXIMUM_COPY_BYTES);
   const copy = await realpath(await mkdtemp(join(os.tmpdir(), DISPOSABLE_COPY_PREFIX)));
   try {

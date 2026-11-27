@@ -13,8 +13,7 @@
  * The gate never guesses a base. A run with no `baseBranch` gives the advisory finding `base-missing`.
  * That run passes, and it is not a skip.
  *
- * Each call reads its diff only through the constrained reader. A provisioned call uses the connector Git path.
- * A call with no connector uses the process-wide Git path.
+ * Each call reads its diff only through the constrained reader with the process-wide Git path.
  */
 
 import { resolve } from 'node:path';
@@ -31,7 +30,6 @@ import {
   type ConstrainedDiffRead,
   type ProfiledGateArgs,
 } from './gate-utils.js';
-import type { VerificationHostConnector } from '../../contract/verification/harness-verification.js';
 import { runGatePreflight } from '../pure/gate-preflight.js';
 import { runDurableGateProducer } from './durable-gate-producer.js';
 import type { RiskTier } from '../../workflow/verification-policy.js';
@@ -172,21 +170,18 @@ const COORDINATE_DIFF_REFUSED: ToolResult = {
 type DiffReading = { readonly kind: 'files'; readonly files: FileDiff[] } | { readonly kind: 'failed'; readonly result: ToolResult };
 
 /**
- * Read the diff of one call through the constrained reader. A provisioned call uses the connector Git path, and an empty connector path refuses.
- * A call with no connector passes no Git path, so the read uses the process-wide Git path. No caller argument selects the executable.
+ * Read the diff of one call through the constrained reader with the process-wide Git path. No caller argument selects the executable.
  *
  * The repo root climbs to its checkout root before the observation. A call with no coordinate diffs from the merge base of the resolved base and the observed head.
  * A failed non-coordinate read returns DIFF_ERROR, and a failed coordinate read keeps TASK_COORDINATE_REFUSED. A failed read never gives zero findings.
  */
-async function constrainedDiff(
-  connector: VerificationHostConnector | undefined, repoRoot: string, args: MockBoundaryHandlerArgs, baseRef: string | undefined,
-): Promise<DiffReading> {
+async function constrainedDiff(repoRoot: string, args: MockBoundaryHandlerArgs, baseRef: string | undefined): Promise<DiffReading> {
   const range: ConstrainedDiffRange | undefined = args.coordinate !== undefined
     ? { kind: 'commits', baseCommit: args.coordinate.diffBaseCommit, headCommit: args.coordinate.observedHeadCommit }
     : baseRef === undefined ? undefined : { kind: 'base', base: baseRef };
   const read: ConstrainedDiffRead = range === undefined
     ? { kind: 'refused', reason: 'No base names the diff.' }
-    : await readConstrainedDiff(connector?.gitPath, resolve(repoRoot), range);
+    : await readConstrainedDiff(undefined, resolve(repoRoot), range);
   if (read.kind === 'diff') return { kind: 'files', files: parseUnifiedDiff(read.diff) };
   if (args.coordinate !== undefined) return { kind: 'failed', result: COORDINATE_DIFF_REFUSED };
   return { kind: 'failed', result: { success: false, error: { code: 'DIFF_ERROR', message: `Failed to get diff from git in ${repoRoot}: ${read.reason}` } } };
@@ -272,7 +267,6 @@ export async function handleMockBoundary(
   args: MockBoundaryHandlerArgs,
   stateDir: string,
   eventStore: EventStore,
-  connector?: VerificationHostConnector,
 ): Promise<ToolResult> {
   const pre = await runGatePreflight(
     {
@@ -342,7 +336,7 @@ export async function handleMockBoundary(
 
       const severity = resolveGateSeverity('mock-boundary', 'D1', severityConfig);
 
-      const reading = await constrainedDiff(connector, repoRoot, args, baseRef);
+      const reading = await constrainedDiff(repoRoot, args, baseRef);
       if (reading.kind === 'failed') return reading.result;
       const findings = detectMockFindings(reading.files, {
         firstPartyGlobs: firstPartyTerm?.globs ?? DEFAULT_FIRST_PARTY_GLOBS,

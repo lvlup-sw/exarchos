@@ -3,8 +3,8 @@
  * Without this check, an unresolved toolchain degrades the gates and gives no signal.
  *
  * Status over `probes.verificationToolchain.resolve()`:
- * - Pass: `test`, `typecheck`, and `mutation` all resolve. The message reports `lint`, but `lint` never sets the status.
- * - Warning: one or more of these three fields is unresolved. `fix` names two remedies.
+ * - Pass: `test` and `typecheck` both resolve. The message reports `lint`, but `lint` never sets the status.
+ * - Warning: one or both of these fields is unresolved. `fix` names two remedies.
  *   The first is `exarchos doctor --fix`. The second is a declaration in `.exarchos.yml` or a `toolchains:` entry.
  * - Skipped: detection finds no toolchain. `reason` names what detection looked for.
  *
@@ -49,7 +49,7 @@ export const verificationToolchain: CheckFn = async (probes, signal) => {
       message: `No verification toolchain detected; ${policyNote}`,
       reason:
         'No project markers (package.json / a recognised toolchain) and no ' +
-        'test/typecheck/mutation entries in .exarchos.yml were detected, so no ' +
+        'test/typecheck entries in .exarchos.yml were detected, so no ' +
         'verification runtime could be resolved. Add a project toolchain or ' +
         'declare commands in .exarchos.yml to enable the verification ladder.',
       durationMs: Date.now() - start,
@@ -57,7 +57,7 @@ export const verificationToolchain: CheckFn = async (probes, signal) => {
     };
   }
 
-  const unresolved = (['test', 'typecheck', 'mutation'] as const).filter(
+  const unresolved = (['test', 'typecheck'] as const).filter(
     (field) => runtime[field] === null,
   );
 
@@ -71,7 +71,7 @@ export const verificationToolchain: CheckFn = async (probes, signal) => {
       fix:
         'Run `exarchos doctor --fix` to seed the commands detection found, AND ' +
         `declare the unresolved field(s) (${unresolved.join(', ')}) explicitly ` +
-        'in .exarchos.yml (e.g. `mutation: npx stryker run`) or via a ' +
+        'in .exarchos.yml (e.g. `typecheck: tsc --noEmit`) or via a ' +
         '`toolchains:` entry for toolchains detection cannot infer.',
       durationMs: Date.now() - start,
       policyCells,
@@ -83,7 +83,7 @@ export const verificationToolchain: CheckFn = async (probes, signal) => {
     status: 'Pass' as const,
     message:
       `Verification toolchain resolves: test (\`${runtime.test}\`), ` +
-      `typecheck (\`${runtime.typecheck}\`), mutation (\`${runtime.mutation}\`); ` +
+      `typecheck (\`${runtime.typecheck}\`); ` +
       `${lintNote(runtime.lint)}; ${policyNote}`,
     durationMs: Date.now() - start,
     policyCells,

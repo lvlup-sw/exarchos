@@ -145,10 +145,10 @@ describe('validateExample against the LIVE registry — seeded drift FAILS', () 
     expect(issues.some((i) => i.code === 'UNKNOWN_PARAM' && i.param === 'bogusParam')).toBe(true);
   });
 
-  it('flags a 0..1 threshold documented as 80 (real bounded param)', () => {
-    const md = fence('exarchos_orchestrate({ action: "mutation-adequacy", threshold: 80 })');
+  it('flags a capsule version under its minimum of 1 (real bounded param)', () => {
+    const md = fence('exarchos_orchestrate({ action: "task_complete", taskId: "t", capsuleVersion: 0 })');
     const issues = validateMarkdown(md, 'seed.md', oracle);
-    expect(issues.some((i) => i.code === 'RANGE_MISMATCH' && i.param === 'threshold')).toBe(true);
+    expect(issues.some((i) => i.code === 'RANGE_MISMATCH' && i.param === 'capsuleVersion')).toBe(true);
   });
 
   it('flags a value outside a real enum (strategy)', () => {

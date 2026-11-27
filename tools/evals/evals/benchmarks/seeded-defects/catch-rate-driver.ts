@@ -1,5 +1,5 @@
 /**
- * The gate catch-rate driver. It runs the five mechanical gate handlers over the seeded-defect corpus.
+ * The gate catch-rate driver. It runs the four mechanical gate handlers over the seeded-defect corpus.
  *
  * For each gate it measures the catch rate on seeded defects and the false-positive rate on controls. For
  * each fixture it records the wall-clock time and an estimated token count of the gate result.
@@ -20,7 +20,6 @@ import { performance } from 'node:perf_hooks';
 import { EventStore } from '../../../../../src/events/store.js';
 import { deriveRepoKey } from '../../../../../src/utils/paths.js';
 import type { ToolResult } from '../../../../../src/format.js';
-import { handleTestAdequacy } from '../../../../../src/verbs/gates/test-adequacy-handler.js';
 import { handleStaticAnalysis } from '../../../../../src/verbs/gates/static-analysis.js';
 import { handleContractDrift } from '../../../../../src/verbs/gates/contract-drift-handler.js';
 import { handleMockBoundary } from '../../../../../src/verbs/gates/mock-boundary-handler.js';
@@ -118,7 +117,6 @@ export type GateHandler = (
  * the generic record from the fixture at this one boundary.
  */
 const GATE_HANDLERS: Readonly<Record<GateClass, GateHandler | null>> = {
-  'test-adequacy': (a, sd, es) => handleTestAdequacy(a as unknown as Parameters<typeof handleTestAdequacy>[0], sd, es),
   'static-analysis': (a, sd, es) => handleStaticAnalysis(a as unknown as Parameters<typeof handleStaticAnalysis>[0], sd, es),
   'contract-drift': (a, sd, es) => handleContractDrift(a as unknown as Parameters<typeof handleContractDrift>[0], sd, es),
   'mock-boundary': (a, sd, es) => handleMockBoundary(a as unknown as Parameters<typeof handleMockBoundary>[0], sd, es),
@@ -517,7 +515,7 @@ function resolveProvenance(): Provenance {
 }
 
 async function main(): Promise<void> {
-  process.stdout.write('Driving the seeded-defect corpus through the five real mechanical gates…\n');
+  process.stdout.write('Driving the seeded-defect corpus through the four real mechanical gates…\n');
   const report = await runCatchRate();
   const csv = toCsv(report, resolveProvenance());
   fs.mkdirSync(path.dirname(CSV_OUT), { recursive: true });

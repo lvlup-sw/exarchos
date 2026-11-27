@@ -53,23 +53,35 @@ export function digest(bytes: string | Buffer): string {
   return createHash('sha256').update(bytes).digest('hex');
 }
 
-export async function makeBarrier(root: string, name: string) {
+/**
+ * A file barrier that a held child process opens with a readiness record.
+ * The wait refuses at once when the given process ends before the record exists, because the record cannot appear after that.
+ * The time budget applies only while the process still runs.
+ */
+export async function makeBarrier(root: string, name: string, readyWithinMs = 10_000) {
   const directory = path.join(root, name);
   await mkdir(directory);
   return {
     directory,
-    async wait(): Promise<RecordValue> {
-      const deadline = performance.now() + 10_000;
+    async wait(exited?: Promise<unknown>): Promise<RecordValue> {
+      const end: { reached: boolean; value?: unknown } = { reached: false };
+      exited?.then(value => { end.reached = true; end.value = value; }, (error: unknown) => { end.reached = true; end.value = error; });
+      const deadline = performance.now() + readyWithinMs;
       const ready = path.join(directory, 'ready.json');
       while (performance.now() < deadline) {
+        const endedBeforeRead = end.reached;
         try {
           return record(JSON.parse(await readFile(ready, 'utf8')));
         } catch (error) {
           if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
         }
+        if (endedBeforeRead) {
+          const detail = end.value instanceof Error ? end.value.message : JSON.stringify(end.value);
+          throw new Error(`The process ended before the readiness record for ${name}: ${detail}`);
+        }
         await setTimeout(15);
       }
-      throw new Error(`No readiness record for ${name}`);
+      throw new Error(`No readiness record for ${name} within ${readyWithinMs}ms`);
     },
     async release() {
       const release = path.join(directory, 'release');

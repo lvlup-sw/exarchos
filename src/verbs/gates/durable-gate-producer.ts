@@ -18,14 +18,13 @@ import { listObservedWorktrees, locateObservational } from '../../utils/git-obse
 import { resolveActivePhaseAttemptId } from '../tasks/active-phase-attempt.js';
 import { resolveWorkflowState } from '../resolve-state.js';
 import {
-  closedListingCleanTree, HostedAdequacyPending, passingGateReplay, runGateWithEvidence, type GateRunTree,
+  closedListingCleanTree, HostedAdequacyPending, runGateWithEvidence, type GateRunTree,
 } from './gate-runner.js';
 
 export interface DurableGateScope {
   readonly coordinate?: ProfiledGateArgs['coordinate'];
   readonly gateClass:
     | 'static-analysis'
-    | 'test-adequacy'
     | 'integration-suite'
     | 'contract-drift'
     | 'mock-boundary';
@@ -319,23 +318,4 @@ export async function observeSelectedCheckout(repoRoot: string, coordinate: NonN
   }
   return await closedListingCleanTree(observer.reads, checkout.gitDir, checkout.checkout, checkout.head)
     ? { worktree, head: checkout.head } : undefined;
-}
-
-/**
- * Reuses the writer's attempt and subject terms for the bounded adequacy restart.
- * Stored effects replay only on the selected clean checkout, which the constrained observer reads. No other route trusts the coordinate head.
- * With no stored effects, the replay reads no checkout, and the claim check of the gate runner still runs.
- */
-export async function replayPassingAdequacy(scope: GateSubjectScope & { readonly eventStore: EventStore },
-  operationId: string, producerId: string, coordinate: NonNullable<ProfiledGateArgs['coordinate']>) {
-  const attempt = await activePhaseAttemptId(scope.featureId, scope.eventStore);
-  if (typeof attempt !== 'string') return undefined;
-  const effects = await scope.eventStore.query(scope.featureId, { operationId });
-  const tree = effects.length === 0
-    ? { worktree: canonicalPath(scope.repoRoot), head: coordinate.observedHeadCommit }
-    : await observeSelectedCheckout(scope.repoRoot, coordinate);
-  if (tree === undefined) return undefined;
-  return passingGateReplay({ streamId: scope.featureId, gateClass: scope.gateClass, phaseAttemptId: attempt,
-    requirementId: ladderRequirementId(scope.gateClass), subject: selectSubject(scope, attempt), providerInput: {},
-    tree }, scope.eventStore, operationId, producerId);
 }

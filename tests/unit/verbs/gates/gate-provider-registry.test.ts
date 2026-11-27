@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
 import { TOOL_REGISTRY } from '../../../../src/registry.js';
+import { RETIRED_ACTIONS } from '../../../../src/registry/retired-actions.js';
 import {
   BUILTIN_GATE_PROVIDER_REGISTRY,
+  RETIRED_GATE_CLASSES,
   SUPPORTED_GATE_CLASSES,
   buildGateProviderRegistry,
   type GateProviderRegistration,
@@ -110,15 +112,25 @@ describe('gate provider registry', () => {
     }
   });
 
+  /**
+   * Each live provider binds to one real orchestrate action. A provider of a retired class binds to a row of the
+   * retired-action table, and no registered action declares its class.
+   */
   it('binds each provider to one real orchestrate action in the production registry', () => {
     const orchestrate = TOOL_REGISTRY.find((tool) => tool.name === 'exarchos_orchestrate');
     expect(orchestrate).toBeDefined();
 
     const ownedActions = orchestrate!.actions.filter((action) => action.gate?.gateClass);
-    expect(ownedActions).toHaveLength(SUPPORTED_GATE_CLASSES.length);
+    expect(ownedActions).toHaveLength(SUPPORTED_GATE_CLASSES.length - RETIRED_GATE_CLASSES.size);
+    expect([...RETIRED_GATE_CLASSES]).toEqual(['test-adequacy']);
 
     for (const provider of BUILTIN_GATE_PROVIDER_REGISTRY.list()) {
       expect(provider.providerRef).toBe(provider.actionName);
+      if (RETIRED_GATE_CLASSES.has(provider.gateClass)) {
+        expect(RETIRED_ACTIONS.some((entry) => entry.tool === 'exarchos_orchestrate' && entry.action === provider.actionName)).toBe(true);
+        expect(ownedActions.filter((action) => action.gate?.gateClass === provider.gateClass)).toEqual([]);
+        continue;
+      }
       const matches = ownedActions.filter(
         (action) =>
           action.name === provider.actionName &&

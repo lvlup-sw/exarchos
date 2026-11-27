@@ -187,15 +187,7 @@ export default defineConfig({
             'tools/test-helpers/**/*.test.ts',
             'tools/evals/bench/**/*.bench.ts',
           ],
-          /**
-           * The default run excludes the Stryker smoke test, because it spawns the real Stryker
-           * binary and takes seconds. A Linux-only CI step sets `EXARCHOS_SMOKE_ONLY=1` to collect
-           * it. The toggle lives here, because the vitest `--exclude` flag can only add exclusions.
-           */
-          exclude:
-            process.env.EXARCHOS_SMOKE_ONLY === '1'
-              ? [...EXCLUDE]
-              : [...EXCLUDE, 'tests/unit/verbs/stryker-adapter.smoke.test.ts'],
+          exclude: EXCLUDE,
           setupFiles: [FILE_BOUNDARY_RESET, HERMETIC_INSTALL_IDENTITY, CLOSE_SQLITE, YIELD_BETWEEN_TESTS],
         },
       },

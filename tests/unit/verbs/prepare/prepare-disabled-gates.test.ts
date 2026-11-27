@@ -35,8 +35,8 @@ const CAPABILITIES = ['fs:read', 'fs:write', 'shell:exec', 'mcp:exarchos'];
 /** The commit that the seam resolves for the base. */
 const BASE_COMMIT = '5'.repeat(40);
 
-/** A checkout config that disables the kill probe, one gate of the segment of a medium task. */
-const DISABLING_CONFIG = 'review:\n  gates:\n    check_test_adequacy:\n      enabled: false\n';
+/** A checkout config that disables the integration suite, one gate of the segment of a high task. */
+const DISABLING_CONFIG = 'review:\n  gates:\n    check_integration_suite:\n      enabled: false\n';
 
 let stateDir: string;
 let store: EventStore;
@@ -83,7 +83,7 @@ async function seed(): Promise<void> {
     data: {
       patch: {
         'synthesis.integrationBranch': INTEGRATION_BRANCH,
-        tasks: [{ id: 'T-1', title: 'medium', status: 'pending', blockedBy: [], riskTier: 'medium', boundaryTouching: false }],
+        tasks: [{ id: 'T-1', title: 'high', status: 'pending', blockedBy: [], riskTier: 'high', boundaryTouching: false }],
       },
     },
   });
@@ -107,23 +107,23 @@ async function prepared(): Promise<{ readonly capsuleVersion: number; readonly p
 
 describe('prepare drops the gates that the checkout config disables from the pattern text', () => {
   /**
-   * The twin comes first: with no config, the pattern of the medium task names the kill probe.
-   * Then the checkout config disables the kill probe. The config edit compiles the next capsule version, and its pattern does not name that gate.
+   * The twin comes first: with no config, the pattern of the high task names the integration suite.
+   * Then the checkout config disables the suite. The config edit compiles the next capsule version, and its pattern does not name that gate.
    */
   it('Prepare_TheCheckoutConfigDisablesAGate_ThePatternTextNamesItNot', async () => {
     await seed();
     const twin = await prepared();
     expect(twin.capsuleVersion).toBe(1);
     expect(twin.patterns).toContain(
-      'A task at riskTier=medium, boundaryTouching=false is verified at settlement by: check_static_analysis, check_test_adequacy.',
+      'A task at riskTier=high, boundaryTouching=false is verified at settlement by: check_static_analysis, check_integration_suite.',
     );
 
     await writeFile(path.join(checkout, '.exarchos.yml'), DISABLING_CONFIG);
     const disabled = await prepared();
     expect(disabled.capsuleVersion).toBe(2);
     expect(disabled.patterns).toContain(
-      'A task at riskTier=medium, boundaryTouching=false is verified at settlement by: check_static_analysis.',
+      'A task at riskTier=high, boundaryTouching=false is verified at settlement by: check_static_analysis.',
     );
-    expect(disabled.patterns.filter((statement) => statement.includes('check_test_adequacy'))).toEqual([]);
+    expect(disabled.patterns.filter((statement) => statement.includes('check_integration_suite'))).toEqual([]);
   });
 });

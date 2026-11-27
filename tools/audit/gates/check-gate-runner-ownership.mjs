@@ -56,7 +56,6 @@ const DISPOSITIONS = Object.freeze([
     'src/verbs/gates/contract-drift-handler.ts',
     'src/verbs/gates/mock-boundary-handler.ts',
     'src/verbs/gates/static-analysis.ts',
-    'src/verbs/gates/test-adequacy-handler.ts',
   ].map((file) => ({
     file,
     kind: 'durable-runner',

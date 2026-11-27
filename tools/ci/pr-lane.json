@@ -114,7 +114,6 @@
     "test-mcp: npm run test:coverage": "The coverage run stays on the push-to-main run of ci.yml.",
     "test-mcp: node tools/audit/gates/check-coverage-ratchet.mjs": "The coverage ratchet reads the coverage run, so it runs after merge.",
     "test-mcp: vitest run tools/evals/evals/harness.test.ts tools/evals/evals/graders/llm-rubric.test.ts": "The eval lane needs model credentials.",
-    "test-mcp: vitest run tests/unit/verbs/stryker-adapter.smoke.test.ts": "The Stryker smoke test does not gate.",
     "test-windows: bash tools/release/npm-ci-retry.sh": "Windows runs on Actions.",
     "test-windows: npm run test:core": "Windows runs on Actions.",
     "test-windows: Guard — worktree suite executed on Windows (DR-11s)": "Windows runs on Actions.",

@@ -18,7 +18,7 @@ import {
 } from '../../../../src/workflow/admission/requirement-strength.js';
 
 const STATIC: ResolvedGate = { family: 'ladder', gate: 'check_static_analysis' };
-const ADEQUACY: ResolvedGate = { family: 'ladder', gate: 'check_test_adequacy' };
+const DRIFT: ResolvedGate = { family: 'ladder', gate: 'check_contract_drift' };
 const INTEG: ResolvedGate = { family: 'ladder', gate: 'check_integration_suite' };
 const REVIEW: ResolvedGate = { family: 'review', gate: 'mutation-adequacy' };
 
@@ -34,8 +34,8 @@ const req = (over: Partial<ResolvedRequirements> = {}): ResolvedRequirements => 
 const SAMPLE: readonly ResolvedRequirements[] = [
   BOTTOM_REQUIREMENTS,
   req({ gates: [STATIC] }),
-  req({ gates: [STATIC, ADEQUACY] }),
-  req({ gates: [STATIC, ADEQUACY, INTEG] }),
+  req({ gates: [STATIC, DRIFT] }),
+  req({ gates: [STATIC, DRIFT, INTEG] }),
   req({ gates: [REVIEW] }),
   req({ minimumApprovals: 2 }),
   req({ minimumCorroboratingSources: 3 }),
@@ -45,14 +45,14 @@ const SAMPLE: readonly ResolvedRequirements[] = [
 
 describe('requirement-strength — canonical gate sets', () => {
   it('deduplicates and sorts gates into an order-independent canonical form', () => {
-    const a = canonicalizeGates([INTEG, STATIC, ADEQUACY, STATIC]);
-    const b = canonicalizeGates([ADEQUACY, INTEG, STATIC]);
+    const a = canonicalizeGates([INTEG, STATIC, DRIFT, STATIC]);
+    const b = canonicalizeGates([DRIFT, INTEG, STATIC]);
     expect(a.map(canonicalGateKey)).toEqual(b.map(canonicalGateKey));
     expect(a.filter((g) => canonicalGateKey(g) === canonicalGateKey(STATIC))).toHaveLength(1);
   });
 
   it('treats the gate field as a SET — same members, different order, is equal', () => {
-    expect(equalRequirements(req({ gates: [STATIC, ADEQUACY] }), req({ gates: [ADEQUACY, STATIC] }))).toBe(true);
+    expect(equalRequirements(req({ gates: [STATIC, DRIFT] }), req({ gates: [DRIFT, STATIC] }))).toBe(true);
   });
 });
 
@@ -140,7 +140,7 @@ describe('requirement-strength — join is the least upper bound', () => {
     const b = req({ gates: [REVIEW], minimumCorroboratingSources: 2 });
     const j = joinRequirements(a, b);
     const upper = req({
-      gates: [STATIC, ADEQUACY, REVIEW],
+      gates: [STATIC, DRIFT, REVIEW],
       minimumApprovals: 5,
       minimumCorroboratingSources: 4,
       waivable: false,
@@ -195,7 +195,7 @@ describe('requirement-strength — join is the least upper bound', () => {
 
 describe('requirement-strength — deep freeze', () => {
   it('freezes the object, the gate array, and every gate', () => {
-    const frozen = deepFreezeRequirements(req({ gates: [STATIC, ADEQUACY], minimumApprovals: 1 }));
+    const frozen = deepFreezeRequirements(req({ gates: [STATIC, DRIFT], minimumApprovals: 1 }));
     expect(Object.isFrozen(frozen)).toBe(true);
     expect(Object.isFrozen(frozen.gates)).toBe(true);
     expect(Object.isFrozen(frozen.gates[0])).toBe(true);
@@ -207,7 +207,7 @@ describe('requirement-strength — deep freeze', () => {
       (frozen as unknown as { minimumApprovals: number }).minimumApprovals = 99;
     }).toThrow();
     expect(() => {
-      (frozen.gates as unknown as ResolvedGate[]).push(ADEQUACY);
+      (frozen.gates as unknown as ResolvedGate[]).push(DRIFT);
     }).toThrow();
   });
 

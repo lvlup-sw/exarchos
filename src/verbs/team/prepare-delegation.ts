@@ -140,9 +140,8 @@ export interface PrepareDelegationResult {
    */
   readonly dispatch: DispatchShape;
   /**
-   * The integration branch that each task of the wave forks from. The kill probe measures the task
-   * diff from it, so the task-completion runbook binds it as `baseRef`. Without it, the gate blocks
-   * and does not guess a base.
+   * The integration branch that each task of the wave forks from. The diff gates measure the task
+   * diff from it, so the task-completion runbook binds it as `baseRef`. A gate does not guess a base.
    */
   readonly baseBranch: string;
   readonly blockers?: string[];
@@ -720,7 +719,7 @@ async function emitAuditEvent(
 
 /**
  * Writes the workflow `riskTier` to `state.riskTier` through a best-effort `state.patched` event.
- * The required-reviews contract of `/review` reads that field, so a high tier adds the `mutation-adequacy` review.
+ * The required-reviews contract of `/review` reads that field to select the tier-coupled review dimensions.
  * The event has no idempotency key on the tier value, because such a key drops a tier that rises again after a fall.
  * The fold is last-write-wins, so a repeated patch with the same value has no effect.
  */
@@ -733,12 +732,6 @@ export async function persistWorkflowRiskTier(
     type: 'state.patched',
     data: { featureId: streamId, fields: ['riskTier'], patch: { riskTier } },
   });
-}
-
-/** The connector Git path of the call. An empty path counts as no path, so the guards use the process-wide Git path. */
-function observationalGitPathOf(ctx: DispatchContext | undefined): string | undefined {
-  const gitPath = ctx?.verificationHost?.gitPath;
-  return gitPath === undefined || gitPath === '' ? undefined : gitPath;
 }
 
 /**
@@ -928,7 +921,7 @@ export async function handlePrepareDelegation(
     const warnings: string[] = repoRoot === undefined ? [serverDirectoryWarning(process.cwd())] : [];
     const withWarnings = (): { warnings?: string[] } => (warnings.length > 0 ? { warnings } : {});
 
-    const observation = await observeDispatchCheckout(repoRoot, observationalGitPathOf(ctx));
+    const observation = await observeDispatchCheckout(repoRoot, undefined);
 
     const preflightStart = Date.now();
     const guardOutcomes: {

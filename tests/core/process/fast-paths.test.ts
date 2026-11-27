@@ -85,12 +85,12 @@ describe('fast paths of the compiled binary', () => {
   });
 
   /**
-   * With no verifier provisioning, `run-tests` runs the resolved command in the local executor and exits with the child exit code.
+   * `run-tests` runs the resolved command in the local executor and exits with the child exit code.
    * A working directory that is not a checkout root refuses with exit 77.
    * A program that does not start gives no verdict with exit 75.
    * No outcome exits 78.
    */
-  it('RunTests_NoVerifierProvisioning_RunsLocallyAndKeepsExits77And75', async () => {
+  it('RunTests_ResolvedCommand_RunsLocallyAndKeepsExits77And75', async () => {
     const project = join(scratch, 'project');
     mkdirSync(project, { recursive: true });
     const marker = join(scratch, 'ran');

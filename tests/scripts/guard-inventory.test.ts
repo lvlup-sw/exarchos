@@ -928,11 +928,11 @@ describe('Derivations the inventory rests on', () => {
 
 describe('Exclusions stay reviewable', () => {
   /**
-   * `stryker-adapter.mjs` is runnable, but it has no self-test, so it is not a guard.
+   * `measure-primary-owner-population.mjs` is runnable, but it has no self-test, so it is not a guard.
    * The inventory must report the exclusion.
    */
   it('GuardInventory_RunnableModuleWithNoSelfTest_IsReportedNotDroppedSilently', () => {
-    expect(liveInventory.runnableWithoutSelfTest).toContain('tools/audit/core/stryker-adapter.mjs');
+    expect(liveInventory.runnableWithoutSelfTest).toContain('tools/audit/core/measure-primary-owner-population.mjs');
   });
 
   /**

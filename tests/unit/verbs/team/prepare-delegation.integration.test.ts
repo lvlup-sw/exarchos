@@ -364,7 +364,6 @@ describe('HandleOrchestrate_PrepareDelegation_StampsRiskTierBoundaryAndVerificat
     expect(high.boundaryTouching).toBe(false);
     expect(high.verificationSequence).toEqual([
       'check_static_analysis',
-      'check_test_adequacy',
       'check_integration_suite',
     ]);
 
@@ -373,7 +372,6 @@ describe('HandleOrchestrate_PrepareDelegation_StampsRiskTierBoundaryAndVerificat
     expect(highAccept.boundaryTouching).toBe(true);
     expect(highAccept.verificationSequence).toEqual([
       'check_static_analysis',
-      'check_test_adequacy',
       'check_integration_suite',
       'check_contract_drift',
       'check_mock_boundary',
@@ -384,7 +382,6 @@ describe('HandleOrchestrate_PrepareDelegation_StampsRiskTierBoundaryAndVerificat
     expect(medium.boundaryTouching).toBe(false);
     expect(medium.verificationSequence).toEqual([
       'check_static_analysis',
-      'check_test_adequacy',
     ]);
 
     const low = findClassification(data, 't-low');
@@ -397,7 +394,6 @@ describe('HandleOrchestrate_PrepareDelegation_StampsRiskTierBoundaryAndVerificat
     expect(boundary.riskTier).toBe('medium');
     expect(boundary.verificationSequence).toEqual([
       'check_static_analysis',
-      'check_test_adequacy',
       'check_contract_drift',
       'check_mock_boundary',
     ]);
@@ -452,8 +448,8 @@ describe('HandleOrchestrate_PrepareDelegation_StampsRiskTierBoundaryAndVerificat
 
 /**
  * Drives `prepare_delegation` through `handleOrchestrate` on a real `EventStore`. The
- * derived workflow tier persists to `state.riskTier` through `state.patched`, and a
- * high tier adds `mutation-adequacy` to the required reviews.
+ * derived workflow tier persists to `state.riskTier` through `state.patched`. The live
+ * review contract adds no dimension at the high tier.
  */
 describe('HandleOrchestrate_PrepareDelegation_PersistsWorkflowRiskTier (DR-2)', () => {
   async function seedReadyStream(
@@ -496,7 +492,7 @@ describe('HandleOrchestrate_PrepareDelegation_PersistsWorkflowRiskTier (DR-2)', 
   }
 
   /** The workflow tier is the highest task tier, so a schema task and a medium task give `high`. */
-  it('persists state.riskTier=high for a high-tier wave and arms the mutation-adequacy backstop', async () => {
+  it('persists state.riskTier=high for a high-tier wave, and the high-tier roster requires only review', async () => {
     const ctxStore = new EventStore(tmpDir);
     const streamId = 'dr2-workflow-risktier';
     const taskIds = ['t-high', 't-medium'] as const;
@@ -538,7 +534,7 @@ describe('HandleOrchestrate_PrepareDelegation_PersistsWorkflowRiskTier (DR-2)', 
     const riskTier = await materializeRiskTier(ctxStore, tmpDir, streamId);
     expect(riskTier).toBe('high');
 
-    expect(getRequiredReviews('feature', riskTier as string)).toContain('mutation-adequacy');
+    expect(getRequiredReviews('feature', String(riskTier))).toEqual(['review']);
   });
 
   /**
@@ -566,7 +562,7 @@ describe('HandleOrchestrate_PrepareDelegation_PersistsWorkflowRiskTier (DR-2)', 
 
       const riskTier = await materializeRiskTier(ctxStore, tmpDir, streamId);
       expect(riskTier).toBe('high');
-      expect(getRequiredReviews('feature', riskTier as string)).toContain('mutation-adequacy');
+      expect(getRequiredReviews('feature', String(riskTier))).toEqual(['review']);
     } finally {
       ctxStore.close();
     }

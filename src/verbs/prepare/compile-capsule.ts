@@ -213,7 +213,7 @@ export interface CompileCapsuleInput {
   /**
    * The branch that each task in the batch forks from: the integration branch of the workflow,
    * which the handler resolves. It is frozen into the verification terms of each task, so the
-   * kill probe measures the task diff from its start.
+   * diff gates measure the task diff from its start.
    */
   readonly baseRef: string;
   /**

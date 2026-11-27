@@ -47,13 +47,11 @@ type InjectableDeps = Omit<WorktreeManagerDeps, 'eventStore'>;
 
 /**
  * Builds a {@link WorktreeManager} over the dispatch event store and the optional deps.
- * The adoption probe gets a non-empty connector Git path. Without one, it uses the process-wide Git path.
+ * The adoption probe uses the process-wide Git path.
  */
 function buildManager(ctx: DispatchContext, deps?: InjectableDeps): WorktreeManager {
-  const gitPath = ctx.verificationHost?.gitPath;
   return new WorktreeManager({
     eventStore: ctx.eventStore,
-    ...(gitPath === undefined || gitPath === '' ? {} : { observationalGitPath: gitPath }),
     ...deps,
   });
 }

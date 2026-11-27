@@ -53,7 +53,6 @@ type TaskCompletionLeaf = (typeof TASK_COMPLETION)['steps'][number]['action'];
  * the work. The record is exhaustive, so a new leaf without a class does not compile.
  */
 export const TASK_COMPLETION_LEAF_CLASSES: Readonly<Record<TaskCompletionLeaf, 'gate' | 'completion'>> = {
-  check_test_adequacy: 'gate',
   check_contract_drift: 'gate',
   check_mock_boundary: 'gate',
   check_integration_suite: 'gate',
@@ -67,14 +66,23 @@ function isTaskCompletionLeaf(action: string): action is TaskCompletionLeaf {
 }
 
 /**
+ * The gate leaves of earlier task-completion runbooks. A stored receipt can name one as its failed leaf.
+ * The source-revert kill probe was such a leaf until its retirement on 2026-11-25.
+ */
+const RETIRED_TASK_COMPLETION_GATE_LEAVES: ReadonlySet<string> = new Set(['check_test_adequacy']);
+
+/**
  * Whether the halt of a segment is a gate verdict about the work of its task. It is a verdict
- * when a gate leaf stopped the segment and the leaf kept its contract. A halt at the completion
- * leaf, at a leaf that the runbook does not name, or on a broken contract is not a verdict.
+ * when a gate leaf stopped the segment and the leaf kept its contract. A retired gate leaf of a stored
+ * receipt is also a gate leaf. A halt at the completion leaf, at a leaf that the runbook does not name,
+ * or on a broken contract is not a verdict.
  */
 export function haltIsGateVerdict(receipt: IntentReceipt): boolean {
   if (receipt.failure?.code === 'INTENT_EMISSION_CONTRACT_VIOLATED') return false;
   const leaf = receipt.failedLeaf;
-  return leaf !== undefined && isTaskCompletionLeaf(leaf) && TASK_COMPLETION_LEAF_CLASSES[leaf] === 'gate';
+  if (leaf === undefined) return false;
+  if (RETIRED_TASK_COMPLETION_GATE_LEAVES.has(leaf)) return true;
+  return isTaskCompletionLeaf(leaf) && TASK_COMPLETION_LEAF_CLASSES[leaf] === 'gate';
 }
 
 /**

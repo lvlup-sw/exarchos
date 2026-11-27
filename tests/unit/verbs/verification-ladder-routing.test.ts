@@ -13,12 +13,6 @@ import { mkdtempSync } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 
-const mockRunProbe = vi.fn();
-vi.mock('../../../src/verbs/gates/test-adequacy.js', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../../src/verbs/gates/test-adequacy.js')>();
-  return { ...actual, runProbe: (...args: unknown[]) => mockRunProbe(...args) };
-});
-
 const mockRunContractDrift = vi.fn();
 vi.mock('../../../src/verbs/gates/contract-drift.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../../src/verbs/gates/contract-drift.js')>();
@@ -65,15 +59,6 @@ async function orchestrate(
   return runAsTrustedCaller(ctx.stateDir, () => handleOrchestrate(args, ctx));
 }
 
-function probePass() {
-  return {
-    passed: true,
-    probedTests: ['src/calc.test.ts'],
-    redObserved: true,
-    restoredClean: true,
-  };
-}
-
 /**
  * `gateEvents` matches `admission.evidence-recorded` events with the observation source of the gate runner.
  * Thus each assertion stays tied to the one owner of durable gate evidence.
@@ -82,8 +67,6 @@ describe('verification-ladder self-routing (FIX-1)', () => {
   const stateDirs: string[] = [];
 
   beforeEach(() => {
-    mockRunProbe.mockReset();
-    mockRunProbe.mockResolvedValue(probePass());
     mockRunContractDrift.mockReset();
     mockRunContractDrift.mockResolvedValue({
       passed: true,
@@ -123,30 +106,6 @@ describe('verification-ladder self-routing (FIX-1)', () => {
       (e) => e.type === 'admission.evidence-recorded' && e.source === source,
     );
   }
-
-  /** The low-tier sequence is `[check_static_analysis]`, so the probe does not run. The handler still records the routing decision. */
-  it('CheckTestAdequacy_LowTierStamp_SkippedByPolicy', async () => {
-    const ctx = await makeCtx();
-    const result = await orchestrate(
-      {
-        action: 'check_test_adequacy',
-        featureId: 'feat-low',
-        taskId: 'T-low',
-        repoRoot: '/fake/repo',
-        riskTier: 'low',
-        boundaryTouching: false,
-      },
-      ctx,
-    );
-
-    expect(result.success).toBe(true);
-    const data = result.data as { passed: boolean; discriminant?: string };
-    expect(data.passed).toBe(true);
-    expect(data.discriminant).toBe('skipped-by-policy');
-    expect(mockRunProbe).not.toHaveBeenCalled();
-    const events = await ctx.eventStore.query('feat-low');
-    expect(gateEvents(events, 'test-adequacy')).toHaveLength(1);
-  });
 
   /** The medium-tier sequence without a boundary does not include `check_contract_drift`. */
   it('CheckContractDrift_NonBoundaryStamp_SkippedByPolicy', async () => {
@@ -221,46 +180,4 @@ describe('verification-ladder self-routing (FIX-1)', () => {
     expect(mockRunContractDrift).toHaveBeenCalledOnce();
   });
 
-  /** The medium-tier sequence includes `check_test_adequacy`, so the probe runs. */
-  it('CheckTestAdequacy_MediumTier_StillRuns', async () => {
-    const ctx = await makeCtx();
-    const result = await orchestrate(
-      {
-        action: 'check_test_adequacy',
-        featureId: 'feat-med',
-        taskId: 'T-med',
-        repoRoot: '/fake/repo',
-        baseBranch: 'main',
-        riskTier: 'medium',
-        boundaryTouching: false,
-      },
-      ctx,
-    );
-
-    expect(result.success).toBe(true);
-    const data = result.data as { passed: boolean; discriminant?: string };
-    expect(data.passed).toBe(true);
-    expect(data.discriminant).not.toBe('skipped-by-policy');
-    expect(mockRunProbe).toHaveBeenCalledOnce();
-  });
-
-  /** Without `riskTier` and `boundaryTouching`, the probe runs with no condition. */
-  it('CheckTestAdequacy_NoStampArgs_BehaviorUnchanged', async () => {
-    const ctx = await makeCtx();
-    const result = await orchestrate(
-      {
-        action: 'check_test_adequacy',
-        featureId: 'feat-legacy',
-        taskId: 'T-legacy',
-        repoRoot: '/fake/repo',
-        baseBranch: 'main',
-      },
-      ctx,
-    );
-
-    expect(result.success).toBe(true);
-    const data = result.data as { passed: boolean; discriminant?: string };
-    expect(data.discriminant).not.toBe('skipped-by-policy');
-    expect(mockRunProbe).toHaveBeenCalledOnce();
-  });
 });

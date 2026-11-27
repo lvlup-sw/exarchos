@@ -1,6 +1,6 @@
 # Testing Patterns
 
-Code patterns for test implementation, and the test command that the kill probe runs.
+Code patterns for test implementation, and the probe command that runs declared test files.
 
 ## Test File Co-location
 
@@ -19,17 +19,11 @@ Tests use `Method_Scenario_Outcome` format:
 - C#: `public async Task GetOrder_InvalidId_ReturnsNotFound()`
 - Bash: function name `test_no_args_exit_2`
 
-## The Test Command of the Kill Probe
+## The Probe Command of Declared Tests
 
-The `check_test_adequacy` kill probe runs only the changed test files of the task.
-It runs them on the task source first. A red run there gives the indeterminate
-cause `baseline-red`. In `enforce` mode with a blocking severity, the gate blocks at
-every tier. Then the probe reverts the
-source hunks and runs the tests again.
-
-When the gate gives `baseline-red`, make the scoped tests pass on the task source,
-then run `check_test_adequacy` again. If the tests pass when you run them, the probe
-can run a different command. The probe selects its command in this order:
+`spec_coverage_check` runs each test file that the plan declares with the probe
+command, one file at a time, and each run must pass. The probe selects its command
+in this order:
 
 1. When `.exarchos.yml` sets `verification.tests.probe`, the probe runs its `command`.
 2. When `package.json` has a `test:files` script, the probe runs
@@ -41,11 +35,6 @@ The script must run only the files that it gets. Add the script when the `test`
 command does not run each file that it gets, for example a vitest command with a
 `--project` filter.
 
-Under `settle`, the probe runs the command, the globs and the segments that the
-capsule pins. A change in the task worktree does not change them. To change them,
-edit `.exarchos.yml` or `package.json` at the checkout, prepare again, and claim
-the task in a new batch.
-
 ### The File Form of the Probe Command
 
 Each probe command takes its file form and its red codes from the seed row of its
@@ -53,34 +42,23 @@ program, unless `verification.tests.probe` sets `files` or `failureExitCodes`:
 
 - `after-separator` puts the files after `--`, as in `npm run test:files -- <files>`.
 - `as-arguments` puts the files after the command with no separator, as in `bun test <files>`.
-- `none` runs the whole test command with no file, on the task source and again on
-  the reverted source. The seeds of .NET, Rust, Go, Ruby, Java, Swift and CMake, and
-  each task-runner target, use `none`. The verdict stands, and the gate marks it
-  degraded with `unscoped-run`.
+- `none` runs the whole test command once, with no file. The seeds of .NET, Rust, Go,
+  Ruby, Java, Swift and CMake, and each task-runner target, use `none`.
 
 A command whose program has no seed row takes `after-separator`, and only exit 1 is red.
 
-### Test Files and Test Support
+### Test Files
 
-The probe reads a changed file as a test when a glob of the resolved test globs
-matches it. The seeds are the co-located globs `**/*.test.*`, `**/*.spec.*` and
-`**/__tests__/**`, every glob of the first matched toolchain, and the test-name globs
-of each other matched toolchain. `verification.tests.globs` replaces them.
+The probe reads a file as a test when a glob of the resolved test globs matches it.
+The seeds are the co-located globs `**/*.test.*`, `**/*.spec.*` and `**/__tests__/**`,
+every glob of the first matched toolchain, and the test-name globs of each other
+matched toolchain. `verification.tests.globs` replaces them.
 
-The probe does not revert test support. A changed file that is not a test, with a
-directory segment named `tests`, `test`, `__tests__`, `__mocks__`, `__fixtures__`,
-`fixtures` or `test-helpers`, is test support. These segments are the seeds, and
-`verification.tests.support` replaces them. When the report says that the task
-changes no source file, look for changed source under such a segment. Move that
-source to a path with no such segment, or set `verification.tests.support`.
-
-The probe runs only the test files of the globs of its command. A test file that the
-probe command cannot run, such as a C# test in a Node root, blocks with
-`unprobed-test-paths`. Set `verification.tests.probe` to a command that runs the
-file, or set `verification.tests.globs` to the test files that the probe command
-runs. In a root where more than one toolchain matches, `verification.tests.probe`
-needs `verification.tests.globs` beside it, else the probe blocks with
-`profile-unresolved`.
+A declared test file that the probe command cannot run, such as a C# test in a Node
+root, fails. Set `verification.tests.probe` to a command that runs the file, or set
+`verification.tests.globs` to the test files that the probe command runs. In a root
+where more than one toolchain matches, `verification.tests.probe` needs
+`verification.tests.globs` beside it, else the check fails with `profile-unresolved`.
 
 ## TypeScript (Vitest)
 

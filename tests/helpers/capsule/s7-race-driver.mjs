@@ -1,5 +1,5 @@
 /**
- * Holds a completed Git read after original SQLite gate claims or a segment terminal exist.
+ * Holds a completed Git read after a segment terminal and its operation claim exist.
  * The Git wrapper passes its own barrier settings. Each read runs the real Git with the same argument vector, environment and standard input that the wrapper received.
  * The standard input carries the blob IDs of a `cat-file --batch` read, so the wrapper passes it on.
  * Only a constrained read that names the work tree of the barrier can hold. The capability probe names no work tree, so it never holds.
@@ -13,6 +13,7 @@ import { setTimeout } from 'node:timers/promises';
 /**
  * Run one Git read through the real Git, then hold it at the barrier when the original facts exist.
  * `settings` holds the real Git path, the tree, the task, the database, the stream, the mode and the barrier directory.
+ * The one mode is `standing`.
  */
 export async function drive(settings) {
   const args = process.argv.slice(2);
@@ -36,20 +37,9 @@ export async function drive(settings) {
       const claims = db.prepare('SELECT * FROM idempotency_claims ORDER BY streamId, idempotencyKey').all();
       const operations = claims.filter(claim => claim.streamId === '__decide_once_operations__');
       const bindings = claims.filter(claim => claim.streamId === '__segment_input_bindings_v1__');
-      if (settings.mode === 'adequacy') {
-        const signal = rows.find(row => row.type === 'gate.executed' && row.data?.gateName === 'test-adequacy' && row.data?.passed === true && row.data?.details?.taskId === settings.task);
-        const evidence = rows.find(row => row.type === 'admission.evidence-recorded' && row.data?.evidence?.evidenceId === signal?.data?.details?.evidenceId);
-        if (signal && evidence && evidence.sequence < signal.sequence) {
-          const pair = [evidence, signal];
-          const members = pair.map(row => claims.find(claim => claim.streamId === settings.stream && claim.idempotencyKey === row.idempotencyKey));
-          const original = members.every((claim, i) => claim && JSON.stringify(JSON.parse(claim.events_json)) === JSON.stringify([pair[i]]) && JSON.stringify(JSON.parse(claim.sequences)) === JSON.stringify([pair[i].sequence]) && JSON.stringify(JSON.parse(claim.eventIds)) === JSON.stringify([pair[i].eventId]) && JSON.stringify(JSON.parse(claim.timestamps)) === JSON.stringify([pair[i].timestamp]));
-          if (original && !rows.some(row => row.type === 'orchestrate.intent_executed' || row.type === 'execution.settled')) facts = { rows: pair, members, bindings, operations, argv: args };
-        }
-      } else {
-        const terminal = rows.find(row => row.type === 'orchestrate.intent_executed');
-        const operation = operations.find(claim => claim.idempotencyKey === terminal?.data?.operationId);
-        if (terminal && operation && JSON.parse(operation.sequences).includes(terminal.sequence)) facts = { terminal, operation, bindings, argv: args };
-      }
+      const terminal = rows.find(row => row.type === 'orchestrate.intent_executed');
+      const operation = operations.find(claim => claim.idempotencyKey === terminal?.data?.operationId);
+      if (terminal && operation && JSON.parse(operation.sequences).includes(terminal.sequence)) facts = { terminal, operation, bindings, argv: args };
     } finally { db.close(); }
     if (facts) {
       const directory = settings.barrier;

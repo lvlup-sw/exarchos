@@ -6,6 +6,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
+import path from 'node:path';
 
 import {
   DispatchRouteScanError,
@@ -22,6 +23,7 @@ import {
 import { EFFECT_PROVIDERS } from '../../../../src/contract/reachability/providers.js';
 import { TOOL_REGISTRY } from '../../../../src/registry.js';
 import { COMPOSITE_HANDLER_LOADERS } from '../../../../src/dispatch/core/dispatch.js';
+import { makeTempDir, rmrf } from '../../../../tools/test-helpers/temp-dir.js';
 
 describe('router-source resolution — the tool → shipped router map', () => {
   it('resolves exactly one router file per dispatchable composite tool', () => {
@@ -62,10 +64,7 @@ describe('the shipped route table covers the live public action surface', () => 
     expect(routes.length).toBe(TOOL_REGISTRY.reduce((n, t) => n + t.actions.length, 0));
   });
 
-  /**
-   * The computed key `[MUTATION_GATE_NAME]` is the regression target.
-   * A scan of literal keys only does not find it.
-   */
+  /** Each runtime handler key must be in the scan. A synthetic router below covers a computed key. */
   it('FIDELITY: the scanned orchestrate table is a superset of the RUNTIME dispatch table', async () => {
     const { ACTION_HANDLER_KEYS } = await import('../../../../src/verbs/composite.js');
     const scanned = new Set(
@@ -77,7 +76,6 @@ describe('the shipped route table covers the live public action surface', () => 
     for (const key of ACTION_HANDLER_KEYS) {
       expect(scanned.has(key), `runtime handler key '${key}' was not scanned`).toBe(true);
     }
-    expect(scanned.has('mutation-adequacy')).toBe(true);
   });
 
   /** `typeof action === 'string'` is a type guard, so `string` must not be a route. */
@@ -124,20 +122,29 @@ describe('the scanner reads code, not prose — comments and strings are inert',
     expect([...extractEqualityBranchActions(src, mask(src))]).toEqual(['onboard']);
   });
 
+  /** The computed key resolves through the import of a synthetic router to a string constant of a sibling module. */
   it('reads quoted, bare and computed handler-table keys and skips nested values', () => {
-    const file = `${SOURCE_ROOT}/verbs/composite.ts`;
-    const src = [
-      'const T: Readonly<Record<string, ActionHandler>> = {',
-      '  bare_key: adapt(handleBare),',
-      "  'quoted-key': adapt(handleQuoted, { nested_not_a_key: 1 }),",
-      '  [MUTATION_GATE_NAME]: adapt(handleComputed),',
-      '};',
-    ].join('\n');
-    expect([...extractHandlerTableActions(src, mask(src), file)]).toEqual([
-      'bare_key',
-      'quoted-key',
-      'mutation-adequacy',
-    ]);
+    const dir = makeTempDir('dispatch-routes-computed-');
+    try {
+      const file = path.join(dir, 'composite.ts');
+      const src = [
+        "import { GATE_NAME } from './gate.js';",
+        'const T: Readonly<Record<string, ActionHandler>> = {',
+        '  bare_key: adapt(handleBare),',
+        "  'quoted-key': adapt(handleQuoted, { nested_not_a_key: 1 }),",
+        '  [GATE_NAME]: adapt(handleComputed),',
+        '};',
+      ].join('\n');
+      fs.writeFileSync(file, src, 'utf8');
+      fs.writeFileSync(path.join(dir, 'gate.ts'), "export const GATE_NAME = 'computed-key';\n", 'utf8');
+      expect([...extractHandlerTableActions(src, mask(src), file)]).toEqual([
+        'bare_key',
+        'quoted-key',
+        'computed-key',
+      ]);
+    } finally {
+      rmrf(dir);
+    }
   });
 
   it('ignores a Record whose value type is not a handler', () => {

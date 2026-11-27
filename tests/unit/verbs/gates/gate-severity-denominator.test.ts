@@ -20,8 +20,8 @@ import {
   type GateSeverityRegisterRow,
 } from '../../../../src/verbs/gates/gate-severity.js';
 
-/** The registry held 28 gate actions when this was written. A smaller count means a broken read of the registry. */
-const GATE_ACTION_FLOOR = 28;
+/** The registry holds 26 gate actions after the retirement of the mutation gate and the kill probe. A smaller count means a broken read of the registry. */
+const GATE_ACTION_FLOOR = 26;
 
 /** The names of each action with `gate` metadata, over every tool of the registry. */
 function gateActionNames(): string[] {

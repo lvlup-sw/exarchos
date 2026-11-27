@@ -1,8 +1,8 @@
 /**
  * Grader for the quality A/B eval. A run is a directory named `<task>__<arm>__r<rep>` under the base directory.
  * The grader scores the `impl.ts` of each run against the hidden oracle of its task and against strict `tsc`.
- * It measures test adequacy with the production kill probe `runProbe`. No run reports its own score.
- * The module of `runProbe` loads no event store and no SQLite, so this file stays a small `tsx` script.
+ * It measures test adequacy with its own stub-revert probe `runEvalProbe`. No run reports its own score.
+ * Exarchos retired its source-revert gate on 2026-11-25, so this eval keeps the small probe that it needs.
  *
  * Run: `tsx tests/evals/quality-ab/grade.ts <baseRunsDir> [tasksDir]`
  *
@@ -18,12 +18,6 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { execFileAsync, spawnAsync, SpawnFailure } from '../../../tools/test-helpers/spawn.js';
 
-import {
-  runProbe,
-  type AdequacyDiscriminant,
-  type ProbeResult,
-  type TestRunFn,
-} from '../../../src/verbs/gates/test-adequacy.js';
 import { execFailureFields } from '../../../src/utils/process.js';
 import { rmrf } from '../../../tools/test-helpers/temp-dir.js';
 
@@ -33,7 +27,7 @@ export const TSX = path.join(REPO_ROOT, 'node_modules/.bin/tsx');
 export const TSC = path.join(REPO_ROOT, 'node_modules/.bin/tsc');
 
 /**
- * The adequacy of the tests of a run, as the kill probe measured it.
+ * The adequacy of the tests of a run, as the stub-revert probe measured it.
  * When the probe did not measure a suite, `score` is `null`. The grader never puts 0 or 1 in its place.
  */
 export interface AdequacyResult {
@@ -130,6 +124,50 @@ export function listTestFiles(runDir: string): string[] {
   return fs.readdirSync(runDir).filter(isTestFile).sort();
 }
 
+/** The source of one probe run: the impl of the run, or the task stub in its place. */
+export type EvalProbeSource = 'head' | 'reverted';
+
+/** The outcome of one probe run. `ran` has a verdict. `no-verdict` is a timeout, a signal, a start failure or another exit code. */
+export type EvalRunOutcome =
+  | { readonly kind: 'ran'; readonly result: 'green' | 'red'; readonly stdout?: string; readonly stderr?: string }
+  | { readonly kind: 'no-verdict'; readonly cause: string; readonly detail: string; readonly stdout?: string; readonly stderr?: string };
+
+/** The test runner of one probe: it runs the test files in the image that `source` names. */
+export type TestRunFn = (input: { readonly source: EvalProbeSource; readonly testFiles: readonly string[] }) => Promise<EvalRunOutcome>;
+
+/** The causes of a probe that measured no suite. */
+export type AdequacyDiscriminant = 'no-new-tests' | 'baseline-red' | 'run-no-verdict';
+
+/** The input of one probe: the changed files, the test runner and the globs that name a test file. */
+export interface EvalProbeArgs {
+  readonly changedFiles: readonly string[];
+  readonly runTests: TestRunFn;
+  readonly testGlobs: readonly string[];
+}
+
+/** The result of one probe. `redObserved` is true when a test went red on the stub. `discriminant` names a probe that measured no suite. */
+export interface ProbeResult {
+  readonly redObserved: boolean;
+  readonly probedTests: readonly string[];
+  readonly discriminant?: AdequacyDiscriminant;
+}
+
+/**
+ * Runs the stub-revert probe. The tests run on the impl first, and a red run there is `baseline-red`, not a kill.
+ * After a green run, the same tests run on the stub. A red run on the stub is a kill. A run with no verdict is `run-no-verdict`.
+ * `testGlobs` holds the exact test file names, so a changed file is a test only when the list names it.
+ */
+export async function runEvalProbe(args: EvalProbeArgs): Promise<ProbeResult> {
+  const probedTests = args.changedFiles.filter((file) => args.testGlobs.includes(file));
+  if (probedTests.length === 0) return { redObserved: false, probedTests, discriminant: 'no-new-tests' };
+  const head = await args.runTests({ source: 'head', testFiles: probedTests });
+  if (head.kind === 'no-verdict') return { redObserved: false, probedTests, discriminant: 'run-no-verdict' };
+  if (head.result === 'red') return { redObserved: false, probedTests, discriminant: 'baseline-red' };
+  const reverted = await args.runTests({ source: 'reverted', testFiles: probedTests });
+  if (reverted.kind === 'no-verdict') return { redObserved: false, probedTests, discriminant: 'run-no-verdict' };
+  return { redObserved: reverted.result === 'red', probedTests };
+}
+
 /** The two source images of one probe: the directory with the impl of the run, and the directory with the task stub in its place. */
 export interface EvalImages {
   readonly head: string;
@@ -139,7 +177,7 @@ export interface EvalImages {
 /**
  * Builds the test runner of the probe. The runner starts each test file of the run with `tsx` in the image that the run names.
  * A test file is a `node:assert` script that exits 1 on a failure. The run is green only when every file exits 0.
- * Exit 1 is a red run. A timeout, a signal, a start failure or another exit code gives no verdict, as in the production runner.
+ * Exit 1 is a red run. A timeout, a signal, a start failure or another exit code gives no verdict.
  */
 export function makeEvalRunTests(images: EvalImages, tsx: string = TSX): TestRunFn {
   return async ({ source, testFiles }) => {
@@ -162,39 +200,23 @@ export function makeEvalRunTests(images: EvalImages, tsx: string = TSX): TestRun
   };
 }
 
-/**
- * Whether the probe measured the suite, for each indeterminate cause. It is a total `Record`, so a new cause without a value does not compile.
- * No indeterminate cause measures the suite, because the probe observed no kill and no survival.
- */
-const PROBE_CAUSE_MEASUREMENT: Readonly<Record<AdequacyDiscriminant, 'probed' | 'not-probed'>> = {
-  'no-new-tests': 'not-probed',
-  'revert-conflict': 'not-probed',
-  'restore-failed': 'not-probed',
-  'diff-failed': 'not-probed',
-  'base-missing': 'not-probed',
-  'baseline-red': 'not-probed',
-  'run-no-verdict': 'not-probed',
-  'unprobed-test-paths': 'not-probed',
-  'profile-unresolved': 'not-probed',
-};
-
-/** The injectable probe seam. The default is the production {@link runProbe}. */
-export type ProbeFn = (args: Parameters<typeof runProbe>[0]) => Promise<ProbeResult>;
+/** The injectable probe seam. The default is {@link runEvalProbe}. */
+export type ProbeFn = (args: EvalProbeArgs) => Promise<ProbeResult>;
 
 export interface GradeAdequacyOptions {
   readonly tasksDir: string;
   readonly tsx?: string;
   /**
-   * The probe to run. The default is the production `runProbe`, so the real gate measures the score.
+   * The probe to run. The default is `runEvalProbe`, so the real probe measures the score.
    * Only a characterization test injects a probe, to fix the adequacy value and keep the test fast.
    */
   readonly probe?: ProbeFn;
 }
 
 /**
- * Measures the test adequacy of a run with the diff-scoped kill probe.
+ * Measures the test adequacy of a run with the stub-revert probe.
  * A failed setup step or a failed probe gives `score: null` and an `error`, not a throw.
- * A run with no tests gives `no-new-tests` and no score. Every other indeterminate cause also gives no score, as `PROBE_CAUSE_MEASUREMENT` states.
+ * A run with no tests gives `no-new-tests` and no score. Every other probe that measured no suite also gives no score.
  * Tests that fail on the impl before the revert give `baseline-red` and no score, because the probe observes no kill.
  *
  * The probe runs the tests in two throwaway images, which the function builds for each run and always removes.
@@ -223,7 +245,7 @@ export async function gradeAdequacy(
 
   const stubSrc = fs.readFileSync(stubPath, 'utf-8');
   const implSrc = fs.readFileSync(implPath, 'utf-8');
-  const probeFn = options.probe ?? runProbe;
+  const probeFn = options.probe ?? runEvalProbe;
 
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'qab-adequacy-'));
   try {
@@ -243,10 +265,10 @@ export async function gradeAdequacy(
     if (probe.discriminant === 'no-new-tests') {
       return { probed: false, redObserved: false, score: null, discriminant: 'no-new-tests' };
     }
-    if (probe.discriminant !== undefined && PROBE_CAUSE_MEASUREMENT[probe.discriminant] === 'not-probed') {
+    if (probe.discriminant !== undefined) {
       return { probed: false, redObserved: probe.redObserved, score: null, discriminant: probe.discriminant, error: `probe ${probe.discriminant}` };
     }
-    return { probed: true, redObserved: probe.redObserved, score: probe.redObserved ? 1 : 0, ...(probe.discriminant ? { discriminant: probe.discriminant } : {}) };
+    return { probed: true, redObserved: probe.redObserved, score: probe.redObserved ? 1 : 0 };
   } catch (err) {
     return { probed: false, redObserved: false, score: null, discriminant: 'setup-failed', error: err instanceof Error ? err.message : String(err) };
   } finally {
@@ -362,7 +384,7 @@ export async function gradeAll(
   lines.push('');
   lines.push('Same task, same env, same model. The only variable is the verification regime: **E** = the production `renderImplementerPrompt` tier-selected verification note; **N** = none (bare "implement it"). `impl.ts` graded against a HIDDEN oracle the agent never saw, plus strict `tsc`.');
   lines.push('');
-  lines.push('The **adequacy** column is measured MECHANICALLY (#1670, DR-4/DR-7): the repo\'s diff-scoped `check_test_adequacy` kill-probe is run over a throwaway git repo whose base commit is the task stub and whose working tree is the produced impl + tests. "killed" = a test went red when the impl was reverted to the stub (non-vacuous); "survived" = the suite stayed green (vacuous). No score is self-reported.');
+  lines.push('The **adequacy** column is measured MECHANICALLY (#1670, DR-4/DR-7): the stub-revert probe of this eval runs the tests of the run on the produced impl, then on the task stub. "killed" = a test went red when the impl was reverted to the stub (non-vacuous); "survived" = the suite stayed green (vacuous). No score is self-reported.');
   lines.push('');
   lines.push('> ⚠️ **PROVISIONAL — does not run exarchos end-to-end (#1670).** The verification note was pasted into a generic subagent; the exarchos binary/pipeline was never executed, and all tasks are fully specified (so both arms tie at 100% on the ORACLE by implementing-to-spec). The adequacy column IS now mechanically measured; the executed end-to-end test + under-specified tasks live in #1670.');
   lines.push('');

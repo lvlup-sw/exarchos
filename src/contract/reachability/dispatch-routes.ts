@@ -205,7 +205,7 @@ export function extractEqualityBranchActions(source: string, mask: SourceMask): 
 }
 
 /**
- * Resolves a computed dispatch key such as `[MUTATION_GATE_NAME]` to its string literal. It
+ * Resolves a computed dispatch key such as `[GATE_NAME]` to its string literal. It
  * follows the import of the router and reads `export const NAME = '<literal>'` there. It throws
  * when the key does not resolve, because a lost key drops a real route.
  */

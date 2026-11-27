@@ -119,7 +119,7 @@ async function readReview(located: ObservationalCheckout, baseBranch: string): P
 
 /**
  * Validates `worktreePath`, then diffs it against `baseBranch`, which defaults to `main`, through the constrained reader.
- * A non-empty `gitPath` is the connector Git path, else the read uses the process-wide Git path.
+ * A non-empty `gitPath` names the Git executable, else the read uses the process-wide Git path.
  * A path outside any checkout returns `NOT_GIT_REPO`. An unknown base branch and an unreadable read return `DIFF_FAILED`, not a thrown error.
  */
 export async function handleReviewDiff(

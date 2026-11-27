@@ -10,7 +10,7 @@
  *
  * This tier is above the built-in ecosystem table and below the user declarations.
  * The precedence is in `test-runtime-resolver.ts`.
- * Each runner is also a seed row of the kill probe: the file form and the red exit codes of its `test` target.
+ * Each runner is also a seed row of the probe term: the file form and the red exit codes of its `test` target.
  */
 import { existsSync, readFileSync } from 'node:fs';
 import * as path from 'node:path';
@@ -20,7 +20,7 @@ import type { VerificationProfile } from '../workflow/verification/profile.js';
 
 const log = logger.child({ subsystem: 'task-runners' });
 
-export type TaskKind = 'test' | 'typecheck' | 'install' | 'build' | 'mutation' | 'lint';
+export type TaskKind = 'test' | 'typecheck' | 'install' | 'build' | 'lint';
 
 /** Conventional target names to look for, per kind. First match wins. */
 const TARGET_CANDIDATES: Readonly<Record<TaskKind, readonly string[]>> = {
@@ -28,7 +28,6 @@ const TARGET_CANDIDATES: Readonly<Record<TaskKind, readonly string[]>> = {
   typecheck: ['typecheck', 'check'],
   install: ['install', 'deps'],
   build: ['build'],
-  mutation: ['mutation', 'mutants'],
   lint: ['lint'],
 };
 

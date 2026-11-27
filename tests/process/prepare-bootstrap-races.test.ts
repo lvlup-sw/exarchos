@@ -1,5 +1,6 @@
 /**
  * Checks competing bootstrap calls and document repair through the packaged binary.
+ * A bootstrap compiles compiler 8-vcs, so the settle case first lands the task branch on the integration branch, as a harness does.
  * @oracle-sources: Recorded Git observations, SQLite ledger and claim rows, and approved bytes.
  */
 import { access, unlink, writeFile } from 'node:fs/promises';
@@ -218,6 +219,7 @@ describe('packaged compatibility document repair', () => {
       expect(data(await fixture.mcp('exarchos_orchestrate', request.mcp))).toEqual(claim.result);
       const id = TASKS[0];
       const worktreePath = await fixture.repository.worktreeFor(id, { [`src/${id}.js`]: 'export const value = 1;\n' });
+      await fixture.git(['merge', '-q', '--no-edit', `task/${id}`]);
       const settled = data((await fixture.cli(settleArgs(claim.result.capsuleVersion, [
         { taskId: id, fields: { worktreePath, files: [`src/${id}.js`] }, evidence: [] },
       ]))).envelope);

@@ -1,5 +1,5 @@
 /**
- * The local executor of the approved checks: static analysis, the integration suites, contract drift, spec coverage, source-revert adequacy and the lifecycle checks.
+ * The local executor of the approved checks: static analysis, the integration suites, contract drift, spec coverage and the lifecycle checks.
  * A command runs only when its argv is a leg of the approved plan, which the pinned or the live resolved profile gives.
  * The program resolves once through PATH. A program inside the checkout refuses, except a runner under node_modules/.bin.
  * Each leg runs in its own process group with a time cap, an output cap and the scrubbed store environment.
@@ -32,7 +32,7 @@ import {
   closedListingCleanTree, HostedAdequacyPending, hostedPendingResult, storedEvidenceReplay, storedEvidenceWithoutObservation,
 } from '../gates/gate-runner.js';
 import { observeCurrentCheckout, type CurrentCheckoutRead, type ProfiledGateArgs } from '../gates/gate-utils.js';
-import { buildDisposableCopy, withDisposableCopy, type DisposableCopySource, type SourceRevert } from './disposable-copy.js';
+import { withDisposableCopy } from './disposable-copy.js';
 
 /** The name prefix of the scratch directory of one probe test run, under the temporary directory of the system. */
 export const PROBE_SCRATCH_PREFIX = 'exarchos-probe-';
@@ -99,14 +99,11 @@ const MAXIMUM_ATTEMPTS = 64;
 const COMMIT_PLACEHOLDERS: readonly string[] = ['@baseCommit@', '@headCommit@'];
 
 /** The checks that run in this executor. */
-export type CheckOperation = 'static-analysis' | 'contract-drift' | 'integration-suite' | 'spec-coverage' | 'test-adequacy' | 'lifecycle';
-
-/** The source image of one leg. The head image is the exact head. The reverted image holds the task sources at the base. */
-export type SourceImage = 'head' | 'reverted';
+export type CheckOperation = 'static-analysis' | 'contract-drift' | 'integration-suite' | 'spec-coverage' | 'lifecycle';
 
 /**
  * The closed end of one leg. A refused leg started no process. An unavailable leg did not start.
- * A leg in the reverted image names it. A leg with no image ran in the head image or in the checkout.
+ * A stored leg of the retired source-revert probe names the reverted image. The field stays, so those stored observations still parse.
  */
 export const LegObservation = z.object({
   argv: z.array(z.string()).min(1),
@@ -186,8 +183,6 @@ export interface ApprovedCheckRequest {
   readonly selection?: readonly string[];
   /** `checkout` runs read-only legs in the checkout itself. `disposable-copy` runs legs that write in a copy of the exact head. */
   readonly workspace: 'checkout' | 'disposable-copy';
-  /** The sources of the reverted image of a disposable-copy request, and the base commit that gives their blobs. */
-  readonly revert?: SourceRevert;
   /** The integration subject of a suite at the integration tip. */
   readonly integration?: IntegrationCheckSubject;
   readonly legTimeoutMs?: number;
@@ -196,8 +191,6 @@ export interface ApprovedCheckRequest {
 /** One leg of the plan, its commit substitutions and the operands that the gate appends, such as declared test files. */
 export interface LegRequest {
   readonly leg: number;
-  /** The source image of a disposable-copy request with a revert. The head image is the default. */
-  readonly image?: SourceImage;
   readonly substitute?: Readonly<Record<string, string>>;
   readonly append?: readonly string[];
 }
@@ -531,7 +524,7 @@ function keysOf(requestKey: string) {
   };
 }
 
-/** A session that gives the stored legs in order. A leg that differs from its stored argv or image leaves the check pending. */
+/** A session that gives the stored legs in order. A leg that differs from its stored argv, or a stored leg in another image, leaves the check pending. */
 function replaySession(plan: CheckPlan, stored: CheckObservation): CheckSession {
   let index = 0;
   return {
@@ -541,7 +534,7 @@ function replaySession(plan: CheckPlan, stored: CheckObservation): CheckSession 
       const argv = legArgv(plan, request);
       const leg = stored.legs[index];
       index++;
-      if (leg === undefined || verificationJson(leg.argv) !== verificationJson(argv) || (leg.image ?? 'head') !== (request.image ?? 'head')) {
+      if (leg === undefined || verificationJson(leg.argv) !== verificationJson(argv) || leg.image !== undefined) {
         throw new HostedAdequacyPending('The stored check observation does not match the replayed check.');
       }
       return leg;
@@ -549,24 +542,20 @@ function replaySession(plan: CheckPlan, stored: CheckObservation): CheckSession 
   };
 }
 
-/** The root of one source image, or the reason that the image is unavailable. */
-type ImageRoot = (image: SourceImage) => Promise<string | { readonly unavailable: string }>;
-
 /** A session that runs each leg live and records it. Each program resolves once. */
-function liveSession(plan: CheckPlan, root: string, images: ImageRoot, checkout: string, timeoutMs: number, env: NodeJS.ProcessEnv,
+function liveSession(plan: CheckPlan, root: string, checkout: string, timeoutMs: number, env: NodeJS.ProcessEnv,
   legs: LegObservation[]): CheckSession {
   const programs = new Map<string, Promise<ProgramResolution>>();
   return {
     root,
     replayed: false,
     async run(request) {
-      const image: { readonly image?: 'reverted' } = request.image === 'reverted' ? { image: 'reverted' } : {};
       let argv: readonly string[];
       try {
         argv = legArgv(plan, request);
       } catch (error) {
         const leg = plan.legs[request.leg];
-        const refused: LegObservation = { argv: leg === undefined ? ['?'] : [...leg.argv], ...image, end: 'refused', exitCode: null, stdout: '', stderr: '',
+        const refused: LegObservation = { argv: leg === undefined ? ['?'] : [...leg.argv], end: 'refused', exitCode: null, stdout: '', stderr: '',
           detail: error instanceof Error ? error.message : String(error) };
         legs.push(refused);
         return refused;
@@ -578,14 +567,11 @@ function liveSession(plan: CheckPlan, root: string, images: ImageRoot, checkout:
         programs.set(program, resolution);
       }
       const resolved = await resolution;
-      const cwd = await images(request.image ?? 'head');
       let observation: LegObservation;
-      if (typeof cwd !== 'string') {
-        observation = { argv: [...argv], ...image, end: 'unavailable', exitCode: null, stdout: '', stderr: '', detail: cwd.unavailable };
-      } else if (resolved.kind === 'resolved') {
-        observation = { ...await spawnLeg(resolved.path, argv, cwd, timeoutMs, env), ...image };
+      if (resolved.kind === 'resolved') {
+        observation = await spawnLeg(resolved.path, argv, root, timeoutMs, env);
       } else {
-        observation = { argv: [...argv], ...image, end: resolved.kind, exitCode: null, stdout: '', stderr: '', detail: resolved.detail };
+        observation = { argv: [...argv], end: resolved.kind, exitCode: null, stdout: '', stderr: '', detail: resolved.detail };
       }
       legs.push(observation);
       return observation;
@@ -593,39 +579,8 @@ function liveSession(plan: CheckPlan, root: string, images: ImageRoot, checkout:
   };
 }
 
-/** The image roots of a request with no revert: the one root for the head, and no reverted image. */
-function headOnly(root: string): ImageRoot {
-  return async (image) => image === 'head' ? root : { unavailable: 'The request names no reverted source image.' };
-}
-
-/**
- * Run the body in a copy of the exact head. A revert adds the reverted image, which the executor builds at its first leg and deletes after the body.
- * A reverted image that cannot be built gives an unavailable leg, so the leg has no verdict.
- */
-async function inDisposableCopies<T>(
-  source: DisposableCopySource, revert: SourceRevert | undefined, run: (head: string, images: ImageRoot) => Promise<T>,
-): Promise<T> {
-  return withDisposableCopy(source, async (head) => {
-    if (revert === undefined) return run(head, headOnly(head));
-    let reverted: Promise<Awaited<ReturnType<typeof buildDisposableCopy>> | { readonly unavailable: string }> | undefined;
-    const images: ImageRoot = async (image) => {
-      if (image === 'head') return head;
-      reverted ??= buildDisposableCopy(source, revert).catch((error: unknown) => ({
-        unavailable: `The reverted source image was not built: ${error instanceof Error ? error.message : String(error)}` }));
-      const built = await reverted;
-      return 'unavailable' in built ? built : built.root;
-    };
-    try {
-      return await run(head, images);
-    } finally {
-      const built = await reverted;
-      if (built !== undefined && !('unavailable' in built)) await built.dispose();
-    }
-  });
-}
-
 /** The terms of the workspace of one attempt. */
-type AttemptTerms = Pick<ApprovedCheckRequest, 'plan' | 'workspace' | 'revert' | 'coordinate' | 'legTimeoutMs'>;
+type AttemptTerms = Pick<ApprovedCheckRequest, 'plan' | 'workspace' | 'coordinate' | 'legTimeoutMs'>;
 
 /**
  * The live run of one claimed attempt. It builds the workspace, runs the body and checks the live checkout after the run.
@@ -641,12 +596,12 @@ async function runAttempt<T>(
   const cleanBefore = request.coordinate === undefined || await cleanAt(read);
   if (request.workspace === 'disposable-copy') {
     const source = { checkout: read.checkout, gitDir: read.gitDir, repository: read.repository, head: read.head, reads: read.reads.observer.reads };
-    value = await inDisposableCopies(source, request.revert, (copy, images) => {
+    value = await withDisposableCopy(source, (copy) => {
       root = copy;
-      return body(liveSession(request.plan, copy, images, read.checkout, timeoutMs, { GIT_CEILING_DIRECTORIES: dirname(copy) }, legs));
+      return body(liveSession(request.plan, copy, read.checkout, timeoutMs, { GIT_CEILING_DIRECTORIES: dirname(copy) }, legs));
     });
   } else {
-    value = await body(liveSession(request.plan, read.checkout, headOnly(read.checkout), read.checkout, timeoutMs, {}, legs));
+    value = await body(liveSession(request.plan, read.checkout, read.checkout, timeoutMs, {}, legs));
   }
   const unchanged = !cleanBefore || await cleanAt(read);
   return { value, observation: { version: 1, root, legs, tree: unchanged ? 'unchanged' : 'changed' } };
@@ -673,15 +628,11 @@ export const runApprovedCheck: CheckExecutor = async <T>(request: ApprovedCheckR
   if (request.coordinate === undefined && !await cleanAt(read)) {
     return { kind: 'refused', reason: 'The working directory has uncommitted changes. Commit them first, then run the check again.' };
   }
-  if (request.revert !== undefined && request.workspace !== 'disposable-copy') {
-    return { kind: 'refused', reason: 'A reverted source image runs only in a disposable copy.' };
-  }
   const requestKey = verificationValueDigest({
     version: 1, operation: request.operation, operationId: request.integration?.attempt ?? operationId, streamId: request.streamId ?? null,
     ...(request.phaseAttemptId === undefined ? {} : { phaseAttemptId: request.phaseAttemptId }), taskId: request.taskId ?? null, checkout: read.checkout, repository: read.repository, head: read.head,
     base: request.coordinate?.diffBaseCommit ?? null, blockers: request.coordinate?.blockers.map(blocker => blocker.headCommit) ?? [],
     profileDigest: request.profileDigest, planDigest: checkPlanDigest(request.plan), selection: request.selection ?? [], workspace: request.workspace,
-    ...(request.revert === undefined ? {} : { revert: { base: request.revert.base, sources: [...request.revert.sources] } }),
     ...(request.integration === undefined ? {} : { ref: request.integration.ref }),
   });
   if (activeRequests.has(requestKey)) throw new HostedAdequacyPending('The same check is running in this process.');
@@ -741,5 +692,5 @@ export async function runStandaloneCheck<T>(request: StandaloneCheckRequest, bod
   const read = await observeWorkingDirectory({ checkout: request.checkout });
   if (read.kind === 'refused') return read;
   const legs: LegObservation[] = [];
-  return { kind: 'ran', value: await body(liveSession(request.plan, read.checkout, headOnly(read.checkout), read.checkout, legTimeout(request.legTimeoutMs), {}, legs)) };
+  return { kind: 'ran', value: await body(liveSession(request.plan, read.checkout, read.checkout, legTimeout(request.legTimeoutMs), {}, legs)) };
 }

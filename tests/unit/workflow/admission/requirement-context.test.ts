@@ -1,8 +1,10 @@
 // Tests for the requirement-resolution context.
 // An absent or malformed danger signal normalizes to its most uncertain member, not its safest one.
 // A missing risk stays `unknown` and does not serialize as `low`.
+// The live review contract adds no dimension at the high tier. The tier escalation examples inject a
+// review contract whose high tier adds `tier-probe`, so a weakened transition still shows.
 
-import { describe, expect, it, beforeEach, afterEach } from 'vitest';
+import { describe, expect, it, beforeEach, afterEach, vi } from 'vitest';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -51,6 +53,22 @@ import { EventStore } from '../../../../src/events/store.js';
 import { workflowStateProjection } from '../../../../src/projections/views/workflow-state-projection.js';
 import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
 import { handleInit, handleSet } from '../../../../src/workflow/tools.js';
+import type { ReviewContract } from '../../../../src/workflow/review-contract.js';
+
+vi.mock('../../../../src/workflow/review-contract.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../../../src/workflow/review-contract.js')>();
+  const escalating: ReviewContract = {
+    byWorkflowType: actual.REQUIRED_REVIEWS_BY_WORKFLOW_TYPE,
+    byTier: { low: [], medium: [], high: ['tier-probe'] },
+  };
+  return {
+    ...actual,
+    getRequiredReviews: (workflowType: string, riskTier?: string) =>
+      actual.getRequiredReviews(workflowType, riskTier, escalating),
+    getRequiredReviewsPrerequisite: (workflowType: string, riskTier?: string) =>
+      actual.getRequiredReviewsPrerequisite(workflowType, riskTier, escalating),
+  };
+});
 
 const freshness = (over: Partial<ProjectionFreshness>): ProjectionFreshness => ({
   degraded: false,
@@ -258,28 +276,28 @@ describe('danger-coordinate join is a monotone floor (DR-10 / T-15)', () => {
    * This test pins why `executeTransition` unions gate sets and does not only join coordinates.
    * The ladder escalates `'unknown'`, but the review roster reads it as no tier claim and emits fewer dimensions than `'high'`.
    * `RISK_TIER_DANGER_RANK` puts `'unknown'` on top, so the join of `high` and `unknown` is `unknown`.
-   * The review roster then drops `mutation-adequacy`, which `high` requires. The union of the two gate sets keeps it.
+   * The review roster then drops `tier-probe`, which `high` requires. The union of the two gate sets keeps it.
    */
   it('a coordinate join alone CANNOT floor the live resolvers — the gate union must', () => {
-    const hasMutationAdequacy = (risk: ResolvedRiskTier) =>
+    const hasTierProbe = (risk: ResolvedRiskTier) =>
       resolveGateSet('REVIEW', {
         riskTier: risk,
         boundaryTouching: true,
         workflowType: 'feature',
-      }).some((g) => g.gate === 'mutation-adequacy');
+      }).some((g) => g.gate === 'tier-probe');
 
-    expect(hasMutationAdequacy('high')).toBe(true);
-    expect(hasMutationAdequacy('unknown')).toBe(false);
+    expect(hasTierProbe('high')).toBe(true);
+    expect(hasTierProbe('unknown')).toBe(false);
     expect(joinDangerCoordinates(
       { risk: 'high', boundary: 'touching' },
       { risk: 'unknown', boundary: 'touching' },
     ).risk).toBe('unknown');
-    expect(hasMutationAdequacy(joinRiskTier('high', 'unknown'))).toBe(false);
+    expect(hasTierProbe(joinRiskTier('high', 'unknown'))).toBe(false);
     const union = new Set([
       ...resolveGateSet('REVIEW', { riskTier: 'high', boundaryTouching: true, workflowType: 'feature' }).map((g) => g.gate),
       ...resolveGateSet('REVIEW', { riskTier: 'unknown', boundaryTouching: true, workflowType: 'feature' }).map((g) => g.gate),
     ]);
-    expect(union.has('mutation-adequacy')).toBe(true);
+    expect(union.has('tier-probe')).toBe(true);
   });
 });
 
@@ -336,7 +354,7 @@ const gateNames = (record: Record<string, unknown>): string[] =>
 /**
  * These tests run the production path from `handleSet` to the durable `phase.entered` freeze, against a real `EventStore`.
  * The fixture is the `delegate → review` edge of the `feature` workflow.
- * At the `high` tier, REVIEW adds `mutation-adequacy`, so a weakened transition shows in the frozen record.
+ * At the `high` tier, the injected REVIEW contract adds `tier-probe`, so a weakened transition shows in the frozen record.
  */
 describe('DR-10 frozen requirement set is the authority (T-15)', () => {
   let dir: string;
@@ -372,7 +390,7 @@ describe('DR-10 frozen requirement set is the authority (T-15)', () => {
     const frozen = await frozenRecordsFor(store, 'review');
     expect(frozen).toHaveLength(1);
 
-    expect(gateNames(frozen[0])).toContain('mutation-adequacy');
+    expect(gateNames(frozen[0])).toContain('tier-probe');
     expect(frozen[0].riskTier).toBe('high');
     expect(frozen[0].boundaryTouching).toBe(true);
     const after = JSON.parse(await fs.readFile(stateFile, 'utf-8')) as Record<string, unknown>;
@@ -382,7 +400,7 @@ describe('DR-10 frozen requirement set is the authority (T-15)', () => {
 
   /**
    * The call shape matches the same-call floor test, and only the claim before the call differs.
-   * This shows that the floor test depends on the floor, not on REVIEW always emitting `mutation-adequacy`.
+   * This shows that the floor test depends on the floor, not on REVIEW always emitting `tier-probe`.
    */
   it('CONTROL: with no stronger prior claim the same call freezes the weak set', async () => {
     await initFeatureAtDelegate(dir, store);
@@ -397,13 +415,13 @@ describe('DR-10 frozen requirement set is the authority (T-15)', () => {
 
     const frozen = await frozenRecordsFor(store, 'review');
     expect(frozen).toHaveLength(1);
-    expect(gateNames(frozen[0])).not.toContain('mutation-adequacy');
+    expect(gateNames(frozen[0])).not.toContain('tier-probe');
     expect(frozen[0].riskTier).toBe('low');
   });
 
   /**
    * A left-fold of the durable log through the production projection gives the same `requirementSetDigest` as the live run.
-   * A later attempt at `low` reads the frozen record back as authority, though a re-resolution at `low` lacks `mutation-adequacy`.
+   * A later attempt at `low` reads the frozen record back as authority, though a re-resolution at `low` lacks `tier-probe`.
    * That re-resolution uses `resolveGateSet`, as the live path does, so the two sets compare like with like.
    * The later attempts pass no `priorState`, so the same-call floor is off.
    *
@@ -463,7 +481,7 @@ describe('DR-10 frozen requirement set is the authority (T-15)', () => {
         workflowType: 'feature',
       }),
     });
-    expect(reresolved.gates.some((g) => g.gate === 'mutation-adequacy')).toBe(false);
+    expect(reresolved.gates.some((g) => g.gate === 'tier-probe')).toBe(false);
     expect(atLeastAsStrong(reresolved, liveSet!)).toBe(false);
     expect(digestOf(laterSet!)).toBe(digestOf(liveSet!));
     expect(
@@ -490,7 +508,7 @@ describe('DR-10 frozen requirement set is the authority (T-15)', () => {
     const thirdRecord = (await frozenRecordsFor(store, 'review'))[2];
     expect(thirdRecord.riskTier).toBe('unknown');
     expect(thirdRecord.boundaryTouching).toBe(true);
-    expect(gateNames(thirdRecord)).toContain('mutation-adequacy');
+    expect(gateNames(thirdRecord)).toContain('tier-probe');
     expect(digestOf(readFrozenRequirements(thirdRecord.resolvedGates as unknown[])!)).toBe(
       digestOf(liveSet!),
     );
@@ -503,7 +521,7 @@ describe('DR-10 frozen requirement set is the authority (T-15)', () => {
     });
     expect(drifted.ok).toBe(true);
     const driftedRecord = (await frozenRecordsFor(store, 'review'))[3];
-    expect(gateNames(driftedRecord)).toContain('mutation-adequacy');
+    expect(gateNames(driftedRecord)).toContain('tier-probe');
     expect(digestOf(readFrozenRequirements(driftedRecord.resolvedGates as unknown[])!)).toBe(
       digestOf(liveSet!),
     );

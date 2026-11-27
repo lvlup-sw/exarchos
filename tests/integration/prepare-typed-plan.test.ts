@@ -245,11 +245,16 @@ describe('typed prepare', () => {
     expect(changed.operationId).not.toBe(first.operationId);
   });
 
+  /**
+   * The first prepare pins compiler 8 as a history fixture. The workflow records no integration branch.
+   * Each later prepare passes no compiler, keeps compiler 8 from the typed authority, and replays or compiles with it.
+   */
   it('Prepare_CompilerEightEmptyHistory_ReplaysWithoutCustody', async () => {
     const s = await fixture({ withBranch: false });
     const text = textOf([task(A)]);
     await s.write(text);
-    const first = receipt(await s.call(compile(text, { baseRef: BASE })));
+    const first = receipt(await s.call(compile(text, { baseRef: BASE }), { compilerVersion: 'exarchos-prepare-8' }));
+    expect(first.capsule.provenance.compilerVersion).toBe('exarchos-prepare-8');
     const resolve = vi.spyOn(s.events.bundleStore, 'resolve').mockRejectedValue(new Error('missing pin'));
     const tail = await s.events.query(STREAM);
     const replay = receipt(await s.call(compile(text, { designDepth: 'standard', workflowType: 'feature' })));
@@ -260,6 +265,7 @@ describe('typed prepare', () => {
     resolve.mockRestore();
     const changed = receipt(await s.call(compile(text, { designDepth: 'deep' })));
     expect(changed.operationId).not.toBe(first.operationId);
+    expect(changed.capsule.provenance.compilerVersion).toBe('exarchos-prepare-8');
     const missing = vi.spyOn(s.events.bundleStore, 'resolve').mockRejectedValue(new Error('missing pin'));
     expect(receipt(await s.call(compile(text, { designDepth: 'standard' })))).toEqual(first);
     expect(missing).not.toHaveBeenCalled();
@@ -279,7 +285,7 @@ describe('typed prepare', () => {
   it('Prepare_CompilerEightReplay_RequiresSelectedClaimAndEmptyHistory', async () => {
     for (const mode of ['claim', 'row', 'settlement', 'event-id', 'timestamp', 'marker', 'refs']) {
       const s = await fixture(); const text = textOf([task(A)]); await s.write(text);
-      const first = receipt(await s.call(compile(text)));
+      const first = receipt(await s.call(compile(text), { compilerVersion: 'exarchos-prepare-8' }));
       if (mode === 'settlement') {
         await s.events.append(STREAM, { type: 'execution.settled', data: { operationId: 'uncertain-settlement' } });
       } else {
@@ -318,7 +324,7 @@ describe('typed prepare', () => {
 
   it('Prepare_CompilerEightReplayMiss_PreservesPublicationTailFence', async () => {
     const s = await fixture(); const text = textOf([task(A)]); await s.write(text);
-    const first = receipt(await s.call(compile(text))); const initial = await s.events.query(STREAM);
+    const first = receipt(await s.call(compile(text), { compilerVersion: 'exarchos-prepare-8' })); const initial = await s.events.query(STREAM);
     const put = s.events.bundleStore.put.bind(s.events.bundleStore);
     const race = vi.spyOn(s.events.bundleStore, 'put').mockImplementationOnce(async bytes => {
       await s.events.append(STREAM, { type: 'task.progressed', data: { taskId: A, status: 'working' } }); return put(bytes);

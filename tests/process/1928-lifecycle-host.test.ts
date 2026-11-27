@@ -1,5 +1,5 @@
 // @oracle-sources: real dispatch of the lifecycle and team actions, real Git worktrees, the local approved-check executor, real check children and marker files outside each checkout
-/** Prove that lifecycle checks, team commands and the standalone test verb run only in the local approved-check executor, with no verifier. */
+/** Prove that lifecycle checks, team commands and the standalone test verb run only in the local approved-check executor. */
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
@@ -132,7 +132,7 @@ async function preparedStream(events: EventStore, checkout: string): Promise<str
   return streamId;
 }
 
-it.runIf(process.platform === 'linux')('LocalLifecycle_ApprovedOperationsRunInTheLocalExecutorWithNoVerifier', async () => {
+it.runIf(process.platform === 'linux')('LocalLifecycle_ApprovedOperationsRunInTheLocalExecutor', async () => {
   const f = await lifecycleFixture();
   try {
     const standalone = await f.runTests(f.repo.checkout);

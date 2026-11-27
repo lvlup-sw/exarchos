@@ -195,18 +195,6 @@
         }
       },
       {
-        "file": "tests/acceptance/kill-probe-base.test.ts",
-        "default": "telemetry",
-        "owner": "@rsalus",
-        "reason": "The cases read the carrier of the kill probe, the receipt of settle and the rows of the gate `test-adequacy`. With the default the wrapper also runs the emissions check, which appends its own gate rows. Each case filters the rows that it reads by the gate `test-adequacy` or by its requirement, so those rows change no assertion. No twin runs the probe with the default."
-      },
-      {
-        "file": "tests/acceptance/kill-probe-base.test.ts",
-        "default": "state-document-file",
-        "owner": "@rsalus",
-        "reason": "The seed writes the state document in the JSON file form, and no case reads the document after a call, so the form changes no assertion. The row form of settle levelling has its twin in the governance tier."
-      },
-      {
         "file": "tests/acceptance/prepare-settle.test.ts",
         "default": "telemetry",
         "twin": {

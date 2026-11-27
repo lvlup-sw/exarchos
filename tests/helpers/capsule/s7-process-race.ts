@@ -48,7 +48,10 @@ function changedFiles(id: string) {
     [`tests/${id}.test.cjs`]: `require('node:assert/strict').equal(require('../src/${id}.cjs'), 1);\n` };
 }
 
-/** Bootstraps through the actual binary, with its checked public compiler selector. */
+/**
+ * Bootstraps through the actual binary, which compiles a fresh typed plan with compiler 8-vcs.
+ * Each task commits in its own worktree. Then the fixture lands each task branch on the integration branch, as a harness does.
+ */
 export async function withS7Repository(work: (f: S7Fixture) => Promise<void>, ids: readonly string[], risk: 'low' | 'high') {
   const tasks = ids.map(id => task(id, { files: [`src/${id}.cjs`], testFiles: [`tests/${id}.test.cjs`], riskTier: risk }));
   await withRaceRepository(async fixture => {
@@ -56,9 +59,10 @@ export async function withS7Repository(work: (f: S7Fixture) => Promise<void>, id
     const env = { S7_JOURNAL: journal };
     const request = await prepareRequest(fixture, { workflowType: 'release-check' });
     const prepared = data((await fixture.cli(request.cli, env)).envelope);
-    expect(record(prepared.capsule).provenance).toMatchObject({ compilerVersion: 'exarchos-prepare-8' });
+    expect(record(prepared.capsule).provenance).toMatchObject({ compilerVersion: 'exarchos-prepare-8-vcs' });
     const trees = new Map<string, string>();
     for (const id of ids) trees.set(id, await fixture.repository.worktreeFor(id, changedFiles(id)));
+    for (const id of ids) await fixture.repository.land(id);
     const claims = ids.map(id => ({ taskId: id, fields: { worktreePath: trees.get(id), files: [`src/${id}.cjs`] }, evidence: [] }));
     const args = settleArgs(prepared.capsuleVersion, claims, 's7-process');
     await work({ ...fixture, journal, env, prepared, trees, args });
@@ -78,6 +82,9 @@ export interface S7Fixture extends RaceRepository {
   readonly args: string[];
 }
 
+/** The longest wait for a barrier record while the settle process still runs. The driver holds a read for the same time. */
+const READY_WITHIN_MS = 45_000;
+
 /** Read only observed invocations. Absence means no provider has started. */
 export async function journalOf(f: S7Fixture) {
   try { return (await readFile(f.journal, 'utf8')).trim().split('\n').filter(Boolean).map(line => record(JSON.parse(line))); }
@@ -94,13 +101,15 @@ async function gitOnPath() {
 }
 
 /**
- * Holds the first constrained read of the barrier tree after a real pair or prior segment has committed.
+ * Holds the first constrained read of the barrier tree after a prior segment has committed.
  * The packaged binary finds the wrapper with its one PATH search. The constrained reader passes a closed environment with no PATH and no fixture value.
  * So the wrapper names the absolute Node executable and carries its barrier settings in its own text.
+ * The facts exist only after a full prior segment with its integration run.
+ * Under suite load this takes more than ten seconds, so the budget matches the hold time of the driver.
  */
-export async function barrierFor(f: S7Fixture, taskId: string, mode: 'adequacy' | 'standing') {
+export async function barrierFor(f: S7Fixture, taskId: string, mode: 'standing') {
   const realGit = await gitOnPath();
-  const barrier = await makeBarrier(f.controls, `${mode}-barrier`);
+  const barrier = await makeBarrier(f.controls, `${mode}-barrier`, READY_WITHIN_MS);
   const bin = path.join(f.controls, 'bin'); await mkdir(bin);
   const wrapper = path.join(bin, 'git');
   const tree = f.trees.get(taskId); if (tree === undefined) throw new Error('Missing barrier tree');

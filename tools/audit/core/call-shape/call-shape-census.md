@@ -10,8 +10,8 @@ Counts read `fixed + k*tasks + m*prs`. The N=1 columns set every loop variable t
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | plan | approved handoff to delegate | 0 | 0 | none | 0 | 0 | 0 | 1 |
 | delegation | transition delegate -> review | 4 | 4 | phase-not-moved: 5 (5)<br>corrective-capsule: 3 (3)<br>settlement-rejected: 3 (3)<br>recompile-required: 4 (4)<br>deviation-pending: 3 (3)<br>design-revised: 3 (3)<br>material-revision: 5 (5)<br>context-compaction: 7 (7)<br>integration-advanced: 4 (4)<br>integration-advanced-rollback: 4 (4) | 0 | 2 | 4 | 2*tasks |
-| task-completion | task_complete records the task complete | 6 | 6 | gate-failure-fix: 8 (8) | 0 | 1 | 1 | 0 |
-| review | transition review -> synthesize | 10 | 10 | needs-fixes: 9 (9) | 0 | 3 | 2 | 1 |
+| task-completion | task_complete records the task complete | 5 | 5 | gate-failure-fix: 6 (6) | 0 | 1 | 1 | 0 |
+| review | transition review -> synthesize | 9 | 9 | needs-fixes: 8 (8) | 0 | 3 | 2 | 1 |
 | synthesis | human checkpoint: merge the stack | 3 + 2*prs | 5 | pr-body-invalid: 4 + 2*prs (6)<br>readiness-fails: 1 (1) | 0 | 1 | 4 | 1*prs |
 
 ## plan
@@ -88,41 +88,39 @@ Exception `integration-advanced-rollback`: the merge of the accepted head confli
 Ends at: task_complete records the task complete (`content/delivery/skills/delegate/SKILL.md:274`)
 
 1. `exarchos_orchestrate.runbook` (runbook-fetch) `content/delivery/skills/delegate/SKILL.md:900`
-2. `exarchos_orchestrate.check_test_adequacy` (work, via runbook:task-completion#1) `src/runbooks/definitions.ts`
-3. `exarchos_orchestrate.check_contract_drift` (work, via runbook:task-completion#2) `src/runbooks/definitions.ts`
-4. `exarchos_orchestrate.check_mock_boundary` (work, via runbook:task-completion#3) `src/runbooks/definitions.ts`
-5. `exarchos_orchestrate.check_integration_suite` (work, via runbook:task-completion#4) `src/runbooks/definitions.ts`
-6. `exarchos_orchestrate.check_static_analysis` (work, via runbook:task-completion#5) `src/runbooks/definitions.ts`
-7. `exarchos_orchestrate.task_complete` (work, via runbook:task-completion#6) `src/runbooks/definitions.ts`
+2. `exarchos_orchestrate.check_contract_drift` (work, via runbook:task-completion#1) `src/runbooks/definitions.ts`
+3. `exarchos_orchestrate.check_mock_boundary` (work, via runbook:task-completion#2) `src/runbooks/definitions.ts`
+4. `exarchos_orchestrate.check_integration_suite` (work, via runbook:task-completion#3) `src/runbooks/definitions.ts`
+5. `exarchos_orchestrate.check_static_analysis` (work, via runbook:task-completion#4) `src/runbooks/definitions.ts`
+6. `exarchos_orchestrate.task_complete` (work, via runbook:task-completion#5) `src/runbooks/definitions.ts`
 
 Exception `gate-failure-fix`: a blocking gate fails, so a fixer is dispatched and the task-fix chain runs (`content/delivery/skills/delegate/SKILL.md:917`)
 
-- Runs the normal path through `exarchos_orchestrate.check_static_analysis`, adds `native:SUBAGENT_RESULT_API`, `native:SPAWN_AGENT_CALL`, `exarchos_orchestrate.runbook`, `exarchos_orchestrate.check_test_adequacy`, `exarchos_orchestrate.check_static_analysis`, `exarchos_orchestrate.task_complete`.
-- Exarchos 8; describe 0; runbook fetch 2; harness 2.
+- Runs the normal path through `exarchos_orchestrate.check_static_analysis`, adds `native:SUBAGENT_RESULT_API`, `native:SPAWN_AGENT_CALL`, `exarchos_orchestrate.runbook`, `exarchos_orchestrate.check_static_analysis`, `exarchos_orchestrate.task_complete`.
+- Exarchos 6; describe 0; runbook fetch 2; harness 2.
 
 ## review
 
-Ends at: transition review -> synthesize (`content/review/skills/review/SKILL.md:172`)
+Ends at: transition review -> synthesize (`content/review/skills/review/SKILL.md:155`)
 
 1. `exarchos_orchestrate.review_diff` (work) `content/review/skills/review/SKILL.md:27`
 2. `native:SPAWN_AGENT_CALL` (native, via mention) `content/review/skills/review/SKILL.md:24`
 3. `exarchos_orchestrate.runbook` (runbook-fetch) `content/review/skills/review/SKILL.md:43`
-4. `exarchos_event.query` (work) `content/review/skills/review/SKILL.md:50`
-5. `exarchos_orchestrate.runbook` (runbook-fetch) `content/review/skills/review/SKILL.md:70`
-6. `exarchos_orchestrate.check_static_analysis` (work, via runbook:quality-evaluation#1) `src/runbooks/definitions.ts`
-7. `exarchos_orchestrate.check_security_scan` (work, via runbook:quality-evaluation#2) `src/runbooks/definitions.ts`
-8. `exarchos_orchestrate.check_convergence` (work, via runbook:quality-evaluation#3) `src/runbooks/definitions.ts`
-9. `exarchos_orchestrate.prepare_review` (work, via mention) `content/review/skills/review/SKILL.md:74`
-10. `exarchos_orchestrate.check_invariant_conformance` (work) `content/review/skills/review/SKILL.md:82`
-11. `exarchos_orchestrate.runbook` (runbook-fetch) `content/review/skills/review/SKILL.md:105`
-12. `exarchos_orchestrate.check_review_verdict` (work) `content/review/skills/review/SKILL.md:110`
-13. `exarchos_workflow.update` (work) `content/review/skills/review/SKILL.md:157`
-14. `exarchos_workflow.transition` (work) `content/review/skills/review/SKILL.md:160`
+4. `exarchos_orchestrate.runbook` (runbook-fetch) `content/review/skills/review/SKILL.md:53`
+5. `exarchos_orchestrate.check_static_analysis` (work, via runbook:quality-evaluation#1) `src/runbooks/definitions.ts`
+6. `exarchos_orchestrate.check_security_scan` (work, via runbook:quality-evaluation#2) `src/runbooks/definitions.ts`
+7. `exarchos_orchestrate.check_convergence` (work, via runbook:quality-evaluation#3) `src/runbooks/definitions.ts`
+8. `exarchos_orchestrate.prepare_review` (work, via mention) `content/review/skills/review/SKILL.md:57`
+9. `exarchos_orchestrate.check_invariant_conformance` (work) `content/review/skills/review/SKILL.md:65`
+10. `exarchos_orchestrate.runbook` (runbook-fetch) `content/review/skills/review/SKILL.md:88`
+11. `exarchos_orchestrate.check_review_verdict` (work) `content/review/skills/review/SKILL.md:93`
+12. `exarchos_workflow.update` (work) `content/review/skills/review/SKILL.md:140`
+13. `exarchos_workflow.transition` (work) `content/review/skills/review/SKILL.md:143`
 
-Exception `needs-fixes`: the verdict is NEEDS_FIXES, so the failure is recorded and fixes are delegated (`content/review/skills/review/SKILL.md:164`)
+Exception `needs-fixes`: the verdict is NEEDS_FIXES, so the failure is recorded and fixes are delegated (`content/review/skills/review/SKILL.md:147`)
 
-- Runs the normal path through `exarchos_orchestrate.check_review_verdict`, adds `exarchos_workflow.update`, at most 5 times (`content/review/skills/review/SKILL.md:120`).
-- Exarchos 9; describe 0; runbook fetch 3; harness 1.
+- Runs the normal path through `exarchos_orchestrate.check_review_verdict`, adds `exarchos_workflow.update`, at most 5 times (`content/review/skills/review/SKILL.md:103`).
+- Exarchos 8; describe 0; runbook fetch 3; harness 1.
 
 ## synthesis
 
@@ -150,7 +148,6 @@ Exception `readiness-fails`: the readiness check fails, so synthesis returns to 
 
 - No located call names an unregistered action.
 - synthesis fetches runbook synthesis-flow at `content/synthesis/skills/synthesize/SKILL.md:53` but spells a different path. Only in the runbook: `exarchos_orchestrate.validate_pr_stack`, `native:bash.gh_pr_create`. Only in the prose: `exarchos_orchestrate.list_prs`, `exarchos_workflow.update`, `native:Bash`.
-- review, `exarchos_orchestrate.check_test_adequacy` at `content/review/skills/review/SKILL.md:62`: The review recipe for the kill probe carries a single `taskId`, while the pass reviews the integrated diff across every task.
 
 ## Scope
 
@@ -163,10 +160,10 @@ Exception `readiness-fails`: the readiness check fails, so synthesis returns to 
 
 ## Pins
 
-- Registry: 128 actions over 5 tools (4 visible), action ids sha256 `1ec1f3b317c3531331f92309d5f92a8ff1ff453a5b9987690b38eb07023f249e` from `tools/audit/registered-actions-snapshot.json`.
-- Contract authority `action-id-registry` digest `sha256:1ec1f3b317c3531331f92309d5f92a8ff1ff453a5b9987690b38eb07023f249e` from `src/contract/contract-authority.lock.json`.
-- `content/delivery/skills/delegate/SKILL.md` sha256 `864d162409b95bdb12c405ef040d72fc8738bf13c70295263fd1ab0b08e70782`
+- Registry: 126 actions over 5 tools (4 visible), action ids sha256 `f4dabc9931efc654c31d78ae1aaa9ab46a6c3df2abe60ba2a8cec35c612abeef` from `tools/audit/registered-actions-snapshot.json`.
+- Contract authority `action-id-registry` digest `sha256:f4dabc9931efc654c31d78ae1aaa9ab46a6c3df2abe60ba2a8cec35c612abeef` from `src/contract/contract-authority.lock.json`.
+- `content/delivery/skills/delegate/SKILL.md` sha256 `0d6c5565ed2f8ce56378d7a7cd649938acd5effc39f55067d6af9fe546ea8c95`
 - `content/design/skills/plan/SKILL.md` sha256 `6d7b658968132f43ebe1e174c8187d9223177c1312c5bf435323968a5e02674a`
-- `content/review/skills/review/SKILL.md` sha256 `ee200bb8fc1e5251a76d21f9de0526d8d0187a0ab109353e069b7091545a7078`
+- `content/review/skills/review/SKILL.md` sha256 `4cd725350933698f5491d7aff5ccc726a36d05f8b4fcf7e289fa83dd3365907c`
 - `content/synthesis/skills/synthesize/SKILL.md` sha256 `7d3615135412050a17582d34bd05c92e0f0305f1031a1121aea136ba8441b465`
-- `src/runbooks/definitions.ts` sha256 `e873e609e5094e84b506804936bfb45c8cb1e7ecffc69310d587a77e69006d02`
+- `src/runbooks/definitions.ts` sha256 `908634fb3a4b25880dd322a8350e810452481a049ae3427b0b592ab9afae4557`

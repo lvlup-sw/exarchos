@@ -45,24 +45,7 @@ When no `intentGrounding` is supplied, review against the diff alone — do not 
 Review the **combined** diff across all tasks in one view — this catches cross-task interface mismatches, bugs invisible in isolation, and inconsistent patterns. Cover all three lenses in the single pass:
 
 1. **Spec-compliance** — functional completeness, specification alignment, intended-vs-delivered. See `references/spec-compliance-checklist.md`.
-2. **Test adequacy** — outcome-based, tier-scaled (not test-first ordering). Settlement already ran the kill probe for every task it verified, measured from the base the capsule froze. Read the verdict it recorded; do not run the probe again:
-   ```typescript
-   exarchos_event({ action: "query", stream: "<featureId>", filter: { type: "gate.executed" }, limit: 200 })
-   ```
-   Each row with `gateName: "test-adequacy"` is one task's verdict: `details.taskId`, `passed`, and `details.verdict` (`details.skipped` marks a policy skip). A `passed: false` verdict is a finding against that task. Only for a task with no such row, run the probe yourself, from the branch the task forked from — without a base the gate blocks with `base-missing`. Pass `repoRoot: "auto"` and the worktree of the task. The probe reverts and then restores the source of the tree it runs in. Without these two fields, that tree is the directory of the server, usually your own checkout:
-   ```typescript
-   exarchos_orchestrate({
-     action: "check_test_adequacy",
-     featureId: "<featureId>",
-     taskId: "<taskId>",
-     branch: "<branch>",
-     baseBranch: "<integration branch>",
-     repoRoot: "auto",
-     worktreePath: "<worktreePath>",
-     riskTier: "<low|medium|high>",
-     phase: "review"
-   })
-   ```
+2. **Test adequacy** — outcome-based, tier-scaled (not test-first ordering). No gate judges it, so this pass does. For each medium/high task, read the tests that the task added or changed. Each one must assert the changed behavior and go red against a stubbed-out implementation. A test that cannot fail is a finding against that task. A low-tier task needs no test unless its behavior is not obvious.
 3. **Code quality** — correctness, SOLID, error handling, security, performance, maintainability, and test desiderata (behavioral / structure-insensitive / deterministic / specific). See `references/code-quality-checklist.md`, `references/security-checklist.md`, `references/typescript-standards.md`.
 
 ### Gate execution
@@ -169,7 +152,7 @@ exarchos_workflow({ action: "update", featureId: "<id>", updates: {
 ```
 Then invoke `delegate --fixes`.
 
-> **Guard:** `review → synthesize` requires `all-reviews-passed` — every required dimension's `reviews.{name}.status` must be a passing value (`pass | passed | approved | fixes-applied`, case-insensitive). The feature roster is `review` (+ `mutation-adequacy` at HIGH tier). `review → delegate` fires on `any-review-failed`.
+> **Guard:** `review → synthesize` requires `all-reviews-passed` — every required dimension's `reviews.{name}.status` must be a passing value (`pass | passed | approved | fixes-applied`, case-insensitive). The feature roster is `review`. `review → delegate` fires on `any-review-failed`.
 
 All transitions are automatic — this is not a human checkpoint. See `references/auto-transition.md`.
 
@@ -178,7 +161,7 @@ All transitions are automatic — this is not a human checkpoint. See `reference
 | Don't | Do instead |
 |-------|-----------|
 | Confirm what's right | Hunt for what's wrong (adversarial posture) |
-| Approve without the kill-probe | Read each task's recorded `test-adequacy` verdict (or run `check_test_adequacy` for a task settlement did not verify) — a test that can't fail is not coverage |
+| Approve tests you did not read | Read each medium/high task's tests and confirm each one can fail — a test that can't fail is not coverage |
 | Treat an unanswered audit-mode invariant as a pass | Answer every id in `auditInvariantIds`; an unrun check is not a clean one |
 | Rubber-stamp on a rationalization | Consult `references/rationalization-refutation.md` |
 | Let scope creep pass | Flag intended-vs-delivered drift as a `spec` issue |
@@ -187,4 +170,4 @@ All transitions are automatic — this is not a human checkpoint. See `reference
 ## Schema discovery
 
 Use `exarchos_workflow({ action: "describe", actions: ["update"] })` and
-`exarchos_orchestrate({ action: "describe", actions: ["check_static_analysis", "check_security_scan", "check_test_adequacy", "check_review_verdict", "check_invariant_conformance", "prepare_review"] })` for current parameter schemas.
+`exarchos_orchestrate({ action: "describe", actions: ["check_static_analysis", "check_security_scan", "check_review_verdict", "check_invariant_conformance", "prepare_review"] })` for current parameter schemas.

@@ -7,7 +7,6 @@
  * For a visible tool, an action that one surface builds and the other surface does not build is drift.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { z } from 'zod';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import * as os from 'node:os';
@@ -37,14 +36,19 @@ function cliContext(): DispatchContext {
   };
 }
 
-/** Returns the string members of a `z.enum` field. It reads `options` first, then `_def.entries`. */
-function enumValues(field: z.ZodType | undefined): string[] {
-  if (!field) return [];
-  const opts = (field as unknown as { options?: unknown }).options;
-  if (Array.isArray(opts)) return opts as string[];
-  const entries = (field as unknown as { _def?: { entries?: Record<string, string> } })._def
-    ?.entries;
-  return entries ? Object.values(entries) : [];
+/** The part of a registered input schema that `tools/list` reads: its standard JSON Schema projection. */
+interface RegisteredInputSchema {
+  readonly '~standard': { readonly jsonSchema: { input(options: { readonly target: 'draft-2020-12' }): Record<string, unknown> } };
+}
+
+/** Returns the string members of the `action` enum that the JSON form of a registered input schema advertises. */
+function advertisedActionEnum(inputSchema: RegisteredInputSchema | undefined): string[] {
+  const json = inputSchema?.['~standard'].jsonSchema.input({ target: 'draft-2020-12' });
+  const properties = json?.properties;
+  if (typeof properties !== 'object' || properties === null || !('action' in properties)) return [];
+  const action = properties.action;
+  if (typeof action !== 'object' || action === null || !('enum' in action) || !Array.isArray(action.enum)) return [];
+  return action.enum.filter((value): value is string => typeof value === 'string');
 }
 
 /** Returns the action names in the `Actions: a, b, c` line of a `slimDescription`. */
@@ -103,7 +107,7 @@ function enumerateCliActions(): Map<string, Set<string>> {
 }
 
 /**
- * Runs `createMcpServer` and returns the `action` enum of each registered `exarchos_` tool.
+ * Runs `createMcpServer` and returns the advertised `action` enum of each registered `exarchos_` tool.
  * `createMcpServer` skips a hidden tool, so the result has no entry for it.
  * The spy on `registerTool` needs the class that production constructs, which is `V2_MCP_SERVER_CLASS`.
  */
@@ -122,9 +126,8 @@ async function enumerateMcpRegisteredActions(): Promise<Map<string, Set<string>>
     for (const call of spy.mock.calls) {
       const toolName = call[0] as string;
       if (!toolName.startsWith('exarchos_')) continue;
-      const cfg = call[1] as { inputSchema?: z.ZodObject<z.ZodRawShape> };
-      const actionField = cfg.inputSchema?.shape?.action as z.ZodType | undefined;
-      out.set(toolName, new Set(enumValues(actionField)));
+      const cfg = call[1] as { inputSchema?: RegisteredInputSchema };
+      out.set(toolName, new Set(advertisedActionEnum(cfg.inputSchema)));
     }
   } finally {
     spy.mockRestore();

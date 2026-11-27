@@ -1,8 +1,8 @@
 /**
  * Tests for the verification-toolchain doctor check.
  *
- * - Pass: `test`, `typecheck`, and `mutation` resolve. The message also reports `lint`.
- * - Warning: at least one of these three fields is unresolved. `fix` names `exarchos doctor --fix` and a declaration in `.exarchos.yml` or `toolchains:`.
+ * - Pass: `test` and `typecheck` resolve. The message also reports `lint`.
+ * - Warning: at least one of these two fields is unresolved. `fix` names `exarchos doctor --fix` and a declaration in `.exarchos.yml` or `toolchains:`.
  * - Skipped: detection finds no toolchain. `reason` names what detection looked for.
  *
  * The result carries the source of each of the six policy cells.
@@ -26,7 +26,7 @@ const ALL_SIX_CELLS: VerificationToolchainResolution['policyCells'] = [
   { riskTier: 'high', boundaryTouching: true, source: 'builtin' },
 ];
 
-/** A resolution where the full Pass triple resolves. */
+/** A resolution where both Pass fields resolve. */
 function fullyResolved(): VerificationToolchainResolution {
   return {
     detected: true,
@@ -34,7 +34,6 @@ function fullyResolved(): VerificationToolchainResolution {
       test: 'npm run test:run',
       typecheck: 'tsc --noEmit',
       install: 'npm install',
-      mutation: 'npx stryker run',
       lint: 'eslint .',
     },
     policyCells: ALL_SIX_CELLS,
@@ -58,16 +57,15 @@ describe('verificationToolchain', () => {
   });
 
   /** The message names the unresolved field, so the operator knows which field to declare. */
-  it('VerificationToolchain_MutationUnresolved_WarningWithBothRemedies', async () => {
+  it('VerificationToolchain_TypecheckUnresolved_WarningWithBothRemedies', async () => {
     const probes = makeStubProbes({
       verificationToolchain: {
         resolve: async () => ({
           detected: true,
           runtime: {
             test: 'npm run test:run',
-            typecheck: 'tsc --noEmit',
+            typecheck: null,
             install: 'npm install',
-            mutation: null,
             lint: 'eslint .',
           },
           policyCells: ALL_SIX_CELLS,
@@ -82,7 +80,8 @@ describe('verificationToolchain', () => {
     expect(result.fix).toContain('exarchos doctor --fix');
     expect(result.fix).toContain('.exarchos.yml');
     expect(result.fix).toContain('toolchains:');
-    expect(result.message).toContain('mutation');
+    expect(result.message).toContain('typecheck');
+    expect(result.message).not.toContain('mutation');
   });
 
   it('VerificationToolchain_NoToolchainDetected_SkippedWithReason', async () => {
@@ -94,7 +93,6 @@ describe('verificationToolchain', () => {
             test: null,
             typecheck: null,
             install: null,
-            mutation: null,
             lint: null,
           },
           policyCells: ALL_SIX_CELLS,

@@ -1,7 +1,6 @@
 // @oracle-sources: authored task graph, real Git ancestry and source-revert process snapshots, SQLite original operation claims
 /** Public typed preparation executes its complete approved graph and exposes bounded authentic detail. */
 import { createHash } from 'node:crypto';
-import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { dispatch, type DispatchContext } from '../../src/dispatch/core/dispatch.js';
@@ -116,16 +115,6 @@ describe('activated whole capsule', () => {
       expect(standing.proof.coordinate.diffBaseCommit).toBe(id === 'root' ? f.repo.baseCommit : f.forks.get(id));
       expect(standing.proof.coordinate.observedHeadCommit).toBe(f.heads.get(id));
     }
-    const logs: { mode: string; paths: string[]; sources: Record<string, string>; cwd: string }[] = (await readFile(f.journal, 'utf8')).trim().split('\n').map(line => JSON.parse(line));
-    const probes = logs.filter(row => row.mode === 'probe');
-    expect(probes.filter(row => [f.repo.checkout, ...f.trees.values()].includes(row.cwd))).toEqual([]);
-    const root = probes.filter(row => row.paths.includes('tests/root.test.cjs'));
-    expect(root.map(row => row.paths)).toEqual([['tests/root.test.cjs'], ['tests/root.test.cjs']]);
-    expect(root.map(row => row.sources['root.cjs'])).toEqual(['module.exports = 1;\n', 'module.exports = 0;\n']);
-    const child = probes.filter(row => row.paths.includes('tests/child.test.cjs'));
-    expect(child.map(row => row.paths)).toEqual([['tests/child.test.cjs'], ['tests/child.test.cjs']]);
-    expect(child.map(row => row.sources['root.cjs'])).toEqual(['module.exports = 1;\n', 'module.exports = 1;\n']);
-    expect(child.map(row => row.sources['child.cjs'])).toEqual(['module.exports = 1;\n', 'module.exports = 0;\n']);
   }, 60000);
 
   it('Acceptance_ThirtyTaskReceipt_ActivationCappedDetail', async () => {

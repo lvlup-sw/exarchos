@@ -1,8 +1,7 @@
 /**
  * Tests for `diff`, which turns doctor check results into an executable `ReconcilePlan`. Each
  * remediable check gives one `PlanStep`, and a passing check gives none. `diff` also adds a
- * `config` step for each resolved `mutation` or `lint` command that `.exarchos.yml` does not
- * declare.
+ * `config` step for each resolved `lint` command that `.exarchos.yml` does not declare.
  *
  * `diff` is pure. It takes the `CheckResult[]` that the doctor roster produces, so each test builds
  * the results by hand and runs no probe.
@@ -165,11 +164,11 @@ describe('diff', () => {
   });
 
   /**
-   * `diff` adds a `config` step for each `mutation` or `lint` command that the resolver resolved
-   * and `.exarchos.yml` does not declare. The third argument holds the declared commands, and a
-   * declared field gives no step.
+   * `diff` adds a `config` step for a `lint` command that the resolver resolved and
+   * `.exarchos.yml` does not declare. The third argument holds the declared commands, and a
+   * declared field gives no step. No step seeds a `mutation` command.
    *
-   * `ALL_PASS` keeps the check path empty. `DESIRED_WITH_VERIFICATION` resolves both commands.
+   * `ALL_PASS` keeps the check path empty. `DESIRED_WITH_VERIFICATION` resolves `lint`.
    */
   describe('verification-command seeding (§4.5-seed)', () => {
     const ALL_PASS: CheckResult[] = [pass('runtime', 'node-version')];
@@ -181,13 +180,12 @@ describe('diff', () => {
         test: 'npm run test:run',
         typecheck: 'tsc --noEmit',
         install: 'npm install',
-        mutation: 'npx stryker run',
         lint: 'eslint .',
       },
     };
 
-    /** The declared set holds neither `mutation` nor `lint`, so each one gets a step. */
-    it('Diff_ResolvedMutationMissingFromConfig_EmitsConfigStep', () => {
+    /** The declared set holds no `lint`, so `lint` gets a step. No step seeds a `mutation` command. */
+    it('Diff_ResolvedLintMissingFromConfig_EmitsConfigStep', () => {
       const declared = { test: 'npm run test:run' };
 
       const plan = diff(DESIRED_WITH_VERIFICATION, ALL_PASS, declared);
@@ -195,11 +193,7 @@ describe('diff', () => {
       expect(() => ReconcilePlanSchema.parse(plan)).not.toThrow();
 
       const byKey = new Map(plan.steps.map((s) => [s.key, s]));
-      const mutationStep = byKey.get('verification-command-mutation');
-      expect(mutationStep).toBeDefined();
-      expect(mutationStep!.kind).toBe('config');
-      expect(mutationStep!.surface).toBe('any');
-      expect(mutationStep!.description.length).toBeGreaterThan(0);
+      expect(byKey.has('verification-command-mutation')).toBe(false);
 
       const lintStep = byKey.get('verification-command-lint');
       expect(lintStep).toBeDefined();
@@ -207,9 +201,8 @@ describe('diff', () => {
       expect(lintStep!.surface).toBe('any');
     });
 
-    it('Diff_ResolvedMutationAlreadyDeclared_NoStep_Idempotent', () => {
+    it('Diff_ResolvedLintAlreadyDeclared_NoStep_Idempotent', () => {
       const declared = {
-        mutation: 'npx stryker run',
         lint: 'eslint .',
       };
 
@@ -240,7 +233,7 @@ describe('diff', () => {
       const plan = diff(DESIRED_WITH_VERIFICATION, ALL_PASS);
 
       const keys = plan.steps.map((s) => s.key);
-      expect(keys).toContain('verification-command-mutation');
+      expect(keys).not.toContain('verification-command-mutation');
       expect(keys).toContain('verification-command-lint');
     });
   });
