@@ -1,10 +1,10 @@
 {
-  "capturedAt": "2026-11-25",
-  "trackedFiles": 3521,
+  "capturedAt": "2026-11-26",
+  "trackedFiles": 3387,
   "surfaces": {
     "depcruise:no-domain-core-to-io-adapters:from": {
       "kind": "module-set",
-      "matched": 148,
+      "matched": 146,
       "detail": {
         "pattern": "^src/(events|workflow)/"
       }
@@ -18,11 +18,11 @@
     },
     "codeowners:*": {
       "kind": "ownership",
-      "matched": 3521
+      "matched": 3387
     },
     "codeowners:src/": {
       "kind": "ownership",
-      "matched": 880
+      "matched": 825
     },
     "codeowners:tools/": {
       "kind": "ownership",
@@ -30,15 +30,15 @@
     },
     "codeowners:content/": {
       "kind": "ownership",
-      "matched": 137
+      "matched": 134
     },
     "codeowners:rendered/": {
       "kind": "ownership",
-      "matched": 244
+      "matched": 242
     },
     "codeowners:tests/": {
       "kind": "ownership",
-      "matched": 1792
+      "matched": 1718
     },
     "codeowners:.exarchos/": {
       "kind": "ownership",
@@ -74,7 +74,7 @@
     },
     "package.files:rendered": {
       "kind": "packaging",
-      "matched": 244,
+      "matched": 242,
       "detail": {
         "buildOutput": false
       }
@@ -109,44 +109,44 @@
     },
     "protected-suites:files": {
       "kind": "test-protection",
-      "matched": 51,
+      "matched": 46,
       "detail": {
-        "declared": 51,
+        "declared": 46,
         "generatedFrom": "tests/unit"
       }
     },
     "invariants:references": {
       "kind": "catalog-reference",
-      "matched": 32,
+      "matched": 33,
       "detail": {
-        "declared": 32,
+        "declared": 33,
         "relocated": 14
       }
     },
     "lint:eslint-cli-glob": {
       "kind": "lint-scope",
-      "matched": 2678,
+      "matched": 2549,
       "detail": {
         "glob": "{src,tools,tests}/**/*.{ts,mts,cts,js,mjs,cjs} *.{ts,mts,cts,js,mjs,cjs}"
       }
     },
     "lint:inv6": {
       "kind": "lint-scope",
-      "matched": 128,
+      "matched": 125,
       "detail": {
         "glob": "content/"
       }
     },
     "lint:test-first-drift": {
       "kind": "lint-scope",
-      "matched": 132,
+      "matched": 129,
       "detail": {
         "glob": "content rendered/agents"
       }
     },
     "knip:workspace:.": {
       "kind": "dead-code",
-      "matched": 3011,
+      "matched": 2882,
       "detail": {
         "glob": "src/**/*.ts tests/**/*.ts !tests/evals/**/runs/** tools/audit/**/*.ts tools/conformance/src/**/*.ts tools/evals/**/*.ts tools/evals-pkg/**/*.ts tools/git-hooks/**/*.ts tools/release/**/*.ts tools/test-helpers/**/*.ts docs/.vitepress/**/*.ts src/install/runtimes/load.js"
       }

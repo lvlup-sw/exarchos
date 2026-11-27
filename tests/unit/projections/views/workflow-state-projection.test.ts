@@ -202,6 +202,26 @@ describe('WorkflowStateProjection workflow lifecycle', () => {
   });
 });
 
+/** A feature log can end in a transition to the retired `merge-pending` phase. The fold reads it as `delegate`, as the state schema does. */
+describe('WorkflowStateProjection retired feature phases', () => {
+  it('Apply_FeatureTransitionToMergePending_ReadsAsDelegate', () => {
+    let view = workflowStateProjection.init();
+    view = workflowStateProjection.apply(view, makeEvent('workflow.started', { featureId: 'f', workflowType: 'feature' }));
+    view = workflowStateProjection.apply(view, makeEvent('workflow.transition', { from: 'plan-review', to: 'delegate' }));
+    view = workflowStateProjection.apply(view, makeEvent('workflow.transition', { from: 'delegate', to: 'merge-pending' }));
+
+    expect(view.phase).toBe('delegate');
+  });
+
+  it('Apply_OtherTypeTransitionToMergePending_KeepsThePhase', () => {
+    let view = workflowStateProjection.init();
+    view = workflowStateProjection.apply(view, makeEvent('workflow.started', { featureId: 'r', workflowType: 'release-check' }));
+    view = workflowStateProjection.apply(view, makeEvent('workflow.transition', { from: 'build', to: 'merge-pending' }));
+
+    expect(view.phase).toBe('merge-pending');
+  });
+});
+
 describe('WorkflowStateProjection task events', () => {
   describe('Apply_TaskAssigned_PushesToTasksArray', () => {
     it('should add a new task with pending status', () => {

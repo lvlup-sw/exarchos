@@ -6,7 +6,6 @@
 import { NextAction, RegistryAdvertisement, isControlOwnedVerb } from './next-action.js';
 import { getFullRegistry } from './registry.js';
 import type { HSMDefinition } from './workflow/state-machine.js';
-import { EXCLUDED_MERGE_PHASES } from './workflow/hsm-definitions.js';
 import type { DesignDepth } from './workflow/plan-depth-policy.js';
 import { evaluateActionAdmission } from './workflow/admission/action-admission.js';
 import {
@@ -23,27 +22,12 @@ import {
 export interface NextActionsState {
   phase?: string | undefined;
   workflowType?: string | undefined;
-  /** Stream identifier — used as the `streamId` segment of merge idempotency keys. */
-  featureId?: string | undefined;
   /**
    * The frozen planning depth of the feature. When it is `'deep'` and the phase is a PLAN-kind
    * authoring phase, `next_actions` offers the opt-in `divergent_loop` affordance. The affordance
    * never runs automatically.
    */
   designDepth?: DesignDepth;
-  mergeOrchestrator?: {
-    /**
-     * Sub-state of the merge orchestrator. `pending` means that the merge did not run yet. A value
-     * in {@link EXCLUDED_MERGE_PHASES} means that the merge terminated and must not run again. Any
-     * other value is still actionable.
-     */
-    phase?: string;
-    /**
-     * The delegated task whose merge is pending. It is the last segment of the merge idempotency
-     * key, so repeated calls for the same task collapse.
-     */
-    taskId?: string;
-  } | undefined;
   /**
    * The admission facts. The caller passes them in, so the computer stays pure. When they are
    * present, {@link computeNextActions} drops each verb that admission denies. When they are
@@ -83,10 +67,6 @@ export interface AdmissionFacts {
  * Trusted ActionId-admission inputs for the registry advertisement envelope: the subject, the
  * persisted evidence, the authorization and the HSM facts. Wall-clock time and the request payload
  * are not members. Without this carrier, the computer publishes no registry ActionIds.
- *
- * The exception is `merge_orchestrate` on the control envelope. It is a capability-gated registry
- * action, and a rehydrate snapshot often has no authorization. Thus the control envelope still
- * surfaces it from recorded merge-pending topology.
  */
 export interface ActionAdmissionFacts {
   readonly subject: { readonly featureId: string; readonly stream: string };
@@ -139,8 +119,6 @@ function admissionVerdicts(
  *
  * - With admission facts, it drops each edge that admission denies and adds a hint to a verdict
  *   other than `allow`. An edge with no verdict publishes as normal.
- * - In `merge-pending`, it adds `merge_orchestrate` until the merge orchestrator terminates. The
- *   idempotency key needs a real `taskId` and `featureId`, so unrelated calls do not share a key.
  * - At the `deep` rung in a PLAN-kind phase that is not a `-review` phase, it adds `divergent_loop`.
  * - It validates each action against the `NextAction` schema and throws on drift.
  */
@@ -191,30 +169,6 @@ export function computeNextActions(
       );
     }
     actions.push(parsed.data);
-  }
-
-  if (phase === 'merge-pending') {
-    const moPhase = state.mergeOrchestrator?.phase;
-    const terminated = moPhase !== undefined && EXCLUDED_MERGE_PHASES.has(moPhase);
-    if (!terminated) {
-      const taskId = state.mergeOrchestrator?.taskId;
-      const streamId = state.featureId;
-      const candidate: NextAction = {
-        verb: 'merge_orchestrate',
-        reason: 'Pending subagent worktree merge',
-        validTargets: ['merge_orchestrate'],
-        ...(taskId && streamId
-          ? { idempotencyKey: `${streamId}:merge_orchestrate:${taskId}` }
-          : {}),
-      };
-      const parsed = NextAction.safeParse(candidate);
-      if (!parsed.success) {
-        throw new Error(
-          `computeNextActions produced invalid merge_orchestrate NextAction: ${parsed.error.message}`,
-        );
-      }
-      actions.push(parsed.data);
-    }
   }
 
   const currentKind = (currentState as { kind?: string }).kind;

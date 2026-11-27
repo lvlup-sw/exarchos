@@ -1341,9 +1341,9 @@ async function treeRefusal(
 
 /**
  * The data of the `task.completed` row: the task, the provenance fields of `result`, and the caller evidence.
- * It forwards `worktree` for the `mergePendingEntry` guard. It does not record `capsuleVersion`.
+ * It forwards `worktree` from `result`. It does not record `capsuleVersion`.
  * For a named tree, it writes the canonical `worktreePath` and the observed head as `commit`, outside `TaskCompletedData`.
- * The guard reads that `worktreePath` too. A tree outside git has no head, so its row carries no `commit`.
+ * A tree outside git has no head, so its row carries no `commit`.
  */
 function completionData(args: TaskCompleteArgs, named: GateRunTree | undefined): Record<string, unknown> {
   const data: Record<string, unknown> = { taskId: args.taskId };

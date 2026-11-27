@@ -1062,7 +1062,7 @@ describe('temp-file naming and orphan sweep', () => {
   /**
    * A dead writer can leave a temp file with a counter equal to a live pid. The sweep must read the trailing pid and reap it.
    * A live writer with a dead-pid counter must keep its file. The names come from `formatTempPath`.
-   * The decoy is the pid of this process. PID 1 can raise `EPERM` in a container, and `isPidAlive` reports that as not alive.
+   * The decoy is the pid of this process, because this process can always signal itself.
    */
   it('OrphanSweep_DeadPidWithLivePidCollidingCounter_StillReaps', async () => {
     const deadPid = await findDeadPid();

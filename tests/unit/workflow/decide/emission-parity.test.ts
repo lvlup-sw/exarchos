@@ -157,8 +157,8 @@ function tierGate(_kind: PhaseKind, ctx: ResolveGateSetCtx): readonly ResolvedGa
 
 describe('the emission over a definition', () => {
   it('PhaseMoveEvents_EachGoldenCase_EqualsTheGolden_ExceptTheSix', () => {
-    expect(INPUTS).toHaveLength(207);
-    expect(GOLDEN).toHaveLength(207);
+    expect(INPUTS).toHaveLength(201);
+    expect(GOLDEN).toHaveLength(201);
     const kept = (caseId: string): boolean => !THE_SIX.includes(caseId);
     const live = LIVE.filter((entry) => kept(entry.input.caseId)).map((entry) => ({
       caseId: entry.input.caseId,
@@ -167,7 +167,7 @@ describe('the emission over a definition', () => {
     const golden = INPUTS.map((input, index) => ({ caseId: input.caseId, result: projectionOf(GOLDEN[index]) })).filter(
       (entry) => kept(entry.caseId),
     );
-    expect(live).toHaveLength(201);
+    expect(live).toHaveLength(195);
     expect(live).toEqual(golden);
   });
 
@@ -229,7 +229,7 @@ describe('the emission over a definition', () => {
       (live): live is LiveCase & { readonly result: TransitionResult } =>
         'success' in live.result && live.result.success,
     );
-    expect(moves).toHaveLength(134);
+    expect(moves).toHaveLength(130);
     const seen = new Set<string>();
     for (const move of moves) {
       const rows = phaseRowsOf(move.result.events, 'emission-parity', { guardId: move.guardId, rows: [] });

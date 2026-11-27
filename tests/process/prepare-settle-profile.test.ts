@@ -34,7 +34,7 @@ const OK = 'node -e ""';
 /** The chain runs the probe twice, the suite once, and each git step of the fixture. */
 const CASE_TIMEOUT_MS = 120_000;
 /** The pinned digest of the full feature definition. It equals the feature literal of `pin-definition.test.ts`, and both change together. */
-const FEATURE_DEFINITION_VERSION = '2da84c593518cde93da6282a08f504e343215b008289389e8f97661bf1a7f6eb';
+const FEATURE_DEFINITION_VERSION = '0797a5645c171778891ab9eb93a21af7fdaa51be87e71336ea35151341772603';
 
 /** The body of a module that returns `value`. */
 function moduleOf(value: number): string {

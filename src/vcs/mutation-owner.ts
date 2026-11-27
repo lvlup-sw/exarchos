@@ -11,6 +11,9 @@
  *
  * Process effects go only through {@link spawnCommandSync}, and persistence only through the
  * injected {@link EventStore}. The module imports neither `node:child_process` nor `node:fs`.
+ *
+ * RESERVED(issue: #1928, owner: exarchos, expires: 2027-02-28). The removal of the local merge
+ * modules took its last production importer. The module-intent gate fails at expiry if no caller adopts it.
  */
 
 import {
@@ -133,10 +136,8 @@ export const defaultVcsGitRunner: VcsGitRunner = {
 };
 
 /**
- * The canonical git argv for a forced worktree removal. `verbs/worktree/manager.ts` and
- * `verbs/merge/local-git-merge.ts` have their own idempotency boundary, so they use these argv
- * helpers and not a second ledger. The census in `tools/conformance/src/vcs-ownership.ts` fails
- * on a worktree or branch mutation in a module that it does not declare.
+ * The canonical git argv for a forced worktree removal. No module uses this helper or the branch helper now.
+ * The census in `tools/conformance/src/vcs-ownership.ts` fails on a worktree or branch mutation in a module that it does not declare.
  */
 export function worktreeRemoveForceArgs(worktreePath: string): readonly string[] {
   return ['worktree', 'remove', '--force', worktreePath];

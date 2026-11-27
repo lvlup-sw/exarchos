@@ -18,7 +18,7 @@ import { getRequiredReviews, type ReviewDimension } from './review-contract.js';
 import type { ResolvedProjectConfig } from '../config/resolve.js';
 
 /** The closed set of phase kinds. Each member must have a row in `KIND_OBLIGATIONS`, and the compiler enforces it. */
-export type PhaseKind = 'IMPLEMENT' | 'PLAN' | 'REVIEW' | 'SYNTHESIZE' | 'MERGE' | 'GATHER';
+export type PhaseKind = 'IMPLEMENT' | 'PLAN' | 'REVIEW' | 'SYNTHESIZE' | 'GATHER';
 
 /**
  * The closed set of gate-resolver names.
@@ -78,11 +78,6 @@ export const KIND_OBLIGATIONS = {
   PLAN: { gates: { resolver: 'plan-structure' }, posture: 'read-only' },
   REVIEW: { gates: { resolver: 'review-contract' }, posture: 'read-only' },
   SYNTHESIZE: { gates: { resolver: 'synthesis-readiness' }, posture: 'shared-mutating' },
-  /**
-   * The autonomous-merge substate (`merge-pending`). Its work is event-driven merge orchestration, so it has no gate-set.
-   * It is a separate kind, so the boundary does not freeze the synthesis-readiness legs onto it. It writes the shared integration branch.
-   */
-  MERGE: { gates: null, posture: 'shared-mutating' },
   GATHER: { gates: null, posture: 'read-only' },
 } as const satisfies Record<PhaseKind, PhaseObligations>;
 

@@ -107,10 +107,12 @@ const CATALOG: readonly CatalogInvariant[] = listAt(INPUTS.catalog, 'inputs.cata
  * The paths at which a live wave differs from the golden. The pin of the full definition moves the digests,
  * the claim key and the bundle reference, and the definition gains the `exarchos` key. The compiler name moves twice.
  * The retirement of the source-revert kill probe drops `test-adequacy` from the evidence kinds and from the two pattern texts.
+ * The deletion of the merge-pending step drops it from the definition steps and transitions and from the non-goals.
  */
 const NAMED_DELTA: readonly string[] = [
   '.capsule.contracts.evidenceKinds',
   '.capsule.identity.definitionVersion',
+  '.capsule.intent.nonGoals',
   '.capsule.knowledge.patterns[0].statement',
   '.capsule.knowledge.patterns[1].statement',
   '.capsule.provenance.compilerVersion',
@@ -118,6 +120,8 @@ const NAMED_DELTA: readonly string[] = [
   '.capsule.settlementContract',
   '.capsuleDigest',
   '.definition',
+  '.definition.steps',
+  '.definition.transitions',
   '.definitionVersion',
   '.operationId',
   '.prepared.bundleRefs[0].digest.value',
@@ -278,6 +282,18 @@ function kernelPart(definition: unknown): Record<string, unknown> {
   return kernel;
 }
 
+/** The golden kernel without the merge-pending step and its two transitions, which the feature definition no longer holds. */
+function goldenKernelWithoutMergePending(): Record<string, unknown> {
+  const kernel = recordAt(GOLDEN.definition, 'definition');
+  return {
+    ...kernel,
+    steps: listAt(kernel.steps, 'definition.steps').filter((step) => recordAt(step, 'step').stepId !== 'merge-pending'),
+    transitions: listAt(kernel.transitions, 'definition.transitions').filter(
+      (transition) => !textAt(recordAt(transition, 'transition').transitionId, 'transitionId').includes('merge-pending'),
+    ),
+  };
+}
+
 describe('the golden of one feature wave of prepare', () => {
   /**
    * The capsule that the call returns differs from the golden capsule at the named paths.
@@ -312,7 +328,7 @@ describe('the golden of one feature wave of prepare', () => {
    */
   it('PrepareGolden_AFeatureWave_PinsTheGoldenDefinition', async () => {
     const { prepared, definition } = await capture();
-    expect(canonicalJson(kernelPart(definition))).toBe(canonicalJson(GOLDEN.definition));
+    expect(canonicalJson(kernelPart(definition))).toBe(canonicalJson(goldenKernelWithoutMergePending()));
     expect(recordAt(definition, 'definition').exarchos).toStrictEqual(builtInDefinition('feature').exarchos);
     expect(prepared.definitionVersion).toBe(contentDigest(definition));
     expect(prepared.compilerVersion).toBe(PREPARE_COMPILER_VERSION);

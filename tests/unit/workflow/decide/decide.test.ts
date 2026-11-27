@@ -123,7 +123,7 @@ function skipSide(run: () => readonly SkippedEdge[]): SkipSide {
 describe('the pure decide over a definition', () => {
   it('Decide_FrozenCorpus_DiffersFromLegacyOnlyOnTheSixAndOnlyToDeny', () => {
     const differing = transitionAdmissionCorpus.filter((fixture) => legacyAllows(fixture) !== decideAllows(fixture));
-    expect(transitionAdmissionCorpus).toHaveLength(131);
+    expect(transitionAdmissionCorpus).toHaveLength(127);
     expect(differing.map((fixture) => fixture.id).sort()).toEqual(THE_SIX);
     expect(differing.map((fixture) => [legacyAllows(fixture), decideAllows(fixture)])).toEqual(
       THE_SIX.map(() => [true, false]),
@@ -187,7 +187,7 @@ describe('the pure decide over a definition', () => {
         return `${type} ${stepId} ${moveOf(outcome)} ${outcome.kind === 'admit' ? outcome.move.to : ''}`;
       }),
     );
-    expect(moves).toHaveLength(35);
+    expect(moves).toHaveLength(34);
     expect(moves.filter((move) => !move.endsWith(' cancel cancelled'))).toEqual([]);
   });
 
@@ -305,7 +305,7 @@ describe('the pure decide over a definition', () => {
         legacy: getValidTransitions(getHSMDefinition(type), step.stepId).map((target) => target.phase),
       })),
     );
-    expect(rows).toHaveLength(45);
+    expect(rows).toHaveLength(44);
     expect(rows.map((row) => ({ step: row.step, targets: row.decide }))).toEqual(
       rows.map((row) => ({ step: row.step, targets: row.legacy })),
     );
@@ -340,7 +340,7 @@ describe('the pure decide over a definition', () => {
           ),
         }));
     });
-    expect(rows).toHaveLength(30);
+    expect(rows).toHaveLength(29);
     expect(rows.filter((row) => row.legacy.threw).map((row) => row.skip)).toEqual(['debug blocked']);
     expect(rows.map((row) => ({ skip: row.skip, side: row.decide }))).toEqual(
       rows.map((row) => ({ skip: row.skip, side: row.legacy })),
@@ -380,9 +380,9 @@ describe('the pure decide over a definition', () => {
       { kind: 'transition', target: 'blocked' },
     );
 
-    expect(rerouted).toHaveLength(58);
+    expect(rerouted).toHaveLength(51);
     expect(rerouted.filter((row) => row.outgoingCount !== 1)).toEqual([]);
-    expect(rerouted.filter((row) => row.incomingRouteDiffers)).toHaveLength(31);
+    expect(rerouted.filter((row) => row.incomingRouteDiffers)).toHaveLength(29);
     expect(rerouted.map((row) => ({ reroute: row.reroute, nodes: row.decide }))).toEqual(
       rerouted.map((row) => ({ reroute: row.reroute, nodes: row.outgoing })),
     );

@@ -50,6 +50,11 @@ export const REPORT_COUPLING_SEED: Readonly<Record<string, ReportCouplingSeedEnt
   {
     'comment.posted': { owner: 'workflow:feature', expires: '2027-02-28' },
     'comment.resolved': { owner: 'workflow:feature', expires: '2027-02-28' },
+    /**
+     * The blocker recovery row. The normal harness landing appends no `merge.executed` row.
+     * The coordinator appends one only to record a blocker that landed by a squash or a rebase, and prepare reads it.
+     */
+    'merge.executed': { owner: 'workflow:feature', expires: '2027-02-28' },
     'merge.requested': { owner: 'workflow:feature', expires: '2027-02-28' },
     'remediation.attempted': { owner: 'gate:review-verdict', expires: '2027-02-28' },
     'remediation.succeeded': { owner: 'gate:review-verdict', expires: '2027-02-28' },

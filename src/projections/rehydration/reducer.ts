@@ -6,7 +6,8 @@
  * - `workflow.checkpoint` and `workflow.handoff_summarized` set `latestHandoff` and `recentHandoffs`.
  * - `state.patched` sets `artifacts` and the plan tasks in `taskProgress`.
  * - A blocked `review.completed`, `review.escalated` and `workflow.guard-failed` add `blockers`.
- * - The terminal `merge.*` events end the `merge-pending` detour.
+ * - `merge.*` events change nothing. The feature machine has no merge substate, because the harness lands
+ *   each task head and settle observes the landing by ancestry.
  *
  * The reducer handles no event that writes `decisions`, so that list stays empty.
  * A handler returns `state` unchanged for a malformed or unactionable event, so `projectionSequence` counts only handled events.
@@ -30,6 +31,7 @@ import {
   extractTaskId,
   extractString,
 } from '../shared/event-data-extractors.js';
+import { readStoredPhase } from '../../workflow/schemas.js';
 
 /**
  * Task status in `taskProgress`. It uses the `TaskSchema.status` values of `workflow/schemas.ts`, so a consumer compares statuses with no translation.
@@ -168,30 +170,8 @@ function foldPlanTasks(
 void STATUS_RANK;
 
 /**
- * True when the event `data` has a non-blank `worktree` or `worktreePath` string.
- * The HSM `mergePendingEntry` guard in `workflow/hsm-definitions.ts` uses it too, so both see the same trigger.
- * A whitespace-only string does not count, so it cannot start the `merge-pending` detour.
- */
-export function eventDataHasWorktreeAssociation(
-  data: WorkflowEvent['data'],
-): boolean {
-  if (!data) return false;
-  const w = data['worktree'];
-  const p = data['worktreePath'];
-  return (
-    (typeof w === 'string' && w.trim().length > 0) ||
-    (typeof p === 'string' && p.trim().length > 0)
-  );
-}
-
-/**
  * Folds a `task.*` event into `taskProgress` with `status`. An event with no `taskId` returns `state` unchanged.
- * A `task.completed` with a worktree association also starts the `merge-pending` detour. The phase becomes `merge-pending`, and `mergeOrchestrator` gets a `pending` entry.
- * The detour applies only to a `feature` workflow in phase `''`, `delegate` or `merge-pending`, because only `createFeatureHSM()` defines `merge-pending`.
- * The phase `''` is allowed because production flows reach `delegate` with no `workflow.transition` event.
- *
- * It skips the detour when another task has a `pending` merge, so a later terminal merge event cannot apply to the wrong task.
- * It also skips it when the same task already has a terminal merge phase, so a replayed event does not offer `merge_orchestrate` again.
+ * It never changes the phase, so a `task.completed` with a worktree association keeps a `feature` workflow in its phase.
  */
 function applyTaskEvent(
   state: RehydrationDocument,
@@ -202,71 +182,10 @@ function applyTaskEvent(
   if (!taskId) {
     return state;
   }
-  let nextWorkflowState = state.workflowState;
-  const detourablePhase =
-    state.workflowState.phase === '' ||
-    state.workflowState.phase === 'delegate' ||
-    state.workflowState.phase === 'merge-pending';
-  if (
-    status === 'complete' &&
-    state.workflowState.workflowType === 'feature' &&
-    detourablePhase &&
-    eventDataHasWorktreeAssociation(event.data)
-  ) {
-    const existing = state.workflowState.mergeOrchestrator;
-    const conflictsWithActiveOther =
-      existing !== undefined &&
-      existing.taskId !== taskId &&
-      existing.phase === 'pending';
-    const sameTaskTerminal =
-      existing !== undefined &&
-      existing.taskId === taskId &&
-      existing.phase !== 'pending';
-    if (!conflictsWithActiveOther && !sameTaskTerminal) {
-      nextWorkflowState = {
-        ...state.workflowState,
-        phase: 'merge-pending',
-        mergeOrchestrator: { taskId, phase: 'pending' },
-      };
-    }
-  }
   return {
     ...state,
     projectionSequence: state.projectionSequence + 1,
     taskProgress: upsertTaskProgress(state.taskProgress, taskId, status),
-    workflowState: nextWorkflowState,
-  };
-}
-
-/**
- * Handles `merge.executed`, `merge.recovered`, the retired `merge.rollback` and `merge.aborted`.
- * It sets `terminalPhase` on `mergeOrchestrator` and sets the phase to `delegate` from any phase, like the HSM `mergePendingExit` guard.
- * With no `mergeOrchestrator` entry, it returns `state` unchanged, so a stray merge event does not invent one.
- *
- * A repeat of the same terminal phase while the phase is `delegate` returns `state` unchanged, so it does not advance `projectionSequence`.
- * It reads no event field, so `merge.recovered` and `merge.rollback` fold the same. In an old log with both events, the second event changes nothing.
- */
-function applyMergeTerminalEvent(
-  state: RehydrationDocument,
-  event: WorkflowEvent,
-  terminalPhase: 'completed' | 'rolled-back' | 'aborted',
-): RehydrationDocument {
-  const existing = state.workflowState.mergeOrchestrator;
-  if (!existing) return state;
-  if (
-    existing.phase === terminalPhase &&
-    state.workflowState.phase === 'delegate'
-  ) {
-    return state;
-  }
-  return {
-    ...state,
-    projectionSequence: state.projectionSequence + 1,
-    workflowState: {
-      ...state.workflowState,
-      phase: 'delegate',
-      mergeOrchestrator: { taskId: existing.taskId, phase: terminalPhase },
-    },
   };
 }
 
@@ -298,6 +217,7 @@ function applyWorkflowStarted(
 
 /**
  * Handles `workflow.transition`: sets `workflowState.phase` to `to`, and keeps `featureId` and `workflowType`.
+ * A retired feature phase in `to` reads as its replacement phase, as the state schema reads it.
  * An event with no `to` returns `state` unchanged.
  */
 function applyWorkflowTransition(
@@ -313,7 +233,7 @@ function applyWorkflowTransition(
     projectionSequence: state.projectionSequence + 1,
     workflowState: {
       ...state.workflowState,
-      phase: to,
+      phase: readStoredPhase(state.workflowState.workflowType, to),
     },
   };
 }
@@ -554,10 +474,12 @@ function applyReviewEscalated(
 /**
  * The `rehydration@v1` reducer. An unknown event type returns `state` unchanged.
  * It maps `task.assigned`, `task.completed` and `task.failed` to the `TaskSchema.status` values `in_progress`, `complete` and `failed`.
+ * Version 2 starts when the merge substate is retired. A version 1 snapshot can hold a `merge-pending` phase that no later event moves.
+ * A snapshot read matches on the version, so the stream folds again from the start.
  */
 export const rehydrationReducer: ProjectionReducer<RehydrationDocument, WorkflowEvent> = {
   id: 'rehydration@v1',
-  version: 1,
+  version: 2,
   scope: 'stream' as const,
   initial: initialRehydrationDocument,
   apply(state: RehydrationDocument, event: WorkflowEvent): RehydrationDocument {
@@ -587,14 +509,6 @@ export const rehydrationReducer: ProjectionReducer<RehydrationDocument, Workflow
         return applyReviewCompleted(state, event);
       case 'review.escalated':
         return applyReviewEscalated(state, event);
-
-      case 'merge.executed':
-        return applyMergeTerminalEvent(state, event, 'completed');
-      case 'merge.recovered':
-      case 'merge.rollback':
-        return applyMergeTerminalEvent(state, event, 'rolled-back');
-      case 'merge.aborted':
-        return applyMergeTerminalEvent(state, event, 'aborted');
 
       default:
         return state;

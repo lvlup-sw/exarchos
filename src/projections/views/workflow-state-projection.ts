@@ -31,7 +31,7 @@ import {
   type PhaseAttemptAdmissionState,
 } from '../../workflow/admission/phase-attempt-state.js';
 import { isPlainObject, applyDotPath, StateStoreError } from '../../workflow/state-mutation.js';
-import { ErrorCode } from '../../workflow/schemas.js';
+import { ErrorCode, readStoredPhase } from '../../workflow/schemas.js';
 import type { DesignDepth } from '../../workflow/plan-depth-policy.js';
 
 export const WORKFLOW_STATE_VIEW = 'workflow-state';
@@ -390,7 +390,7 @@ export const workflowStateProjection: ViewProjection<WorkflowStateView> = {
 
         return {
           ...view,
-          phase: data.to,
+          phase: readStoredPhase(view.workflowType, data.to),
           ...(data.phaseAttemptId !== undefined
             ? { phaseAttemptId: data.phaseAttemptId }
             : {}),
@@ -970,5 +970,14 @@ export const workflowStateProjection: ViewProjection<WorkflowStateView> = {
         throw new Error(`Unhandled workflow event type: ${JSON.stringify(_exhaustive)}`);
       }
     }
+  },
+
+  /**
+   * Reads a cached view as the current fold reads it. A view that an older fold cached can hold a retired feature phase.
+   * The phase reads as its replacement phase, as a folded transition reads. A view with a current phase returns unchanged.
+   */
+  fromSnapshot: (view: WorkflowStateView): WorkflowStateView => {
+    const phase = readStoredPhase(view.workflowType, view.phase);
+    return phase === view.phase ? view : { ...view, phase };
   },
 };

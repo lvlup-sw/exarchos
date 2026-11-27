@@ -177,9 +177,9 @@ When delegation skill spawns parallel tasks:
 6. Land the accepted head commit of each settled task through the harness, one worktree at a time, in dependency order
 7. Clean up each worktree after its accepted head has landed
 
-## Merge-Pending Handoff
+## Landing Handoff
 
-The coordinator lands each settled worktree through its harness, as the delegate skill describes (`@skills/delegate/SKILL.md`, section "Worktree-Bearing Tasks"). From the integration worktree, on the integration branch and with an empty `git status --porcelain`, it lands the accepted head commit of the task with `git merge --ff-only <accepted head commit>`. It lands one worktree at a time, in dependency order, and it lands the accepted head, never a branch name. Before a landing is tried again, `git merge-base --is-ancestor <accepted head> <integration-branch>` exits 0 to skip the worktree or 1 to land it, and any other exit stops the landing. The normal landing makes no Exarchos call and appends no `merge.executed` row. A stream that still parks in `merge-pending` follows `@skills/merge-orchestrator/SKILL.md`.
+The coordinator lands each settled worktree through its harness, as the delegate skill describes (`@skills/delegate/SKILL.md`, section "Worktree-Bearing Tasks"). From the integration worktree, on the integration branch and with an empty `git status --porcelain`, it lands the accepted head commit of the task with `git merge --ff-only <accepted head commit>`. It lands one worktree at a time, in dependency order, and it lands the accepted head, never a branch name. Before a landing is tried again, `git merge-base --is-ancestor <accepted head> <integration-branch>` exits 0 to skip the worktree or 1 to land it, and any other exit stops the landing. The normal landing makes no Exarchos call and appends no `merge.executed` row. Settle observes the landing by ancestry.
 
 Worktree cleanup (step 7 above) runs after `git merge-base --is-ancestor <accepted head> <integration-branch>` exits 0 for that worktree.
 

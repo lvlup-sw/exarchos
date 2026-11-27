@@ -42,6 +42,7 @@ describe('the gate table projects the contract', () => {
   /**
    * `BEFORE_THE_CONTRACT` holds the six gate rows from before the contract, and no other phase has a gate row.
    * A row must change only by a deliberate edit here, in the same commit as the contract change, and never by drift in the derivation.
+   * The `merge-pending` row left with the merge substate, because settle observes each harness landing by ancestry.
    * The delegation rows omit `task.assigned`, because the runtime appends it in `prepare` and `prepare_delegation`.
    * Those phases disclose it in `runtimeEmits`.
    */
@@ -80,7 +81,7 @@ describe('the gate table projects the contract', () => {
     const expected = new Set(Object.values(PHASE_EXPECTED_EVENTS).flat());
     expect(new Set(Object.keys(EVENT_DESCRIPTIONS))).toEqual(expected);
     for (const [type, description] of Object.entries(EVENT_DESCRIPTIONS)) {
-      expect(description, type).toMatch(new RegExp(`^Emit ${type.replace(/\./g, '\\.')} via exarchos_event — `));
+      expect(description, type).toMatch(new RegExp(`^Emit ${type.replace(/[\\^$.*+?()[\]{}|]/g, '\\$&')} via exarchos_event — `));
     }
   });
 });

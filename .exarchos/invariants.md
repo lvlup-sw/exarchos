@@ -187,7 +187,7 @@ invariants:
         https://learn.microsoft.com/en-us/azure/architecture/patterns/scheduler\
         -agent-supervisor"
     references:
-      - src/verbs/merge/merge-orchestrate.ts
+      - src/events/liveness-registry.ts
       - lvlup-sw/docs:exarchos/docs/architecture/runtime.md#§6
 
   - id: INV-11
@@ -341,7 +341,6 @@ invariants:
       - "Greg Young, *Why Event Sourced Systems Fail*:
         https://www.youtube.com/watch?v=FKFu78ZEIi8"
     references:
-      - src/verbs/merge/merge-orchestrate.ts
       - src/events/atomic-appender.ts
       - lvlup-sw/docs:exarchos/docs/architecture/runtime.md#§4-process-manager-handlers
 
@@ -394,7 +393,7 @@ invariants:
       - "git documentation — `git merge --abort`, `git reset --keep`:
         https://git-scm.com/docs/git-reset"
     references:
-      - src/verbs/merge/merge-orchestrate.ts
+      - content/delivery/skills/delegate/SKILL.md
       - lvlup-sw/docs:exarchos/docs/architecture/runtime.md#§5
 
   - id: INV-15

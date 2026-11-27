@@ -6,7 +6,8 @@
  * `scope` definition on `exarchos_view`. Two different enum value sets make `buildRegistrationSchema`
  * throw. `ps` validates its own subset and rejects `repo`.
  *
- * Every scope is a pure read. The reclaim and reconcile writes are `exarchos_orchestrate.reconcile_worktrees`.
+ * Every scope is a pure read. The harness owns worktree setup, ownership and removal, so no action reclaims
+ * or reconciles a worktree.
  */
 
 import type { DispatchContext } from '../../../dispatch/core/dispatch.js';

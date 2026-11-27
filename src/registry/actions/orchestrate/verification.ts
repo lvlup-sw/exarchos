@@ -419,36 +419,6 @@ export const verificationActions: readonly BuiltinToolAction[] = [
     replay: { kind: 'claim-required', scope: 'stream-subject-request' },
   }),
   withContract({
-    name: 'setup_worktree',
-    description: 'Create a git worktree for a task with branch and baseline verification',
-    schema: z.object({
-      repoRoot: z.string().min(1),
-      taskId: z.string().min(1),
-      taskName: z.string().min(1),
-      baseBranch: z.string().optional(),
-      skipTests: z.boolean().optional(),
-      /**
-       * The branch resolves from `branch`, then `workflow.tasks[id=taskId].branch`, then the default.
-       * With `featureId` and no `branch`, the composite adapter reads the planned branch from state.
-       */
-      branch: z.string().min(1).optional(),
-      featureId: z.string().min(1).optional(),
-    }),
-    phases: DELEGATE_PHASES,
-    roles: ROLE_LEAD,
-    outputSchema: vacuityWaiver('exarchos_orchestrate.setup_worktree'),
-    annotations: LOCAL_MUTATION,
-  }, {
-    ensures: none('setup_worktree creates a git worktree and appends no catalog events'),
-    needs: declared('fs:write', 'shell:exec'),
-    resources: declared(
-      { kind: 'path', selector: 'repoRoot' },
-      { kind: 'worktree', selector: 'taskId' },
-      { kind: 'git-ref', selector: 'branch' },
-    ),
-    replay: { kind: 'claim-required', scope: 'stream-subject-request' },
-  }),
-  withContract({
     name: 'verify_delegation_saga',
     description: 'Verify delegation event saga completeness (spawned, dispatched, disbanded)',
     schema: z.object({

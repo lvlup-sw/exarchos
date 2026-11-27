@@ -243,13 +243,11 @@ npm run test:run && npm run test:outcome
 
 ## Canonical first occupants
 
-The Wave 1 substrate seeded the tier with three outcome tests; cite them as
+The Wave 1 substrate seeded the tier with three outcome tests, and two remain; cite them as
 examples when authoring new ones:
 
 - `tests/outcome/install-skills.test.ts` — encodes issue #1355
   (`install-skills` bundling behavior).
-- `tests/outcome/merge-orchestrate-multiworktree.test.ts` — encodes issue
-  #1356 (merge-orchestrator preflight under multi-worktree topology).
 - `tests/outcome/rehydrate-projection-drift.test.ts` — encodes issue #1359
   (rehydrate projection drift; remains `it.fails()` until Wave 2 lands
   the fix).
@@ -271,12 +269,12 @@ saga choreography rather than a single CLI/handler invocation.
 | Dogfood Finding | Outcome Test | Status |
 |---|---|---|
 | #1355 install-skills | [`install-skills.test.ts`](../install-skills.test.ts) | OK |
-| #1356 merge multi-worktree | [`merge-orchestrate-multiworktree.test.ts`](../merge-orchestrate-multiworktree.test.ts) | OK |
+| #1356 merge multi-worktree | n/a (the local merge action is retired; the harness lands branches) | n/a |
 | #1359 projection drift | [`rehydrate-projection-drift.test.ts`](../rehydrate-projection-drift.test.ts) | OK |
 | #1360 reserved-fields | [`reserved-fields-discoverability.test.ts`](../reserved-fields-discoverability.test.ts) | OK |
 | #1363 runbook | [`runbook-merge-orchestration.test.ts`](../runbook-merge-orchestration.test.ts) | OK |
 | #1364 telemetry split | [`telemetry-action-errors.test.ts`](../telemetry-action-errors.test.ts) | OK |
-| #1362 Windows preflight | [`preflight-debug.test.ts`](../preflight-debug.test.ts) (instrumentation only) | OK |
+| #1362 Windows preflight | n/a (the merge preflight is retired with the local merge action) | n/a |
 | #1374 saga detour wire | [`test/process/saga-merge-detour.test.ts`](../../../test/process/saga-merge-detour.test.ts) (process tier) | OK |
 
 Notes:

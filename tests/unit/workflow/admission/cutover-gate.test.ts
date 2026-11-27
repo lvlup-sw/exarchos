@@ -220,11 +220,11 @@ describe('CutoverGate_Blocking (P07-01 exit-proofs b–e)', () => {
 
   /** The test pads the attempts back to the threshold, so the threshold stays met. */
   it('(d) a missing phase kind blocks — and names the missing kind', () => {
-    const withoutMerge = fullLiveCoverage().filter(
-      (a) => a.phaseKind !== 'MERGE',
+    const withoutGather = fullLiveCoverage().filter(
+      (a) => a.phaseKind !== 'GATHER',
     );
-    while (withoutMerge.length < MINIMUM_LIVE_ATTEMPTS) {
-      withoutMerge.push({
+    while (withoutGather.length < MINIMUM_LIVE_ATTEMPTS) {
+      withoutGather.push({
         phaseKind: 'IMPLEMENT',
         outcome: 'allow',
         disagreementClass: 'agree',
@@ -232,11 +232,11 @@ describe('CutoverGate_Blocking (P07-01 exit-proofs b–e)', () => {
     }
     const report = evaluateCutoverGate({
       ...satisfiedEvidence(),
-      liveAttempts: withoutMerge,
+      liveAttempts: withoutGather,
     });
     expect(report.satisfied).toBe(false);
     expect(report.unmet).toContain('phase-kind-coverage');
-    expect(report.missingPhaseKinds).toEqual(['MERGE']);
+    expect(report.missingPhaseKinds).toEqual(['GATHER']);
   });
 
   it('(e) all-allow coverage blocks (deny path unproven)', () => {
@@ -375,9 +375,9 @@ describe('CutoverGate_EnforcementEnablement (P07-01 exit-proof f)', () => {
 });
 
 describe('CutoverGate_PhaseKinds', () => {
-  it('covers all six phase kinds', () => {
+  it('covers all five phase kinds', () => {
     expect([...ALL_PHASE_KINDS].sort()).toEqual(
-      ['GATHER', 'IMPLEMENT', 'MERGE', 'PLAN', 'REVIEW', 'SYNTHESIZE'].sort(),
+      ['GATHER', 'IMPLEMENT', 'PLAN', 'REVIEW', 'SYNTHESIZE'].sort(),
     );
   });
 });

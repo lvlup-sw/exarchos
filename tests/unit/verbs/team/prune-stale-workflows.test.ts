@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
   selectPruneCandidates,
   handlePruneStaleWorkflows,
+  DRY_RUN_WINDOW_MS,
   type WorkflowListEntry,
   type PruneHandlerDeps,
   type PruneSafeguards,
@@ -9,6 +10,9 @@ import {
 import { orchestrateLogger } from '../../../../src/logger.js';
 import type { ToolResult } from '../../../../src/format.js';
 import type { Topology } from '../../../../src/workflow/topology/phase-contract.js';
+import { EventStore } from '../../../../src/events/store.js';
+import { handleEventAppend } from '../../../../src/events/tools.js';
+import { makeTempDir, rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
 
 /**
  * The handler suite never loads a real topology file. It mocks the loader to
@@ -1760,16 +1764,9 @@ describe('handlePruneStaleWorkflows', () => {
     expect(result.error?.message).toContain('dry-run');
   });
 
-  it('handlePrune_ApplyAfterDryRun_Succeeds', async () => {
+  function guardedApply(rows: readonly unknown[]) {
     const append = vi.fn().mockResolvedValue({ sequence: 1, type: 'workflow.pruned' });
-    const query = vi.fn().mockResolvedValue([
-      {
-        type: 'prune.diagnostics',
-        data: { malformedCount: 0, candidateCount: 1 },
-        timestamp: new Date().toISOString(),
-        sequence: 1,
-      },
-    ]);
+    const query = vi.fn().mockResolvedValue(rows);
     const ctx = {
       eventStore: { append, query },
       projectConfig: {
@@ -1781,6 +1778,171 @@ describe('handlePruneStaleWorkflows', () => {
         },
       },
     };
+    const deps = makeDeps({ clock: () => new Date(NOW_ISO) });
+    deps.listSpy.mockResolvedValue(
+      makeListResult([
+        { featureId: 'a', lastActivityTimestamp: staleIso(30_000) },
+      ]),
+    );
+    return { append, query, ctx: ctx as unknown as Parameters<typeof handlePruneStaleWorkflows>[2], deps };
+  }
+
+  function diagnosticsRow(minutesBefore: number, data: Record<string, unknown>) {
+    return {
+      type: 'prune.diagnostics',
+      data: { malformedCount: 0, candidateCount: 1, malformedEntries: [], ...data },
+      timestamp: new Date(Date.parse(NOW_ISO) - minutesBefore * 60_000).toISOString(),
+      sequence: 1,
+    };
+  }
+
+  /** A record that a dry run marked ten minutes earlier admits the apply run. */
+  it('handlePrune_ApplyAfterDryRun_Succeeds', async () => {
+    const { ctx, deps } = guardedApply([diagnosticsRow(10, { dryRun: true })]);
+
+    const result = await handlePruneStaleWorkflows(
+      { dryRun: false, now: NOW_ISO },
+      STATE_DIR,
+      ctx,
+      deps,
+    );
+
+    expect(result.success).toBe(true);
+  });
+
+  /**
+   * An apply run appends its own record. Its record leaves the guard closed, and an old record with no
+   * mark does the same. A marked record outside the window does too, so the apply run is refused.
+   */
+  it.each([
+    ['an apply record', diagnosticsRow(5, { dryRun: false })],
+    ['an unmarked old record', diagnosticsRow(5, {})],
+    ['a marked record older than the window', diagnosticsRow(DRY_RUN_WINDOW_MS / 60_000 + 1, { dryRun: true })],
+    ['a marked record from the future', diagnosticsRow(-5, { dryRun: true })],
+  ])('handlePrune_ApplyAfter_%s_RejectsWithDryRunRequired', async (_label, row) => {
+    const { ctx, deps } = guardedApply([row]);
+
+    const result = await handlePruneStaleWorkflows(
+      { dryRun: false, now: NOW_ISO },
+      STATE_DIR,
+      ctx,
+      deps,
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('DRY_RUN_REQUIRED');
+    expect(deps.cancelSpy).not.toHaveBeenCalled();
+  });
+
+  /**
+   * Only the prune handler writes a prune record. A marked record that a caller appends through the generic
+   * event append is refused, so it cannot open the guard. A real dry run through the handler then opens it.
+   */
+  it('handlePrune_AMarkedRecordAppendedThroughEventAppend_DoesNotOpenTheGuard', async () => {
+    const stateDir = makeTempDir('prune-forged-dry-run-');
+    try {
+      const eventStore = new EventStore(stateDir);
+      const ctx = {
+        eventStore,
+        projectConfig: {
+          prune: { maxBatchSize: 25, phaseExclusions: [], malformedHandling: 'report' as const, requireDryRun: true },
+        },
+      } as unknown as Parameters<typeof handlePruneStaleWorkflows>[2];
+      const deps = makeDeps({ clock: () => new Date() });
+      deps.listSpy.mockResolvedValue(makeListResult([{ featureId: 'a', lastActivityTimestamp: staleIso(30_000) }]));
+
+      const forged = await handleEventAppend(
+        {
+          stream: '_prune',
+          event: { type: 'prune.diagnostics', data: { malformedCount: 0, candidateCount: 1, malformedEntries: [], dryRun: true } },
+        },
+        stateDir,
+        eventStore,
+      );
+      const refused = await handlePruneStaleWorkflows({ dryRun: false }, stateDir, ctx, deps);
+
+      expect(forged.success).toBe(false);
+      expect(forged.error?.code).toBe('RESERVED_EVENT_TYPE');
+      expect(await eventStore.query('_prune')).toEqual([]);
+      expect(refused.success).toBe(false);
+      expect(refused.error?.code).toBe('DRY_RUN_REQUIRED');
+      expect(deps.cancelSpy).not.toHaveBeenCalled();
+
+      await handlePruneStaleWorkflows({ dryRun: true }, stateDir, ctx, deps);
+      const admitted = await handlePruneStaleWorkflows({ dryRun: false }, stateDir, ctx, deps);
+
+      expect(admitted.success).toBe(true);
+      expect(deps.cancelSpy).toHaveBeenCalledTimes(1);
+    } finally {
+      await rmrfAsync(stateDir);
+    }
+  });
+
+  /** The guard reads only the records of the window that ends at the clock, so the read does not grow with each run. */
+  it('handlePrune_TheGuardQuery_IsBoundedToTheWindow', async () => {
+    const { ctx, deps, query } = guardedApply([diagnosticsRow(10, { dryRun: true })]);
+
+    await handlePruneStaleWorkflows({ dryRun: false, now: NOW_ISO }, STATE_DIR, ctx, deps);
+
+    expect(query).toHaveBeenCalledTimes(1);
+    expect(query).toHaveBeenCalledWith('_prune', {
+      type: 'prune.diagnostics',
+      since: new Date(Date.parse(NOW_ISO) - DRY_RUN_WINDOW_MS).toISOString(),
+      until: NOW_ISO,
+    });
+  });
+
+  /**
+   * The window runs on the clock of the deps, never on the `now` arg. A caller that passes a `now` just
+   * after an old marked record does not reopen the guard.
+   */
+  it('handlePrune_ACallerSuppliedNow_DoesNotMoveTheWindow', async () => {
+    const oldRow = diagnosticsRow(DRY_RUN_WINDOW_MS / 60_000 * 24, { dryRun: true });
+    const { ctx, deps } = guardedApply([oldRow]);
+    const justAfterOldRow = new Date(Date.parse(oldRow.timestamp) + 60_000).toISOString();
+
+    const result = await handlePruneStaleWorkflows({ dryRun: false, now: justAfterOldRow }, STATE_DIR, ctx, deps);
+
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('DRY_RUN_REQUIRED');
+    expect(deps.cancelSpy).not.toHaveBeenCalled();
+  });
+
+  /** The guard fails closed. A query that throws refuses the apply run, and nothing is cancelled. */
+  it('handlePrune_AGuardQueryThatThrows_RejectsWithDryRunRequired', async () => {
+    const { ctx, deps, query } = guardedApply([]);
+    query.mockRejectedValue(new Error('store offline'));
+
+    const result = await handlePruneStaleWorkflows({ dryRun: false, now: NOW_ISO }, STATE_DIR, ctx, deps);
+
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('DRY_RUN_REQUIRED');
+    expect(result.error?.message).toContain('store offline');
+    expect(deps.listSpy).not.toHaveBeenCalled();
+    expect(deps.cancelSpy).not.toHaveBeenCalled();
+  });
+
+  /** The guard fails closed. An event store with no query refuses the apply run, and nothing is cancelled. */
+  it('handlePrune_AnEventStoreWithNoQuery_RejectsWithDryRunRequired', async () => {
+    const { append, ctx, deps } = guardedApply([]);
+    const noQueryCtx = { ...ctx, eventStore: { append } } as unknown as Parameters<typeof handlePruneStaleWorkflows>[2];
+
+    const result = await handlePruneStaleWorkflows({ dryRun: false, now: NOW_ISO }, STATE_DIR, noQueryCtx, deps);
+
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('DRY_RUN_REQUIRED');
+    expect(deps.cancelSpy).not.toHaveBeenCalled();
+  });
+
+  /** The two record kinds carry their mark, and a dry run with `malformedHandling: 'skip'` still appends its marked record. */
+  it('handlePrune_EachRun_AppendsAMarkedRecord_AlsoUnderSkip', async () => {
+    const { append, ctx } = makeEventStoreStub();
+    const skipCtx = {
+      ...ctx,
+      projectConfig: {
+        prune: { maxBatchSize: 25, phaseExclusions: [], malformedHandling: 'skip' as const, requireDryRun: false },
+      },
+    };
     const deps = makeDeps();
     deps.listSpy.mockResolvedValue(
       makeListResult([
@@ -1788,14 +1950,14 @@ describe('handlePruneStaleWorkflows', () => {
       ]),
     );
 
-    const result = await handlePruneStaleWorkflows(
-      { dryRun: false, now: NOW_ISO },
-      STATE_DIR,
-      ctx as unknown as Parameters<typeof handlePruneStaleWorkflows>[2],
-      deps,
-    );
+    await handlePruneStaleWorkflows({ dryRun: true, now: NOW_ISO }, STATE_DIR, skipCtx as unknown as Parameters<typeof handlePruneStaleWorkflows>[2], deps);
+    await handlePruneStaleWorkflows({ dryRun: false, now: NOW_ISO }, STATE_DIR, skipCtx as unknown as Parameters<typeof handlePruneStaleWorkflows>[2], deps);
 
-    expect(result.success).toBe(true);
+    const marks = append.mock.calls
+      .map((call: unknown[]) => call[1] as { type: string; data: Record<string, unknown> })
+      .filter((envelope) => envelope.type === 'prune.diagnostics')
+      .map((envelope) => envelope.data.dryRun);
+    expect(marks).toEqual([true, false]);
   });
 
   /**

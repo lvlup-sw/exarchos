@@ -10,6 +10,7 @@ import * as path from 'node:path';
 import type { ToolResult } from '../../format.js';
 import type { DispatchContext } from '../../dispatch/core/dispatch.js';
 import type { EventType } from '../../events/schemas.js';
+import type { EventStore } from '../../events/store.js';
 import { handleList } from '../../workflow/tools.js';
 import { handleCancel } from '../../workflow/cancel.js';
 import { readStateFile } from '../../workflow/state-store.js';
@@ -219,6 +220,57 @@ export function selectPruneCandidates(
 /** The commit window, in hours, for `hasRecentCommits`. The handler args cannot change it. */
 const RECENT_COMMITS_WINDOW_HOURS = 24;
 
+/** How long a dry run admits a later apply run under `requireDryRun`, in milliseconds. */
+export const DRY_RUN_WINDOW_MS = 60 * 60 * 1000;
+
+/**
+ * True when `rows` hold a `prune.diagnostics` record that a dry run marked, at most
+ * {@link DRY_RUN_WINDOW_MS} before `now` and not after it. A record of an apply run, an old record
+ * with no mark, and a record with no readable timestamp do not count.
+ */
+export function hasRecentDryRun(rows: readonly unknown[], now: Date): boolean {
+  return rows.some((row) => {
+    if (typeof row !== 'object' || row === null || !('type' in row) || !('timestamp' in row) || !('data' in row)) return false;
+    if (row.type !== 'prune.diagnostics' || typeof row.timestamp !== 'string') return false;
+    const { data } = row;
+    if (typeof data !== 'object' || data === null || !('dryRun' in data) || data.dryRun !== true) return false;
+    const age = now.getTime() - Date.parse(row.timestamp);
+    return age >= 0 && age <= DRY_RUN_WINDOW_MS;
+  });
+}
+
+/**
+ * Returns the `DRY_RUN_REQUIRED` refusal of an apply run, or `undefined` when a marked dry-run record
+ * admits the run. The query reads only the records of the window that ends at `now`, so the read
+ * does not grow with each run. The guard fails closed: a missing query, a query that throws, or a
+ * result that is not an array gives the refusal.
+ */
+async function dryRunRefusal(eventStore: Pick<EventStore, 'query'> | undefined, now: Date): Promise<ToolResult | undefined> {
+  const refusal = (message: string): ToolResult => ({
+    success: false,
+    error: { code: 'DRY_RUN_REQUIRED', message },
+  });
+  if (eventStore === undefined || typeof eventStore.query !== 'function') {
+    return refusal('Apply mode requires a prior dry-run in the last hour, and the event store cannot read the dry-run records.');
+  }
+  let rows: unknown;
+  try {
+    rows = await eventStore.query('_prune', {
+      type: 'prune.diagnostics',
+      since: new Date(now.getTime() - DRY_RUN_WINDOW_MS).toISOString(),
+      until: now.toISOString(),
+    });
+  } catch (err) {
+    return refusal(
+      `Apply mode requires a prior dry-run in the last hour, and the dry-run records did not read: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+  if (!Array.isArray(rows) || !hasRecentDryRun(rows, now)) {
+    return refusal('Apply mode requires a prior dry-run in the last hour. Run with dryRun: true first.');
+  }
+  return undefined;
+}
+
 /**
  * The handler args. Each field is optional: `dryRun` defaults to true, `force` (skip the safeguard)
  * to false, `includeOneShot` to true, and `now` to the current time.
@@ -258,6 +310,11 @@ export interface PruneHandlerDeps {
   readBranchActivityTimestamp: (
     branchName: string | undefined,
   ) => Promise<string | undefined>;
+  /**
+   * The clock of the `requireDryRun` window. The default is the real clock. The `now` arg never
+   * moves this window, so a caller cannot reopen the guard with an old dry-run record.
+   */
+  clock?: () => Date;
 }
 
 export interface PruneSkipped {
@@ -593,8 +650,9 @@ async function prunePruneCandidate(
  * The `prune_stale_workflows` handler. It lists workflows, adds the second staleness signals, selects
  * candidates, and caps them at `maxBatchSize`, most stale first. A dry run returns the candidates without `pruned`.
  * Apply mode runs the safeguard unless `force` is set, cancels each candidate that passes, and appends `workflow.pruned`.
- * Apply mode needs the event store, so no cancel happens without an audit trail. With `requireDryRun`,
- * it also needs a `prune.diagnostics` event on `_prune`, and a failed query skips that check.
+ *
+ * Apply mode needs the event store. With `requireDryRun`, it needs a marked dry-run record ({@link hasRecentDryRun}) on the real clock.
+ * Each run appends its marked `prune.diagnostics` record.
  *
  * `malformedHandling` is `report` (the default), `include` (malformed entries with a `featureId` become
  * candidates with infinite staleness), or `skip` (no diagnostics). The handler logs a warning for malformed
@@ -636,33 +694,9 @@ export async function handlePruneStaleWorkflows(
     };
   }
 
-  if (
-    !dryRun &&
-    pruneConfig?.requireDryRun === true &&
-    ctx?.eventStore &&
-    typeof (ctx.eventStore as unknown as Record<string, unknown>).query === 'function'
-  ) {
-    try {
-      const recentDiagnostics = await (
-        ctx.eventStore as unknown as {
-          query: (
-            streamId: string,
-            filters: { type: string; limit: number },
-          ) => Promise<unknown[]>;
-        }
-      ).query('_prune', { type: 'prune.diagnostics', limit: 1 });
-      if (!Array.isArray(recentDiagnostics) || recentDiagnostics.length === 0) {
-        return {
-          success: false,
-          error: {
-            code: 'DRY_RUN_REQUIRED',
-            message:
-              'Apply mode requires a prior dry-run. Run with dryRun: true first.',
-          },
-        };
-      }
-    } catch {
-    }
+  if (!dryRun && pruneConfig?.requireDryRun === true) {
+    const refusal = await dryRunRefusal(ctx?.eventStore, (deps.clock ?? (() => new Date()))());
+    if (refusal !== undefined) return refusal;
   }
 
   const listResult = await deps.handleList(stateDir);
@@ -794,15 +828,16 @@ export async function handlePruneStaleWorkflows(
         };
 
 
-  if (ctx?.eventStore && diagnostics) {
+  if (ctx?.eventStore) {
     await ctx.eventStore
       .append('_prune', {
         type: 'prune.diagnostics',
         data: {
-          malformedCount: diagnostics.malformedCount,
-          candidateCount: diagnostics.candidateCount,
-          malformedEntries: diagnostics.malformedEntries,
-          ...(diagnostics.advisory ? { advisory: diagnostics.advisory } : {}),
+          malformedCount: diagnostics?.malformedCount ?? malformed.length,
+          candidateCount: diagnostics?.candidateCount ?? candidates.length,
+          malformedEntries: diagnostics?.malformedEntries ?? [],
+          ...(diagnostics?.advisory ? { advisory: diagnostics.advisory } : {}),
+          dryRun,
         },
       })
       .catch(() => {

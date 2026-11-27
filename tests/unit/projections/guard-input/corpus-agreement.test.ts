@@ -119,18 +119,18 @@ describe('the corpus agreement of the ledger fold and the state document', () =>
     },
   );
 
-  /** The corpus holds 131 fixtures: 51 edges with a pass and a fail fixture, 6 bypass fixtures and 23 config fixtures. */
-  it('CorpusAgreement_TheCases_Are131In102_6_23', () => {
+  /** The corpus holds 127 fixtures: 49 edges with a pass and a fail fixture, 6 bypass fixtures and 23 config fixtures. */
+  it('CorpusAgreement_TheCases_Are127In98_6_23', () => {
     const edgeFixtures = legacyTransitionCorpus.filter(
       (fixture) => fixture.scenario === 'representative-pass' || fixture.scenario === 'representative-fail',
     );
     const bypassFixtures = legacyTransitionCorpus.filter((fixture) => fixture.scenario === 'bypass');
 
-    expect(edgeFixtures).toHaveLength(102);
+    expect(edgeFixtures).toHaveLength(98);
     expect(bypassFixtures).toHaveLength(6);
     expect(configBearingCorpus).toHaveLength(23);
     expect(transitionAdmissionCorpus).toHaveLength(edgeFixtures.length + bypassFixtures.length + configBearingCorpus.length);
-    expect(transitionAdmissionCorpus).toHaveLength(131);
+    expect(transitionAdmissionCorpus).toHaveLength(127);
   });
 
   /** On each side, `executeTransition` gives the verdict that the corpus records for the fixture. */
@@ -162,8 +162,8 @@ describe('the corpus agreement of the ledger fold and the state document', () =>
   });
 
   /**
-   * Without the writer rule, only the fold holds the terminal merge phase. The edge `delegate -> merge-pending` reads no merge phase.
-   * So the facts and the decide verdicts are equal, and the two sides agree.
+   * Without the writer rule, only the fold holds the terminal merge phase. No edge reads a merge phase, and the
+   * machine has no `merge-pending` edge. So the facts and the decide verdicts are equal, and the two sides agree.
    */
   it('CorpusAgreement_AMergeAtDelegateWithoutTheWriterRule_AgreesOnEachDecideVerdict', () => {
     const comparison = comparisonOf(encodedSides(MERGE_AT_DELEGATE, { mergeWriterRule: false }));
@@ -171,15 +171,17 @@ describe('the corpus agreement of the ledger fold and the state document', () =>
     expect(comparison.classes).toEqual([]);
     expect(comparison.agrees).toBe(true);
     expect(comparison.differences).toEqual([]);
-    expect(verdictsOf(comparison, 'delegate->merge-pending')).toEqual({ document: 'allow', fold: 'allow' });
+    expect(comparison.edges.map((edge) => edge.transitionId)).not.toContain('delegate->merge-pending');
+    expect(verdictsOf(comparison, 'delegate->review')).toEqual({ document: 'deny', fold: 'deny' });
   });
 
-  /** With the writer rule, both sides hold the terminal merge phase, and the edge `delegate -> merge-pending` allows on both. */
+  /** With the writer rule, both sides hold the terminal merge phase, and the two sides agree on each verdict. */
   it('CorpusAgreement_AMergeAtDelegateWithTheWriterRule_Agrees', () => {
     const comparison = comparisonOf(encodedSides(MERGE_AT_DELEGATE));
 
     expect(comparison.classes).toEqual([]);
     expect(comparison.agrees).toBe(true);
-    expect(verdictsOf(comparison, 'delegate->merge-pending')).toEqual({ document: 'allow', fold: 'allow' });
+    expect(comparison.edges.map((edge) => edge.transitionId)).not.toContain('delegate->merge-pending');
+    expect(verdictsOf(comparison, 'delegate->review')).toEqual({ document: 'deny', fold: 'deny' });
   });
 });

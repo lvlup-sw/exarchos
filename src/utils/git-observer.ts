@@ -56,9 +56,6 @@ const EXTENSIONS_HEADER_LINE = /^[ \t]*\[extensions\][ \t]*$/i;
 /** One key line of an extensions section with the value `true`. The compare of the key name is in lower case. */
 const TRUE_KEY_LINE = /^[ \t]*([A-Za-z]+)[ \t]*=[ \t]*true[ \t]*$/;
 
-/** A branch or remote section header at any position. With worktreeConfig on, such a section in a config.worktree can move an upstream. */
-const UPSTREAM_HEADER = /\[\s*(?:branch|remote)\b/i;
-
 /** The storage policy of a located checkout: the strict policy of the verifier, or the observational policy of the inspection callers. */
 type StoragePolicy = 'strict' | 'observational';
 
@@ -337,20 +334,6 @@ export async function decideRelation(located: ObservationalCheckout, kind: 'ance
   }
   if (await negativeDecided(located, kind === 'ancestry' ? [right] : [left, right])) return { kind: 'unrelated' };
   return { kind: 'unreadable', reason: 'The shallow boundary leaves the answer undecided' };
-}
-
-/**
- * True when the own config.worktree of a located linked worktree cannot move its upstream. The check applies only with worktreeConfig on.
- * The main worktree uses the common directory, so it passes. An unreadable file, or a branch or remote section at any position, fails.
- */
-export async function ownWorktreeConfigNeutral(located: ObservationalCheckout): Promise<boolean> {
-  if (!located.worktreeConfig || located.gitDir === located.repository) return true;
-  try {
-    const config = await optionalFile(join(located.gitDir, 'config.worktree'));
-    return config === undefined || !UPSTREAM_HEADER.test(config);
-  } catch {
-    return false;
-  }
 }
 
 /**

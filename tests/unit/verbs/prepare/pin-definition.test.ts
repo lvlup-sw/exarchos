@@ -23,7 +23,7 @@ import { releaseCheckDefinition } from '../../../helpers/definitions/user-defini
  * The process pins of the feature and refactor digests name these literals.
  */
 const PINNED_DIGESTS: Readonly<Record<string, string>> = {
-  feature: '2da84c593518cde93da6282a08f504e343215b008289389e8f97661bf1a7f6eb',
+  feature: '0797a5645c171778891ab9eb93a21af7fdaa51be87e71336ea35151341772603',
   debug: '6a4436937d5070c2a8835a9125786c11c33e8878299592cfe347f8d9db45c6fb',
   refactor: '82b8309111effc171d24c8bb7f90e12e962236596b29d980eb18ae69e9e66535',
   oneshot: '1c2d901122a08c393f60f750d22bcd4d77f2481172b864741deb7043ae449bd5',

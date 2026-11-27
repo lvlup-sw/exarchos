@@ -1,156 +1,9 @@
 import { guards, composeGuards } from './guards.js';
 import type { Guard, GuardResult } from './guards.js';
 import type { HSMDefinition, State, Transition } from './state-machine.js';
-import { eventDataHasWorktreeAssociation } from '../projections/rehydration/reducer.js';
-import type { WorkflowEvent } from '../events/schemas.js';
 import { KIND_OBLIGATIONS, type PhaseKind } from './phase-kind.js';
 import { builtInDefinition, type BuiltInDefinition } from './definitions/built-in.js';
 import type { ExarchosExtension } from './definitions/extension.js';
-
-/**
- * Phases of `state.mergeOrchestrator.phase` that mean the merge is over. In
- * these phases the `merge-pending` transition does not fire, and
- * `next-actions-computer` does not surface `merge_orchestrate`. One constant
- * keeps the entry predicate and the surfacing filter in step.
- */
-export const EXCLUDED_MERGE_PHASES: ReadonlySet<string> = new Set<string>([
-  'completed',
-  'rolled-back',
-  'aborted',
-]);
-
-/**
- * Returns the most recent `task.completed` event from `state._events`, or
- * undefined if none exist.
- */
-function findLatestTaskCompleted(
-  events: readonly Record<string, unknown>[],
-): Record<string, unknown> | undefined {
-  for (let i = events.length - 1; i >= 0; i -= 1) {
-    if (events[i]?.type === 'task.completed') return events[i];
-  }
-  return undefined;
-}
-
-/**
- * True when the latest `task.completed` event in `state._events` carries a
- * worktree association (`data.worktree` or `data.worktreePath`).
- *
- * It delegates to `eventDataHasWorktreeAssociation` from the rehydration
- * reducer, so the live HSM and the replayed projection see the same trigger.
- * Otherwise a whitespace-only worktree value moves only the live state to
- * `merge-pending`, and a restart loses `merge_orchestrate`.
- */
-function latestTaskCompletedHasWorktree(state: Record<string, unknown>): boolean {
-  const events = (state._events as readonly Record<string, unknown>[]) ?? [];
-  const latest = findLatestTaskCompleted(events);
-  if (!latest) return false;
-  return eventDataHasWorktreeAssociation(
-    latest.data as WorkflowEvent['data'],
-  );
-}
-
-/**
- * True when `state.mergeOrchestrator?.phase` is not one of the terminal
- * `EXCLUDED_MERGE_PHASES`. A missing phase counts as not excluded, because a
- * first entry has no prior phase.
- */
-function mergeOrchestratorPhaseNotExcluded(state: Record<string, unknown>): boolean {
-  const merge = state.mergeOrchestrator as Record<string, unknown> | undefined;
-  const phase = typeof merge?.phase === 'string' ? merge.phase : undefined;
-  if (phase === undefined) return true;
-  return !EXCLUDED_MERGE_PHASES.has(phase);
-}
-
-/**
- * Guard for `delegate → merge-pending`: fires when the most recent
- * `task.completed` carries a worktree association AND the merge orchestrator
- * has not already terminated for this feature.
- *
- * The completion row is reserved, so no state update can satisfy the guard. The
- * failure thus names no state shape. Its suggested fix is the gated writer,
- * `task_complete` with the worktree in its result. The call applies to the next
- * task to complete, because a repeat call for the same task is deduplicated.
- */
-const mergePendingEntry: Guard = {
-  id: 'merge-pending-entry',
-  description:
-    'Most recent task.completed must carry a worktree association and mergeOrchestrator must not already be in a terminal phase',
-  evaluate: (state: Record<string, unknown>): GuardResult => {
-    if (!latestTaskCompletedHasWorktree(state)) {
-      const featureId = typeof state.featureId === 'string' ? state.featureId : '<featureId>';
-      return {
-        passed: false,
-        reason:
-          'merge-pending-entry not satisfied: latest task.completed event lacks data.worktree / data.worktreePath. ' +
-          'Only task_complete writes task.completed. Give result.worktree when the next task completes. ' +
-          'A repeat task_complete for a task that is complete is deduplicated and writes no row.',
-        suggestedFix: {
-          tool: 'exarchos_orchestrate',
-          params: {
-            action: 'task_complete',
-            featureId,
-            taskId: '<next-task-id>',
-            result: { worktree: '<worktree-path>' },
-          },
-        },
-      };
-    }
-    if (!mergeOrchestratorPhaseNotExcluded(state)) {
-      const merge = state.mergeOrchestrator as Record<string, unknown> | undefined;
-      const phase = typeof merge?.phase === 'string' ? merge.phase : '<unknown>';
-      return {
-        passed: false,
-        reason: `merge-pending-entry not satisfied: mergeOrchestrator.phase='${phase}' is in EXCLUDED_MERGE_PHASES`,
-      };
-    }
-    return true;
-  },
-};
-
-/**
- * Guard for `merge-pending → delegate`. It fires when a `merge.executed`,
- * `merge.rollback`, `merge.recovered`, or `merge.aborted` event follows the
- * latest `task.completed`, or when `mergeOrchestrator.phase` is terminal.
- *
- * Only events after the latest `task.completed` count. A check over the whole
- * history stays true after the first merge cycle, so each later entry exits at
- * once. The `merge.rollback` arm lets old event logs exit too.
- */
-const mergePendingExit: Guard = {
-  id: 'merge-pending-exit',
-  description:
-    'A merge.executed/merge.rollback/merge.recovered/merge.aborted must follow the latest task.completed (or mergeOrchestrator.phase must be terminal)',
-  evaluate: (state: Record<string, unknown>): GuardResult => {
-    const events = (state._events as readonly Record<string, unknown>[]) ?? [];
-    let latestTaskCompletedIdx = -1;
-    for (let i = events.length - 1; i >= 0; i -= 1) {
-      if (events[i]?.type === 'task.completed') {
-        latestTaskCompletedIdx = i;
-        break;
-      }
-    }
-    const cycleEvents = latestTaskCompletedIdx >= 0
-      ? events.slice(latestTaskCompletedIdx + 1)
-      : events;
-    const hasTerminalEvent = cycleEvents.some(
-      (e) =>
-        e.type === 'merge.executed' ||
-        e.type === 'merge.rollback' ||
-        e.type === 'merge.recovered' ||
-        e.type === 'merge.aborted',
-    );
-    if (hasTerminalEvent) return true;
-    const merge = state.mergeOrchestrator as Record<string, unknown> | undefined;
-    const phase = typeof merge?.phase === 'string' ? merge.phase : undefined;
-    if (phase !== undefined && EXCLUDED_MERGE_PHASES.has(phase)) return true;
-    return {
-      passed: false,
-      reason:
-        'merge-pending-exit not satisfied: no merge.executed/merge.rollback/merge.recovered/merge.aborted event found after the latest task.completed and mergeOrchestrator.phase is not terminal',
-    };
-  },
-};
 
 /**
  * The composite guards of the built-in definitions. A composite runs its inner guards in order, and the
@@ -197,14 +50,12 @@ export function buildGuardBindings(entries: readonly Guard[]): ReadonlyMap<strin
 }
 
 /**
- * The guard of each id that a built-in definition can name: each plain guard, the four composites and the
- * two merge-pending guards. The module load builds the table once, so each id has one guard object.
+ * The guard of each id that a built-in definition can name: each plain guard and the four composites.
+ * The module load builds the table once, so each id has one guard object.
  */
 export const GUARD_BINDINGS: ReadonlyMap<string, Guard> = buildGuardBindings([
   ...Object.values(guards),
   ...COMPOSITE_GUARDS,
-  mergePendingEntry,
-  mergePendingExit,
 ]);
 
 /** The prefix of the name of a built-in definition. The rest of the name is the id of the machine. */
@@ -332,8 +183,8 @@ export function deriveMachine(
  * `definitions/feature.workflow.json`. `maxFixCycles: 3` bounds the delegate and review loop. Keep it
  * separate from the escalation auto-fix bound `DEFAULT_MAX_ITERATIONS`.
  *
- * `merge-pending` has kind MERGE, not SYNTHESIZE, so the boundary does not
- * freeze synthesis legs that the merge playbook never runs. Transitions are
+ * The harness lands each accepted task head, and settle observes the landing by
+ * ancestry, so the machine has no merge substate. Transitions are
  * first-match-wins, so the file puts `blocked` before the revise edge, and the revision
  * cap ends the loop. The cap counts the `prepare_review` dispatch events of this
  * loop, because the standard revise edge emits no `plan-revision` event.

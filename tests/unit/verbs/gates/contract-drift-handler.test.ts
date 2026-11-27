@@ -14,7 +14,7 @@ import {
   ONE_SEMANTIC_TEST_STEER,
   type ContractDriftHandlerArgs,
 } from '../../../../src/verbs/gates/contract-drift-handler.js';
-import type { GitExec } from '../../../../src/verbs/pure/execute-merge.js';
+import type { GitExec } from '../../../../src/verbs/gates/gate-utils.js';
 import type { CommandRunFn } from '../../../../src/verbs/gates/contract-drift.js';
 import { fakeExecutor } from '../../../helpers/verification/check-executor.js';
 

@@ -351,45 +351,6 @@ export const DELEGATE_PHASE_REHYDRATE_FIXTURE: ParityFixture = {
 };
 
 /**
- * The fixture holds the arguments for a `merge_orchestrate` call through the two carriers, on a
- * stream with no prior merge events. `setup` is empty, because the orchestrator opens the stream
- * itself.
- *
- * The fixture installs no dependency hooks, and the real preflight and executor run git.
- * `merge-orchestrate.parity-harness.test.ts` wraps the fixture in `stubCompositeHandler`, which
- * supplies deterministic adapters so the two arms give equal output.
- */
-export const MERGE_ORCHESTRATE_PARITY_FIXTURE: ParityFixture = {
-  name: 'merge_orchestrate_post_wave4',
-  description:
-    'merge_orchestrate(feature/x → main, squash) with passing preflight + completed executor — post Wave 4 two-event split. CLI and MCP carriers MUST project byte-equal ToolResults.',
-  async setup(_ctx: DispatchContext) {
-  },
-  cliCall: {
-    toolAlias: 'orch',
-    action: 'merge_orchestrate',
-    flags: {
-      featureId: 'parity-merge-orchestrate-wave4',
-      sourceBranch: 'feat/x',
-      targetBranch: 'main',
-      taskId: 'T44',
-      strategy: 'squash',
-    },
-  },
-  mcpCall: {
-    tool: 'exarchos_orchestrate',
-    args: {
-      action: 'merge_orchestrate',
-      featureId: 'parity-merge-orchestrate-wave4',
-      sourceBranch: 'feat/x',
-      targetBranch: 'main',
-      taskId: 'T44',
-      strategy: 'squash',
-    },
-  },
-};
-
-/**
  * The fixture requests the `plan` to `plan-review` transition with no `artifacts.plan`, so the
  * `planArtifactExists` guard fails. The structured error envelope must be equal across the CLI and
  * MCP carriers.

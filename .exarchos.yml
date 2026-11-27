@@ -17,9 +17,6 @@ review:
     D4: blocking
     D5: blocking
 
-vcs:
-  provider: github
-
 workflow:
   max-fix-cycles: 3
   # Plan-review revision cap. Raised from the default (1) to allow the

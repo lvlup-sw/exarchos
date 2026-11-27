@@ -16,7 +16,7 @@ import { EventStore } from '../../../../src/events/store.js';
 import type { ToolResult } from '../../../../src/format.js';
 import type { CommandRunFn } from '../../../../src/verbs/gates/contract-drift.js';
 import { handleContractDrift } from '../../../../src/verbs/gates/contract-drift-handler.js';
-import type { GitExec } from '../../../../src/verbs/pure/execute-merge.js';
+import type { GitExec } from '../../../../src/verbs/gates/gate-utils.js';
 import { rmrf } from '../../../../tools/test-helpers/temp-dir.js';
 import { contractTerm, nodeTestProfile } from '../../../helpers/verification-profile.js';
 

@@ -38,7 +38,7 @@ const BUILT_IN_TYPES: readonly string[] = ['feature', 'debug', 'refactor', 'ones
 
 /** The digest of each lowered kernel, read from the golden at its capture. */
 const DEFINITION_VERSIONS: Readonly<Record<string, string>> = {
-  feature: 'fb23880b4958b39590a7a3008c22bdbb819d944d8c2fee99fab512202eb46fc9',
+  feature: 'a22adc8c4e0ac510f9ae05fffea77b252c91dc6a4d08dfd087c1c98fec046428',
   debug: '9baacc58a2ac48a7631b62ed54088ccd5658578200a25a0fd60b68d57f65bdfa',
   refactor: '43026d3d6759b5522666802dcd750bd2939eea9897ff1369dcb1ee1d575b86aa',
   oneshot: '3eb31cbf2e44da2d45ace758abc1b246d6ca27272ea35610b248ba55174389ee',
@@ -54,7 +54,7 @@ const SECOND_INNER_GUARD: Readonly<Record<string, string>> = {
 };
 
 /** The floor of each case kind of the stored inputs. */
-const CASE_FLOORS = { corpus: 102, universal: 70, cap: 2, secondGuard: 4 };
+const CASE_FLOORS = { corpus: 98, universal: 68, cap: 2, secondGuard: 4 };
 
 /** True when the value is a plain JSON object. */
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -156,11 +156,11 @@ describe('the golden of the built-in workflows', () => {
       expect(listAt(workflowOf(type).irEdges, `${type}.irEdges`), type).toHaveLength(transitions);
       transitionCounts.push(transitions);
     }
-    expect(Object.fromEntries(stateTypes)).toEqual({ atomic: 35, compound: 5, final: 10 });
-    expect([...stateTypes.values()].reduce((sum, count) => sum + count, 0)).toBe(50);
-    expect(kernelSteps).toBe(45);
-    expect(transitionCounts).toEqual([12, 16, 17, 4, 2]);
-    expect(transitionCounts.reduce((sum, count) => sum + count, 0)).toBe(51);
+    expect(Object.fromEntries(stateTypes)).toEqual({ atomic: 34, compound: 5, final: 10 });
+    expect([...stateTypes.values()].reduce((sum, count) => sum + count, 0)).toBe(49);
+    expect(kernelSteps).toBe(44);
+    expect(transitionCounts).toEqual([10, 16, 17, 4, 2]);
+    expect(transitionCounts.reduce((sum, count) => sum + count, 0)).toBe(49);
 
     const inputs = readStoredInputs(GOLDEN_TEXT);
     const kinds = countKinds(inputs);
@@ -174,7 +174,7 @@ describe('the golden of the built-in workflows', () => {
         .filter((state) => state.type === 'atomic')
         .map((state) => `${type}:${textAt(state.id, `${type}.state.id`)}`),
     ).sort();
-    expect(atomic).toHaveLength(35);
+    expect(atomic).toHaveLength(34);
     expect(phasesOfKind(inputs, 'cancel')).toEqual(atomic);
     expect(phasesOfKind(inputs, 'cleanup')).toEqual(atomic);
   });

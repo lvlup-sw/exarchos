@@ -14,12 +14,6 @@ import { devNull, homedir, tmpdir } from 'node:os';
 import { delimiter, dirname, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-vi.mock('../../src/vcs/factory.js', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../src/vcs/factory.js')>();
-  return { ...actual, createVcsProvider: vi.fn(actual.createVcsProvider) };
-});
-
-import { createVcsProvider } from '../../src/vcs/factory.js';
 import type { DispatchContext } from '../../src/dispatch/core/dispatch.js';
 import { dispatch } from '../../src/dispatch/core/dispatch.js';
 import { deriveMcpCallerIdentity } from '../../src/dispatch/caller-identity.js';
@@ -48,7 +42,6 @@ import { runCli } from '../helpers/cli-runner.js';
 import { spawnMcpClient } from '../helpers/mcp-client.js';
 import { observationalReader, primeObservationalGitPath } from '../../src/utils/git-tree.js';
 import { defaultSafeguards, pruneObservation } from '../../src/verbs/team/prune-safeguards.js';
-import { detectVcsProvider } from '../../src/vcs/detector.js';
 
 /** The absolute real path of the Git executable on the test process PATH, read before any shim. */
 function gitExecutable(): string {
@@ -105,7 +98,6 @@ afterEach(async () => {
   process.env.PATH = ORIGINAL_PATH;
   resetRepoKeyMemo();
   resetMaterializerCache();
-  vi.mocked(createVcsProvider).mockClear();
   for (const cleanup of cleanups.splice(0).reverse()) await cleanup();
 });
 
@@ -244,7 +236,6 @@ describe('lifecycle and team routes in the local executor', () => {
 
     expect(await markerRuns(marker)).toBe(5);
     expect(await shimCalls()).toHaveLength(0);
-    expect(createVcsProvider).not.toHaveBeenCalled();
     expect(await git(main, 'status', '--porcelain')).toBe('');
   });
 
@@ -263,7 +254,6 @@ describe('lifecycle and team routes in the local executor', () => {
 
     expect(result.error?.code).not.toBe('VERIFIER_NOT_PROVISIONED');
     expect(await markerRuns(marker)).toBe(0);
-    expect(createVcsProvider).not.toHaveBeenCalled();
   });
 
   /** Real dispatch runs the baseline in the local executor. */
@@ -318,7 +308,6 @@ describe('converted reads of the lifecycle and team routes', () => {
     const report = (result: typeof attached) => (result.data as { report: string }).report;
     expect(report(attached)).not.toContain('PR stack');
     expect(report(detached)).toBe(report(attached));
-    expect(createVcsProvider).not.toHaveBeenCalled();
     expect(await shimCalls()).toHaveLength(0);
   });
 
@@ -848,22 +837,6 @@ async function staleWorktree(root: string, worktreeConfig = false): Promise<{ re
   return { main, linked, repository: realpathSync(join(main, '.git')) };
 }
 
-/** Acquire `worktreeId` under `repoRoot` through the composite action. */
-function acquire(stateDir: string, store: EventStore, repoRoot: string, worktreeId: string): Promise<ToolResult> {
-  return orchestrate(stateDir, store, { action: 'acquire_worktree', repoRoot, worktreeId });
-}
-
-/** The worktree lifecycle events of the store, by type. */
-async function worktreeEventTypes(store: EventStore): Promise<string[]> {
-  return (await store.query('worktrees')).map((event) => event.type);
-}
-
-/** Assert a WORKTREE_NOT_MUTABLE refusal with `reason`. */
-function expectNotMutable(result: ToolResult, reason: string, label: string): void {
-  expect(result.error?.code, label).toBe('WORKTREE_NOT_MUTABLE');
-  expect(result.error?.message, label).toContain(`(${reason})`);
-}
-
 /**
  * A shallow clone of depth 2 of a three-commit source, with the worktreeConfig extension written by Git. Its boundary is the middle commit.
  * Branch `orphan` holds unrelated history, so a walk from it never reaches the boundary. Branch `onboundary` is a child of the boundary.
@@ -910,30 +883,6 @@ describe('constrained observational reads: Git path selection', () => {
   });
 
   /**
-   * The primed Git path serves a detection that gets no Git path, after the PATH shim is in place.
-   * The GitLab remote proves that the primed read decided the provider. The teardown primes the real Git again.
-   */
-  it('PrimedGitPath_DetectionWithoutGitPath_OnlyThePrimedWrapperRuns', async () => {
-    const root = await tempRoot('observational-primed-');
-    const { main } = await repository(root, { 'README.md': '# fixture\n' });
-    await git(main, 'config', 'remote.origin.url', 'https://gitlab.com/group/project.git');
-    const shimCalls = await pathShim(root);
-    const primedLog = join(root, 'primed.log');
-    const primedGit = join(root, 'primed-git');
-    await writeFile(primedGit, `#!/bin/sh\nprintf '%s\\n' "$*" >> '${primedLog}'\nexec '${GIT}' "$@"\n`);
-    await chmod(primedGit, 0o755);
-    primeUntilTeardown(primedGit);
-    const exec = async (): Promise<string> => { throw new Error('no provider CLI'); };
-
-    const provider = await createVcsProvider({ detectorDeps: { cwd: main, env: {}, exec } });
-
-    expect(provider.name).toBe('gitlab');
-    const primedCalls = (await readFile(primedLog, 'utf8')).split('\n').filter(Boolean);
-    expect(primedCalls.some(line => / remote get-url origin$/.test(line))).toBe(true);
-    expect(await shimCalls()).toHaveLength(0);
-  });
-
-  /**
    * An unprimed process searches PATH once at its first read. A planted `./git` and an empty PATH segment never run.
    * After the first read, the first PATH entry is removed: the next read fails and runs no Git from a later entry.
    */
@@ -968,21 +917,6 @@ describe('constrained observational reads: Git path selection', () => {
     expect(lines).toHaveLength(1);
     expect(lines[0]).toMatch(/^first .*--version$/);
     expect(await markerRan(marker)).toBe(false);
-  });
-
-  /** An unusable Git path detects no provider and starts no PATH Git, so the factory keeps github. */
-  it('Detection_UnusableGitPath_GivesNullAndNoShimGit', async () => {
-    const root = await tempRoot('observational-detect-');
-    const { main } = await repository(root, { 'README.md': '# fixture\n' });
-    await git(main, 'config', 'remote.origin.url', 'https://gitlab.com/group/project.git');
-    const shimCalls = await pathShim(root);
-    const exec = async (): Promise<string> => { throw new Error('none'); };
-
-    expect(await detectVcsProvider({ cwd: main, gitPath: GIT, exec, env: {} })).toMatchObject({ provider: 'gitlab' });
-    expect(await detectVcsProvider({ cwd: main, gitPath: join(root, 'no-git'), exec, env: {} })).toBeNull();
-    const provider = await createVcsProvider({ detectorDeps: { cwd: main, gitPath: join(root, 'no-git'), exec, env: {} } });
-    expect(provider.name).toBe('github');
-    expect(await shimCalls()).toHaveLength(0);
   });
 });
 
@@ -1086,149 +1020,5 @@ describe('constrained observational reads: the outcome of each site', () => {
     }
     expect(refused).toBe(9);
     expect((await review()).success).toBe(true);
-  });
-});
-
-describe('constrained observational reads: acquire_worktree adoption', () => {
-  /** A readable stale-after-push worktree refuses with stale-after-push. A repoRoot outside any checkout reserves with no adoption verdict. */
-  it('AcquireWorktree_ReadableStaleAndOutsideCheckout_KeepTheirOutcomes', async () => {
-    const root = await tempRoot('observational-acquire-');
-    const { linked } = await staleWorktree(root);
-    const outside = join(root, 'outside');
-    await mkdir(outside);
-    const { stateDir, store } = await storeWith(FEATURE, 'delegate');
-    primeObservationalGitPath(GIT);
-
-    expectNotMutable(await acquire(stateDir, store, linked, linked), 'stale-after-push', 'readable');
-    const reserved = await acquire(stateDir, store, outside, join(outside, 'wt'));
-    expect(reserved.success, JSON.stringify(reserved.error)).toBe(true);
-    expect(await worktreeEventTypes(store)).toContain('worktree.reserved');
-  });
-
-  /**
-   * Each unreadable listing cause refuses acquire_worktree with head-unresolved and appends no event.
-   * The causes are an includeIf in the common config and an includeIf only in the main `.git/config.worktree`.
-   * They are also an extension key beside worktreeConfig, an unusable process-wide Git path and a failed probe.
-   */
-  it('AcquireWorktree_UnreadableListingCauses_RefuseWithNoEvent', async () => {
-    const root = await tempRoot('observational-acquire-unreadable-');
-    const { main, linked, repository: common } = await staleWorktree(root, true);
-    const failedProbe = join(root, 'not-git');
-    await writeFile(failedProbe, '#!/bin/sh\necho hello\n');
-    await chmod(failedProbe, 0o755);
-    primeObservationalGitPath(GIT);
-    const config = readFileSync(join(common, 'config'), 'utf8');
-    const primed = (gitPath: string) => async (): Promise<void> => { primeObservationalGitPath(gitPath); };
-    const causes: { readonly label: string; readonly arm: () => Promise<void>; readonly disarm: () => Promise<void> }[] = [
-      { label: 'includeIf common', arm: () => git(main, 'config', 'includeIf.gitdir:/.path', '/untrusted').then(() => undefined), disarm: () => writeFile(join(common, 'config'), config) },
-      { label: 'includeIf main config.worktree', arm: () => writeFile(join(common, 'config.worktree'), '[includeIf "gitdir:/"]\n\tpath = /untrusted\n'), disarm: () => rmrfAsync(join(common, 'config.worktree')) },
-      { label: 'extra extension', arm: () => git(main, 'config', 'extensions.partialClone', 'origin').then(() => undefined), disarm: () => writeFile(join(common, 'config'), config) },
-      { label: 'unusable process Git path', arm: primed(join(root, 'no-git')), disarm: primed(GIT) },
-      { label: 'failed probe', arm: primed(failedProbe), disarm: primed(GIT) },
-    ];
-    for (const cause of causes) {
-      const { stateDir, store } = await storeWith(FEATURE, 'delegate');
-      await cause.arm();
-      expectNotMutable(await acquire(stateDir, store, linked, linked), 'head-unresolved', cause.label);
-      expectNotMutable(await acquire(stateDir, store, linked, main), 'head-unresolved', cause.label);
-      expect(await worktreeEventTypes(store), cause.label).toEqual([]);
-      await cause.disarm();
-    }
-    const { stateDir, store } = await storeWith(FEATURE, 'delegate');
-    expectNotMutable(await acquire(stateDir, store, linked, linked), 'stale-after-push', 'restored');
-  });
-
-  /** Each mid-line loading header in each of the three loaded config files refuses acquire_worktree with head-unresolved and no event. */
-  it('AcquireWorktree_MidLineHeaders_RefuseWithNoEvent', async () => {
-    const root = await tempRoot('observational-acquire-headers-');
-    const { linked, repository: common } = await staleWorktree(root, true);
-    primeObservationalGitPath(GIT);
-    const linkedGitDir = realpathSync(join(common, 'worktrees', 'linked'));
-    const headers = ['[core] [include] path = /untrusted\n', '[core] [includeIf "gitdir:/"] path = /untrusted\n', '[core] [extensions] partialClone = origin\n'];
-    let refused = 0;
-    for (const path of [join(common, 'config'), join(linkedGitDir, 'config.worktree'), join(common, 'config.worktree')]) {
-      for (const header of headers) {
-        const { stateDir, store } = await storeWith(FEATURE, 'delegate');
-        const original = existsSync(path) ? readFileSync(path, 'utf8') : undefined;
-        await writeFile(path, `${original ?? ''}${header}`);
-        expectNotMutable(await acquire(stateDir, store, linked, linked), 'head-unresolved', `${path}: ${header}`);
-        expect(await worktreeEventTypes(store)).toEqual([]);
-        refused += 1;
-        if (original === undefined) await rmrfAsync(path); else await writeFile(path, original);
-      }
-    }
-    expect(refused).toBe(9);
-  });
-
-  /**
-   * A shallow worktreeConfig repository whose boundary the HEAD walk does not reach keeps stale-after-push.
-   * A stale worktree whose HEAD walk reaches the boundary gives head-unresolved, never stale-after-push or mutable.
-   */
-  it('AcquireWorktree_ShallowRepository_DecidedAndUndecidedOutcomes', async () => {
-    const root = await tempRoot('observational-acquire-shallow-');
-    const { clone } = await shallowClone(root);
-    expect(readFileSync(join(clone, '.git', 'config'), 'utf8')).toContain('[extensions]\n\tworktreeConfig = true\n');
-    const decidable = join(root, 'decidable');
-    const undecided = join(root, 'undecided');
-    await git(clone, 'worktree', 'add', '-q', decidable, 'orphan');
-    await git(clone, 'worktree', 'add', '-q', undecided, 'onboundary');
-    for (const [branch, dir] of [['orphan', decidable], ['onboundary', undecided]] as const) {
-      await git(clone, 'update-ref', `refs/remotes/origin/${branch}`, await childCommit(clone, await git(dir, 'rev-parse', 'HEAD')));
-      await git(clone, 'config', `branch.${branch}.remote`, 'origin');
-      await git(clone, 'config', `branch.${branch}.merge`, `refs/heads/${branch}`);
-    }
-    const { stateDir, store } = await storeWith(FEATURE, 'delegate');
-    primeObservationalGitPath(GIT);
-
-    expectNotMutable(await acquire(stateDir, store, clone, decidable), 'stale-after-push', 'decidable');
-    expectNotMutable(await acquire(stateDir, store, clone, undecided), 'head-unresolved', 'undecided');
-  });
-
-  /**
-   * With worktreeConfig on, an upstream set in the own config.worktree of a linked worktree gives head-unresolved, never stale-after-push or no-upstream.
-   * A branch section with only a description there gives head-unresolved too. The main worktree gets no head-unresolved from this rule.
-   */
-  it('AcquireWorktree_OwnConfigWorktreeBranchSection_GivesHeadUnresolved', async () => {
-    const root = await tempRoot('observational-acquire-own-');
-    const { main } = await repository(root, { 'src/a.ts': 'export {};\n' });
-    await git(main, 'config', 'extensions.worktreeConfig', 'true');
-    const linked = join(root, 'linked');
-    await git(main, 'worktree', 'add', '-q', '-b', 'feat', linked);
-    const head = await commitIn(linked, 'work', { 'src/b.ts': 'export {};\n' });
-    await git(main, 'config', 'remote.origin.url', 'https://example.invalid/origin.git');
-    await git(main, 'config', 'remote.origin.fetch', '+refs/heads/*:refs/remotes/origin/*');
-    await git(main, 'update-ref', 'refs/remotes/origin/feat', await childCommit(main, head));
-    await git(linked, 'config', '--worktree', 'branch.feat.remote', 'origin');
-    await git(linked, 'config', '--worktree', 'branch.feat.merge', 'refs/heads/feat');
-    await git(main, 'update-ref', 'refs/remotes/origin/main', await childCommit(main, await git(main, 'rev-parse', 'HEAD')));
-    await trackRemote(main, 'main');
-    primeObservationalGitPath(GIT);
-
-    const { stateDir, store } = await storeWith(FEATURE, 'delegate');
-    expectNotMutable(await acquire(stateDir, store, linked, linked), 'head-unresolved', 'upstream in own config.worktree');
-    expectNotMutable(await acquire(stateDir, store, linked, main), 'stale-after-push', 'main worktree');
-    await git(linked, 'config', '--worktree', '--unset', 'branch.feat.remote');
-    await git(linked, 'config', '--worktree', '--unset', 'branch.feat.merge');
-    await git(linked, 'config', '--worktree', 'branch.feat.description', 'only a description');
-    const second = await storeWith(FEATURE, 'delegate');
-    expectNotMutable(await acquire(second.stateDir, second.store, linked, linked), 'head-unresolved', 'description only');
-  });
-
-  /**
-   * Each listed worktree reads through its own Git directory. A per-worktree remote of the main worktree does not move a linked upstream.
-   * So a stale linked worktree on the same branch stays stale-after-push.
-   */
-  it('AcquireWorktree_MainWorktreeConfigWorktree_DoesNotMoveALinkedUpstream', async () => {
-    const root = await tempRoot('observational-acquire-choice-');
-    const { main, linked } = await staleWorktree(root, true);
-    const head = await git(linked, 'rev-parse', 'HEAD');
-    await git(main, 'config', 'remote.other.url', 'https://example.invalid/other.git');
-    await git(main, 'config', 'remote.other.fetch', '+refs/heads/*:refs/remotes/other/*');
-    await git(main, 'update-ref', 'refs/remotes/other/feat', head);
-    await git(main, 'config', '--worktree', 'branch.feat.remote', 'other');
-    const { stateDir, store } = await storeWith(FEATURE, 'delegate');
-    primeObservationalGitPath(GIT);
-
-    expectNotMutable(await acquire(stateDir, store, linked, linked), 'stale-after-push', 'linked through its own Git directory');
   });
 });

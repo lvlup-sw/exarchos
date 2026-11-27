@@ -48,10 +48,6 @@ vi.mock('../../../../src/verbs/gates/gate-runner.js', () => ({
   hostedPendingResult: vi.fn((error: unknown) => { throw error; }),
 }));
 
-vi.mock('../../../../src/vcs/factory.js', () => ({
-  createVcsProvider: vi.fn(),
-}));
-
 vi.mock('../../../../src/verbs/gates/gate-utils.js', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../../../src/verbs/gates/gate-utils.js')>()),
   observeCurrentCheckout: vi.fn(),
@@ -66,7 +62,6 @@ import { handlePreSynthesisCheck } from '../../../../src/verbs/gates/pre-synthes
 import { runPhaseGateWithEvidence } from '../../../../src/verbs/gates/gate-runner.js';
 import { admitLifecycleLegs } from '../../../../src/verbs/verification/lifecycle-check.js';
 import { observeCurrentCheckout } from '../../../../src/verbs/gates/gate-utils.js';
-import { createVcsProvider } from '../../../../src/vcs/factory.js';
 import { EventStore } from '../../../../src/events/store.js';
 import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
 
@@ -184,7 +179,6 @@ describe('handlePreSynthesisCheck', () => {
     expect(data.passed).toBe(true);
     expect(data.report).not.toContain('PR stack');
     expect(observeCurrentCheckout).not.toHaveBeenCalled();
-    expect(createVcsProvider).not.toHaveBeenCalled();
     expect(execFileSync).not.toHaveBeenCalled();
   });
 

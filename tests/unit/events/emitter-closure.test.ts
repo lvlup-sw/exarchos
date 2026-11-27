@@ -53,8 +53,6 @@ const UNRESOLVED_BASELINE: Readonly<Record<string, number>> = Object.freeze({
   'storage/sidecar-scheduler.ts': 1,
   'vcs/mutation-owner.ts': 2,
   'verbs/team/prepare-delegation.ts': 1,
-  'verbs/worktree/manager.ts': 1,
-  'verbs/worktree/merge-serializer.ts': 1,
   'workflow/cancel.ts': 1,
 });
 
@@ -135,8 +133,8 @@ describe('emitter closure', () => {
     );
     const closure = auditEmitterClosure(census, declaredEmissionEdges());
 
-    expect(closure.measuredSiteCount, 'no append site was measured').toBeGreaterThan(62);
-    expect(closure.explainedByAction, 'no site was explained by an action edge').toBeGreaterThan(40);
+    expect(closure.measuredSiteCount, 'no append site was measured').toBeGreaterThan(46);
+    expect(closure.explainedByAction, 'no site was explained by an action edge').toBeGreaterThan(25);
     expect(
       closure.explainedByModule,
       'no site was explained by the non-action surface',
@@ -194,7 +192,7 @@ describe('emitter closure', () => {
       distinctDeclaredEvents,
     );
     expect(closure.declaredActionEventCount, 'the declared population collapsed').toBeGreaterThan(
-      50,
+      44,
     );
     expect(UNRESOLVED_ACTION_EVENT_ALLOWANCE.length, 'the allowance is empty').toBeGreaterThan(0);
 
@@ -294,7 +292,7 @@ describe('emitter closure', () => {
     const audit = auditActionOwnedAppends(census, declaredEmissionEdges());
 
     expect(ACTION_APPEND_OWNERSHIP.length, 'the ownership table is empty').toBeGreaterThanOrEqual(
-      9,
+      5,
     );
     expect(
       audit.confirmedOwnedAppends,

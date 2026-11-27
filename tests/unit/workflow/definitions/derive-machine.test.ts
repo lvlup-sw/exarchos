@@ -63,14 +63,14 @@ const COMPOSITE_IDS: readonly string[] = [
   'synthesize-retryable+hotfix-track',
 ];
 
-/** The number of guards in the binding table beside the plain guards: four composites and two merge-pending guards. */
-const NON_PLAIN_BINDINGS = 6;
+/** The number of guards in the binding table beside the plain guards: the four composites. */
+const NON_PLAIN_BINDINGS = 4;
 
 /** The plain guards of the guards module. The binding table holds each of them by reference. */
 const PLAIN_GUARDS: readonly Guard[] = Object.values(guards);
 
-/** The guard ids of the binding table that are not plain guards: the four composites and the two merge-pending guards. */
-const NON_PLAIN_IDS: readonly string[] = [...COMPOSITE_IDS, 'merge-pending-entry', 'merge-pending-exit'];
+/** The guard ids of the binding table that are not plain guards: the four composites. */
+const NON_PLAIN_IDS: readonly string[] = [...COMPOSITE_IDS];
 
 /** One stored transition input of the golden, with the result that the literal machine gave at the capture. */
 interface StoredCase {
@@ -175,7 +175,7 @@ describe('the phase machine that derives from each built-in definition', () => {
 
   /**
    * Each plain guard of a derived machine is the object with the same id in the guards module. The id comes from the authored edge, so a wrong guard fails.
-   * Each composite and merge-pending guard is the table entry of the id that its authored edge names.
+   * Each composite guard is the table entry of the id that its authored edge names.
    */
   it.each(BUILT_IN_WORKFLOW_TYPES)('DeriveMachine_%s_BindsEachPlainGuardByReference', (type) => {
     const definition = builtInDefinition(type);
@@ -261,7 +261,7 @@ describe('the phase machine that derives from each built-in definition', () => {
 
   /**
    * The binding table refuses a second guard with an id that it holds, also when the second object is a copy.
-   * The live table holds each plain guard by reference, the four composites and the two merge-pending guards.
+   * The live table holds each plain guard by reference and the four composites. It holds no merge-pending guard.
    */
   it('DeriveMachine_ADuplicateBindingId_Throws', () => {
     expect(() =>
@@ -276,8 +276,8 @@ describe('the phase machine that derives from each built-in definition', () => {
     expect(GUARD_BINDINGS.size).toBe(plain.length + NON_PLAIN_BINDINGS);
     expect(plain.filter((guard) => GUARD_BINDINGS.get(guard.id) !== guard).map((guard) => guard.id)).toEqual([]);
     expect(COMPOSITE_IDS.filter((id) => !GUARD_BINDINGS.has(id))).toEqual([]);
-    expect(GUARD_BINDINGS.has('merge-pending-entry')).toBe(true);
-    expect(GUARD_BINDINGS.has('merge-pending-exit')).toBe(true);
+    expect(GUARD_BINDINGS.has('merge-pending-entry')).toBe(false);
+    expect(GUARD_BINDINGS.has('merge-pending-exit')).toBe(false);
   });
 
   /** An edge that names a guard id with no binding stops the derivation with an error that names the edge and the id. */

@@ -2541,13 +2541,13 @@
   ],
   "pins": {
     "contractAuthority": {
-      "actionIdRegistryDigest": "sha256:a0f8c04aae03eb90e02d16d35d6c01532e54f83982fde8a726a73a4a3aa8e520",
+      "actionIdRegistryDigest": "sha256:d871c4868c6e2db115517f50b3f1def3f99c108546a8953a1475d731267a30be",
       "file": "src/contract/contract-authority.lock.json"
     },
     "inputs": [
       {
         "file": "content/delivery/skills/delegate/SKILL.md",
-        "sha256": "0d6c5565ed2f8ce56378d7a7cd649938acd5effc39f55067d6af9fe546ea8c95"
+        "sha256": "c16ac48ef314456bc8a971c6090305653eb7fde0db8c34456ebc82983cb3b2c5"
       },
       {
         "file": "content/design/skills/plan/SKILL.md",
@@ -2559,16 +2559,16 @@
       },
       {
         "file": "content/synthesis/skills/synthesize/SKILL.md",
-        "sha256": "02db76e460365de192360c15ba9ce790d599c7b648d8c6e7244b1ab705594591"
+        "sha256": "5a4fcb170e5a434b640cb698cd14431edfd3b4d8f2c351c12fa9d424dadc521a"
       },
       {
         "file": "src/runbooks/definitions.ts",
-        "sha256": "ec348fc5bd4db6b86e74bee9ac7027bfeb9046fb078d0fc709345955e77a3e4f"
+        "sha256": "d4aa3b8c6cefa085b74d0beedc12506ce47870d163b7ee736e716f5694c4dbf3"
       }
     ],
     "registry": {
-      "actionIdsSha256": "a0f8c04aae03eb90e02d16d35d6c01532e54f83982fde8a726a73a4a3aa8e520",
-      "actions": 115,
+      "actionIdsSha256": "d871c4868c6e2db115517f50b3f1def3f99c108546a8953a1475d731267a30be",
+      "actions": 108,
       "file": "tools/audit/registered-actions-snapshot.json",
       "tools": 5,
       "visibleTools": 4
@@ -3115,32 +3115,6 @@
           "call": "decide.decide",
           "status": "decision",
           "surface": "decision"
-        }
-      ]
-    },
-    {
-      "counts": {
-        "decision": 0,
-        "exarchos": 3,
-        "native": 0
-      },
-      "id": "merge-orchestration",
-      "phase": "merge-pending",
-      "steps": [
-        {
-          "call": "exarchos_orchestrate.merge_orchestrate",
-          "status": "registered",
-          "surface": "exarchos"
-        },
-        {
-          "call": "exarchos_orchestrate.merge_orchestrate",
-          "status": "registered",
-          "surface": "exarchos"
-        },
-        {
-          "call": "exarchos_workflow.transition",
-          "status": "registered",
-          "surface": "exarchos"
         }
       ]
     }

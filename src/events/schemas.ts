@@ -128,6 +128,13 @@ export const INTERNAL_EXECUTION_LEDGER_EVENT_TYPES: readonly [
 export const INTERNAL_GATE_SIGNAL_EVENT_TYPES: readonly ['gate.executed'] = ['gate.executed'];
 
 /**
+ * Server-owned prune records. The prune handler writes `prune.diagnostics` through the store.
+ * The `requireDryRun` guard reads a record that a dry run marked as proof of that dry run.
+ * A generic append of it can open the guard with no dry run. The type is already in `EventTypes`, so this list only reserves it.
+ */
+export const INTERNAL_PRUNE_EVENT_TYPES: readonly ['prune.diagnostics'] = ['prune.diagnostics'];
+
+/**
  * The event types that settlement reads as inputs of its verdict. A generic append of one of them
  * can fake a verdict, so each one must be in the reserved append registry. A test holds that rule.
  * An evidence citation resolves only to an `admission.evidence-recorded` gate row. `task_complete`
@@ -297,8 +304,8 @@ export const EventTypes = [
   'dispatch.classified',
   'merge.preflight',
   /**
-   * The durable intent, recorded before the GitHub merge call runs. The `merge-orchestrator@v1`
-   * projection folds it as the move into the `requested` phase.
+   * The durable intent, recorded before the GitHub merge call of the retired merge executor ran.
+   * Old logs hold it, and no reader folds it now.
    */
   'merge.requested',
   'merge.executed',
@@ -368,9 +375,9 @@ export const EventTypes = [
   'worktree.remove.requested',
   'worktree.remove.executed',
   /**
-   * The lease and ownership half of worktree lifecycle management. These four events share one payload
-   * shape. Worktree deletion reuses the `worktree.remove.*` pair, so no `worktree.pruned` type exists.
-   * The idempotency key is `<eventType>:<operationId>`.
+   * The lease and ownership half of the retired worktree lifecycle manager. These four events share
+   * one payload shape. The idempotency key is `<eventType>:<operationId>`. The harness owns worktree
+   * ownership now, so no code appends them. The schemas stay, so stored logs replay the same.
    */
   'worktree.adopted',
   'worktree.reserved',
@@ -381,7 +388,7 @@ export const EventTypes = [
    * the claim: the operation and the live process that hold the right to merge `sourceBranch` into
    * `integrationRef`. `worktree.merge_executed` is the release, with the terminal outcome. The only
    * discriminator is `operationId`, so two concurrent merges onto one `integrationRef` get distinct
-   * keys. The claim goes through the `decide` seam, and the release is a plain keyed append.
+   * keys. No code appends either event now. The schemas stay, so stored logs replay the same.
    */
   'worktree.merge_requested',
   'worktree.merge_executed',
@@ -389,9 +396,8 @@ export const EventTypes = [
    * The launcher pairs. The retired launcher appended `worktree.create.*` as the intent and terminal
    * pair for its top-level worktree. It is separate from `worktree.created`, which needs a `taskId`
    * and a `branch`. `launch.executing_started` records the live child process (`holderPid` and
-   * `holderStartedAt`). `launch.executed` records that the child process exited, and
-   * `reconcile_worktrees` still appends it for a dead historical launch. The schemas stay, so stored
-   * logs replay the same.
+   * `holderStartedAt`). `launch.executed` records that the child process exited. No code appends
+   * these events now, but stored logs replay the same.
    */
   'worktree.create.requested',
   'worktree.create.executed',
@@ -454,9 +460,9 @@ export const EventTypes = [
   'feedback.recorded',
   /**
    * Prune-run liveness on the singleton `worktrees` stream. `worktrees@v1` folds the pair into
-   * `inFlightPrunes`, keyed by `operationId`. `prune.executing_started` records the process that runs
-   * the `prune_worktrees` pass. `prune.executed` clears the in-flight marker. The WorktreeManager owns
-   * both appends.
+   * `inFlightPrunes`, keyed by `operationId`. `prune.executing_started` recorded the process that ran
+   * a pass of the retired `prune_worktrees` action. `prune.executed` clears the in-flight marker. No code
+   * appends either event now, but old logs replay the same.
    */
   'prune.executing_started',
   'prune.executed',
@@ -683,8 +689,7 @@ export const TaskAssignedData = z.object({
   taskId: z.string().describe('Unique identifier for the task'),
   title: z.string().describe('Human-readable task title'),
   /**
-   * The planned branch of the task. `setup_worktree` takes the first branch that is set: `args.branch`,
-   * then `workflow.tasks[id].branch`, then the default.
+   * The planned branch of the task. The harness creates the task worktree on this branch.
    */
   branch: z.string().optional().describe('Git branch for this task (planned). Optional.'),
   worktree: z.string().optional().describe('Path to the git worktree for isolation'),
@@ -908,11 +913,25 @@ export const WorkflowCancelData = z.object({
   reason: z.string().optional(),
 });
 
+/**
+ * One compensation action of a cancel. A ledger-only cancel records each resource of the action
+ * as `outstanding`, or as `failed` after a prior failed removal. Rows from before the ledger-only
+ * cancel carry `executed` and no resources, and they parse the same.
+ */
 export const WorkflowCompensationData = z.object({
   featureId: z.string(),
   actionId: z.string(),
-  status: z.enum(['executed', 'skipped', 'failed', 'dry-run']),
+  status: z.enum(['executed', 'skipped', 'outstanding', 'failed', 'dry-run']),
   message: z.string(),
+  resources: z
+    .array(
+      z.object({
+        kind: z.enum(['pull-request', 'integration-branch', 'worktree', 'feature-branch']),
+        ref: z.string(),
+        status: z.enum(['outstanding', 'failed']),
+      }),
+    )
+    .optional(),
 });
 
 const CancellationEventVersionSchema = z.literal('1.0');
@@ -952,7 +971,10 @@ export const CancelCompensationRequestedData = z
   .strict()
   .readonly();
 
-/** Durable successful result for one compensation action. */
+/**
+ * Durable successful result for one compensation action. A ledger-only cancel records `outstanding`.
+ * Rows from before the ledger-only cancel carry `executed` or `skipped`.
+ */
 export const CancelCompensationCompletedData = z
   .object({
     eventVersion: CancellationEventVersionSchema,
@@ -960,7 +982,7 @@ export const CancelCompensationCompletedData = z
     featureId: z.string().min(1),
     phaseAttemptId: PhaseAttemptIdSchema,
     actionId: CancellationActionIdSchema,
-    status: z.enum(['executed', 'skipped']),
+    status: z.enum(['executed', 'skipped', 'outstanding']),
     message: z.string().min(1),
     completedAt: CancellationRecordedAtSchema,
   })
@@ -1572,8 +1594,8 @@ const MergePreflightDriftData = z.object({
 
 /**
  * Debug data for a Windows ancestry mismatch. `merge.preflight` carries it only when
- * `EXARCHOS_PREFLIGHT_DEBUG=1` and ancestry failed, to limit event-store growth. The shape mirrors
- * `PreflightDebug` in `verbs/pure/merge-preflight.ts`.
+ * `EXARCHOS_PREFLIGHT_DEBUG=1` and ancestry failed, to limit event-store growth. The retired
+ * `merge_orchestrate` preflight wrote it, and old rows keep this shape.
  */
 const MergePreflightDebugRefData = z.object({
   sha: z.string(),
@@ -1677,15 +1699,18 @@ export const livenessInstanceFields = {
  * `git reset --keep <rollbackSha>`, and never with `--hard`.
  */
 export const MergeExecutedData = z.object({
-  taskId: z.string().optional(),
-  sourceBranch: z.string().min(1),
-  targetBranch: z.string().min(1),
+  taskId: z.string().optional().describe('The task whose accepted head landed'),
+  sourceBranch: z.string().min(1).describe('The task branch that landed'),
+  targetBranch: z.string().min(1).describe('The integration branch that received the landing'),
   /** The operator-selected merge strategy, kept so that replay does not derive it from state. */
-  strategy: z.enum(['squash', 'rebase', 'merge']).optional(),
-  mergeSha: z.string().min(1),
-  rollbackSha: z.string().min(1),
-  /** The liveness instance key: `taskId`, or `sourceBranch→targetBranch`. */
-  ...livenessInstanceFields,
+  strategy: z.enum(['squash', 'rebase', 'merge']).optional().describe('The merge strategy of an old row'),
+  mergeSha: z.string().min(1).describe('The integration tip after the landing'),
+  rollbackSha: z.string().min(1).describe('The integration tip before the landing'),
+  /**
+   * The liveness instance key: `taskId`, or `sourceBranch→targetBranch`. It has the type of the shared
+   * liveness field. The coordinator appends this event, so the field has a short description for the model.
+   */
+  instanceId: livenessInstanceFields.instanceId.describe('The liveness key: taskId, or source→target branch'),
 });
 
 /**
@@ -1702,10 +1727,10 @@ export const MergeRollbackData = z.object({
   reason: z.enum(['merge-failed', 'verification-failed', 'timeout']),
   rollbackError: z.string().min(1).optional(),
   /**
-   * The recovery outcome. `pure/execute-merge.ts` runs `git merge --abort`, then
-   * `git reset --keep <rollbackSha>`. It emits `reset-keep-blocked` when `reset --keep` refuses to
-   * discard local work, `reset-failed` when the reset fails, and `unexpected-mid-merge-drift` when
-   * HEAD is not the anchor after recovery.
+   * The recovery outcome of the retired local merge. It ran `git merge --abort`, then
+   * `git reset --keep <rollbackSha>`. It wrote `reset-keep-blocked` when `reset --keep` refused to
+   * discard local work, `reset-failed` when the reset failed, and `unexpected-mid-merge-drift` when
+   * HEAD was not the anchor after recovery. Stored rows keep these values.
    */
   recoveryError: z
     .enum(['reset-keep-blocked', 'reset-failed', 'unexpected-mid-merge-drift'])
@@ -1863,7 +1888,7 @@ export const BranchDeleteExecutedData = z.object({
 /**
  * The durable intent before `git worktree remove`. The idempotency check filters `git worktree list`.
  *
- * `worktreeId` is the optional canonical projection key that `WorktreeManager` stamps. The
+ * `worktreeId` is the optional canonical projection key that the retired worktree manager stamped. The
  * `worktrees@v1` reducer drops the entry by this key and calls no `realpath()` at fold time. So the
  * cold rebuild is deterministic from the event log alone. An older event without it falls back to a
  * canonical form of `worktreePath`.
@@ -2116,7 +2141,8 @@ export const PhaseContractMissingData = z.object({
 /**
  * The closed phase-kind set, a copy of `PhaseKind` in `workflow/phase-kind.ts`. It is inlined
  * because `phase-kind.ts` pulls in resolvers that the event store must not depend on. A drift-guard
- * test pins it to `KIND_OBLIGATIONS`.
+ * test pins it to `KIND_OBLIGATIONS`. It also holds `MERGE`, the kind of the retired merge substate,
+ * so a stored row of that kind still parses.
  */
 export const PhaseBlockedKindSchema = z.enum([
   'IMPLEMENT',
@@ -2471,7 +2497,7 @@ export const FeedbackRecordedData = z.object({
   upstreamDelivered: z.boolean().optional(),
 });
 
-/** Emitted at the start of a `prune_worktrees` pass. */
+/** Emitted at the start of a pass of the retired `prune_worktrees` action. Old logs still hold it. */
 export const PruneExecutingStartedData = z.object({
   /** Correlation key + `inFlightPrunes` map key — one per prune pass. */
   operationId: z.string().min(1),
@@ -2502,9 +2528,14 @@ export const PruneDiagnosticsData = z.object({
     }),
   ),
   advisory: z.string().optional(),
+  /**
+   * True on the record of a dry run, and false on the record of an apply run. The `requireDryRun`
+   * guard accepts only a record with `true`. An old record has no field, so the guard refuses it.
+   */
+  dryRun: z.boolean().optional(),
 });
 
-/** The paired terminal: the `prune_worktrees` pass completed. */
+/** The paired terminal of a pass of the retired `prune_worktrees` action. Old logs still hold it. */
 export const PruneExecutedData = z.object({
   operationId: z.string().min(1),
   /** How many worktrees the pass deleted (0 on a dry-run or a no-op pass). */

@@ -50,7 +50,6 @@ const PHASE_KIND_PRESENCE = {
   PLAN: true,
   REVIEW: true,
   SYNTHESIZE: true,
-  MERGE: true,
   GATHER: true,
 } as const satisfies Record<PhaseKind, true>;
 

@@ -1,10 +1,9 @@
 /**
  * Replay regression for the retired `merge.rollback` event.
- * `src/verbs/merge/execute-merge.ts` appends only `merge.recovered`, but the data schema of `merge.rollback` stays.
- * An old log with `merge.rollback` must still fold to its recovery state in three reducers.
- * They are `workflowStateProjection`, the rehydration reducer and the `merge-orchestrator@v1` reducer.
- * The HSM `merge-pending-exit` guard must also accept the event.
- * `merge.recovered` must fold to the same recovery state in each of those sites.
+ * No code appends `merge.rollback` or `merge.recovered` now, but the data schema of each stays.
+ * An old log with `merge.rollback` must still fold to its recovery state in `workflowStateProjection`.
+ * The rehydration reducer keeps the phase, because the feature machine has no merge substate.
+ * `merge.recovered` must fold to the same state in each of those sites.
  */
 
 import { describe, it, expect } from 'vitest';
@@ -13,8 +12,6 @@ import type { WorkflowEvent } from '../../../src/events/schemas.js';
 import { MergeRollbackData, MergeRecoveredData } from '../../../src/events/schemas.js';
 import { workflowStateProjection } from '../../../src/projections/views/workflow-state-projection.js';
 import { rehydrationReducer } from '../../../src/projections/rehydration/reducer.js';
-import { mergeOrchestratorReducer } from '../../../src/projections/merge-orchestrator/reducer.js';
-import { getHSMDefinition, executeTransition } from '../../../src/workflow/state-machine.js';
 
 const FEATURE_ID = 'feat-replay';
 const TASK_ID = 'T1';
@@ -51,7 +48,7 @@ const LEGACY_ROLLBACK_DATA = {
   reason: REASON,
 };
 
-/** The payload of `merge.recovered`, the recovery event that writers append. */
+/** The payload of `merge.recovered`, the recovery event that the retired merge executor appended. */
 const CANONICAL_RECOVERED_DATA = {
   taskId: TASK_ID,
   sourceBranch: SOURCE_BRANCH,
@@ -67,22 +64,12 @@ interface FoldedRecoveryState {
   readonly rehydratePhase: string;
   /** rehydration reducer `workflowState.mergeOrchestrator`. */
   readonly rehydrateOrchestrator: unknown;
-  /** merge-orchestrator@v1 projection phase. */
-  readonly orchestratorPhase: string;
-  /** merge-orchestrator@v1 recovery reason. */
-  readonly orchestratorReason: string | undefined;
-  /** HSM merge-pending → delegate transition succeeded. */
-  readonly hsmExitSucceeded: boolean;
-  /** HSM resulting phase after the exit transition. */
-  readonly hsmNewPhase: string | undefined;
 }
 
 /**
- * Folds a recovery event through the three reducers and the HSM `merge-pending-exit` guard, and returns the observable state.
- * Each site gets the context that it needs. The workflow-state view folds the event from `init()`.
- * The rehydration reducer first folds a `task.completed` event with a worktree, which creates the `pending` merge state.
- * The `merge-orchestrator@v1` reducer starts from `executed`.
- * The guard gets the recovery event after the latest `task.completed` event.
+ * Folds a recovery event through the workflow-state view and the rehydration reducer, and returns the observable state.
+ * The workflow-state view folds the event from `init()`. The rehydration reducer first folds a `task.completed` event
+ * with a worktree, and then the recovery event.
  */
 function foldRecoveryTerminal(
   terminalType: 'merge.rollback' | 'merge.recovered',
@@ -107,45 +94,15 @@ function foldRecoveryTerminal(
   );
   rehydrate = rehydrationReducer.apply(rehydrate, terminal);
 
-  let orchestrator = mergeOrchestratorReducer.apply(
-    mergeOrchestratorReducer.initial,
-    makeEvent(
-      'merge.executed',
-      {
-        taskId: TASK_ID,
-        sourceBranch: SOURCE_BRANCH,
-        targetBranch: TARGET_BRANCH,
-        mergeSha: 'b'.repeat(40),
-        rollbackSha: RECOVERY_SHA,
-      },
-      4,
-    ),
-  );
-  orchestrator = mergeOrchestratorReducer.apply(orchestrator, terminal);
-
-  const hsm = getHSMDefinition('feature');
-  const hsmState = {
-    phase: 'merge-pending',
-    _events: [
-      { type: 'task.completed', data: { taskId: TASK_ID, worktree: '.wt/T1' } },
-      { type: terminalType, data: terminalData },
-    ],
-  };
-  const hsmResult = executeTransition(hsm, hsmState, 'delegate');
-
   return {
     view: view.mergeOrchestrator as Record<string, unknown> | undefined,
     rehydratePhase: rehydrate.workflowState.phase,
     rehydrateOrchestrator: rehydrate.workflowState.mergeOrchestrator,
-    orchestratorPhase: orchestrator.phase,
-    orchestratorReason: orchestrator.recovery?.reason,
-    hsmExitSucceeded: hsmResult.success,
-    hsmNewPhase: hsmResult.newPhase,
   };
 }
 
 describe('merge.rollback replay-safety (DR-2, task 006)', () => {
-  /** The old payload still parses against the kept `MergeRollbackData` schema, and each of the four sites folds it to the recovery state. */
+  /** The old payload still parses against the kept `MergeRollbackData` schema, and the view folds it to the recovery state. */
   it('replayFixture_LegacyRollbackEvents_FoldsToIdenticalWorkflowState', () => {
     expect(MergeRollbackData.safeParse(LEGACY_ROLLBACK_DATA).success).toBe(true);
 
@@ -159,18 +116,8 @@ describe('merge.rollback replay-safety (DR-2, task 006)', () => {
       rollbackSha: RECOVERY_SHA,
       reason: REASON,
     });
-
     expect(folded.rehydratePhase).toBe('delegate');
-    expect(folded.rehydrateOrchestrator).toEqual({
-      taskId: TASK_ID,
-      phase: 'rolled-back',
-    });
-
-    expect(folded.orchestratorPhase).toBe('recovering');
-    expect(folded.orchestratorReason).toBe(REASON);
-
-    expect(folded.hsmExitSucceeded).toBe(true);
-    expect(folded.hsmNewPhase).toBe('delegate');
+    expect(folded.rehydrateOrchestrator).toBeUndefined();
   });
 
   /**
@@ -186,16 +133,6 @@ describe('merge.rollback replay-safety (DR-2, task 006)', () => {
     expect(modern.view).toEqual(legacy.view);
     expect(modern.rehydratePhase).toBe(legacy.rehydratePhase);
     expect(modern.rehydrateOrchestrator).toEqual(legacy.rehydrateOrchestrator);
-    expect(modern.orchestratorPhase).toBe(legacy.orchestratorPhase);
-    expect(modern.orchestratorReason).toBe(legacy.orchestratorReason);
-    expect(modern.hsmExitSucceeded).toBe(legacy.hsmExitSucceeded);
-    expect(modern.hsmNewPhase).toBe(legacy.hsmNewPhase);
-
-    expect(modern.rehydrateOrchestrator).toEqual({
-      taskId: TASK_ID,
-      phase: 'rolled-back',
-    });
-    expect(modern.orchestratorPhase).toBe('recovering');
-    expect(modern.hsmNewPhase).toBe('delegate');
+    expect(modern.rehydratePhase).toBe('delegate');
   });
 });

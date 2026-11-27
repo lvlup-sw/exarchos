@@ -18,7 +18,7 @@ Read PR, CI and review state with your own tools: `gh` or the GitHub MCP server 
 The coordinator posts each comment, enables auto-merge and merges each PR through its harness, outside governance.
 If your tools cannot do a read or the harness cannot do a write, stop and report. Do not fall back to an Exarchos action.
 
-> A PR merge in this skill is a remote operation that the coordinator runs through its harness. It is distinct from the integration merge. During delegation the coordinator lands each accepted head on the integration branch through its harness (`@skills/delegate/SKILL.md`). A stream parked in `merge-pending` follows `@skills/merge-orchestrator/SKILL.md`. This skill lands no integration commit.
+> A PR merge in this skill is a remote operation that the coordinator runs through its harness. It is distinct from the integration merge. During delegation the coordinator lands each accepted head on the integration branch through its harness (`@skills/delegate/SKILL.md`). Settle observes each landing by ancestry. This skill lands no integration commit.
 
 Iterative loop that shepherds published PRs through CI checks and code reviews to merge readiness. You read the state of each PR with your own tools, fix failures, address feedback, and record each iteration as a `shepherd.iteration` event, until the stack is green.
 

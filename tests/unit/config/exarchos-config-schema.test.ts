@@ -11,6 +11,7 @@ import {
   DEV_CATALOG_DEPRECATION_CODE,
   MUTATION_COMMAND_RETIRED_CODE,
   MUTATION_REVIEW_RETIRED_CODE,
+  VCS_KEY_RETIRED_CODE,
 } from '../../../src/config/exarchos-config-schema.js';
 import { FullExarchosConfigSchema } from '../../../src/config/yaml-schema.js';
 import { resolveCatalogSources } from '../../../src/architecture/catalog-sources.js';
@@ -314,6 +315,48 @@ describe('ExarchosConfigSchema — retired mutation review settings', () => {
 
     expect(FullExarchosConfigSchema.parse(document)).toMatchObject(document);
     expect(collectConfigDeprecations(document)).toEqual([]);
+  });
+});
+
+/**
+ * The top-level `vcs` key is retired, because Exarchos builds no VCS provider. A file with the key
+ * still parses, the full parse removes it, and the loader reports one migration finding.
+ */
+describe('FullExarchosConfigSchema — retired vcs key', () => {
+  it('RetiredVcsKey_StillParses_IsRemoved_AndGetsAMigrationFinding', () => {
+    const document = { vcs: { provider: 'github' }, tools: { 'default-branch': 'main' } };
+
+    const result = FullExarchosConfigSchema.safeParse(document);
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect('vcs' in result.data).toBe(false);
+      expect(result.data.tools?.['default-branch']).toBe('main');
+    }
+    expect(collectConfigDeprecations(document)).toEqual([
+      {
+        code: VCS_KEY_RETIRED_CODE,
+        key: 'vcs',
+        replacement: null,
+        message: expect.stringContaining('Delete the key'),
+      },
+    ]);
+    expect(collectConfigDeprecations({ tools: { 'default-branch': 'main' } })).toEqual([]);
+  });
+
+  /** Nothing reads the key, so any value of it parses. A stale provider or an unknown sub-key gives only the migration finding. */
+  it.each([
+    ['a provider that the old enum did not hold', { provider: 'bitbucket' }],
+    ['an unknown sub-key', { provider: 'github', token: 'x' }],
+    ['a scalar', 'github'],
+  ])('RetiredVcsKey_WithAnyValue_StillParses_%s', (_label, vcs) => {
+    const document = { vcs, tools: { 'default-branch': 'main' } };
+
+    const result = FullExarchosConfigSchema.safeParse(document);
+
+    expect(result.success).toBe(true);
+    if (result.success) expect('vcs' in result.data).toBe(false);
+    expect(collectConfigDeprecations(document).map((finding) => finding.code)).toEqual([VCS_KEY_RETIRED_CODE]);
   });
 });
 

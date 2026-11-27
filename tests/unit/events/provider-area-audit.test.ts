@@ -26,26 +26,20 @@ const SOURCE_ROOT = join(process.cwd(), 'src');
  * The definite faults. Each append is inside the area of a provider that the annotation does not
  * name, so one of the two claims is false.
  *
- * The list must only shrink. Both events are worktree lifecycle events with the provider
- * `exarchos_orchestrate` (`verbs/`). The saga compensation path in `workflow/` appends them, and
- * `exarchos_workflow` owns that area.
+ * The list must only shrink. It is empty, because the ledger-only cancel compensation no longer
+ * appends `worktree.adopted` in `workflow/`.
  */
-const MEASURED_CONTRADICTIONS: readonly string[] = Object.freeze([
-  'worktree.adopted -> workflow/compensation.ts (owned by exarchos_workflow)',
-  'worktree.remove.executed -> workflow/compensation.ts (owned by exarchos_workflow)',
-]);
+const MEASURED_CONTRADICTIONS: readonly string[] = Object.freeze([]);
 
 /**
  * The structural gap. Each append is in an area that no provider owns, so no annotation over the
  * current vocabulary is correct.
  *
  * The list must only shrink. The entries are the dispatch wrapper (`projections/telemetry/`), the
- * process hooks (`lifecycle/`, `runtime/launcher/`) and one handler tree (`review/`). To remove an
+ * process hooks (`lifecycle/`) and one handler tree (`review/`). To remove an
  * entry, move the append into an area that a provider owns. Do not widen the vocabulary.
  */
 const MEASURED_UNGOVERNED: readonly string[] = Object.freeze([
-  'launch.executed -> runtime/launcher/liveness.ts',
-  'launch.executing_started -> runtime/launcher/liveness.ts',
   'review.routed -> review/tools.ts',
   'subagent.tokens_used -> lifecycle/subagent-stop.ts',
   'tool.action_errored -> projections/telemetry/middleware.ts',
@@ -82,11 +76,11 @@ describe('provider-area audit', () => {
     );
 
     expect(census.scannedModuleCount, 'the scan read no modules').toBeGreaterThan(500);
-    expect(census.modulesByEvent.size, 'the scan resolved no append sites').toBeGreaterThan(50);
+    expect(census.modulesByEvent.size, 'the scan resolved no append sites').toBeGreaterThan(44);
 
     const audit = auditProviderAreas(census);
     expect(audit.subjectCount, 'no capability registration was assessed').toBeGreaterThan(40);
-    expect(audit.measuredCount, 'no subject had a measured append site').toBeGreaterThan(25);
+    expect(audit.measuredCount, 'no subject had a measured append site').toBeGreaterThan(17);
 
     expect(
       audit.contradictions

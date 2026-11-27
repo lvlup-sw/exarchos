@@ -119,10 +119,10 @@ describe('shared-IR coverage (exit-proof a support)', () => {
     }
   });
 
-  it('covers all six phase kinds across the IR edges (cutover-gate coverage)', () => {
+  it('covers all five phase kinds across the IR edges (cutover-gate coverage)', () => {
     const kinds = new Set(BUILT_IN_WORKFLOW_IR.map((e) => e.toPhaseKind));
     expect(kinds).toEqual(
-      new Set(['PLAN', 'IMPLEMENT', 'REVIEW', 'SYNTHESIZE', 'MERGE', 'GATHER']),
+      new Set(['PLAN', 'IMPLEMENT', 'REVIEW', 'SYNTHESIZE', 'GATHER']),
     );
   });
 

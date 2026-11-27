@@ -1545,7 +1545,7 @@ describe('dispatch', () => {
     });
 
     /**
-     * The full dispatch flow for `merge_orchestrate`, with a stubbed composite handler. The stub
+     * The full dispatch flow for the task-suitable `cleanup`, with a stubbed composite handler. The stub
      * returns one `next_actions` entry. Dispatch must put the hint before that entry and still
      * attach the `_meta` correlation block.
      */
@@ -1553,24 +1553,22 @@ describe('dispatch', () => {
       const { stubCompositeHandler, dispatch } = await import('../../../../src/dispatch/core/dispatch.js');
       const stub = async (_args: Record<string, unknown>, _ctx: DispatchContext): Promise<ToolResult> => ({
         success: true,
-        data: { mergeSha: 'abc1234', strategy: 'squash' },
+        data: { cleaned: true },
         next_actions: [
-          { verb: 'completed', reason: 'merge finished' },
+          { verb: 'completed', reason: 'cleanup finished' },
         ],
       });
-      const restore = stubCompositeHandler('exarchos_orchestrate', stub);
+      const restore = stubCompositeHandler('exarchos_workflow', stub);
 
       installClockSequence([0, 12_500]);
 
       try {
         const result = await dispatch(
-          'exarchos_orchestrate',
+          'exarchos_workflow',
           {
-            action: 'merge_orchestrate',
+            action: 'cleanup',
             featureId: 'integration-hint',
-            sourceBranch: 'feat/x',
-            targetBranch: 'main',
-            strategy: 'squash',
+            mergeVerified: true,
           },
           ctx(),
         );

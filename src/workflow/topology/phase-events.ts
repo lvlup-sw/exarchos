@@ -105,7 +105,7 @@ const DELEGATE_EXPECTS: readonly PhaseEventRow[] = [
 
 /**
  * The contract, keyed by phase name. A phase absent here expects nothing and discloses nothing.
- * A phase that the runtime drives (`merge-pending`) can have an empty `expects`.
+ * A phase that only the runtime drives (`implementing`) can have an empty `expects`.
  * A row that declares nothing fails at load, because it reads as a decision that nobody made.
  */
 export const PHASE_EVENT_CONTRACTS: Readonly<Record<string, PhaseEventContract>> = Object.freeze({
@@ -156,47 +156,6 @@ export const PHASE_EVENT_CONTRACTS: Readonly<Record<string, PhaseEventContract>>
   'overhaul-update-docs': {
     expects: [TEAM_SPAWNED, TEAM_DISBANDED],
     runtimeEmits: [],
-  },
-  'merge-pending': {
-    expects: [],
-    runtimeEmits: [
-      {
-        type: 'merge.preflight',
-        when: 'After dispatch-guard suite runs (before merge attempt or abort)',
-        emittedBy: 'exarchos_orchestrate merge_orchestrate',
-        fields: [
-          'taskId',
-          'sourceBranch',
-          'targetBranch',
-          'passed',
-          'ancestry',
-          'worktree',
-          'currentBranchProtection',
-          'drift',
-          'failureReasons',
-        ],
-      },
-      {
-        type: 'merge.executed',
-        when: 'After merge commit lands successfully on the target branch',
-        emittedBy: 'exarchos_orchestrate merge_orchestrate',
-        fields: ['taskId', 'sourceBranch', 'targetBranch', 'mergeSha', 'rollbackSha', 'strategy'],
-      },
-      {
-        type: 'merge.recovered',
-        when: 'When merge fails post-commit and the INV-14 recovery path runs',
-        emittedBy: 'exarchos_orchestrate merge_orchestrate',
-        fields: [
-          'taskId',
-          'sourceBranch',
-          'targetBranch',
-          'recoveryPointSha',
-          'reason',
-          'recoveryError',
-          'recoveryErrorDetail',
-        ],
-      },
-    ],
   },
   implementing: {
     expects: [],

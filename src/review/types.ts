@@ -36,11 +36,28 @@ export interface ReviewDispatch {
   reason: string;
 }
 
-import type { PrComment as VcsPrComment } from '../vcs/provider.js';
-
 /**
- * Severity tier of an {@link ActionItem}. The adapters in `src/review/providers/` make action items from PR comments.
+ * One review comment of a pull request, as a caller supplies it to a {@link ProviderAdapter}.
+ * Exarchos reads no comment from a remote service, so this type is the whole input contract.
  */
+export interface ReviewComment {
+  readonly id: number;
+  readonly author: string;
+  readonly body: string;
+  readonly createdAt: string;
+  /** The kind of feedback: a PR-level comment, an inline review thread or a review summary. */
+  readonly source: 'issue-comment' | 'review-inline' | 'review-summary';
+  readonly path?: string | undefined;
+  readonly line?: number | undefined;
+  /** The id of the top-level comment that this reply answers. It is absent on a top-level comment. */
+  readonly parentId?: number;
+  /** True is resolved, false is unresolved, and an absent value is unknown. */
+  readonly resolved?: boolean;
+  /** The review state of a review summary, such as `APPROVED`. */
+  readonly state?: string;
+}
+
+/** Severity tier of an {@link ActionItem}. */
 export type Severity = 'HIGH' | 'MEDIUM' | 'LOW';
 
 export type ReviewerKind =
@@ -75,7 +92,7 @@ export interface ActionItem {
 
 export interface ProviderAdapter {
   readonly kind: ReviewerKind;
-  parse(rawComment: VcsPrComment): ActionItem | null;
+  parse(rawComment: ReviewComment): ActionItem | null;
 }
 
 export interface ReviewAdapterRegistry {

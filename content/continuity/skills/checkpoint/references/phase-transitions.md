@@ -35,8 +35,8 @@ Available from **any non-final** phase in all workflow types:
 
 ```
 plan → plan-review → delegate ⇄ review → synthesize → completed
- ▲          │  ↘          ⇅                  │
- └─ gaps ───┘   blocked   merge-pending      └─ retryable ─→ delegate
+ ▲          │  ↘                             │
+ └─ gaps ───┘   blocked                      └─ retryable ─→ delegate
 ```
 
 | From | To | Guard | Prerequisite |
@@ -46,15 +46,13 @@ plan → plan-review → delegate ⇄ review → synthesize → completed
 | `plan-review` | `plan` | `plan-review-gaps-found` | Set `planReview.gapsFound = true` |
 | `plan-review` | `blocked` | `revisions-exhausted` | Plan-review revision budget exhausted |
 | `delegate` | `review` | `all-tasks-complete` + `team-disbanded` | All `tasks[].status = "complete"` and the team disbanded |
-| `delegate` | `merge-pending` | `merge-pending-entry` | A worktree task completed and an autonomous merge is required |
-| `merge-pending` | `delegate` | `merge-pending-exit` | `merge.executed` / `merge.recovered` (or legacy `merge.rollback`) / `merge.aborted` observed |
 | `review` | `synthesize` | `all-reviews-passed` | All `reviews.{name}.status` in `["pass", "passed", "approved"]` |
 | `review` | `delegate` | `any-review-failed` | Any `reviews.{name}.status` in `["fail", "failed", "needs_fixes"]` (fix cycle) |
 | `synthesize` | `delegate` | `synthesize-retryable` | Synthesis is retryable (e.g. a transient failure) |
 | `synthesize` | `completed` | `pr-url-exists` | Set `synthesis.prUrl` or `artifacts.pr` |
 | `blocked` | `delegate` | `human-unblocked` | Set `unblocked = true` |
 
-**Compound state:** `implementation` contains `delegate`, `review`, and `merge-pending`. Max 3 fix cycles on the delegate↔review loop before the circuit breaker opens.
+**Compound state:** `implementation` contains `delegate` and `review`. Max 3 fix cycles on the delegate↔review loop before the circuit breaker opens. The harness lands each accepted task head, and settle observes the landing by ancestry, so the machine has no merge phase. A persisted `merge-pending` phase of an older workflow reads as `delegate`.
 
 ## Debug Workflow
 

@@ -61,49 +61,13 @@ describe('computeNextActions (T040, DR-8)', () => {
   });
 
   /**
-   * In `merge-pending`, the computer adds `merge_orchestrate` until the merge orchestrator
-   * terminates.
-   */
-  it('computeNextActions_MergePendingPhase_ReturnsMergeOrchestrate', () => {
-    const hsm = getHSMDefinition('feature');
-    const state = {
-      phase: 'merge-pending',
-      workflowType: 'feature',
-      mergeOrchestrator: { phase: 'pending', taskId: 'T11' },
-      featureId: 'feat-x',
-    };
-
-    const actions = computeNextActions(state, hsm);
-
-    const merge = actions.find((a) => a.verb === 'merge_orchestrate');
-    expect(merge).toBeDefined();
-    expect(merge?.validTargets).toEqual(['merge_orchestrate']);
-    expect(merge?.reason).toBe('Pending subagent worktree merge');
-  });
-
-  it('computeNextActions_MergeOrchestratorPending_IncludesIdempotencyKey', () => {
-    const hsm = getHSMDefinition('feature');
-    const state = {
-      phase: 'merge-pending',
-      workflowType: 'feature',
-      mergeOrchestrator: { phase: 'pending', taskId: 'T11' },
-      featureId: 'feat-x',
-    };
-
-    const actions = computeNextActions(state, hsm);
-
-    const merge = actions.find((a) => a.verb === 'merge_orchestrate');
-    expect(merge?.idempotencyKey).toBe('feat-x:merge_orchestrate:T11');
-  });
-
-  /**
-   * A merge orchestrator phase in `EXCLUDED_MERGE_PHASES` means that the merge is over, so the
-   * verb must not surface again. The `merge-pending` entry guard reads the same constant.
+   * The merge orchestrator state of an old document offers no `merge_orchestrate` verb. The action
+   * is retired, and the machine has no merge substate.
    */
   it('computeNextActions_MergeOrchestratorCompleted_OmitsMergeOrchestrate', () => {
     const hsm = getHSMDefinition('feature');
     const state = {
-      phase: 'merge-pending',
+      phase: 'delegate',
       workflowType: 'feature',
       mergeOrchestrator: { phase: 'completed', taskId: 'T11' },
       featureId: 'feat-x',
@@ -118,7 +82,7 @@ describe('computeNextActions (T040, DR-8)', () => {
   it('computeNextActions_MergeOrchestratorRolledBack_OmitsMergeOrchestrate', () => {
     const hsm = getHSMDefinition('feature');
     const state = {
-      phase: 'merge-pending',
+      phase: 'delegate',
       workflowType: 'feature',
       mergeOrchestrator: { phase: 'rolled-back', taskId: 'T11' },
       featureId: 'feat-x',
@@ -133,7 +97,7 @@ describe('computeNextActions (T040, DR-8)', () => {
   it('computeNextActions_MergeOrchestratorAborted_OmitsMergeOrchestrate', () => {
     const hsm = getHSMDefinition('feature');
     const state = {
-      phase: 'merge-pending',
+      phase: 'delegate',
       workflowType: 'feature',
       mergeOrchestrator: { phase: 'aborted', taskId: 'T11' },
       featureId: 'feat-x',
@@ -143,46 +107,6 @@ describe('computeNextActions (T040, DR-8)', () => {
 
     const merge = actions.find((a) => a.verb === 'merge_orchestrate');
     expect(merge).toBeUndefined();
-  });
-
-  /**
-   * The test joins the two ends of the merge detour. A `task.completed` event with a
-   * `worktreePath` lets the `delegate` to `merge-pending` transition pass. The computer then
-   * surfaces `merge_orchestrate`.
-   *
-   * The computer gets the phase that the HSM returned, not a literal, so a different landing
-   * phase fails. `mergeOrchestrator` is absent, which counts as not terminated.
-   */
-  it('mergePendingDetour_TaskCompletedWithWorktreePath_SurfacesMergeOrchestrateVerb', () => {
-    const hsm = getHSMDefinition('feature');
-
-    const initial = {
-      phase: 'delegate',
-      workflowType: 'feature',
-      featureId: 'feat-x',
-      _events: [
-        {
-          type: 'task.completed',
-          data: { taskId: 'T11', worktreePath: '/tmp/.worktrees/feat-x-T11' },
-        },
-      ],
-    };
-
-    const transition = executeTransition(hsm, initial, 'merge-pending');
-    expect(transition.success).toBe(true);
-    expect(transition.newPhase).toBe('merge-pending');
-
-    const transitioned = {
-      ...initial,
-      phase: transition.newPhase!,
-    };
-
-    const actions = computeNextActions(transitioned, hsm);
-    const merge = actions.find((a) => a.verb === 'merge_orchestrate');
-
-    expect(merge).toBeDefined();
-    expect(merge?.validTargets).toEqual(['merge_orchestrate']);
-    expect(merge?.reason).toBe('Pending subagent worktree merge');
   });
 });
 
@@ -347,9 +271,9 @@ describe('computeNextActions — deep-rung affordances (DR-7, task 018)', () => 
 });
 
 /**
- * `prune_worktrees` is a registry action, so `computeNextActions` does not publish it as a control
- * verb. These tests pin its absence in `synthesize` for the four workflow types that hold that
- * phase, and in the other feature phases.
+ * `prune_worktrees` is retired, and the harness removes worktrees. `computeNextActions` does not
+ * publish it as a control verb. These tests pin its absence in `synthesize` for the four workflow
+ * types that hold that phase, and in the other feature phases.
  */
 describe('computeNextActions — post-synthesize prune cadence (DR-2, task 008, INV-12)', () => {
   it('NextActions_PostSynthesize_SuggestsPruneWorktreesDryRun', () => {
@@ -572,12 +496,12 @@ describe('computeNextActions — admission-derived affordances (DR-9, T-13)', ()
   });
 
   /**
-   * The event log decides `delegate` to `merge-pending`. A payload with no `_events` cannot deny
-   * the edge, so the verb stays with an `undecidable` hint.
+   * The event log decides the team half of `delegate` to `review`. A payload with no `_events` cannot
+   * deny the edge when each task is complete, so the verb stays with an `undecidable` hint.
    */
   it('NextActions_EventGatedEdge_WithoutEventLog_IsAdvertisedAsUndecidable', () => {
     const hsm = getHSMDefinition('feature');
-    const edge = getEdgeIR('feature', 'delegate', 'merge-pending');
+    const edge = getEdgeIR('feature', 'delegate', 'review');
     expect(edge).toBeDefined();
     expect(edgeDependsOnEventLog(edge!)).toBe(true);
 
@@ -587,19 +511,19 @@ describe('computeNextActions — admission-derived affordances (DR-9, T-13)', ()
       workflowType: 'feature',
       updatedAt: EVALUATED_AT,
       artifacts: {},
-      tasks: [],
+      tasks: [{ id: 't1', status: 'complete' }],
       reviews: {},
     };
-    const merge = computeNextActions(
+    const review = computeNextActions(
       {
         phase: 'delegate',
         workflowType: 'feature',
         admission: admissionFor(state),
       },
       hsm,
-    ).find((a) => a.verb === 'merge-pending');
-    expect(merge).toBeDefined();
-    expect(merge?.hint).toContain('undecidable');
+    ).find((a) => a.verb === 'review');
+    expect(review).toBeDefined();
+    expect(review?.hint).toContain('undecidable');
   });
 
   /**
@@ -843,18 +767,18 @@ describe('computeRegistryAdvertisements — allow-only ActionIds', () => {
     });
   });
 
-  it('NextActions_MergeOrchestrate_RehydrateTopology_StillPublishes', () => {
+  /** A rehydrate snapshot of `merge-pending` publishes no `merge_orchestrate` on either envelope, because the action is retired. */
+  it('NextActions_MergePending_RehydrateTopology_PublishesNoMergeOrchestrate', () => {
     const hsm = getHSMDefinition('feature');
     const { control, registry } = computeNextActionEnvelopes(
       {
         phase: 'merge-pending',
         workflowType: 'feature',
-        featureId: 'feat-x',
         mergeOrchestrator: { phase: 'pending', taskId: 'T11' },
       },
       hsm,
     );
-    expect(control.map((a) => a.verb)).toContain('merge_orchestrate');
+    expect(control.map((a) => a.verb)).not.toContain('merge_orchestrate');
     expect(registry).toEqual([]);
     expect(isControlOwnedVerb('merge_orchestrate')).toBe(false);
     expect(isControlOwnedVerb('discover_bridge')).toBe(false);
@@ -883,8 +807,8 @@ describe('computeRegistryAdvertisements — allow-only ActionIds', () => {
   });
 
   /**
-   * In the last block, the topology still names `merge_orchestrate`. The registry withholds the
-   * ActionId, because the authorization is not a trusted grant.
+   * In the last block, an untrusted authorization asks for the retired `merge_orchestrate` ActionId.
+   * Neither envelope publishes it.
    */
   it('NextActions_PublishedField_WithholdsRegistryActionIdsOnControlEnvelope', () => {
     const hsm = getHSMDefinition('feature');
@@ -903,7 +827,6 @@ describe('computeRegistryAdvertisements — allow-only ActionIds', () => {
       {
         phase: 'merge-pending',
         workflowType: 'feature',
-        featureId: 'feat-x',
         mergeOrchestrator: { phase: 'pending', taskId: 'T11' },
         actionAdmission: advertiseFacts({
           phase: 'merge-pending',
@@ -913,7 +836,7 @@ describe('computeRegistryAdvertisements — allow-only ActionIds', () => {
       },
       hsm,
     );
-    expect(denied.control.map((a) => a.verb)).toContain('merge_orchestrate');
+    expect(denied.control.map((a) => a.verb)).not.toContain('merge_orchestrate');
     expect(denied.registry.map((a) => a.actionId)).not.toContain(
       'exarchos_orchestrate.merge_orchestrate',
     );

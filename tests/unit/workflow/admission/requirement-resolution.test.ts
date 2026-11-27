@@ -28,7 +28,6 @@ const KINDS: readonly PhaseKind[] = [
   'PLAN',
   'REVIEW',
   'SYNTHESIZE',
-  'MERGE',
   'GATHER',
 ];
 

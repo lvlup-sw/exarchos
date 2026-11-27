@@ -97,11 +97,6 @@ export const UNRESOLVED_ACTION_EVENT_ALLOWANCE: readonly string[] = Object.freez
   'workflow.rehydrated',
   'workflow.started',
   'workflow.transition',
-  'worktree.merge_executed',
-  'worktree.merge_requested',
-  'worktree.orphan_detected',
-  'worktree.released',
-  'worktree.reserved',
 ]);
 
 export interface EmitterClosureResult {
@@ -401,39 +396,11 @@ export function reasonedAbstentions(
  */
 export const ACTION_APPEND_OWNERSHIP: readonly ActionAppendOwnership[] = Object.freeze([
   {
-    action: 'merge_orchestrate',
-    declaringTool: 'exarchos_orchestrate',
-    module: 'verbs/merge/execute-merge.ts',
-    event: 'merge.executing_started',
-    wiring: 'the orchestrator delegates to the executor, which marks the executing phase',
-  },
-  {
-    action: 'merge_orchestrate',
-    declaringTool: 'exarchos_orchestrate',
-    module: 'verbs/merge/execute-merge.ts',
-    event: 'merge.retry_attempt',
-    wiring: 'the executor retry hook records each timeout retry',
-  },
-  {
     action: 'prune_stale_workflows',
     declaringTool: 'exarchos_orchestrate',
     module: 'verbs/team/prune-stale-workflows.ts',
     event: 'prune.diagnostics',
     wiring: 'the prune evaluation writes its own audit line, fire-and-forget',
-  },
-  {
-    action: 'cancel',
-    declaringTool: 'exarchos_workflow',
-    module: 'workflow/compensation.ts',
-    event: 'branch.delete.requested',
-    wiring: 'cancel is the sole caller of the compensation saga, whose branch compensator journals intent',
-  },
-  {
-    action: 'cancel',
-    declaringTool: 'exarchos_workflow',
-    module: 'workflow/compensation.ts',
-    event: 'branch.delete.executed',
-    wiring: 'cancel is the sole caller of the compensation saga, whose branch compensator journals the result',
   },
   {
     action: 'prepare_review',

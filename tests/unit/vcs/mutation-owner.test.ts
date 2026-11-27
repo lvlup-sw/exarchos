@@ -582,7 +582,7 @@ describe('VCS mutation owner (P04-05)', () => {
 
 /**
  * The owner module holds the argument vectors for a forced worktree removal and a forced branch deletion.
- * `verbs/worktree/manager.ts` and `verbs/merge/local-git-merge.ts` have their own idempotency.
+ * `verbs/worktree/manager.ts` has its own idempotency.
  * They pass their own git transport to these helpers, so they open no second ledger.
  */
 describe('shared git-mutation primitives (P04-05)', () => {

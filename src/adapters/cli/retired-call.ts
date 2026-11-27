@@ -1,6 +1,6 @@
 /**
  * Refuses a CLI call of a retired action. The binary calls it before it opens the state, reads configuration or builds the command tree.
- * A call names a tool group and an action, as `exarchos orch <action>` does.
+ * A call names a tool group and an action, as `exarchos orch <action>` does, or the top-level verb of a retired action.
  * The refusal uses the code and the message of the row in the retired-action table.
  */
 import { RETIRED_ACTIONS, TOOL_REGISTRY, retiredActionResult, type RetiredAction } from '../../registry.js';
@@ -11,9 +11,10 @@ import { RETIRED_ACTIONS, TOOL_REGISTRY, retiredActionResult, type RetiredAction
  */
 function retiredCliCallOf(argv: readonly string[]): RetiredAction | undefined {
   const [, , group, action] = argv;
-  if (group === undefined || action === undefined) return undefined;
+  if (group === undefined) return undefined;
   return RETIRED_ACTIONS.find((entry) => {
-    if (entry.action !== action) return false;
+    if (entry.topLevel !== undefined && group === entry.topLevel) return true;
+    if (action === undefined || entry.action !== action) return false;
     const alias = TOOL_REGISTRY.find((tool) => tool.name === entry.tool)?.cli?.alias;
     return group === entry.tool.replace(/^exarchos_/, '') || group === alias;
   });

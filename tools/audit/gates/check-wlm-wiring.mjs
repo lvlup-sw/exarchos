@@ -5,14 +5,15 @@
  *
  * Rule 1: a worktree-mutating git argv literal under `src/orchestrate/`,
  * `src/verbs/`, or in `src/workflow/compensation.ts` is legal only in a file of
- * `WIRED_ALLOWLIST`. Each wired file must also call its retry idiom.
+ * `WIRED_ALLOWLIST`. Each wired file must also call its retry idiom. The
+ * ledger-only cancel compensation holds no such literal, so it is not wired.
  *
- * Rule 2: a `content/` line that names `merge_orchestrate` in an integration
- * context must also name `serialize_merge`.
+ * Rule 2: a `content/` line must not name `merge_orchestrate` or
+ * `serialize_merge`. Both actions are retired, so a skill line that names one
+ * points an agent at an action that the server refuses.
  *
- * Each rule also has a scope pin. It fails when an expected file leaves the
- * scope, or when a rerouted skill file drops its `serialize_merge` caveat. A
- * root flag turns off the pin of its rule, because a fixture root is partial.
+ * Rule 1 also has a scope pin. It fails when an expected file leaves the scope.
+ * The `--src-root` flag turns off the pin, because a fixture root is partial.
  *
  *   Exit 0: clean. Exit 1: violations on stderr. Exit 2: a usage or environment error.
  */
@@ -30,7 +31,6 @@ function parseArgs(argv) {
   let srcRoot = DEFAULT_SRC_ROOT;
   let srcRootIsDefault = true;
   let skillsRoot = DEFAULT_SKILLS_ROOT;
-  let skillsRootIsDefault = true;
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === '--help') return { help: true };
     if (argv[i] === '--src-root') {
@@ -44,12 +44,11 @@ function parseArgs(argv) {
       const v = argv[++i];
       if (!v) return { error: '--skills-root requires a path' };
       skillsRoot = path.resolve(v);
-      skillsRootIsDefault = false;
       continue;
     }
     return { error: `unrecognized argument: ${argv[i]}` };
   }
-  return { srcRoot, srcRootIsDefault, skillsRoot, skillsRootIsDefault };
+  return { srcRoot, srcRootIsDefault, skillsRoot };
 }
 
 function requireDir(root, label) {
@@ -143,32 +142,18 @@ const WORKTREE_MUTATION_RE = /\[\s*['"]worktree['"]\s*,\s*['"](?:add|remove|prun
 
 /**
  * The wired files and the retry idiom that each must call. Paths are relative to
- * the source root and use POSIX separators.
+ * the source root and use POSIX separators. No live file runs a worktree
+ * mutation, so the map is empty.
  */
-const WIRED_IDIOM_REQUIREMENTS = new Map([
-  ['verbs/vcs/git-exec-default.ts', /\bwithIndexLockRetrySync\s*\(/],
-  ['verbs/team/setup-worktree.ts', /\bburstStagger\s*\(/],
-  ['verbs/worktree/manager.ts', /\bwithIndexLockRetry\s*\(/],
-  ['workflow/compensation.ts', /\bwithIndexLockRetry\s*\(/],
-]);
+const WIRED_IDIOM_REQUIREMENTS = new Map();
 /**
- * The files that can hold a worktree-mutating literal. `git-retry.ts` defines
- * the idioms, so it has no idiom requirement.
+ * The files that can hold a worktree-mutating literal. The index-lock retry
+ * module left with the local merge, so only the wired files remain.
  */
-const WIRED_ALLOWLIST = new Set([
-  ...WIRED_IDIOM_REQUIREMENTS.keys(),
-  'verbs/worktree/git-retry.ts',
-]);
+const WIRED_ALLOWLIST = new Set([...WIRED_IDIOM_REQUIREMENTS.keys()]);
 
-/**
- * The scope pin of rule 1: the wired files and the merge seam. The seam
- * `merge-orchestrate.ts` calls the wrapped `defaultGitExec`, so it needs no
- * wrapper, but it must stay in scope.
- */
-const EXPECTED_SRC_SCOPE_FILES = [
-  ...WIRED_ALLOWLIST,
-  'verbs/merge/merge-orchestrate.ts',
-];
+/** The scope pin of rule 1: the wired files. */
+const EXPECTED_SRC_SCOPE_FILES = [...WIRED_ALLOWLIST];
 
 function checkRule1(srcRoot, srcRootIsDefault, violations) {
   for (const file of collectRule1Files(srcRoot)) {
@@ -226,48 +211,19 @@ function* walkMdFiles(dir) {
   }
 }
 
-/** An integration context, such as "integration branch", "integration-ref" or "integration merge". */
-const INTEGRATION_CONTEXT_RE = /integration[\s-]?(?:branch|ref|merge)/i;
+/** The retired merge actions. A `content/` line that names one is a violation. */
+const RETIRED_MERGE_ACTIONS = ['merge_orchestrate', 'serialize_merge'];
 
-/**
- * The scope pin of rule 2: the files that carry the `serialize_merge` reroute,
- * relative to `content/`. Each must still name `serialize_merge` on a line that
- * names `merge_orchestrate`.
- */
-const EXPECTED_SKILLS_SCOPE_FILES = [];
-
-function checkRule2(skillsRoot, skillsRootIsDefault, violations) {
-  const filesWithSerializeCaveat = new Set();
-
+function checkRule2(skillsRoot, violations) {
   for (const file of walkMdFiles(skillsRoot)) {
-    const raw = readFileSync(file, 'utf8');
-    const lines = raw.split('\n');
-    let sawSerialize = false;
-
+    const lines = readFileSync(file, 'utf8').split('\n');
     for (let i = 0; i < lines.length; i++) {
-      const line = lines[i];
-      if (!line.includes('merge_orchestrate')) continue;
-      const hasSerialize = line.includes('serialize_merge');
-      if (hasSerialize) sawSerialize = true;
-      if (INTEGRATION_CONTEXT_RE.test(line) && !hasSerialize) {
-        violations.push(
-          `${reportPath(file)}:${i + 1}  [rule2-raw-merge-orchestrate-integration-directive]  ` +
-            `${line.trim().slice(0, 160)}`,
-        );
-      }
-    }
-
-    if (sawSerialize) filesWithSerializeCaveat.add(toRelPosix(skillsRoot, file));
-  }
-
-  if (skillsRootIsDefault) {
-    for (const relExpected of EXPECTED_SKILLS_SCOPE_FILES) {
-      if (!filesWithSerializeCaveat.has(relExpected)) {
-        violations.push(
-          `${relExpected}  [rule2-scope-shrink]  ` +
-            `expected serialize_merge reroute caveat missing (file removed or caveat dropped?)`,
-        );
-      }
+      const named = RETIRED_MERGE_ACTIONS.filter((action) => lines[i].includes(action));
+      if (named.length === 0) continue;
+      violations.push(
+        `${reportPath(file)}:${i + 1}  [rule2-retired-merge-action]  ` +
+          `${named.join(', ')} is retired: ${lines[i].trim().slice(0, 160)}`,
+      );
     }
   }
 }
@@ -298,7 +254,7 @@ function main() {
 
   const violations = [];
   checkRule1(args.srcRoot, args.srcRootIsDefault, violations);
-  checkRule2(args.skillsRoot, args.skillsRootIsDefault, violations);
+  checkRule2(args.skillsRoot, violations);
 
   if (violations.length > 0) {
     process.stderr.write(

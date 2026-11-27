@@ -71,7 +71,7 @@ hooks:
     expect(result.review?.dimensions?.D3).toBe('warning');
     expect(result.review?.gates?.['security-scan']?.enabled).toBe(true);
     expect(result.review?.routing?.['coderabbit-threshold']).toBe(0.6);
-    expect(result.vcs?.provider).toBe('github');
+    expect(result.vcs).toBeUndefined();
     expect(result.workflow?.['skip-phases']).toEqual(['plan-review']);
     expect(result.workflow?.['max-fix-cycles']).toBe(2);
     expect(result.tools?.['default-branch']).toBe('main');
@@ -81,16 +81,25 @@ hooks:
 
   it('loadProjectConfig_YmlExtension_Loaded', async () => {
     const { loadProjectConfig } = await import('../../../src/config/yaml-loader.js');
-    fs.writeFileSync(path.join(tmpDir, '.exarchos.yml'), 'vcs:\n  provider: github\n', 'utf-8');
+    fs.writeFileSync(path.join(tmpDir, '.exarchos.yml'), 'tools:\n  default-branch: main\n', 'utf-8');
     const result = loadProjectConfig(tmpDir);
-    expect(result.vcs?.provider).toBe('github');
+    expect(result.tools?.['default-branch']).toBe('main');
   });
 
   it('loadProjectConfig_YamlExtension_Loaded', async () => {
     const { loadProjectConfig } = await import('../../../src/config/yaml-loader.js');
-    fs.writeFileSync(path.join(tmpDir, '.exarchos.yaml'), 'vcs:\n  provider: gitlab\n', 'utf-8');
+    fs.writeFileSync(path.join(tmpDir, '.exarchos.yaml'), 'tools:\n  default-branch: trunk\n', 'utf-8');
     const result = loadProjectConfig(tmpDir);
-    expect(result.vcs?.provider).toBe('gitlab');
+    expect(result.tools?.['default-branch']).toBe('trunk');
+  });
+
+  /** A file with the retired `vcs` key still loads. The parse removes the key, so the config holds no `vcs`. */
+  it('loadProjectConfig_RetiredVcsKey_LoadsAndIsRemoved', async () => {
+    const { loadProjectConfig } = await import('../../../src/config/yaml-loader.js');
+    fs.writeFileSync(path.join(tmpDir, '.exarchos.yml'), 'vcs:\n  provider: github\ntools:\n  default-branch: main\n', 'utf-8');
+    const result = loadProjectConfig(tmpDir);
+    expect(result.vcs).toBeUndefined();
+    expect(result.tools?.['default-branch']).toBe('main');
   });
 
   it('loadProjectConfig_MalformedYaml_ReturnsEmptyConfig', async () => {
@@ -102,19 +111,19 @@ hooks:
 
   /**
    * The unknown top-level key `foo` fails strict validation. The loader then parses each section
-   * alone and keeps the valid `vcs` section.
+   * alone and keeps the valid `tools` section.
    * The warning goes to the structured logger, and this test does not assert it.
    */
   it('loadProjectConfig_InvalidSchema_ReturnsPartialWithWarnings', async () => {
     const { loadProjectConfig } = await import('../../../src/config/yaml-loader.js');
     const yaml = `
-vcs:
-  provider: github
+tools:
+  default-branch: main
 foo: bar
 `;
     fs.writeFileSync(path.join(tmpDir, '.exarchos.yml'), yaml, 'utf-8');
     const result = loadProjectConfig(tmpDir);
-    expect(result.vcs?.provider).toBe('github');
+    expect(result.tools?.['default-branch']).toBe('main');
   });
 });
 

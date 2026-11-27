@@ -1,6 +1,6 @@
 /**
- * Typed output schemas for the `surface: 'worktree'` actions. Each success `data` schema follows
- * the real handler return in `handlers.ts` and `merge-serializer.ts`. The shared
+ * Typed output schemas for the `surface: 'worktree'` read actions. Each success `data` schema
+ * follows the real handler return in `handlers.ts`. The shared
  * `ErrorEnvelopeSchema` inside {@link EnvelopeSchema} models the error branch. The MCP adapter
  * replaces output that fails its `outputSchema` with an `INTERNAL_ERROR`. A schema stricter than
  * the real output thus breaks production. For this reason, every data object uses `.passthrough()`,
@@ -43,88 +43,13 @@ const InFlightMergeSchema = z
   })
   .passthrough();
 
-/** One in-flight `prune_worktrees` GC pass (mirrors `InFlightPrune`). */
+/** One in-flight prune pass of the retired GC, read from history (mirrors `InFlightPrune`). */
 const InFlightPruneSchema = z
   .object({
     operationId: z.string(),
     repoRoot: z.string(),
     holderPid: z.number().nullable(),
     holderStartedAt: z.string().nullable(),
-  })
-  .passthrough();
-
-/** One prune-candidate ladder verdict (mirrors `PruneClassification`). */
-const PruneClassificationSchema = z.union([
-  z.object({ action: z.literal('skip'), reason: z.string() }).passthrough(),
-  z.object({ action: z.literal('orphan-unverifiable') }).passthrough(),
-  z.object({ action: z.literal('delete-eligible') }).passthrough(),
-]);
-
-/** One prune-candidate report line (mirrors `PruneCandidateReport`). */
-const PruneCandidateReportSchema = z
-  .object({
-    worktreeId: z.string(),
-    path: z.string(),
-    featureId: z.string().nullable(),
-    state: z.enum(['adopted', 'reserved', 'released', 'orphan']),
-    classification: PruneClassificationSchema,
-    reclaimableBytes: z.number(),
-    deleted: z.boolean(),
-  })
-  .passthrough();
-
-/** `acquire_worktree` success — adopt-then-reserve outcome (`handleAcquireWorktree`). */
-const AcquireWorktreeData = z
-  .object({
-    worktreeId: z.string(),
-    path: z.string(),
-    featureId: z.string().nullable(),
-    reserved: z.boolean(),
-    adopted: z.boolean(),
-  })
-  .passthrough();
-
-/** `release_worktree` success — the released-claim outcome (`handleReleaseWorktree`). */
-const ReleaseWorktreeData = z
-  .object({
-    worktreeId: z.string(),
-    released: z.boolean(),
-  })
-  .passthrough();
-
-/** `prune_worktrees` success — the GC ladder report (`PruneResult`). */
-const PruneWorktreesData = z
-  .object({
-    dryRun: z.boolean(),
-    candidates: z.array(PruneCandidateReportSchema),
-    deleted: z.array(z.string()),
-    reclaimableBytes: z.number(),
-    skipsByReason: z.record(z.string(), z.array(z.string())),
-  })
-  .passthrough();
-
-/**
- * `serialize_merge` success: the planned effect of a dry run, or the `merge_orchestrate` data with
- * the `serializedMerge` lease metadata added. The `merge_orchestrate` payload has many shapes, so
- * every field is optional.
- */
-const SerializeMergeData = z
-  .object({
-    dryRun: z.boolean().optional(),
-    integrationRef: z.string().optional(),
-    sourceBranch: z.string().optional(),
-    strategy: z.string().optional(),
-    featureId: z.string().optional(),
-    integrationHead: z.string().nullable().optional(),
-    /** Lease metadata, present on an executed merge. */
-    serializedMerge: z
-      .object({
-        integrationRef: z.string(),
-        operationId: z.string(),
-        integrationHead: z.string().nullable(),
-      })
-      .passthrough()
-      .optional(),
   })
   .passthrough();
 
@@ -159,7 +84,7 @@ const InFlightOperationSchema = z
  *   - `workflow`: `workflows` and `workflowCount`.
  *   - `all`, the default: the `workflow` fields plus `operations` and `operationCount`.
  * The `workflow` and `all` shapes echo `scope`. No shape carries every field, so every field is
- * optional. The reconcile results are in {@link ReconcileWorktreesData}.
+ * optional.
  */
 const PsData = z
   .object({
@@ -174,27 +99,6 @@ const PsData = z
     workflowCount: z.number().optional(),
     operations: z.array(InFlightOperationSchema).optional(),
     operationCount: z.number().optional(),
-  })
-  .passthrough();
-
-/**
- * `reconcile_worktrees` success: the findings of the three reconcile passes, then the in-flight
- * columns after the passes. This action has one shape, so every field is required.
- */
-const ReconcileWorktreesData = z
-  .object({
-    /** Reservation reclaim: released (owner dead, path free) + orphans (owner dead, path held). */
-    probe: z.record(z.string(), z.unknown()),
-    /** Phantom-launch heal: an in-flight launch whose supervisor is provably dead. */
-    reconcile: z.record(z.string(), z.unknown()),
-    /** Crash-mid-merge heal: a stranded merge lease whose holder is provably dead. */
-    mergeReconcile: z.record(z.string(), z.unknown()),
-    inFlight: z.array(InFlightMergeSchema),
-    count: z.number(),
-    launches: z.array(WorktreeEntrySchema),
-    launchCount: z.number(),
-    prunes: z.array(InFlightPruneSchema),
-    pruneCount: z.number(),
   })
   .passthrough();
 
@@ -233,12 +137,7 @@ const WorktreesData = z
   })
   .passthrough();
 
-export const AcquireWorktreeOutputSchema = EnvelopeSchema(AcquireWorktreeData);
-export const ReleaseWorktreeOutputSchema = EnvelopeSchema(ReleaseWorktreeData);
-export const PruneWorktreesOutputSchema = EnvelopeSchema(PruneWorktreesData);
-export const SerializeMergeOutputSchema = EnvelopeSchema(SerializeMergeData);
 export const PsOutputSchema = EnvelopeSchema(PsData);
-export const ReconcileWorktreesOutputSchema = EnvelopeSchema(ReconcileWorktreesData);
 export const WaitOutputSchema = EnvelopeSchema(WaitData);
 export const WorktreesOutputSchema = EnvelopeSchema(WorktreesData);
 

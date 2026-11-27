@@ -8,6 +8,8 @@ import { existsSync, readFileSync } from 'node:fs';
 import type { EventStore } from '../events/store.js';
 import type { ToolResult } from '../format.js';
 import { foldWorkflowState } from '../projections/guard-input/fold.js';
+import { readStoredPhase } from '../workflow/schemas.js';
+import { isPlainObject } from '../workflow/state-mutation.js';
 
 export interface ResolveOpts {
   /** Path to a JSON state file on disk. */
@@ -52,7 +54,7 @@ export function classifyStateFile(stateFile: string | undefined): StateFileStatu
 /**
  * Resolves workflow state from the best available source, in this order:
  * 1. With `featureId` and `eventStore`, it folds the stream with `foldWorkflowState`. A store failure gives `EVENT_STORE_ERROR`.
- * 2. Else it parses `stateFile` when the file exists.
+ * 2. Else it parses `stateFile` when the file exists. A retired feature phase in the file reads as its replacement phase.
  * 3. Else it returns a `NO_STATE_SOURCE` error. A file that does not parse gives the same error.
  *
  * The file can go stale, so it never shadows the projection when the caller supplies both inputs of step 1.
@@ -81,7 +83,8 @@ export async function resolveWorkflowState(opts: ResolveOpts): Promise<ResolveRe
     try {
       const raw = readFileSync(opts.stateFile, 'utf-8');
       const parsed = JSON.parse(raw) as Record<string, unknown>;
-      return { state: parsed };
+      if (!isPlainObject(parsed) || typeof parsed.phase !== 'string') return { state: parsed };
+      return { state: { ...parsed, phase: readStoredPhase(parsed.workflowType, parsed.phase) } };
     } catch {
     }
   }

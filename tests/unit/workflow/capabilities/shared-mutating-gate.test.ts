@@ -9,7 +9,7 @@
 //   Thus a posture gate at dispatch cannot judge that agent.
 //   Agent postures apply at render time, through `resolveCapabilities` and the `isolation: worktree` frontmatter of the agent.
 //
-// The `serialize_merge` single-writer lease, the merge preflight ancestry check, and launcher-owned placement protect the shared ref.
+// The harness owns the landing on the shared ref, and the coordinator records it with a `merge.executed` row.
 // `enforceReadonlyGate` keeps state authority, so dispatch still rejects the read-only caller below.
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -20,7 +20,7 @@ import { createInMemoryResolver } from '../../../../src/workflow/capabilities/re
 import * as resolverModule from '../../../../src/workflow/capabilities/resolver.js';
 import { capabilitiesForPosture } from '../../../../src/workflow/capabilities/posture-mapping.js';
 import type { DispatchContext } from '../../../../src/dispatch/core/dispatch.js';
-import { dispatch, stubCompositeHandler } from '../../../../src/dispatch/core/dispatch.js';
+import { dispatch, READ_ONLY_ACTIONS, stubCompositeHandler } from '../../../../src/dispatch/core/dispatch.js';
 import { deriveLocalOperatorIdentity } from '../../../../src/dispatch/caller-identity.js';
 import { EventStore } from '../../../../src/events/store.js';
 import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
@@ -69,12 +69,12 @@ describe('shared-mutating posture gate — removed (INV-11)', () => {
   });
 
   /**
-   * A `task-isolated` caller of `serialize_merge` must reach the handler and not get CAPABILITY_DENIED.
+   * A `task-isolated` caller of the `shared-mutating` action `cutover_decide` must reach the handler and not get CAPABILITY_DENIED.
    * Admission takes capabilities from the trusted caller, so the context sets `callerIdentity`.
    * Without an identity, admission counts no capability for the caller and refuses the call before the handler.
    * The spy call is the proof, because a result without CAPABILITY_DENIED can still come from an earlier refusal.
    */
-  it('TaskIsolatedCaller_SerializeMerge_ReachesTheHandler', async () => {
+  it('TaskIsolatedCaller_SharedMutatingAction_ReachesTheHandler', async () => {
     const resolver = createInMemoryResolver(taskIsolatedCaps);
     expect(resolver.has('isolation:worktree')).toBe(true);
 
@@ -89,11 +89,7 @@ describe('shared-mutating posture gate — removed (INV-11)', () => {
       const result = await dispatch(
         'exarchos_orchestrate',
         {
-          action: 'serialize_merge',
-          featureId: 'feat-x',
-          integrationRef: 'integration',
-          sourceBranch: 'feat/x',
-          strategy: 'squash',
+          action: 'cutover_decide',
         },
         taskIsolatedCtx,
       );
@@ -105,11 +101,15 @@ describe('shared-mutating posture gate — removed (INV-11)', () => {
     }
   });
 
-  /** The absent posture gate must not widen state authority, so the read-only gate still rejects this call. */
-  it('ReadOnlyCaller_PruneWorktrees_IsStillRejected_ByTheReadonlyGate', async () => {
+  /**
+   * The absent posture gate must not widen state authority, so the read-only gate still rejects a registered
+   * mutating action. The code is the proof, because an unknown or retired action fails before the gate runs.
+   */
+  it('ReadOnlyCaller_StackPlace_IsRejected_ByTheReadonlyGate', async () => {
     const resolver = createInMemoryResolver(readOnlyCaps);
     expect(resolver.has('mcp:exarchos:readonly')).toBe(true);
-    expect(resolver.has('fs:write')).toBe(false);
+    expect(resolver.has('mcp:exarchos')).toBe(false);
+    expect(READ_ONLY_ACTIONS.exarchos_orchestrate).not.toContain('stack_place');
 
     const readOnlyCtx: DispatchContext = { ...ctx, capabilityResolver: resolver };
     const streamsBefore = eventStore.listStreams();
@@ -119,11 +119,12 @@ describe('shared-mutating posture gate — removed (INV-11)', () => {
     try {
       const result = await dispatch(
         'exarchos_orchestrate',
-        { action: 'prune_worktrees', repoRoot: '/tmp/repo' },
+        { action: 'stack_place', featureId: 'readonly-gate', taskId: 'task-a' },
         readOnlyCtx,
       );
 
       expect(result.success).toBe(false);
+      expect(result.error?.code).toBe('CAPABILITY_DENIED');
       expect(compositeSpy).not.toHaveBeenCalled();
       expect(eventStore.listStreams()).toEqual(streamsBefore);
     } finally {

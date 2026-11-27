@@ -14,7 +14,7 @@ import {
 import type { HSMDefinition, State } from '../../../src/workflow/state-machine.js';
 import type { PhaseKind } from '../../../src/workflow/phase-kind.js';
 
-const ALL_KINDS: readonly PhaseKind[] = ['IMPLEMENT', 'PLAN', 'REVIEW', 'SYNTHESIZE', 'MERGE', 'GATHER'];
+const ALL_KINDS: readonly PhaseKind[] = ['IMPLEMENT', 'PLAN', 'REVIEW', 'SYNTHESIZE', 'GATHER'];
 
 const ALL_HSMS: Record<string, HSMDefinition> = {
   feature: createFeatureHSM(),
@@ -37,7 +37,6 @@ const LOCKED_CLASSIFICATION: Record<string, Record<string, PhaseKind>> = {
     'plan-review': 'PLAN',
     delegate: 'IMPLEMENT',
     review: 'REVIEW',
-    'merge-pending': 'MERGE',
     synthesize: 'SYNTHESIZE',
     blocked: 'GATHER',
   },

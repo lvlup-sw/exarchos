@@ -32,22 +32,6 @@ vi.mock('../../../../src/verbs/pure/post-merge.js', () => ({
   })),
 }));
 
-vi.mock('../../../../src/vcs/factory.js', () => ({
-  createVcsProvider: vi.fn(async () => ({
-    name: 'github',
-    createPr: vi.fn(),
-    checkCi: vi.fn(),
-    mergePr: vi.fn(),
-    addComment: vi.fn(),
-    getReviewStatus: vi.fn(),
-    listPrs: vi.fn(async () => []),
-    getPrComments: vi.fn(),
-    getPrDiff: vi.fn(),
-    createIssue: vi.fn(),
-    getRepository: vi.fn(),
-  })),
-}));
-
 import {
   deriveMcpCallerIdentity,
 } from '../../../../src/dispatch/caller-identity.js';

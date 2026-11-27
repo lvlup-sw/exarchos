@@ -10,7 +10,7 @@ const configLogger = logger.child({ subsystem: 'config' });
 const YAML_FILENAMES = ['.exarchos.yml', '.exarchos.yaml'] as const;
 
 /** Top-level sections that the fallback parser validates one at a time. */
-const SECTION_KEYS = ['agents', 'artifacts', 'review', 'vcs', 'workflow', 'tools', 'hooks', 'plugins'] as const;
+const SECTION_KEYS = ['agents', 'artifacts', 'review', 'workflow', 'tools', 'hooks', 'plugins'] as const;
 
 /**
  * Loads and validates `.exarchos.yml` (or `.exarchos.yaml`) from the project root.

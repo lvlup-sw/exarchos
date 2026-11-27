@@ -30,7 +30,7 @@ interface ClassRow {
 
 /** The class table of the 45 built-in steps, written by hand from the five definition files. */
 const CLASS_TABLE: Readonly<Record<BuiltInWorkflowType, ClassRow>> = {
-  feature: { taskBatch: ['delegate'], singleAgent: [], notAnImplementStep: 6, terminalStep: 2 },
+  feature: { taskBatch: ['delegate'], singleAgent: [], notAnImplementStep: 5, terminalStep: 2 },
   debug: { taskBatch: [], singleAgent: ['debug-implement', 'hotfix-implement'], notAnImplementStep: 9, terminalStep: 2 },
   refactor: { taskBatch: ['overhaul-delegate'], singleAgent: ['polish-implement'], notAnImplementStep: 10, terminalStep: 2 },
   oneshot: { taskBatch: [], singleAgent: ['implementing'], notAnImplementStep: 2, terminalStep: 2 },
@@ -148,7 +148,7 @@ describe('the step locator', () => {
     });
   });
 
-  /** Each built-in step has the class of the table. The totals are 2, 4, 29 and 10 over 45 steps. */
+  /** Each built-in step has the class of the table. The totals are 2, 4, 28 and 10 over 44 steps. */
   it('StepLocator_TheClassesOfTheBuiltIns_AreTheTable', () => {
     const totals = new Map<string, number>();
     for (const workflowType of BUILT_IN_WORKFLOW_TYPES) {
@@ -172,10 +172,10 @@ describe('the step locator', () => {
     expect(Object.fromEntries(totals)).toStrictEqual({
       'task-batch': 2,
       'single-agent-step': 4,
-      'not-an-implement-step': 29,
+      'not-an-implement-step': 28,
       'terminal-step': 10,
     });
-    expect([...totals.values()].reduce((sum, count) => sum + count, 0)).toBe(45);
+    expect([...totals.values()].reduce((sum, count) => sum + count, 0)).toBe(44);
   });
 
   /** A task condition under an `any` node does not require every task, so the step is a single-agent step. */

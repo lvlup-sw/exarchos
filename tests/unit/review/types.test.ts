@@ -3,14 +3,14 @@ import type {
   ProviderAdapter,
   ReviewAdapterRegistry,
   ActionItem,
+  ReviewComment,
 } from '../../../src/review/types.js';
-import type { PrComment as VcsPrComment } from '../../../src/vcs/provider.js';
 
 describe('review types', () => {
   it('ProviderAdapter_StubImplementation_SatisfiesInterface', () => {
     const stub: ProviderAdapter = {
       kind: 'human',
-      parse(_raw: VcsPrComment): ActionItem | null {
+      parse(_raw: ReviewComment): ActionItem | null {
         return null;
       },
     };
@@ -20,6 +20,7 @@ describe('review types', () => {
       author: 'someone',
       body: '',
       createdAt: '2026-01-01',
+      source: 'issue-comment',
     })).toBeNull();
   });
 

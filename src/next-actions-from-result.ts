@@ -19,10 +19,7 @@ import {
   type NextActionEnvelopes,
   type NextActionsState,
 } from './next-actions-computer.js';
-import {
-  RehydrationMergeOrchestratorSchema,
-  WorkflowStateSchema,
-} from './projections/rehydration/schema.js';
+import { WorkflowStateSchema } from './projections/rehydration/schema.js';
 import { getHSMDefinition } from './workflow/state-machine.js';
 
 /** Logger for fail-closed parse warnings. It is exported so unit tests can spy on `warn`. */
@@ -37,7 +34,6 @@ export const ShapeOneSchema = z
     phase: z.string(),
     workflowType: z.string(),
     featureId: z.string().optional(),
-    mergeOrchestrator: RehydrationMergeOrchestratorSchema.optional(),
     /**
      * `updatedAt`, `artifacts`, `tasks` and `reviews` mark a full workflow-state read. They are
      * `unknown` because `projectStateToFacts` owns their shape. A second declaration here forks
@@ -143,8 +139,7 @@ function actionAdmissionFrom(
  * advertised shape on its own, because a union parse accepts a valid shape 1 beside a malformed
  * `workflowState`.
  *
- * Shape 1 has precedence. Shape 2 fills the missing fields, so the `mergeOrchestrator` of a
- * rehydration document can surface `merge_orchestrate`. Admission facts come from shape 1 only:
+ * Shape 1 has precedence. Shape 2 fills the missing phase and workflow type. Admission facts come from shape 1 only:
  * the rehydration document has no `reviews` and no event log, and facts from it deny legal edges.
  */
 export function nextActionsFromResult(result: ToolResult): readonly NextAction[] {
@@ -180,28 +175,20 @@ export function nextActionsFromResult(result: ToolResult): readonly NextAction[]
 
   let phase: string | undefined;
   let workflowType: string | undefined;
-  let featureId: string | undefined;
-  let mergeOrchestrator: { taskId?: string; phase?: string } | undefined;
   let admission: AdmissionFacts | undefined;
   let actionAdmission: ActionAdmissionFacts | undefined;
 
   if (shapeOne?.success) {
     phase = shapeOne.data.phase;
     workflowType = shapeOne.data.workflowType;
-    featureId = shapeOne.data.featureId;
-    mergeOrchestrator = shapeOne.data.mergeOrchestrator;
     admission = admissionFactsFrom(shapeOne.data);
-    actionAdmission = actionAdmissionFrom(shapeOne.data, shapeOne.data.phase, featureId);
+    actionAdmission = actionAdmissionFrom(shapeOne.data, shapeOne.data.phase, shapeOne.data.featureId);
   }
 
   if (shapeTwo?.success) {
     const ws = shapeTwo.data.workflowState;
     if (!phase) phase = ws.phase;
     if (!workflowType) workflowType = ws.workflowType;
-    if (!featureId) featureId = ws.featureId;
-    if (mergeOrchestrator === undefined && ws.mergeOrchestrator !== undefined) {
-      mergeOrchestrator = ws.mergeOrchestrator;
-    }
   }
 
   if (!phase || !workflowType) return [];
@@ -214,7 +201,7 @@ export function nextActionsFromResult(result: ToolResult): readonly NextAction[]
   }
 
   return computeNextActions(
-    { phase, workflowType, featureId, mergeOrchestrator, admission, actionAdmission },
+    { phase, workflowType, admission, actionAdmission },
     hsm,
   );
 }
@@ -243,28 +230,20 @@ function nextActionsStateFromResult(result: ToolResult): {
 
   let phase: string | undefined;
   let workflowType: string | undefined;
-  let featureId: string | undefined;
-  let mergeOrchestrator: { taskId?: string; phase?: string } | undefined;
   let admission: AdmissionFacts | undefined;
   let actionAdmission: ActionAdmissionFacts | undefined;
 
   if (shapeOne?.success) {
     phase = shapeOne.data.phase;
     workflowType = shapeOne.data.workflowType;
-    featureId = shapeOne.data.featureId;
-    mergeOrchestrator = shapeOne.data.mergeOrchestrator;
     admission = admissionFactsFrom(shapeOne.data);
-    actionAdmission = actionAdmissionFrom(shapeOne.data, shapeOne.data.phase, featureId);
+    actionAdmission = actionAdmissionFrom(shapeOne.data, shapeOne.data.phase, shapeOne.data.featureId);
   }
 
   if (shapeTwo?.success) {
     const ws = shapeTwo.data.workflowState;
     if (!phase) phase = ws.phase;
     if (!workflowType) workflowType = ws.workflowType;
-    if (!featureId) featureId = ws.featureId;
-    if (mergeOrchestrator === undefined && ws.mergeOrchestrator !== undefined) {
-      mergeOrchestrator = ws.mergeOrchestrator;
-    }
   }
 
   if (!phase || !workflowType) return undefined;
@@ -277,7 +256,7 @@ function nextActionsStateFromResult(result: ToolResult): {
   }
 
   return {
-    state: { phase, workflowType, featureId, mergeOrchestrator, admission, actionAdmission },
+    state: { phase, workflowType, admission, actionAdmission },
     hsm,
   };
 }

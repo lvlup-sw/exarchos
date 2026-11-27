@@ -234,14 +234,6 @@ export const COMPENSABLE_LOCAL: ActionAnnotations = {
   openWorld: false,
 };
 
-export const COMPENSABLE_REMOTE: ActionAnnotations = {
-  safety: 'compensable',
-  readOnly: false,
-  destructive: true,
-  idempotent: false,
-  openWorld: true,
-};
-
 /**
  * The correlation-tuple filter shape that view actions with dispatch-boundary scoping spread into
  * their schemas. One copy keeps the call sites in agreement.

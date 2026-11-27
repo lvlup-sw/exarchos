@@ -242,41 +242,6 @@ register({
 });
 
 register({
-  phase: 'merge-pending',
-  workflowType: 'feature',
-  skill: 'merge-orchestrator',
-  skillRef: '@skills/merge-orchestrator/SKILL.md',
-  tools: [
-    {
-      tool: 'exarchos_orchestrate',
-      action: 'merge_orchestrate',
-      purpose:
-        'Run preflight + execute merge for the worktree-associated task; resumes idempotently on retry',
-    },
-    {
-      tool: 'exarchos_workflow',
-      action: 'get',
-      purpose: 'Read mergeOrchestrator state to detect prior phase and rollback points',
-    },
-    {
-      tool: 'exarchos_event',
-      action: 'query',
-      purpose: 'Reconstruct merge timeline from merge.preflight/executed/recovered events',
-    },
-  ],
-  events: phaseEventInstructions('merge-pending'),
-  autoEmittedEvents: phaseRuntimeEmissions('merge-pending'),
-  transitionCriteria:
-    'merge.executed → delegate (next worktree) | merge.recovered / merge.aborted → delegate (drop back, mergeOrchestrator terminal)',
-  guardPrerequisites:
-    "mergeOrchestrator.phase ∉ {completed, rolled-back, aborted} AND latest task.completed carries a worktree association",
-  validationScripts: [],
-  humanCheckpoint: false,
-  compactGuidance:
-    'Local-git merge handoff. Call exarchos_orchestrate merge_orchestrate to land the subagent worktree branch on the integration branch via local git merge with recorded rollback sha. NOT a remote PR merge — the harness owns that in synthesize. Runs preflight (ancestry / current-branch / main-worktree / drift), records HEAD as rollback anchor, runs git merge per strategy, and on failure runs the INV-14 recovery ladder (git merge --abort → git reset --keep <rollbackSha>, never --hard). Strategy required (no default). Resumable: terminal phases (completed / rolled-back / aborted) short-circuit on re-entry. Events auto-emitted: merge.preflight carries structured guard sub-results + failureReasons; merge.executed records mergeSha; merge.recovered records reason + optional recoveryError/recoveryErrorDetail. Use exarchos_event describe before any manual emission. HSM exits merge-pending back to delegate on terminal merge event. Full guidance: @skills/merge-orchestrator/SKILL.md.',
-});
-
-register({
   phase: 'review',
   workflowType: 'feature',
   skill: 'review',

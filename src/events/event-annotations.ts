@@ -291,9 +291,16 @@ export const EVENT_ANNOTATIONS: Readonly<Record<string, EventRegistration>> = Ob
   /** Retired with the mutation gate. The schema stays so that old logs replay the same, but no code writes this event. */
   'mutation.executed': { lifecycle: 'retired', tier: 'substrate', rationale: 'operation-record' },
   'feedback.recorded': { lifecycle: 'active', tier: 'substrate', rationale: 'operation-record' },
-  'merge.retry_attempt': { lifecycle: 'active', tier: 'substrate', rationale: 'operation-record' },
+  /** Retired with `merge_orchestrate`. The schema, the readers and the projections stay so that old logs replay the same, but no code writes this event. */
+  'merge.retry_attempt': { lifecycle: 'retired', tier: 'substrate', rationale: 'operation-record' },
+  /**
+   * Retired with `merge_orchestrate`. The schema stays so that old logs replay the same, but no code writes this event.
+   * Its only reader was the retired merge orchestrator projection, so it is an operation record of history.
+   */
+  'merge.completed': { lifecycle: 'retired', tier: 'substrate', rationale: 'operation-record' },
+  /** Retired with `merge_orchestrate`. The schema, the readers and the projections stay so that old logs replay the same, but no code writes this event. */
   'merge.executing_started': {
-    lifecycle: 'active',
+    lifecycle: 'retired',
     tier: 'substrate',
     rationale: 'operation-record',
   },
@@ -343,22 +350,23 @@ export const EVENT_ANNOTATIONS: Readonly<Record<string, EventRegistration>> = Ob
     rationale: 'operation-record',
   },
   /**
-   * The two-event VCS operations. `*.requested` records the intent before the effect, which is
-   * not idempotent. `*.executed` records the result. `worktree.remove.executed` has a consumer
-   * fold, so it is a `capability` entry.
+   * Retired with the ledger-only cancel. The cancel compensator wrote these two-event VCS operations,
+   * and now it records its resources in `workflow.compensation`. The schemas stay so that old logs
+   * replay the same, but no code writes these events.
    */
   'branch.delete.requested': {
-    lifecycle: 'active',
+    lifecycle: 'retired',
     tier: 'substrate',
     rationale: 'operation-record',
   },
   'branch.delete.executed': {
-    lifecycle: 'active',
+    lifecycle: 'retired',
     tier: 'substrate',
     rationale: 'operation-record',
   },
+  /** Retired with the ledger-only cancel. The schema stays so that old logs replay the same, but no code writes this event. */
   'worktree.remove.requested': {
-    lifecycle: 'active',
+    lifecycle: 'retired',
     tier: 'substrate',
     rationale: 'operation-record',
   },
@@ -542,30 +550,19 @@ export const EVENT_ANNOTATIONS: Readonly<Record<string, EventRegistration>> = Ob
     provider: 'exarchos_orchestrate',
     consumedBy: ['code-quality'],
   },
+  /** Retired with `merge_orchestrate`. The schema, the readers and the projections stay so that old logs replay the same, but no code writes this event. */
   'merge.preflight': {
-    lifecycle: 'active',
+    lifecycle: 'retired',
     tier: 'capability',
     provider: 'exarchos_orchestrate',
-    consumedBy: ['merge-orchestrator@v1', 'workflow-state@v1'],
+    consumedBy: ['workflow-state@v1'],
   },
-  'merge.executed': {
-    lifecycle: 'active',
-    tier: 'capability',
-    provider: 'exarchos_orchestrate',
-    consumedBy: ['merge-orchestrator@v1', 'rehydration@v1', 'workflow-state@v1'],
-  },
-  'merge.completed': {
-    lifecycle: 'active',
-    tier: 'capability',
-    provider: 'exarchos_orchestrate',
-    consumedBy: ['merge-orchestrator@v1'],
-  },
-  /** The only merge recovery terminal that code emits. */
+  /** Retired with `merge_orchestrate`. The schema, the readers and the projections stay so that old logs replay the same, but no code writes this event. */
   'merge.recovered': {
-    lifecycle: 'active',
+    lifecycle: 'retired',
     tier: 'capability',
     provider: 'exarchos_orchestrate',
-    consumedBy: ['merge-orchestrator@v1', 'rehydration@v1', 'workflow-state@v1'],
+    consumedBy: ['workflow-state@v1'],
   },
   /**
    * Retired. The schema stays so that old logs replay the same, but no code writes this event.
@@ -575,70 +572,84 @@ export const EVENT_ANNOTATIONS: Readonly<Record<string, EventRegistration>> = Ob
     lifecycle: 'retired',
     tier: 'capability',
     provider: 'exarchos_orchestrate',
-    consumedBy: ['merge-orchestrator@v1', 'rehydration@v1', 'workflow-state@v1'],
+    consumedBy: ['workflow-state@v1'],
   },
+  /**
+   * Retired with the ledger-only cancel. The cancel compensator and the retired `prune_worktrees`
+   * action wrote it. The schema and the `worktrees@v1` fold stay, so old rows of both writers fold the same.
+   */
   'worktree.remove.executed': {
-    lifecycle: 'active',
+    lifecycle: 'retired',
     tier: 'capability',
-    provider: 'exarchos_orchestrate',
+    provider: 'exarchos_workflow',
     consumedBy: ['worktrees@v1'],
   },
+  /** Retired with `acquire_worktree`. The schema, the readers and the projection stay so that old logs replay the same, but no code writes this event. */
   'worktree.adopted': {
-    lifecycle: 'active',
+    lifecycle: 'retired',
     tier: 'capability',
     provider: 'exarchos_orchestrate',
     consumedBy: ['worktrees@v1'],
   },
+  /** Retired with `acquire_worktree`. The schema, the readers and the projection stay so that old logs replay the same, but no code writes this event. */
   'worktree.reserved': {
-    lifecycle: 'active',
+    lifecycle: 'retired',
     tier: 'capability',
     provider: 'exarchos_orchestrate',
     consumedBy: ['worktrees@v1'],
   },
+  /** Retired with `release_worktree` and `reconcile_worktrees`. The schema, the readers and the projection stay so that old logs replay the same, but no code writes this event. */
   'worktree.released': {
-    lifecycle: 'active',
+    lifecycle: 'retired',
     tier: 'capability',
     provider: 'exarchos_orchestrate',
     consumedBy: ['worktrees@v1'],
   },
+  /** Retired with `reconcile_worktrees`. The schema, the readers and the projection stay so that old logs replay the same, but no code writes this event. */
   'worktree.orphan_detected': {
-    lifecycle: 'active',
+    lifecycle: 'retired',
     tier: 'capability',
     provider: 'exarchos_orchestrate',
     consumedBy: ['worktrees@v1'],
   },
+  /** Retired with `serialize_merge`. The schema, the reader and the projection stay so that old logs replay the same, but no code writes this event. */
   'worktree.merge_requested': {
-    lifecycle: 'active',
+    lifecycle: 'retired',
     tier: 'capability',
     provider: 'exarchos_orchestrate',
     consumedBy: ['worktrees@v1'],
   },
+  /** Retired with `serialize_merge` and `reconcile_worktrees`. The schema, the readers and the projection stay so that old logs replay the same, but no code writes this event. */
   'worktree.merge_executed': {
-    lifecycle: 'active',
+    lifecycle: 'retired',
     tier: 'capability',
     provider: 'exarchos_orchestrate',
     consumedBy: ['worktrees@v1'],
   },
+  /** Retired with the launcher liveness module. The schema, the readers and the projection stay so that old logs replay the same, but no code writes this event. */
   'launch.executing_started': {
-    lifecycle: 'active',
+    lifecycle: 'retired',
     tier: 'capability',
     provider: 'exarchos_orchestrate',
     consumedBy: ['worktrees@v1'],
   },
+  /** Retired with the launcher liveness module and `reconcile_worktrees`. The schema, the readers and the projection stay so that old logs replay the same, but no code writes this event. */
   'launch.executed': {
-    lifecycle: 'active',
+    lifecycle: 'retired',
     tier: 'capability',
     provider: 'exarchos_orchestrate',
     consumedBy: ['worktrees@v1'],
   },
+  /** Retired with `prune_worktrees`. The schema, the readers and the projection stay so that old logs replay the same, but no code writes this event. */
   'prune.executing_started': {
-    lifecycle: 'active',
+    lifecycle: 'retired',
     tier: 'capability',
     provider: 'exarchos_orchestrate',
     consumedBy: ['worktrees@v1'],
   },
+  /** Retired with `prune_worktrees`. The schema, the readers and the projection stay so that old logs replay the same, but no code writes this event. */
   'prune.executed': {
-    lifecycle: 'active',
+    lifecycle: 'retired',
     tier: 'capability',
     provider: 'exarchos_orchestrate',
     consumedBy: ['worktrees@v1'],
@@ -892,6 +903,12 @@ export const EVENT_ANNOTATIONS: Readonly<Record<string, EventRegistration>> = Ob
   'comment.posted': { lifecycle: 'active', tier: 'workflow-local', workflow: 'feature' },
   'comment.resolved': { lifecycle: 'active', tier: 'workflow-local', workflow: 'feature' },
   'merge.requested': { lifecycle: 'active', tier: 'workflow-local', workflow: 'feature' },
+  /**
+   * The coordinator appends it with `exarchos_event` for a blocker that landed by a squash or a rebase,
+   * and `prepare` reads it. No action appends it. The retired `merge_orchestrate` action also wrote it,
+   * and old rows of both writers fold the same.
+   */
+  'merge.executed': { lifecycle: 'active', tier: 'workflow-local', workflow: 'feature' },
 });
 
 /**

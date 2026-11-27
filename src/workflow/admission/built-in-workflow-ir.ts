@@ -98,6 +98,11 @@ export const FACT_DECLARATION: EdgeConditionDeclaration = {
     'investigation.escalate': 'boolean',
     'resolution.directPush': 'boolean',
     'cleanup.mergeVerified': 'boolean',
+    /**
+     * This fact and the next are retired. No built-in edge reads them, and `projectStateToFacts` always sets them to false.
+     * A capsule that a build with the merge-pending detour pinned names them, so the declaration keeps them for that pin.
+     * Thus the old pin compiles, and its merge-pending edges never admit.
+     */
     'mergePending.entryReady': 'boolean',
     'mergePending.exitReady': 'boolean',
     'team.disbandedOk': 'boolean',

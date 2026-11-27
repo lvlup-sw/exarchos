@@ -7,6 +7,7 @@ import {
   WorkflowTypeSchema,
   MergeOrchestratorStateSchema,
   FeaturePhaseSchema,
+  readStoredPhase,
   GetInputSchema,
   AsOfSchema,
 } from '../../../src/workflow/schemas.js';
@@ -632,15 +633,37 @@ describe('FeatureWorkflowStateSchema mergeOrchestrator field', () => {
   });
 });
 
-/** `merge-pending` is a substate of `implementation`, so the disk schema must accept it as a phase. */
-describe('FeaturePhaseSchema (T26)', () => {
-  it('FeaturePhaseSchema_MergePending_Parses', () => {
-    expect(FeaturePhaseSchema.safeParse('merge-pending').success).toBe(true);
+/** The feature machine has no `merge-pending` substate. A persisted `merge-pending` phase still parses, and it reads as `delegate`. */
+describe('FeaturePhaseSchema', () => {
+  it('FeaturePhaseSchema_MergePending_ParsesAsDelegate', () => {
+    const parsed = FeaturePhaseSchema.safeParse('merge-pending');
+    expect(parsed.success).toBe(true);
+    expect(parsed.data).toBe('delegate');
   });
 
   it('FeaturePhaseSchema_TypoInMergePending_Rejects', () => {
     expect(FeaturePhaseSchema.safeParse('merge-Pending').success).toBe(false);
     expect(FeaturePhaseSchema.safeParse('merge_pending').success).toBe(false);
+  });
+});
+
+/** A stored or folded phase reads as the schema reads it, so the fold and the schema agree on a retired feature phase. */
+describe('readStoredPhase', () => {
+  it('ReadStoredPhase_FeatureMergePending_ReadsAsDelegate', () => {
+    expect(readStoredPhase('feature', 'merge-pending')).toBe('delegate');
+  });
+
+  it('ReadStoredPhase_FeatureIdeate_ReadsAsPlan', () => {
+    expect(readStoredPhase('feature', 'ideate')).toBe('plan');
+  });
+
+  it('ReadStoredPhase_LivePhase_IsUnchanged', () => {
+    expect(readStoredPhase('feature', 'review')).toBe('review');
+  });
+
+  it('ReadStoredPhase_OtherWorkflowType_IsUnchanged', () => {
+    expect(readStoredPhase('release-check', 'merge-pending')).toBe('merge-pending');
+    expect(readStoredPhase(undefined, 'merge-pending')).toBe('merge-pending');
   });
 });
 

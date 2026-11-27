@@ -9,6 +9,7 @@
  * Each move has one operation claim. The one denial gains the valid targets of the fold phase.
  *
  * Cleanup backfill patches only the supplied synthesis fields and the absent PR artifact.
+ * A cancel records its resources in the ledger only. Each action reports its own outcome and gets one `workflow.compensation` row.
  * The six corpus defects are no scenario here.
  *
  * @oracle-sources: ./__fixtures__/transition-rows.golden.json, ../../../../src/workflow/handlers/set.ts
@@ -84,8 +85,8 @@ function readGolden(): unknown {
 /** The key form of a phase row that the legacy transition guard appended: the feature, the event, the edge and the document version. */
 const LEGACY_TRANSITION_KEY = /^[^:]+:(transition|phase\.exited|phase\.entered|compound-entry|compound-exit|fix-cycle|plan-revision|cancel|cleanup):[^:]+:[^:]+:\d+$/;
 
-/** The valid targets of the fold phase `delegate` of a feature, which the one denial gains. */
-const DELEGATE_VALID_TARGETS: readonly string[] = ['review', 'merge-pending', 'cancelled', 'completed'];
+/** The valid targets of the fold phase `delegate` of a feature, which the one denial gains. The machine has no merge substate. */
+const DELEGATE_VALID_TARGETS: readonly string[] = ['review', 'cancelled', 'completed'];
 
 /** The name of the one denied scenario. */
 const DENIED_SCENARIO = 'feature delegate -> review denied with a pending task';
@@ -100,12 +101,62 @@ const DeltaEntrySchema = z.looseObject({
   rows: z.array(GoldenRowSchema),
 });
 
+/** The name of the one cancel scenario. */
+const CANCEL_SCENARIO = 'cancel of a debug workflow at investigate';
+
+/** A durable compensation completion row of the golden, as the cancel delta reads it. */
+const CompletionRowSchema = z.looseObject({
+  type: z.literal('cancel.compensation-completed'),
+  data: z.looseObject({ actionId: z.string(), status: z.string(), message: z.string() }),
+});
+
+/** The cancel result of the golden, as the cancel delta reads it. */
+const CancelResultSchema = z.looseObject({
+  data: z.looseObject({
+    actions: z.array(z.looseObject({ actionId: z.string(), status: z.string(), message: z.string() })),
+  }),
+});
+
+/**
+ * Applies the ledger-only cancel delta to the cancel scenario. The golden result says that each action was already completed.
+ * The live result gives the message of the durable completion row of the action.
+ * The cancel also appends one `workflow.compensation` row for each action, in action order, before the completing `workflow.cancel` row.
+ */
+function withTheLedgerCancelDelta(entry: z.infer<typeof DeltaEntrySchema>): z.infer<typeof DeltaEntrySchema> {
+  if (entry.name !== CANCEL_SCENARIO) return entry;
+  const featureId = z.string().parse(entry.featureId);
+  const completions = entry.rows.flatMap((row) => {
+    const parsed = CompletionRowSchema.safeParse(row);
+    return parsed.success ? [parsed.data.data] : [];
+  });
+  const result = CancelResultSchema.parse(entry.result);
+  const actions = result.data.actions.map((action) => {
+    const completion = completions.find((row) => row.actionId === action.actionId);
+    if (completion === undefined) throw new Error(`no completion row for ${action.actionId}`);
+    expect(action.message).toBe('Already completed (event replay)');
+    return { ...action, status: completion.status, message: completion.message };
+  });
+  const compensationRows = actions.map((action) => ({
+    type: 'workflow.compensation',
+    data: { actionId: action.actionId, status: action.status, message: action.message, featureId },
+    idempotencyKey: `${featureId}:cancel:compensation:${action.actionId}`,
+    operationId: null,
+  }));
+  const cancelAt = entry.rows.findIndex((row) => row.idempotencyKey === `${featureId}:cancel:complete`);
+  expect(cancelAt).toBe(entry.rows.length - 1);
+  return {
+    ...entry,
+    result: { ...result, data: { ...result.data, actions } },
+    rows: [...entry.rows.slice(0, cancelAt), ...compensationRows, ...entry.rows.slice(cancelAt)],
+  };
+}
+
 /**
  * Applies the named deltas to the golden. Transition phase rows lose their keys, and the denial gains valid targets.
- * Cleanup backfill uses exact supplied dot paths. No other value changes.
+ * Cleanup backfill uses exact supplied dot paths. The cancel gets the ledger-only cancel delta. No other value changes.
  */
 function goldenWithTheDelta(golden: unknown): unknown {
-  return z.array(DeltaEntrySchema).parse(golden).map((entry) => ({
+  return z.array(DeltaEntrySchema).parse(golden).map(withTheLedgerCancelDelta).map((entry) => ({
     ...entry,
     rows: entry.rows.map((row) => {
       if (row.idempotencyKey === 'transition-rows-feature-cleanup:cleanup:patch:synthesize') {

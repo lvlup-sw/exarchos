@@ -44,8 +44,7 @@ describe('resolveConfig', () => {
       'cross-module': 0.10,
     });
 
-    expect(result.vcs.provider).toBe('github');
-    expect(result.vcs.settings).toEqual({});
+    expect('vcs' in result).toBe(false);
 
     expect(result.workflow.skipPhases).toEqual([]);
     expect(result.workflow.maxFixCycles).toBe(3);
@@ -126,11 +125,11 @@ describe('resolveConfig', () => {
     expect(result.review.routing.riskWeights).toEqual(customWeights);
   });
 
-  it('resolveConfig_VcsProvider_OverridesDefault', () => {
+  /** No code reads the retired `vcs` key, so a project value gives no resolved field. */
+  it('resolveConfig_RetiredVcsKey_GivesNoResolvedField', () => {
     const project: ProjectConfig = { vcs: { provider: 'gitlab' } };
     const result = resolveConfig(project);
-    expect(result.vcs.provider).toBe('gitlab');
-    expect(result.vcs.settings).toEqual({});
+    expect('vcs' in result).toBe(false);
   });
 
   it('resolveConfig_SkipPhases_AddedToEmptyDefault', () => {
@@ -195,7 +194,6 @@ describe('resolveConfig', () => {
     expect(Object.isFrozen(result.review)).toBe(true);
     expect(Object.isFrozen(result.review.dimensions)).toBe(true);
     expect(Object.isFrozen(result.review.dimensions.D1)).toBe(true);
-    expect(Object.isFrozen(result.vcs)).toBe(true);
     expect(Object.isFrozen(result.workflow)).toBe(true);
     expect(Object.isFrozen(result.tools)).toBe(true);
     expect(Object.isFrozen(result.hooks)).toBe(true);
@@ -212,7 +210,7 @@ describe('resolveConfig', () => {
   it('DEFAULTS_IsExported', () => {
     expect(DEFAULTS).toBeDefined();
     expect(DEFAULTS.review).toBeDefined();
-    expect(DEFAULTS.vcs).toBeDefined();
+    expect('vcs' in DEFAULTS).toBe(false);
     expect(DEFAULTS.workflow).toBeDefined();
     expect(DEFAULTS.tools).toBeDefined();
     expect(DEFAULTS.hooks).toBeDefined();

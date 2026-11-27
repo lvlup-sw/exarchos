@@ -282,7 +282,7 @@ describe('the emission vocabulary is shared by the registry, compiler, verifier 
       ).toEqual(authorityPairs);
     }
 
-    expect(declaring).toBeGreaterThanOrEqual(50);
+    expect(declaring).toBeGreaterThanOrEqual(49);
     expect(withAlways).toBeGreaterThan(0);
     expect(withConditional).toBeGreaterThan(0);
   });
@@ -307,7 +307,7 @@ describe('the emission vocabulary is shared by the registry, compiler, verifier 
       if (registryDeclaredEmissions(entry.action).length > 0) declaredByTheRegistry += 1;
     }
 
-    expect(declaredByTheRegistry).toBeGreaterThanOrEqual(50);
+    expect(declaredByTheRegistry).toBeGreaterThanOrEqual(49);
   });
 
   /**
@@ -907,7 +907,7 @@ describe('the shipped-emitter probe corpus', () => {
   it('EmissionProbeCorpus_ExcludedActions_ReportReasons', () => {
     const corpus = emissionProbeCorpus();
 
-    expect(corpus.declaredEmitters.length).toBeGreaterThanOrEqual(50);
+    expect(corpus.declaredEmitters.length).toBeGreaterThanOrEqual(49);
     expect(new Set(corpus.declaredEmitters).size).toBe(corpus.declaredEmitters.length);
 
     const probed = corpus.probes.map((probe) => probe.actionId);

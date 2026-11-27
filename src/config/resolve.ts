@@ -79,10 +79,6 @@ export interface ResolvedProjectConfig {
      */
     readonly emissionEnforcement: EmissionEnforcementMode;
   };
-  readonly vcs: {
-    readonly provider: 'github' | 'gitlab' | 'azure-devops';
-    readonly settings: Readonly<Record<string, unknown>>;
-  };
   readonly workflow: {
     readonly skipPhases: readonly string[];
     readonly maxFixCycles: number;
@@ -215,10 +211,6 @@ export const DEFAULTS: ResolvedProjectConfig = deepFreeze({
   /** The emission verifier blocks by default, in every environment. */
   events: {
     emissionEnforcement: EMISSION_ENFORCEMENT_FALLBACK,
-  },
-  vcs: {
-    provider: 'github',
-    settings: {},
   },
   workflow: {
     skipPhases: [],
@@ -419,11 +411,6 @@ export function resolveConfig(project: ProjectConfig): ResolvedProjectConfig {
 
   const mutationEnforcement = DEFAULTS.review.mutationEnforcement;
 
-  const vcsProvider = project.vcs?.provider ?? DEFAULTS.vcs.provider;
-  const vcsSettings = project.vcs?.settings
-    ? { ...project.vcs.settings }
-    : {};
-
   const skipPhases = [...(project.workflow?.['skip-phases'] ?? DEFAULTS.workflow.skipPhases)];
   const maxFixCycles = project.workflow?.['max-fix-cycles'] ?? DEFAULTS.workflow.maxFixCycles;
   const maxPlanRevisions = project.workflow?.['max-plan-revisions'] ?? DEFAULTS.workflow.maxPlanRevisions;
@@ -477,7 +464,6 @@ export function resolveConfig(project: ProjectConfig): ResolvedProjectConfig {
       routing: { coderabbitThreshold, riskWeights },
     },
     events: { emissionEnforcement },
-    vcs: { provider: vcsProvider, settings: vcsSettings },
     workflow: { skipPhases, maxFixCycles, maxPlanRevisions, requiredReviews, phases },
     tools: { defaultBranch, commitStyle, prTemplate, autoMerge, prStrategy },
     hooks: { on: hooksOn },

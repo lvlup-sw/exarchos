@@ -346,41 +346,6 @@ describe('the guard fold and the document side', () => {
   });
 
   /**
-   * The verdict of today on the store path. A guard event holds no `data` key, so `merge-pending-entry` denies a completion with a worktree.
-   * The same guard admits an entry that holds the worktree under `data`, so only the missing key decides the denial.
-   */
-  it('FoldGuardInput_OnTheStorePath_MergePendingEntryDeniesACompletionWithAWorktree', () => {
-    const rows = [
-      ...delegateRows(),
-      row(4, 'task.assigned', { taskId: 't1', title: 'the first task' }),
-      row(5, 'task.completed', { taskId: 't1', worktree: 'worktrees/t1' }),
-    ];
-    const guard = guardOf('merge-pending-entry');
-
-    const input = foldGuardInput(rows, { config: {} });
-    const latest = listOf(input._events).at(-1);
-    const withDataKey = {
-      ...input,
-      _events: [{ type: 'task.completed', timestamp: '2026-11-11T10:05:00.000Z', data: { taskId: 't1', worktree: 'worktrees/t1' } }],
-    };
-
-    expect(latest).toStrictEqual({
-      type: 'task.completed',
-      timestamp: '2026-11-11T10:05:00.000Z',
-      taskId: 't1',
-      worktree: 'worktrees/t1',
-      metadata: { taskId: 't1', worktree: 'worktrees/t1' },
-    });
-    expect(guard.evaluate(input)).toEqual({
-      passed: false,
-      reason: expect.stringContaining('latest task.completed event lacks data.worktree'),
-      suggestedFix: expect.objectContaining({ tool: 'exarchos_orchestrate' }),
-    });
-    expect(projectStateToFacts(input).fields['mergePending.entryReady']).toBe(false);
-    expect(guard.evaluate(withDataKey)).toBe(true);
-  });
-
-  /**
    * The retired-authority scan reads the guard-input modules. A pass literal of `_cleanup` there is a violation.
    * The same literal in another projection module is outside each scope, so the scan stays limited to its scopes.
    */

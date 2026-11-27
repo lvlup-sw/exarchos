@@ -365,7 +365,7 @@ function blockerNotOnBase(
     `task '${blocker}' is complete, and its landed commit ${landed} is not on '${baseRef}' at ${baseCommit}` +
       `${cause === undefined ? '' : ` (${cause})`}. ${tasks} wait on it and would fork from a base without its work, ` +
       `so nothing was compiled or recorded. Land '${blocker}' on '${baseRef}', then prepare again. If '${blocker}' ` +
-      'landed by a squash or a rebase outside serialize_merge, record that landing with a merge.executed row whose ' +
+      'landed by a squash or a rebase, record that landing with a merge.executed row whose ' +
       `taskId is '${blocker}', whose targetBranch is '${baseRef}' and whose mergeSha is the landed commit, then prepare again.`,
   );
 }

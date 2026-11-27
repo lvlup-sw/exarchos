@@ -9,21 +9,11 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../tools/audit/gates" && pwd
 REPO_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 GATE="$SCRIPT_DIR/check-windows-portability.mjs"
 TMP="$(mktemp -d)"
-# The scan-root cases put each probe in its own `mktemp -d` directory inside the
-# real tree and record the directory here. In the real tree, the EXIT trap
-# removes only those directories, so an early exit leaves the repo clean. A
-# fixed probe name can collide between two concurrent runs.
-PROBE_DIRS=()
+# Each case writes only below $TMP. The scan-root cases plant their probes in a
+# mirror of the repo layout below $TMP, never in the real tree. A probe in the
+# real tree is visible to each other scan of that tree that runs at that time.
 cleanup() {
   rm -rf "$TMP"
-  # Under `set -u`, an empty array is an unbound expansion, so the loop uses
-  # `${PROBE_DIRS[@]+…}`. This function runs from the EXIT trap. Under `set -e`,
-  # a non-zero status of the trap becomes the exit status of the script. With
-  # `return 0`, a false last test cannot give exit 1 after each case passed.
-  for dir in ${PROBE_DIRS[@]+"${PROBE_DIRS[@]}"}; do
-    if [[ -n "$dir" ]]; then rm -rf "$dir"; fi
-  done
-  return 0
 }
 trap cleanup EXIT
 
@@ -362,39 +352,39 @@ check "shipped src/tools/audit/ is NOT exempt (rule 4 still checks it)" 1 "$ship
 # The default roots must include repo-root `src/` and `tools/audit/`. A declared
 # root proves nothing, so each case plants a violation in one tree and observes
 # that the gate reports it.
-# Each probe sits in its own `mktemp -d` directory inside the scan root, and the
-# case removes only that directory. With a fixed file name, a run can overwrite
-# the probe of a concurrent run, or a source file with that name. The cleanup
-# then deletes that file.
+# The cases run a byte-identical copy of the gate in a mirror of the repo layout
+# below $TMP. The copy finds its repo root from its own path, as the real gate
+# does, so the mirror is its default root. The real tree stays unchanged. A
+# probe in the real tree makes a concurrent scan of that tree read a file that
+# can disappear, and it makes the tree dirty for a concurrent build.
+MIRROR="$TMP/mirror"
+mkdir -p "$MIRROR/tools/audit/gates" "$MIRROR/src/utils"
+cp "$GATE" "$MIRROR/tools/audit/gates/check-windows-portability.mjs"
+cp "$REPO_ROOT/src/utils/process.ts" "$MIRROR/src/utils/process.ts"
+MIRROR_GATE="$MIRROR/tools/audit/gates/check-windows-portability.mjs"
+set +e
+cmp -s "$GATE" "$MIRROR_GATE"
+copy_exit=$?
+node "$MIRROR_GATE" >/dev/null 2>&1
+mirror_clean_exit=$?
+set -e
+check "mirror gate is a byte-identical copy of the gate" 0 "$copy_exit"
+check "mirror is clean before the scan-root probes are planted" 0 "$mirror_clean_exit"
+
 for subtree in src tools/audit; do
-  probe_dir="$(mktemp -d "$REPO_ROOT/$subtree/portability_probe_XXXXXX")"
-  PROBE_DIRS+=("$probe_dir")
+  probe_dir="$MIRROR/$subtree/portability_probe"
+  mkdir -p "$probe_dir"
   cat > "$probe_dir/probe.mjs" <<'EOF'
 import * as path from 'node:path';
 export const here = path.dirname(new URL(import.meta.url).pathname);
 EOF
   set +e
-  node "$GATE" >/dev/null 2>&1
+  node "$MIRROR_GATE" >/dev/null 2>&1
   probe_exit=$?
   set -e
   rm -rf "$probe_dir"
-  # Build the array again without this entry. `${arr[@]/x}` replaces a
-  # substring, so it leaves an empty element and removes none.
-  remaining=()
-  for d in ${PROBE_DIRS[@]+"${PROBE_DIRS[@]}"}; do
-    if [[ "$d" != "$probe_dir" ]]; then remaining+=("$d"); fi
-  done
-  PROBE_DIRS=(${remaining[@]+"${remaining[@]}"})
   check "default roots include repo-root $subtree/ (planted violation is seen)" 1 "$probe_exit"
 done
-
-# Without the probes, the real tree is clean. Thus the cases above measured the
-# probe, not a violation that was already there.
-set +e
-node "$GATE" >/dev/null 2>&1
-after_probe_exit=$?
-set -e
-check "real repo is clean after the scan-root probes are removed" 0 "$after_probe_exit"
 
 echo "check-windows-portability self-test: $pass passed, $fail failed"
 [[ "$fail" == "0" ]]

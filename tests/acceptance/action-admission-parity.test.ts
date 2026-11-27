@@ -192,7 +192,6 @@ describe('action admission dispatch parity', () => {
     const advertised = computeRegistryAdvertisements({
       phase: 'plan',
       workflowType: 'feature',
-      featureId,
       actionAdmission: {
         subject: { featureId, stream: featureId },
         evidence: [],
@@ -226,7 +225,6 @@ describe('action admission dispatch parity', () => {
     const advertised = computeRegistryAdvertisements({
       phase: 'review',
       workflowType: 'feature',
-      featureId,
       actionAdmission: {
         subject: { featureId, stream: featureId },
         evidence: [passing],
@@ -341,7 +339,7 @@ describe('action admission dispatch parity', () => {
       ...(status.next_actions ?? []),
       ...nextActionsFromResult(status),
       ...computeNextActions(
-        { phase: 'plan', workflowType: 'feature', featureId },
+        { phase: 'plan', workflowType: 'feature' },
         getHSMDefinition('feature'),
       ),
     ];

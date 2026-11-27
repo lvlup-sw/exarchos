@@ -914,8 +914,6 @@ const GATE_EXCLUSION =
   'gate action — resolves the host repository and runs the project toolchain in a subprocess, ' +
   'so the probe is neither offline nor confined to an isolated state dir';
 
-const WORKTREE_EXCLUSION = 'creates or removes git worktrees in the host checkout';
-
 const GATE_ACTIONS: readonly string[] = [
   'check_static_analysis',
   'check_integration_suite',
@@ -1017,10 +1015,6 @@ const HAND_AUTHORED_EXCLUSIONS: readonly ExcludedEmitter[] = [
       'per-task gate chain excluded just above — probing it would run the project toolchain in ' +
       'a subprocess against the host repository, transitively and for every leaf',
   },
-  { actionId: 'exarchos_orchestrate.acquire_worktree', reason: WORKTREE_EXCLUSION },
-  { actionId: 'exarchos_orchestrate.release_worktree', reason: WORKTREE_EXCLUSION },
-  { actionId: 'exarchos_orchestrate.prune_worktrees', reason: WORKTREE_EXCLUSION },
-  { actionId: 'exarchos_orchestrate.reconcile_worktrees', reason: WORKTREE_EXCLUSION },
 ];
 
 /** The exclusion reason for an emitter that the registry annotates as `openWorld`. */

@@ -200,11 +200,6 @@ else
     fi
   fi
 
-  # #1193 — merge-orchestrator skill installed
-  MORCH="$SKILL_ROOT/merge-orchestrator/SKILL.md"
-  expect "merge-orchestrator/SKILL.md installed (#1193)" zero test -f "$MORCH"
-  expect "merge-orchestrator/references/recovery-runbook.md installed (#1193)" zero \
-    test -f "$SKILL_ROOT/merge-orchestrator/references/recovery-runbook.md"
 fi
 
 # Installed agent files (Claude plugin path) — #1197 readonly tier prose

@@ -455,6 +455,49 @@ async function featureBatchAtDelegate(store: MoveStore, options: { readonly docu
   return prepareBatch(store, { definition: pinnedBuiltIn('feature'), taskIds: ['task-a'], stepId: 'delegate' });
 }
 
+/**
+ * The feature definition of a build with the `merge-pending` detour: the step, the edge out of `delegate`, the return edge
+ * and the group member. Each detour edge has a gate on a retired merge-pending fact.
+ */
+function featureWithMergePendingDetour(): WorkflowDefinitionV1 {
+  const document: Record<string, unknown> = structuredClone({ ...builtInDefinition('feature') });
+  const steps = Array.isArray(document.steps) ? document.steps : [];
+  const transitions = Array.isArray(document.transitions) ? document.transitions : [];
+  const extension = recordOf(document.exarchos);
+  const edges = recordAt(document.exarchos, 'edges');
+  const groups = Array.isArray(extension.groups) ? extension.groups : [];
+  const reviewIndex = steps.findIndex((step: unknown) => recordOf(step).stepId === 'review');
+  const mergePending = { kind: 'skill', stepId: 'merge-pending', stepName: 'merge-pending', isTerminal: false, runtime: 'exarchos', stepType: 'MERGE' };
+  const gate = (gateId: string, field: string): Record<string, unknown> => ({
+    guardId: gateId,
+    category: 'admission-requirement',
+    obligation: { kind: 'gate', gateId, presence: { kind: 'factEquals', field, value: true } },
+  });
+  const regrouped = groups.map((group: unknown) => {
+    const entry = recordOf(group);
+    const members = Array.isArray(entry.members) ? entry.members : [];
+    return entry.groupId === 'implementation' ? { ...entry, members: [...members, 'merge-pending'] } : entry;
+  });
+  return WorkflowDefinitionV1Schema.parse({
+    ...document,
+    steps: [...steps.slice(0, reviewIndex + 1), mergePending, ...steps.slice(reviewIndex + 1)],
+    transitions: [
+      ...transitions,
+      { transitionId: 'delegate->merge-pending', fromStepId: 'delegate', toStepId: 'merge-pending', isDefault: false },
+      { transitionId: 'merge-pending->delegate', fromStepId: 'merge-pending', toStepId: 'delegate', isDefault: false },
+    ],
+    exarchos: {
+      ...extension,
+      groups: regrouped,
+      edges: {
+        ...edges,
+        'delegate->merge-pending': gate('merge-pending-entry', 'mergePending.entryReady'),
+        'merge-pending->delegate': gate('merge-pending-exit', 'mergePending.exitReady'),
+      },
+    },
+  });
+}
+
 /** The user definition `release-check` with a second edge out of `build` that admits on the same condition. */
 function releaseCheckWithTwoExits(): Record<string, unknown> {
   const document = releaseCheckDefinition();
@@ -503,6 +546,38 @@ describe('settle moves the phase on one plain edge', () => {
     expect(transition?.data).toMatchObject({ from: 'delegate', to: 'review', trigger: 'settle' });
     const entered = rows.find((row) => row.type === 'phase.entered');
     expect(entered?.data).toMatchObject({ phase: 'review', kind: 'REVIEW', resolvedGates: [{ family: 'review', gate: 'review' }] });
+  });
+
+  /** An in-flight log from a build with the `merge-pending` detour reads as `delegate`, so settle moves it on the delegate edge. */
+  it('Settle_ALogEndingInMergePending_MovesFromDelegate', async () => {
+    const store = await openStore();
+    const capsuleVersion = await featureBatchAtDelegate(store);
+    await store.eventStore.append(STREAM, { type: 'workflow.transition', data: { from: 'delegate', to: 'merge-pending' } });
+
+    const receipt = receiptOf(await settle(store, { capsuleVersion, batchId: 'batch-1', claims: [completedClaim('task-a')] }));
+
+    expect(receipt.outcome).toBe('settled');
+    expect(receipt.phaseMove).toMatchObject({ kind: 'moved', from: 'delegate', to: 'review' });
+  });
+
+  /**
+   * A capsule that a build with the `merge-pending` detour prepared pins that definition. Its detour edges name retired
+   * facts. The pin still compiles, the detour edge never admits, and settle moves the batch on the delegate edge.
+   */
+  it('Settle_ACapsuleThatPinsTheMergePendingDetour_MovesFromDelegateToReview', async () => {
+    const store = await openStore();
+    await seedStream(store, { phase: 'delegate', tasks: [pending('task-a')] });
+    const capsuleVersion = await prepareBatch(store, {
+      definition: pinDefinition('feature', featureWithMergePendingDetour()).definition,
+      taskIds: ['task-a'],
+      stepId: 'delegate',
+    });
+    await store.eventStore.append(STREAM, { type: 'workflow.transition', data: { from: 'delegate', to: 'merge-pending' } });
+
+    const receipt = receiptOf(await settle(store, { capsuleVersion, batchId: 'batch-1', claims: [completedClaim('task-a')] }));
+
+    expect(receipt.outcome).toBe('settled');
+    expect(receipt.phaseMove).toMatchObject({ kind: 'moved', from: 'delegate', to: 'review', transitionId: 'delegate->review' });
   });
 
   /** The receipt names the edge, its guard and the phase attempt that the transition row carries. */
@@ -640,7 +715,6 @@ describe('settle keeps the phase when the decide does not admit one plain edge',
       reason: 'no-edge-admits',
       edges: [
         { transitionId: 'delegate->review', to: 'review', verdict: 'deny', falseFacts: ['team.disbandedOk'] },
-        { transitionId: 'delegate->merge-pending', to: 'merge-pending', verdict: 'deny', falseFacts: ['mergePending.entryReady'] },
       ],
     });
     expect(await phaseRowTypes(store)).toEqual(['workflow.transition']);

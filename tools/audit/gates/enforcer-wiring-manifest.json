@@ -179,7 +179,7 @@
       "workflow": ".github/workflows/ci.yml",
       "diffDependent": false,
       "unfilteredCiPath": true,
-      "rationale": "grep-gates step: WLM DR-1 retry adapter + DR-2 skills reroute (task-004)."
+      "rationale": "grep-gates step: WLM DR-1 retry adapter coverage, and no content line names the retired merge_orchestrate or serialize_merge."
     },
     {
       "script": "tools/audit/gates/lint-envelopes.mjs",

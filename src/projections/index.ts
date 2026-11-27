@@ -6,7 +6,6 @@
  * The `taskstore` reducer is stream-scoped, not global.
  */
 import './taskstore/index.js';
-import './merge-orchestrator/index.js';
 import './workflow-state/index.js';
 import '../verbs/worktree/projections/index.js';
 

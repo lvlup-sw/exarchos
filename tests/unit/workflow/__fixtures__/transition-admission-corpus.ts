@@ -162,37 +162,6 @@ const featureCases: readonly LegacyTransitionFixture[] = [
   }),
   ...edgeCases({
     workflowType: 'feature',
-    from: 'delegate',
-    to: 'merge-pending',
-    guardId: 'merge-pending-entry',
-    pass: {
-      _events: [{ type: 'task.completed', data: { worktree: '.worktrees/task-001' } }],
-    },
-    fail: { _events: [{ type: 'task.completed', data: {} }] },
-    failReason:
-      'merge-pending-entry not satisfied: latest task.completed event lacks data.worktree / data.worktreePath. ' +
-      'Only task_complete writes task.completed. Give result.worktree when the next task completes. ' +
-      'A repeat task_complete for a task that is complete is deduplicated and writes no row.',
-  }),
-  ...edgeCases({
-    workflowType: 'feature',
-    from: 'merge-pending',
-    to: 'delegate',
-    guardId: 'merge-pending-exit',
-    pass: {
-      _events: [
-        { type: 'task.completed', data: { worktree: '.worktrees/task-001' } },
-        { type: 'merge.executed', data: {} },
-      ],
-    },
-    fail: {
-      _events: [{ type: 'task.completed', data: { worktree: '.worktrees/task-001' } }],
-    },
-    failReason:
-      'merge-pending-exit not satisfied: no merge.executed/merge.rollback/merge.recovered/merge.aborted event found after the latest task.completed and mergeOrchestrator.phase is not terminal',
-  }),
-  ...edgeCases({
-    workflowType: 'feature',
     from: 'review',
     to: 'synthesize',
     guardId: 'all-reviews-passed',

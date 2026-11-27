@@ -215,6 +215,33 @@ const RECORDED_SHAPE_DECISIONS: readonly Pick<StoredShapeDecision, 'date' | 'sch
     "IntegrationAttemptBindingV1Schema": "sha256:99cd0ebd1448888093ba17662237c3a832a980417d473c003330b3813538fbaf"
   }
 },
+{
+  "date": "2026-11-25",
+  "schemaVersion": 6,
+  "shapes": {
+    "ClaimTraceSchema": "sha256:581254550be83ddc6b066a5879225821589320e29505e0ab9c87779acc7f8ea1",
+    "ExecutionSettledData": "sha256:0d27cbe85f1071d6e8f00a7e9ad1953de6310f82f1e94f47a8f3dedfea9fccd8",
+    "PreparedBundleV1Schema": "sha256:aacdfcb72d54c000ddeb24bddc462cf9c760c0dde4965f6c008d34db806b92ce",
+    "SettlementBundleV1Schema": "sha256:c303ca9638f1e5c4683737580f5ed832f2ba313459d2de6f766ed83e13a4db8d",
+    "WorkflowStartedData": "sha256:fd2a08020c3475cefa6fd924d05684e70ace3c480af0a8f205967cd68372b41c",
+    "WorkflowStartedV11Data": "sha256:ef52bb4bbd2b169ab574426f472357826a69627881c538fbc1f6e0c0a3493278",
+    "WorkflowPreparedData": "sha256:62ff8cc651d0e796ad3e0667402a9d368221311437b9ddc5de3d2c99015f5e64",
+    "WorkflowStateSchema": "sha256:648101496b6af667406904a226e7643b956001c1bbf91d4f35dc2803efc9d7c7",
+    "CustomWorkflowStateSchema": "sha256:9beae5747f617543876721509e5cebbf1aca0dd21b5e2ca2953525634ae7ff2d",
+    "DurableWorkflowTypeSchema": "sha256:8a5c8b3a04cb3ffd7ae3a08086dec6e5a4a9ed6cb0545baa0c343ee7508e328a",
+    "CapsuleSettlementContractSchema": "sha256:5518238e019f40f48655fa71b6ef18751df6b00101e9ebffbb365a8f72525ba8",
+    "ExarchosCapsuleV1Schema": "sha256:b944f76efaa8515b67d0652847ad8048c13853fa4bc169c284ea51cd7d80ba89",
+    "SettlementReceiptData": "sha256:f554a6008101142bfe696d980fe7a9b6b5742b049060a70aaedd5d15272d9456",
+    "ExecuteIntentRunBundleV1Schema": "sha256:8acec00b234cf0aa0b496b1ecb188bd8c7343ad894edec04386ac3a452891e4e",
+    "ExecuteIntentInputSchema": "sha256:aa1d22d90266d49a6d4070a9d32a72fb2e1f67281479b97e8e4cdf3d7c0435be",
+    "SegmentInputBindingV1Schema": "sha256:9715620d94db0405f042db23d0967f91c10d424c8854bc3bd0b5da9ecd4f69fe",
+    "TaskVerificationCoordinateSchema": "sha256:78b8638faa070a827ae879eca7f7091497e6b2f910eae596fb699176169f0de4",
+    "CapsuleTaskContextSchema": "sha256:a8d95bb4eda13b08d430540f8757ddf5df30179b62e4033c519700f30c434fe2",
+    "CapsuleKnowledgeSliceSchema": "sha256:7ea09d280cf1197b403f895da6a1ba23bb8856c4dbccd43c7755d2e2398d3741",
+    "DesignTaskSchema": "sha256:2e96faec8fb9c904c7d6c46a3b8e666132e107375da8e724132199c34b7f02e5",
+    "IntegrationAttemptBindingV1Schema": "sha256:99cd0ebd1448888093ba17662237c3a832a980417d473c003330b3813538fbaf"
+  }
+},
 ];
 
 /** A copy of a JSON Schema with each description removed. A description is text for a reader and not part of the stored shape. */
@@ -326,7 +353,6 @@ describe('identifier stability across decomposition', () => {
         'check_contract_drift',
         'check_mock_boundary',
         'check_post_merge',
-        'merge_orchestrate',
         'check_task_decomposition',
         'check_event_emissions',
         'extract_task',
@@ -343,7 +369,6 @@ describe('identifier stability across decomposition', () => {
         'generate_traceability',
         'spec_coverage_check',
         'verify_worktree_baseline',
-        'setup_worktree',
         'verify_delegation_saga',
         'post_delegation_check',
         'reconcile_state',
@@ -365,11 +390,6 @@ describe('identifier stability across decomposition', () => {
         'invariants_scaffold',
         'invariants_add',
         'invariants_amend',
-        'acquire_worktree',
-        'release_worktree',
-        'prune_worktrees',
-        'reconcile_worktrees',
-        'serialize_merge',
         'cutover_readiness',
         'cutover_decide',
         'execute_intent',

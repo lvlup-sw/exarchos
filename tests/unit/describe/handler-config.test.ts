@@ -8,7 +8,7 @@ const workflowActions = TOOL_REGISTRY.find(t => t.name === 'exarchos_workflow')!
 describe('handleDescribe — config wiring (R8)', () => {
   it('describe_ConfigTrue_ReturnsAnnotatedConfig', async () => {
     const projectConfig = resolveConfig({
-      vcs: { provider: 'gitlab' },
+      tools: { 'default-branch': 'trunk' },
       workflow: { 'max-fix-cycles': 5 },
     });
 
@@ -23,10 +23,11 @@ describe('handleDescribe — config wiring (R8)', () => {
     expect(data.config).toBeDefined();
 
     const config = data.config as Record<string, unknown>;
-    const vcs = config.vcs as Record<string, unknown>;
-    const provider = vcs.provider as { value: string; source: string };
-    expect(provider.value).toBe('gitlab');
-    expect(provider.source).toBe('.exarchos.yml');
+    expect(config.vcs).toBeUndefined();
+    const tools = config.tools as Record<string, unknown>;
+    const defaultBranch = tools.defaultBranch as { value: string; source: string };
+    expect(defaultBranch.value).toBe('trunk');
+    expect(defaultBranch.source).toBe('.exarchos.yml');
 
     const workflow = config.workflow as Record<string, unknown>;
     const maxFixCycles = workflow.maxFixCycles as { value: number; source: string };
@@ -59,10 +60,10 @@ describe('handleDescribe — config wiring (R8)', () => {
     expect(result.success).toBe(true);
     const data = result.data as Record<string, unknown>;
     const config = data.config as Record<string, unknown>;
-    const vcs = config.vcs as Record<string, unknown>;
-    const provider = vcs.provider as { value: string; source: string };
-    expect(provider.value).toBe('github');
-    expect(provider.source).toBe('default');
+    const workflow = config.workflow as Record<string, unknown>;
+    const maxFixCycles = workflow.maxFixCycles as { value: number; source: string };
+    expect(maxFixCycles.value).toBe(3);
+    expect(maxFixCycles.source).toBe('default');
   });
 
   /**

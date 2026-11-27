@@ -30,9 +30,6 @@ import { seedActivePhaseAttempt, seedGateEvidence } from '../../tools/test-helpe
 import { makeTempDir, rmrfAsync } from '../../tools/test-helpers/temp-dir.js';
 
 vi.mock('bun:sqlite', () => import('../../src/storage/__shims__/bun-sqlite-node.js'));
-vi.mock('../../src/vcs/factory.js', () => ({
-  createVcsProvider: vi.fn(async () => ({ name: 'github', checkCi: vi.fn(async () => ({ checks: [] })), listPrs: vi.fn(async () => []) })),
-}));
 
 /** The capabilities of the trusted fixture caller. */
 const CAPABILITIES = ['fs:read', 'fs:write', 'shell:exec', 'isolation:worktree', 'mcp:exarchos', 'admission:issue-gate-evidence'];

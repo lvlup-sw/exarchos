@@ -34,7 +34,7 @@ import { resolvePackageVersion } from './version.js';
  * Each `program.command(...)` callback below passes its literal id to `invokeContractAction`.
  * Every other action command derives its id in `registerActionCommand` as `<tool>.<action>`.
  * A conformance test checks each id against `deriveCliSurface(compileForCli())`, so a renamed action fails the build.
- * The table shrinks when a verb moves to a registry `cli.topLevel` hint, as `merge_orchestrate` did.
+ * The table shrinks when a verb moves to a registry `cli.topLevel` hint.
  *
  * `cli-derivation-guard.test.ts` needs at least one comment line with the call form `.command(`. Each such line must start with `*` or `//` and hold the call form once.
  */

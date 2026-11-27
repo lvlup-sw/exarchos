@@ -31,7 +31,7 @@ const GOLDEN_PATH = path.resolve(
 );
 
 /** The number of edges of each built-in type, in roster order. */
-const EDGE_COUNTS: readonly number[] = [12, 16, 17, 4, 2];
+const EDGE_COUNTS: readonly number[] = [10, 16, 17, 4, 2];
 
 /** True when the value is a plain JSON object. */
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -87,11 +87,11 @@ function featureClone(): ReturnType<typeof builtInDefinition> {
 
 describe('the admission IR that derives from the built-in definitions', () => {
   /**
-   * The IR holds 51 edges, with the types in roster order and 12, 16, 17, 4 and 2 edges.
+   * The IR holds 49 edges, with the types in roster order and 10, 16, 17, 4 and 2 edges.
    * Each edge equals its golden edge, field for field.
    */
-  it('DerivedIR_TheEdges_Are51In12_16_17_4_2', () => {
-    expect(BUILT_IN_WORKFLOW_IR).toHaveLength(51);
+  it('DerivedIR_TheEdges_Are49In10_16_17_4_2', () => {
+    expect(BUILT_IN_WORKFLOW_IR).toHaveLength(49);
     const expectedTypes = BUILT_IN_WORKFLOW_TYPES.flatMap((type, index) =>
       Array.from({ length: EDGE_COUNTS[index] ?? 0 }, () => type),
     );

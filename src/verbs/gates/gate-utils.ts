@@ -19,7 +19,6 @@ import {
 import { resolveVerificationPolicy } from '../../workflow/verification-policy-resolver.js';
 import type { PinnedVerificationProfile, VerificationProfile } from '../../workflow/verification/profile.js';
 import type { PhaseKind } from '../../workflow/phase-kind.js';
-import type { GitExec } from '../pure/execute-merge.js';
 import type { EvidenceArtifactReferenceV1 } from '../../workflow/admission/evidence-artifact.js';
 import type { AdmissionEvidenceRecorded } from '../../events/schemas.js';
 import { walkToRepoRoot } from '../../config/load-exarchos-config.js';
@@ -32,6 +31,15 @@ import { constrainedCommitId, processObservationalGitPath } from '../../utils/gi
  * finite, so a runaway command still fails.
  */
 const GIT_MAX_BUFFER_BYTES = 256 * 1024 * 1024;
+
+/**
+ * The synchronous git executor that the gate modules take as an injected dependency.
+ * It runs one git command in `repoRoot` and returns its stdout and exit code.
+ */
+export type GitExec = (
+  repoRoot: string,
+  args: readonly string[],
+) => { stdout: string; exitCode: number };
 
 /**
  * Shared production git executor for the per-task gate handlers. It runs `git` in `repoRoot`

@@ -664,20 +664,6 @@ function registerLedger(): readonly EffectOwnershipRule[] {
     ),
     rule(
       'process',
-      'vcs/',
-      'vcs-process-owner',
-      'idempotent: git/gh reads; writes guarded by the VCS provider',
-      'VCS provider surfaces failures; no partial local state',
-    ),
-    rule(
-      'process',
-      'workflow/compensation.ts',
-      'compensation-process-owner',
-      'idempotent: teardown re-run is a no-op when already absent',
-      'this IS the compensation effect (saga repair)',
-    ),
-    rule(
-      'process',
       'verbs/',
       'orchestrate-process-owner',
       'per-call: orchestrate probes/gates own their re-run semantics',
@@ -737,7 +723,7 @@ function registerLedger(): readonly EffectOwnershipRule[] {
       'filesystem',
       'workflow/',
       'workflow-fs',
-      'state writes guarded by state-retry',
+      'state writes guarded by version checks',
       'workflow compensation reverses partial writes',
     ),
     rule(

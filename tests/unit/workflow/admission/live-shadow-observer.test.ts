@@ -681,9 +681,8 @@ const COVERING_EDGES: ReadonlyArray<{
     state: { tasks: [{ status: 'complete' }, { status: 'complete' }] },
   },
   {
-    edge: { workflowType: 'feature', fromPhase: 'delegate', toPhase: 'merge-pending' },
-    /** The projection derives `mergePending.entryReady` from the last `task.completed` event with a worktree. */
-    state: { _events: [{ type: 'task.completed', data: { worktree: 'wt-1' } }] },
+    edge: { workflowType: 'feature', fromPhase: 'review', toPhase: 'synthesize' },
+    state: { reviews: { quality: { status: 'approved' } } },
   },
   {
     edge: { workflowType: 'feature', fromPhase: 'synthesize', toPhase: 'completed' },

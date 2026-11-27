@@ -235,8 +235,8 @@ describe('cli-derivation-guard (DR-5 / G1)', () => {
   });
 
   /**
-   * `merge_orchestrate` is a registry action, so a hand-written `.command('merge-orchestrate')` is a
-   * second declaration. The remedy is deletion, never an exemption.
+   * `merge_orchestrate` is retired, and the retired-action table refuses its top-level verb. A
+   * hand-written `.command('merge-orchestrate')` brings it back. The remedy is deletion, never an exemption.
    *
    * The first half reads the parse of the live root and not its text, so it is a claim about
    * registered commands only. The second half appends {@link KILL_FIXTURE_SOURCE} to the real source

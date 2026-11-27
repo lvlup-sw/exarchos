@@ -24,7 +24,6 @@ export type DisagreementClass =
   | 'risk-tier'
   | 'task-status'
   | 'task-list'
-  | 'merge-orchestrator'
   | 'unexplained';
 
 /** The decide verdict of one edge on one input. A throw of the facts step gives `throw` for each edge of that input. */
@@ -94,7 +93,6 @@ const CLASS_ORDER: readonly DisagreementClass[] = [
   'risk-tier',
   'task-status',
   'task-list',
-  'merge-orchestrator',
   'unexplained',
 ];
 
@@ -111,9 +109,6 @@ const CONFIG_KEYS: readonly string[] = [
 
 /** The facts that summarize the task list. Their class comes from the two lists of task ids. */
 const TASK_FACTS: ReadonlySet<string> = new Set(['tasks.allComplete', 'tasks.count']);
-
-/** The facts that read the merge state. Their class comes from the two merge orchestrator phases. */
-const MERGE_FACTS: ReadonlySet<string> = new Set(['mergePending.entryReady', 'mergePending.exitReady']);
 
 /** The transition id of the universal cleanup move in a comparison. */
 const CLEANUP_TRANSITION_ID = 'cleanup';
@@ -159,13 +154,12 @@ function factDifferences(
   document: FactsOutcome,
   fold: FactsOutcome,
   taskClass: DisagreementClass,
-  mergeClass: DisagreementClass,
 ): readonly ClassedDifference[] {
   if (!document.ok || !fold.ok) {
     return differenceOf('facts', document.ok ? 'ok' : 'throw', fold.ok ? 'ok' : 'throw', 'unexplained');
   }
   const fieldDifferences = Object.keys(FACT_DECLARATION.fields).flatMap((field) => {
-    const factClass = TASK_FACTS.has(field) ? taskClass : MERGE_FACTS.has(field) ? mergeClass : 'unexplained';
+    const factClass = TASK_FACTS.has(field) ? taskClass : 'unexplained';
     return differenceOf(field, document.facts.fields[field], fold.facts.fields[field], factClass);
   });
   const eventDifferences = (FACT_DECLARATION.events ?? []).flatMap((type) =>
@@ -223,12 +217,6 @@ function taskDifferences(
 /** Returns the sorted list of the task ids of the entries. */
 function sortedTaskIds(entries: readonly TaskEntry[]): readonly string[] {
   return entries.map((entry) => entry.id).sort(compareText);
-}
-
-/** Returns the phase of the merge orchestrator of an input, or `undefined` when the input holds none. */
-function mergePhaseOf(input: GuardInput): unknown {
-  const merge = input.mergeOrchestrator;
-  return isPlainObject(merge) ? merge.phase : undefined;
 }
 
 /** Returns the decide form of a built-in definition with the skipped phases, as the transition handler compiles it. */
@@ -298,16 +286,13 @@ export function compareGuardInputs(
   const taskClass: DisagreementClass = isDeepStrictEqual(sortedTaskIds(documentTasks), sortedTaskIds(foldTasks))
     ? 'task-status'
     : 'task-list';
-  const mergeClass: DisagreementClass = isDeepStrictEqual(mergePhaseOf(document), mergePhaseOf(fold))
-    ? 'unexplained'
-    : 'merge-orchestrator';
 
   const documentFacts = factsOf(document);
   const foldFacts = factsOf(fold);
   const classed: readonly ClassedDifference[] = [
     ...differenceOf('phase', documentPhase, foldPhase, 'phase'),
     ...differenceOf('workflowType', workflowType, fold.workflowType, 'unexplained'),
-    ...factDifferences(documentFacts, foldFacts, taskClass, mergeClass),
+    ...factDifferences(documentFacts, foldFacts, taskClass),
     ...CONFIG_KEYS.flatMap((key) => differenceOf(key, document[key], fold[key], 'risk-tier')),
     ...taskDifferences(documentTasks, foldTasks, taskClass),
   ];

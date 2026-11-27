@@ -873,6 +873,100 @@ decisions:
       The note to #1927 that cross-references S8 waits for Reed to post it.
     status: "Committed on codex/1928-s4-remote-integrations."
 
+  - date: "2026-11-23"
+    source: "#1928 revision 26, slice S5 step T-35, the conception of 2026-11-23 (the harness owns worktree provisioning)."
+    decision: >-
+      setup_worktree and prune_worktrees leave the registry. setup-worktree.ts, worktree-provisioner.ts and prune-ladder.ts are deleted, and WorktreeManager loses the prune pass, its reads and the removal recovery. The closed retired-action table refuses each with PROVIDER_WRITE_RETIRED and a message that names the harness, before any claim, configuration read, event append or process start.
+      acquire_worktree, release_worktree and reconcile_worktrees keep their ledger-only results. defaultGitRunner and gitCapture stay in manager.ts for compensation.ts until T-37.
+    known: >-
+      prune.executing_started and prune.executed are retired as emissions and keep their schemas, readers, the worktrees@v1 projection and the ps and wait reads, so old logs read the same.
+      worktree.remove.requested and worktree.remove.executed stay active, because the cancel compensator in compensation.ts still appends them until T-37. exarchos_workflow.cancel now declares both, and the provider of worktree.remove.executed is exarchos_workflow.
+      VcsMutationOwner, removeWorktreeForce and burstStagger have no production caller now. T-38 and T-39 own their modules.
+      The measured floors of the primary-owner population, the autoEmits population, the public-root action coverage, the oracle subjects, the emitter closure and the roots-injection partition fall with the two actions. Those floors wait for Reed to approve the lower values.
+    status: "Committed on codex/1928-s5-worktrees-merges-cancel. The contract authority lock waits for Reed to re-approve it."
+
+  - date: "2026-11-23"
+    source: "#1928 revision 26, slice S5 step T-36, the conception of 2026-11-23 (the harness lands task branches)."
+    decision: >-
+      merge_orchestrate, its merge-orchestrate top-level verb and serialize_merge leave the registry, the router and the generated contracts. The closed retired-action table refuses each with PROVIDER_WRITE_RETIRED and a message that names the harness landing, before any claim, configuration read, event append or process start. The table row of merge_orchestrate names the top-level verb, so the CLI refuses `exarchos merge-orchestrate` too.
+      next_actions offers no merge_orchestrate in merge-pending. The merge-pending playbook and runbook tell the coordinator to land the accepted head through the harness and record the landing with one merge.executed row, and the merge-pending phase contract expects that row.
+      The emitter closure audit counts each append in the tree, so the appending merge modules could not outlive their routes. T-36 deletes merge-orchestrate.ts, the merge executor in verbs/merge, local-git-merge.ts, merge-keys.ts, git-exec-default.ts and merge-preflight.ts. merge-serializer.ts keeps only reconcileMerges for reconcile_worktrees, as merge-lease-reconciler.ts. The GitExec type in verbs/pure/execute-merge.ts and git-retry.ts stay for T-37 and T-38.
+    known: >-
+      merge.preflight, merge.completed, merge.recovered, merge.retry_attempt, merge.executing_started and worktree.merge_requested are retired as emissions and keep their schemas, readers and projections, so old logs read the same. worktree.merge_executed stays active, because reconcile_worktrees appends it.
+      merge.executed moved from capability to workflow-local (feature), because no action declares it and the boot weld refuses an active capability weld with no edge. A projection-fold witness keeps it governance. That makes it report-coupled, and the G3 report-coupling seed does not hold it yet: growing that seed waits for Reed.
+      vcs/mutation-owner.ts lost its last production importer with local-git-merge.ts, so check-module-intent reports it until T-38 or T-39 deletes it.
+      The invariant catalog re-points INV-10, INV-13 and INV-14 off the deleted module. The measured floors of the primary-owner population, the autoEmits population, the emission denominator, the emitter closure, the provider areas, the public-root action coverage, the oracle subjects and the output-schema census fall with the two actions.
+    status: "Committed on codex/1928-s5-worktrees-merges-cancel. The contract authority lock and the merge.executed seed entry wait for Reed."
+
+  - date: "2026-11-23"
+    source: "#1928 revision 26, slice S5 step T-37, the conception of 2026-11-23 (the harness removes the resources of a cancelled workflow)."
+    decision: >-
+      A cancellation starts no process. compensation.ts no longer runs gh pr close, git branch -D, git push origin --delete or git worktree remove. Each of the four actions keeps its action id, reads its resources from the workflow state and records each one as outstanding. The reply returns the status and the resources of each action that the call records, and an action that an earlier call of the same cancel completed keeps the replay result.
+      The final cancel trail holds one workflow.compensation row for each action, with the new outstanding status and a resources list. cancel.compensation-completed takes the status outstanding. Both schema changes only add values, so old rows parse the same.
+      The cancel does not ask whether a branch or a worktree exists, so a missing resource stays outstanding and never reads as a completion. A prior effect failure of an action in the same cancel stays a failure on each retry, so the saga escalates to manual intervention. A malformed prior outcome is not a removal failure.
+      Worktree reservations stay outstanding after a cancel. release_worktree or reconcile_worktrees clears them.
+    known: >-
+      The emitter closure audit forced the branch.delete and worktree.remove declarations out of exarchos_workflow.cancel, because compensation.ts was their only appender. The four events are retired as emissions and keep their schemas, readers and the worktrees@v1 fold, so old logs read the same. worktree.adopted moved onto the unresolved-append allowance, because its remaining append in manager.ts commits through decide.
+      The effect ledger loses the workflow/compensation.ts process rule, vcs-ownership loses the compensation owner, and the WLM wiring gate no longer wires compensation.ts but still scans it. manager.ts loses defaultGitRunner, gitCapture and its spawn import. withIndexLockRetry in git-retry.ts has no production caller now, and T-38 owns it.
+      The measured floors of the primary-owner population, the emission denominator, the emitter closure, the provider areas and the cast census fall with the deleted appends, and the stale-cover eligible pin moves from 27 to 26.
+    status: "Committed on codex/1928-s5-worktrees-merges-cancel."
+
+  - date: "2026-11-23"
+    source: "#1928 revision 26, slice S5 step T-38, the conception of 2026-11-23 (the harness lands task branches)."
+    decision: >-
+      No governor module runs a local merge, a merge rollback or an index-lock retry. T-36 already deleted the merge orchestrator, the merge executor, local-git-merge.ts, merge-keys.ts, git-exec-default.ts, merge-preflight.ts and merge-serializer.ts. T-38 deletes verbs/pure/execute-merge.ts and verbs/worktree/git-retry.ts with their suites.
+      The GitExec type moved into verbs/gates/gate-utils.ts, next to defaultGitExec, so the gate modules keep it. The retired-test roster names the deleted module as the subject of each deleted suite, and that check needs the subject file to be gone. The bounded-wait sleep seam moved into manager.ts.
+    known: >-
+      vcs-ownership names only vcs/mutation-owner.ts, and the live tree holds no merge site. The WLM wiring gate allowlists no file. The TestGen burst-stagger binding holds its own delay function, because the burst stagger had no production caller after T-35.
+      vcs/mutation-owner.ts still has no production importer, so check-module-intent reports it. T-39 or a decision of Reed owns it. The cast census baseline falls from 1549 to 1546 with the three deleted casts.
+    status: "Committed on codex/1928-s5-worktrees-merges-cancel."
+
+  - date: "2026-11-23"
+    source: "#1928 revision 26, slice S5 step T-39, the conception of 2026-11-23 (Exarchos reads and writes no PR)."
+    decision: >-
+      The VcsProvider layer goes: provider.ts, github.ts, gitlab.ts, azure-devops.ts, factory.ts, detector.ts, shell.ts and the two recorded CI fixtures. The review registry and the five review adapters go with it. Their twelve suites are retired rows of the test inventory oracle.
+      The dispatch context builds no provider, and the detectVcs option and the vcsProvider field are gone. The vcs config key still loads into the project config. review/types.ts holds its own ReviewComment type.
+    known: >-
+      No stored event or receipt came from the deleted modules, so old rows keep their read results. The effect ledger drops the vcs/ process owner, and the layer table drops the review to vcs, vcs to config and dispatch to vcs edges, because no live import uses them.
+      ProviderAdapter and ReviewAdapterRegistry stay in review/types.ts as type-only contracts with no implementation. The observational originUrl read in utils/git-tree.ts has no caller now. vcs/mutation-owner.ts still has no production importer. The cast census baseline falls from 1546 to 1509.
+    status: "Committed on codex/1928-s5-worktrees-merges-cancel."
+
+  - date: "2026-11-25"
+    source: "Reed, 2026-11-25"
+    decision: >-
+      The worktree lifecycle manager is deleted. acquire_worktree, release_worktree and reconcile_worktrees leave the registry, and the closed retired-action table refuses each with PROVIDER_WRITE_RETIRED and the worktree provisioning message that names the harness, before any claim, row or process.
+      WorktreeManager, the merge-lease reconciler, the process probe, the process identity and ownership modules, and the launcher launch-reconcile and liveness modules are deleted. state-retry.ts lost its last importer with them and is deleted too. No Exarchos module starts ps, powershell or another process-table read now.
+      The worktrees, ps and wait views read the worktrees@v1 projection of old logs only. They append nothing and heal nothing.
+      isPidAlive reads EPERM from process.kill as a live process, because the state-store sweep and the check executor still call it.
+    known: >-
+      worktree.adopted, worktree.reserved, worktree.released, worktree.orphan_detected, worktree.merge_executed, launch.executing_started and launch.executed are retired as emissions. Their schemas, the liveness registry, the worktrees@v1 projection and the ps and wait reads stay, so old logs read the same.
+      This removes the code of #2008, #2074 item 3 and #1633 items 1 and 3. Reservations in old logs stay outstanding, because no action clears them.
+      Ten suites whose only subject is deleted are retired rows of the test inventory oracle, and the acquire_worktree adoption cases of the observational callers suite leave with their subject. The measured floors and the contract authority lock move in their own commits.
+    status: "Committed on codex/1928-s5-worktrees-merges-cancel."
+
+  - date: "2026-11-25"
+    source: "Reed, 2026-11-25"
+    decision: >-
+      The merge-pending detour (C5) is deleted. The feature definition has no merge-pending step, no delegate to merge-pending edge and no return edge, and the merge-pending-entry and merge-pending-exit guards are gone. The two mergePending facts stay declared as retired facts that the projection always sets to false. The MERGE phase kind leaves with its only phase.
+      The merge-orchestrator@v1 projection, the merge-orchestration runbook, the merge-pending playbook and phase-event row, and the merge-orchestrator skill are deleted. The harness lands each accepted task head, and settle observes the landing by ancestry.
+      The rehydration reducer no longer moves the phase on a worktree task.completed or on any merge event. A persisted merge-pending phase reads as delegate.
+    known: >-
+      The merge.* event schemas stay as history, and the workflow-state view still folds the stored merge rows. merge.executed stays active and workflow-local, because prepare reads it for a blocker that a squash or a rebase landed. merge.completed lost its only reader and is a retired operation record now. The phase.blocked schema keeps the MERGE kind, so a stored row still parses.
+      This removes the code of #1991 and #1992. A user definition with a MERGE step type no longer loads. INV-14 now references the delegate skill, so the invariant-catalog digest moves and the contract authority lock is re-approved in its own commit.
+      The built-in golden, the transition corpus and the counts that derive from the feature machine drop the merge-pending cases.
+      The state schema, the workflow-state fold, the rehydration reducer and the state-file read of resolveWorkflowState all read a feature phase through readStoredPhase. So a stored state or an in-flight log that ends in merge-pending reads as delegate, and prepare and settle accept it. A capsule that a detour build prepared pins the detour edges, and the retired facts let that pin compile, so settle still moves its batch from delegate to review. A stored ideate reads as plan in the same way.
+      The rehydration reducer is version 2, so a version 1 snapshot that holds merge-pending is skipped and the stream folds again. The workflow-state view cache has no fold version, so its fromSnapshot hook reads a cached merge-pending phase as delegate.
+    status: "Committed on codex/1928-s5-worktrees-merges-cancel."
+
+  - date: "2026-11-25"
+    source: "Reed, 2026-11-25"
+    decision: >-
+      Item 1 of #2007 is fixed in kept code. Each prune.diagnostics record carries dryRun, and the requireDryRun guard of prune_stale_workflows accepts only a record that a dry run marked at most one hour before the apply run and not after it. Each run appends its marked record, also with malformedHandling skip.
+      The inert vcs config key is removed from the resolved config, the config description and .exarchos.yml. A file with the key still loads, the full parse removes the key, and the loader reports the RETIRED_VCS_KEY migration finding, in the form of the retired mutation key.
+    known: >-
+      Items 2 and 3 of #2007 left with manager.prune and git-retry.ts. An old prune.diagnostics record has no mark, so the guard refuses it. The guard fails closed: a store with no query, or a query that throws, gives DRY_RUN_REQUIRED. The window runs on the real clock of the handler deps, never on the now arg, and the guard reads only the records of that one-hour window.
+    status: "Committed on codex/1928-s5-worktrees-merges-cancel."
+
 build_order:
   original: "kernel -> capsule contract -> prepare/settle -> one runtime adapter -> divergence loop -> #1249 laws -> second adapter"
   legs:
@@ -936,7 +1030,7 @@ drift:
     resolution: "decided 2026-09-30: per-workflow target; per-wave recorded as interim (#1927)"
   - id: "vcs-effects"
     design: "runtime mutates Git/PR; WLM/lifecycle/serializer demoted explicitly"
-    built: "serialize_merge per worktree on the normal path; setup_worktree. #1928 S4 T-29 retires create_pr, merge_pr, add_pr_comment, create_issue and the synthesis-closeout compilation. T-31 retires the check_ci, list_prs and get_pr_comments reads. T-32 retires check_pr_comments, check_coderabbit and validate_pr_stack and the pr-stack gate. T-33 retires assess_stack and its ci and provider emissions. T-34 removes the PR observer, the gh mode of validate_pr_body, the PR-stack leg of pre_synthesis_check, the open-PR prune safeguard and the CI leg of check_post_merge"
+    built: "#1928 S4 T-29 retires create_pr, merge_pr, add_pr_comment, create_issue and the synthesis-closeout compilation. T-31 retires the check_ci, list_prs and get_pr_comments reads. T-32 retires check_pr_comments, check_coderabbit and validate_pr_stack and the pr-stack gate. T-33 retires assess_stack and its ci and provider emissions. T-34 removes the PR observer, the gh mode of validate_pr_body, the PR-stack leg of pre_synthesis_check, the open-PR prune safeguard and the CI leg of check_post_merge. #1928 S5 T-35 retires setup_worktree and prune_worktrees. T-36 retires merge_orchestrate, its merge-orchestrate verb and serialize_merge, and deletes the local merge modules"
     resolution: "decided 2026-09-30: demote all three; settle observes (#1928). T-01 recorded the expanded retirement matrix and original S7 custody on 2026-11-14; no writer route has been removed yet. On 2026-11-23 the separately provisioned verifier host was removed, and the governor runs the approved checks in its local executor."
   - id: "second-adapter"
     design: "second runtime"

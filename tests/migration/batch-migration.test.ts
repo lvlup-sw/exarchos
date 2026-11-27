@@ -208,7 +208,7 @@ describe('task 016 — batch migration of simple skills', () => {
 
   /**
    * The scan reads each rendered `SKILL.md` in the `standard` tree and in each runtime tree. The
-   * full tree is 16 procedural renders plus 3 orchestration skills for 6 runtimes, which is 34
+   * full tree is 15 procedural renders plus 3 orchestration skills for 6 runtimes, which is 33
    * files. The lower bound catches a renderer that stops emitting a tree.
    */
   it('BatchMigration_NoUnresolvedPlaceholders_InAnyVariant', () => {
@@ -220,7 +220,7 @@ describe('task 016 — batch migration of simple skills', () => {
       allFiles.push(...findAllSkillMdFiles(join(outDir, dir)));
     }
 
-    expect(allFiles.length).toBeGreaterThanOrEqual(34);
+    expect(allFiles.length).toBeGreaterThanOrEqual(33);
 
     const offenders: string[] = [];
     for (const file of allFiles) {

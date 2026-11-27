@@ -2,7 +2,6 @@
  * Lint tests for skill content, read from the `content/` source tree.
  * The rendered variants substitute runtime placeholders, so the source tree is the stable target.
  * - `checkpoint` must hold a `## Reserved fields` section, so an agent finds the reserved-field rule without a failed call.
- * - `merge-orchestrator` must link to that section, so a reader of the merge skill finds the rule in one step.
  */
 
 import { describe, it, expect } from 'vitest';
@@ -18,12 +17,5 @@ describe('skill content lint (#1360)', () => {
     const skillPath = resolveSkillPath('checkpoint');
     const content = readFileSync(skillPath, 'utf8');
     expect(content).toMatch(/^## Reserved fields$/m);
-  });
-
-  /** The test requires only the text `checkpoint/SKILL.md#reserved-fields`, so the link can use any relative prefix. */
-  it('Skill_MergeOrchestrator_CrossLinksReservedFields', () => {
-    const skillPath = resolveSkillPath('merge-orchestrator');
-    const content = readFileSync(skillPath, 'utf8');
-    expect(content).toMatch(/checkpoint\/SKILL\.md#reserved-fields/);
   });
 });

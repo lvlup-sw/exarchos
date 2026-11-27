@@ -21,7 +21,7 @@ export type FailureClass = 'infrastructure' | 'test-failure' | 'unknown';
 
 /** A raw observation of a failed operation. */
 export interface FailureObservation {
-  /** The operation that failed, for example `npm install`, `setup_worktree`, or `vitest run`. */
+  /** The operation that failed, for example `npm install`, `git worktree add`, or `vitest run`. */
   readonly operation: string;
   /** The raw error text / log output produced by the failure. */
   readonly message: string;
@@ -79,9 +79,9 @@ export const INFRA_SIGNATURES: readonly InfraSignature[] = [
   {
     cause: 'worktree-nonatomic',
     description:
-      'setup_worktree left orphaned worktrees/branches on disk with no corresponding event.',
+      'A worktree setup left orphaned worktrees/branches on disk with no corresponding event.',
     remedy:
-      'setup_worktree is leaving orphaned worktrees/branches; re-running it compounds the mess. ' +
+      'The worktree setup is leaving orphaned worktrees/branches; re-running it compounds the mess. ' +
       'Stop, clean up the orphaned state, and make the setup atomic before retrying.',
     matches: (t) =>
       /worktree/i.test(t) &&

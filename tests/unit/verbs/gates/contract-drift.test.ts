@@ -5,7 +5,7 @@ import {
   type ContractDriftResult,
   type CommandRunFn,
 } from '../../../../src/verbs/gates/contract-drift.js';
-import type { GitExec } from '../../../../src/verbs/pure/execute-merge.js';
+import type { GitExec } from '../../../../src/verbs/gates/gate-utils.js';
 import { contractTerm } from '../../../helpers/verification-profile.js';
 
 /** A gitExec stub. It answers `merge-base` with a fixed sha and every other command with exit code 0. */

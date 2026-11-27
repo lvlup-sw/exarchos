@@ -1,33 +1,21 @@
 /**
- * Dispatch handlers for the worktree-lifecycle actions on `exarchos_orchestrate` and
- * `exarchos_view`. They validate their arguments, then delegate to the {@link WorktreeManager},
- * the merge serializer, or a reconciler. The CLI and MCP adapters share one composite router, so
- * the same context and arguments give the same `ToolResult` on both.
+ * Read handlers for the worktree views: `worktrees`, the worktree scope of `ps` and the `until`
+ * scope of `wait`. Each one folds the `worktrees@v1` projection of the singleton `worktrees`
+ * stream. They append no event and start no process. The harness owns worktree setup, ownership
+ * and removal, so no code writes this stream now. Old logs still fold to the same view.
+ * The side-effect import of `./projections/index.js` registers the reducer once per process.
  */
 
 import type { DispatchContext } from '../../dispatch/core/dispatch.js';
+import type { EventStore } from '../../events/store.js';
 import type { ToolResult } from '../../format.js';
-import {
-  WorktreeManager,
-  DEFAULT_WAIT_TIMEOUT_MS,
-  type WorktreeManagerDeps,
-  type ReserveInput,
-} from './manager.js';
-import {
-  defaultProcessSource,
-  resolveStartedAt,
-  type ProcessSource,
-} from './pure/process-identity.js';
-import { canonicalWorktreeId, defaultRealpath } from './pure/path-containment.js';
-import {
-  serializeMerge,
-  type SerializeMergeInput,
-  type SerializeMergeDeps,
-  reconcileMerges,
-} from './merge-serializer.js';
-import type { SleepFn } from './git-retry.js';
-import type { InFlightMerge, InFlightPrune } from './projections/worktrees.js';
-import { reconcileLaunches } from '../../runtime/launcher/launch-reconcile.js';
+import type {
+  InFlightMerge,
+  InFlightPrune,
+  WorktreeEntry,
+  WorktreesProjection,
+} from './projections/worktrees.js';
+import './projections/index.js';
 import {
   DEFAULT_VIEW_ITEM_CAP,
   SUMMARY_FIRST_PAGE_ITEMS,
@@ -38,22 +26,49 @@ import {
 } from '../../dispatch/core/economy.js';
 import type { QualityHintsConfig } from '../../workflow/capabilities/resolver.js';
 
-/**
- * Test seam: the subset of {@link WorktreeManagerDeps} that a caller can inject, such as a fake git
- * probe or process source. Production callers omit it, so the manager uses the real defaults. The
- * registry input schema does not expose these fields.
- */
-type InjectableDeps = Omit<WorktreeManagerDeps, 'eventStore'>;
+/** The singleton stream that holds the worktree-lifecycle rows of old logs. */
+export const WORKTREES_STREAM = 'worktrees';
+
+/** The reducer id of the worktree read model. */
+export const WORKTREES_REDUCER = 'worktrees@v1';
+
+/** The default limit of a bounded wait, in milliseconds. */
+export const DEFAULT_WAIT_TIMEOUT_MS = 30_000;
+
+/** The default interval between two folds of a bounded wait, in milliseconds. */
+export const DEFAULT_WAIT_POLL_INTERVAL_MS = 200;
+
+/** The delay function of the bounded waits. Tests replace it to skip the real wait. */
+export type SleepFn = (ms: number) => Promise<void>;
+
+/** The real sleep over `setTimeout`. */
+export const defaultSleep: SleepFn = (ms) =>
+  new Promise<void>((resolve) => setTimeout(resolve, ms));
 
 /**
- * Builds a {@link WorktreeManager} over the dispatch event store and the optional deps.
- * The adoption probe uses the process-wide Git path.
+ * Test seam for the `ps` and `wait` handlers: the wait timing only. Production dispatch omits
+ * every field.
  */
-function buildManager(ctx: DispatchContext, deps?: InjectableDeps): WorktreeManager {
-  return new WorktreeManager({
-    eventStore: ctx.eventStore,
-    ...deps,
-  });
+export interface WorktreeViewDeps {
+  /** Bounded-wait sleep. Defaults to the real `setTimeout` sleep. */
+  readonly sleep?: SleepFn;
+  /** Monotone clock for the wait deadline. Defaults to `Date.now`. */
+  readonly now?: () => number;
+  /** Wait poll interval in milliseconds. Defaults to `DEFAULT_WAIT_POLL_INTERVAL_MS`. */
+  readonly pollIntervalMs?: number;
+}
+
+/** Folds the `worktrees@v1` projection of the singleton stream. */
+async function loadProjection(eventStore: EventStore): Promise<WorktreesProjection> {
+  const { aggregate } = await eventStore
+    .getAppender()
+    .aggregateStream<WorktreesProjection>(WORKTREES_STREAM, WORKTREES_REDUCER);
+  return aggregate;
+}
+
+/** The launch rows of the projection: entries that still carry a launch. */
+function inFlightLaunches(projection: WorktreesProjection): readonly WorktreeEntry[] {
+  return Object.values(projection.worktrees).filter((entry) => entry.launch !== undefined);
 }
 
 function invalidInput(message: string, expectedShape?: Record<string, unknown>): ToolResult {
@@ -65,10 +80,6 @@ function invalidInput(message: string, expectedShape?: Record<string, unknown>):
 
 function optionalString(value: unknown): string | undefined {
   return typeof value === 'string' ? value : undefined;
-}
-
-function optionalBoolean(value: unknown): boolean | undefined {
-  return typeof value === 'boolean' ? value : undefined;
 }
 
 /** Parses a non-negative integer from a number or a numeric string. */
@@ -85,232 +96,15 @@ function optionalPosInt(value: unknown): number | undefined {
 }
 
 /**
- * Resolves the reserving process identity. The caller passes both `ownerPid` and `ownerStartedAt`
- * or neither, because one field alone gives a fingerprint that no real process had. With neither,
- * it uses `process.pid` and its create time, so the reservation heals after this process dies. An
- * unresolvable create time is `null`, never `''`. An explicit `ownerStartedAt` must not be empty.
- */
-function resolveOwner(
-  rest: Record<string, unknown>,
-  processSource: ProcessSource,
-):
-  | { ok: true; owner: { ownerPid: number; ownerStartedAt: string | null } }
-  | { ok: false; error: string } {
-  const hasPid = rest.ownerPid !== undefined;
-  const hasStartedAt = rest.ownerStartedAt !== undefined;
-
-  if (hasPid !== hasStartedAt) {
-    return {
-      ok: false,
-      error:
-        'ownerPid and ownerStartedAt must be provided together (both or neither) — a partial owner override would persist a tuple no real process had',
-    };
-  }
-
-  if (hasPid && hasStartedAt) {
-    const explicitPid = rest.ownerPid;
-    if (
-      typeof explicitPid !== 'number' ||
-      !Number.isInteger(explicitPid) ||
-      explicitPid <= 0
-    ) {
-      return { ok: false, error: 'ownerPid must be a positive integer' };
-    }
-    const explicitStartedAt = optionalString(rest.ownerStartedAt);
-    if (explicitStartedAt === undefined || explicitStartedAt.length === 0) {
-      return { ok: false, error: 'ownerStartedAt must be a non-empty string' };
-    }
-    return { ok: true, owner: { ownerPid: explicitPid, ownerStartedAt: explicitStartedAt } };
-  }
-
-  const ownerPid = process.pid;
-  const ownerStartedAt = resolveStartedAt(processSource, ownerPid);
-  return { ok: true, owner: { ownerPid, ownerStartedAt } };
-}
-
-/**
- * Runs the adopt pass over `repoRoot`, then reserves `worktreeId` for the live owner. When the
- * adopt pass saw the target and reports it not mutable, it returns `WORKTREE_NOT_MUTABLE`, because
- * a stale worktree can drop newly pushed files. A checkout whose listing cannot be read also returns
- * `WORKTREE_NOT_MUTABLE`, with the head-unresolved reason and no reservation. The gate lookup uses the canonical id, because
- * adopt stamps canonical ids and a Windows path can differ. The reservation keys on `worktreeId`
- * as passed, so release and view stay consistent.
- */
-export async function handleAcquireWorktree(
-  args: Record<string, unknown>,
-  ctx: DispatchContext,
-  deps?: InjectableDeps,
-): Promise<ToolResult> {
-  const repoRoot = optionalString(args.repoRoot);
-  if (!repoRoot) {
-    return invalidInput('acquire_worktree requires repoRoot: string', {
-      repoRoot: 'string',
-    });
-  }
-  const worktreeId = optionalString(args.worktreeId);
-  if (!worktreeId) {
-    return invalidInput('acquire_worktree requires worktreeId: string', {
-      worktreeId: 'string',
-    });
-  }
-  const manager = buildManager(ctx, deps);
-  const processSource = deps?.processSource ?? defaultProcessSource;
-
-  const adoptResult = await manager.adopt(repoRoot);
-  if (adoptResult.listingUnreadable === true) {
-    return {
-      success: false,
-      error: {
-        code: 'WORKTREE_NOT_MUTABLE',
-        message: `worktree ${worktreeId} is not mutable (head-unresolved) — refusing to reserve a stale worktree for mutation`,
-      },
-    };
-  }
-
-  const canonicalIdForGate =
-    adoptResult.worktrees.length > 0
-      ? canonicalWorktreeId(worktreeId, deps?.realpath ?? defaultRealpath)
-      : undefined;
-  const adoptReport =
-    canonicalIdForGate === undefined
-      ? undefined
-      : adoptResult.worktrees.find((w) => w.worktreeId === canonicalIdForGate);
-  if (adoptReport !== undefined && !adoptReport.verification.mutable) {
-    return {
-      success: false,
-      error: {
-        code: 'WORKTREE_NOT_MUTABLE',
-        message: `worktree ${worktreeId} is not mutable (${adoptReport.verification.reason}) — refusing to reserve a stale worktree for mutation`,
-      },
-    };
-  }
-
-  const ownerResult = resolveOwner(args, processSource);
-  if (!ownerResult.ok) {
-    return invalidInput(ownerResult.error, {
-      ownerPid: 'number (with ownerStartedAt)',
-      ownerStartedAt: 'string (with ownerPid)',
-    });
-  }
-
-  const featureId = args.featureId === null ? null : optionalString(args.featureId) ?? null;
-  const reserveInput: ReserveInput = {
-    worktreeId,
-    path: optionalString(args.path) ?? worktreeId,
-    featureId,
-    ownerPid: ownerResult.owner.ownerPid,
-    ownerStartedAt: ownerResult.owner.ownerStartedAt,
-  };
-  const reserveResult = await manager.reserve(reserveInput);
-
-  if (!reserveResult.reserved) {
-    return {
-      success: false,
-      error: {
-        code: 'WORKTREE_RESERVED',
-        message: `worktree ${worktreeId} is already reserved by a live owner`,
-        ...(reserveResult.conflict
-          ? { conflict: reserveResult.conflict }
-          : {}),
-      },
-    };
-  }
-
-  return {
-    success: true,
-    data: {
-      worktreeId,
-      path: reserveInput.path,
-      featureId,
-      reserved: true,
-      adopted: adoptResult.adopted.includes(worktreeId),
-    },
-  };
-}
-
-/**
- * Releases the reservation of the caller with a `worktree.released` event. It refuses a worktree
- * that a different live owner holds, because reaping a dead owner is the job of the reconcile pass.
- * For an unknown, unreserved, dead-owner or same-owner worktree, it appends a released event with
- * cleared owner fields.
- */
-export async function handleReleaseWorktree(
-  args: Record<string, unknown>,
-  ctx: DispatchContext,
-  deps?: InjectableDeps,
-): Promise<ToolResult> {
-  const worktreeId = optionalString(args.worktreeId);
-  if (!worktreeId) {
-    return invalidInput('release_worktree requires worktreeId: string', {
-      worktreeId: 'string',
-    });
-  }
-  const manager = buildManager(ctx, deps);
-  const processSource = deps?.processSource ?? defaultProcessSource;
-  const ownerResult = resolveOwner(args, processSource);
-  if (!ownerResult.ok) {
-    return invalidInput(ownerResult.error, {
-      ownerPid: 'number (with ownerStartedAt)',
-      ownerStartedAt: 'string (with ownerPid)',
-    });
-  }
-  const result = await manager.release(worktreeId, ownerResult.owner);
-  if (result.rejectedForeignOwner) {
-    return {
-      success: false,
-      error: {
-        code: 'WORKTREE_OWNED_BY_OTHER',
-        message: `worktree ${worktreeId} is reserved by a different live owner — refusing to release another process's claim`,
-      },
-    };
-  }
-  return {
-    success: true,
-    data: { worktreeId, released: result.released },
-  };
-}
-
-/**
- * The fail-closed worktree GC. It is a dry run unless `dryRun` is `false`, and a dry run deletes
- * nothing. Orphan deletion also needs `pruneOrphans` and `yes`. The dry-run default lives here, not
- * on the schema, because the MCP registration flattener forbids different defaults on a shared
- * field.
- */
-export async function handlePruneWorktrees(
-  args: Record<string, unknown>,
-  ctx: DispatchContext,
-  deps?: InjectableDeps,
-): Promise<ToolResult> {
-  const repoRoot = optionalString(args.repoRoot);
-  if (!repoRoot) {
-    return invalidInput('prune_worktrees requires repoRoot: string', {
-      repoRoot: 'string',
-    });
-  }
-  const apply = optionalBoolean(args.dryRun) === false;
-  const manager = buildManager(ctx, deps);
-  const result = await manager.prune({
-    repoRoot,
-    apply,
-    pruneOrphans: optionalBoolean(args.pruneOrphans),
-    yes: optionalBoolean(args.yes),
-  });
-  return { success: true, data: result };
-}
-
-/**
- * Returns the governed worktrees from the `worktrees@v1` projection, with no adopt, git probe or
- * append. Without `limit`, it caps the items at `DEFAULT_VIEW_ITEM_CAP`. When the capped payload
- * exceeds `qualityHints.outputTokenThreshold`, it returns counts by state and a first page. An
- * unresolvable threshold falls back to the item cap.
+ * Returns the worktrees of the `worktrees@v1` projection. Without `limit`, it caps the items at
+ * `DEFAULT_VIEW_ITEM_CAP`. When the capped payload exceeds `qualityHints.outputTokenThreshold`,
+ * it returns counts by state and a first page. An unresolvable threshold falls back to the cap.
  */
 export async function handleViewWorktrees(
   args: Record<string, unknown>,
   ctx: DispatchContext,
-  deps?: InjectableDeps,
 ): Promise<ToolResult> {
-  const manager = buildManager(ctx, deps);
-  const all = await manager.list();
+  const all = Object.values((await loadProjection(ctx.eventStore)).worktrees);
   const total = all.length;
 
   const offset = optionalNonNegInt(args.offset) ?? 0;
@@ -353,131 +147,19 @@ export async function handleViewWorktrees(
 }
 
 /**
- * Serializes an integration-branch merge behind a lease per `integrationRef`, then runs
- * `merge_orchestrate`. The lease is a `worktree.merge_requested` and `worktree.merge_executed`
- * pair on the `worktrees` stream. It is a dry run unless `dryRun` is `false`, and a dry run claims
- * no lease and runs no merge. The default lives here for the reason in
- * {@link handlePruneWorktrees}. Direct callers of `serializeMerge` pass their own `dryRun`.
- */
-export async function handleSerializeMerge(
-  args: Record<string, unknown>,
-  ctx: DispatchContext,
-  deps?: SerializeMergeDeps,
-): Promise<ToolResult> {
-  const featureId = optionalString(args.featureId);
-  if (!featureId) {
-    return invalidInput('serialize_merge requires featureId: string', {
-      featureId: 'string',
-    });
-  }
-  const integrationRef = optionalString(args.integrationRef);
-  if (!integrationRef) {
-    return invalidInput('serialize_merge requires integrationRef: string', {
-      integrationRef: 'string',
-    });
-  }
-  const sourceBranch = optionalString(args.sourceBranch);
-  if (!sourceBranch) {
-    return invalidInput('serialize_merge requires sourceBranch: string', {
-      sourceBranch: 'string',
-    });
-  }
-  const strategy = optionalString(args.strategy);
-  if (strategy !== 'squash' && strategy !== 'rebase' && strategy !== 'merge') {
-    return invalidInput(
-      "serialize_merge requires strategy: 'squash' | 'rebase' | 'merge'",
-      { strategy: "'squash' | 'rebase' | 'merge'" },
-    );
-  }
-  const taskId = optionalString(args.taskId);
-  const repoRoot = optionalString(args.repoRoot);
-  const timeoutMs =
-    typeof args.timeoutMs === 'number' &&
-    Number.isInteger(args.timeoutMs) &&
-    args.timeoutMs > 0
-      ? args.timeoutMs
-      : undefined;
-
-  const dryRun = optionalBoolean(args.dryRun) !== false;
-
-  const input: SerializeMergeInput = {
-    featureId,
-    integrationRef,
-    sourceBranch,
-    strategy,
-    dryRun,
-    ...(taskId !== undefined ? { taskId } : {}),
-    ...(repoRoot !== undefined ? { repoRoot } : {}),
-    ...(timeoutMs !== undefined ? { timeoutMs } : {}),
-  };
-  return serializeMerge(input, ctx, deps);
-}
-
-/**
- * Test seam for the `ps`, `wait` and `reconcile_worktrees` handlers. It adds the probe self-PID
- * and the wait timing to {@link InjectableDeps}. Production dispatch omits every field.
- */
-export interface WorktreeViewDeps extends InjectableDeps {
-  /** Probe self-PID whose FULL ancestry is excluded from occupancy. Defaults to `process.pid`. */
-  readonly selfPid?: number;
-  /** Bounded-wait sleep seam (shared with `git-retry.ts`). Defaults to the real `setTimeout` sleep. */
-  readonly sleep?: SleepFn;
-  /** Monotone clock for the wait deadline. Defaults to `Date.now`. */
-  readonly now?: () => number;
-  /** Wait poll interval (ms). Defaults to the manager's `DEFAULT_WAIT_POLL_INTERVAL_MS`. */
-  readonly pollIntervalMs?: number;
-}
-
-/**
- * `ps`: lists the in-flight merges, launches and prune passes from the `worktrees@v1` projection.
- * An entry is in flight while its start event has no terminal event. It is a pure read with no
- * process scan. {@link handleReconcileWorktrees} runs the process probe and the reconcilers.
+ * `ps`: lists the in-flight merges, launches and prune passes of the `worktrees@v1` projection.
+ * An entry is in flight while its start event has no terminal event. It is a pure read.
  */
 export async function handleViewPs(
-  args: Record<string, unknown>,
-  ctx: DispatchContext,
-  deps?: WorktreeViewDeps,
-): Promise<ToolResult> {
-  const manager = buildManager(ctx, deps);
-  const inFlight = await manager.listInFlightMerges();
-  const launches = await manager.listInFlightLaunches();
-  const prunes = await manager.listInFlightPrunes();
-
-  return {
-    success: true,
-    data: {
-      inFlight,
-      count: inFlight.length,
-      launches,
-      launchCount: launches.length,
-      prunes,
-      pruneCount: prunes.length,
-    },
-  };
-}
-
-/**
- * `reconcile_worktrees`: runs three reconcile passes against one process table, the real OS table
- * when none is injected:
- *   1. {@link WorktreeManager.probeAndReclaim} appends `worktree.released` or
- *      `worktree.orphan_detected` for a dead owner.
- *   2. {@link reconcileLaunches} closes a launch whose supervisor is dead with `launch.executed`.
- *   3. {@link reconcileMerges} frees a lease whose holder is dead with `worktree.merge_executed`.
- * A live or unprovable holder stays in flight. The in-flight columns fold after the passes, so no
- * entry reads as both in flight and reconciled.
- */
-export async function handleReconcileWorktrees(
   _args: Record<string, unknown>,
   ctx: DispatchContext,
-  deps?: WorktreeViewDeps,
+  _deps?: WorktreeViewDeps,
 ): Promise<ToolResult> {
-  const manager = buildManager(ctx, deps);
-  const reclaim = await manager.probeAndReclaim(deps?.selfPid);
-  const reconcile = await reconcileLaunches(ctx.eventStore, deps?.processTableSource);
-  const mergeReconcile = await reconcileMerges(ctx.eventStore, deps?.processTableSource);
-  const launches = await manager.listInFlightLaunches();
-  const inFlight = await manager.listInFlightMerges();
-  const prunes = await manager.listInFlightPrunes();
+  const projection = await loadProjection(ctx.eventStore);
+  const inFlight = Object.values(projection.inFlightMerges);
+  const launches = inFlightLaunches(projection);
+  const prunes = Object.values(projection.inFlightPrunes);
+
   return {
     success: true,
     data: {
@@ -487,9 +169,6 @@ export async function handleReconcileWorktrees(
       launchCount: launches.length,
       prunes,
       pruneCount: prunes.length,
-      probe: reclaim,
-      reconcile,
-      mergeReconcile,
     },
   };
 }
@@ -545,11 +224,39 @@ function idleTimeout(
   };
 }
 
+/** The outcome of one bounded poll: resolved, or the projection value that still blocks it. */
+type PollResult<T> =
+  | { readonly resolved: true; readonly waitedMs: number }
+  | { readonly resolved: false; readonly blocker: T; readonly waitedMs: number };
+
+/**
+ * Folds the projection until `blockerOf` returns `undefined` or the limit passes. It sleeps
+ * through the injected {@link SleepFn}, appends nothing and starts no background timer.
+ */
+async function pollUntilClear<T>(
+  eventStore: EventStore,
+  blockerOf: (projection: WorktreesProjection) => T | undefined,
+  timeoutMs: number,
+  deps: WorktreeViewDeps | undefined,
+): Promise<PollResult<T>> {
+  const sleep = deps?.sleep ?? defaultSleep;
+  const now = deps?.now ?? Date.now;
+  const pollIntervalMs = deps?.pollIntervalMs ?? DEFAULT_WAIT_POLL_INTERVAL_MS;
+  const start = now();
+  const deadline = start + timeoutMs;
+  while (true) {
+    const blocker = blockerOf(await loadProjection(eventStore));
+    if (blocker === undefined) return { resolved: true, waitedMs: now() - start };
+    if (now() >= deadline) return { resolved: false, blocker, waitedMs: now() - start };
+    await sleep(pollIntervalMs);
+  }
+}
+
 /**
  * `wait`: polls the `worktrees@v1` projection until a condition holds or `timeoutMs` passes. It
  * appends nothing, starts no background timer, and returns a structured result on timeout.
- * `until: 'merge'`, the default, waits for `worktree.merge_executed` on `integrationRef`, which it
- * requires. `until: 'idle'` waits until no `prune_worktrees` pass is in flight.
+ * `until: 'merge'`, the default, waits until `integrationRef` has no in-flight merge, and it
+ * requires `integrationRef`. `until: 'idle'` waits until no recorded prune pass is in flight.
  */
 export async function handleViewWait(
   args: Record<string, unknown>,
@@ -569,23 +276,23 @@ export async function handleViewWait(
       ? args.timeoutMs
       : DEFAULT_WAIT_TIMEOUT_MS;
 
-  const manager = buildManager(ctx, deps);
-  const timing = {
-    timeoutMs,
-    ...(deps?.sleep !== undefined ? { sleep: deps.sleep } : {}),
-    ...(deps?.now !== undefined ? { now: deps.now } : {}),
-    ...(deps?.pollIntervalMs !== undefined ? { pollIntervalMs: deps.pollIntervalMs } : {}),
-  };
-
   if (until === 'idle') {
-    const idle = await manager.waitForPruneIdle(timing);
+    const idle = await pollUntilClear(
+      ctx.eventStore,
+      (projection) => {
+        const holders = Object.values(projection.inFlightPrunes);
+        return holders.length === 0 ? undefined : holders;
+      },
+      timeoutMs,
+      deps,
+    );
     if (idle.resolved) {
       return {
         success: true,
         data: { until: 'idle', resolved: true, waitedMs: idle.waitedMs },
       };
     }
-    return idleTimeout(timeoutMs, idle.holders);
+    return idleTimeout(timeoutMs, idle.blocker);
   }
 
   const integrationRef = optionalString(args.integrationRef);
@@ -594,20 +301,25 @@ export async function handleViewWait(
       integrationRef: 'string',
     });
   }
-  const result = await manager.waitForMergeTerminal(integrationRef, timing);
+  const result = await pollUntilClear(
+    ctx.eventStore,
+    (projection) => projection.inFlightMerges[integrationRef],
+    timeoutMs,
+    deps,
+  );
   if (result.resolved) {
     return {
       success: true,
       data: { integrationRef, resolved: true, waitedMs: result.waitedMs },
     };
   }
-  return waitTimeout(integrationRef, timeoutMs, result.holder);
+  return waitTimeout(integrationRef, timeoutMs, result.blocker);
 }
 
 /**
  * The worktree scope of the generic `wait` verb. The router in `projections/views/lifecycle/wait.ts`
  * calls it when the request has no `phase`, `status` or `operation` predicate. It is the same
- * function as {@link handleViewWait}, so the suites that import `handleViewWait` still cover it.
+ * function as {@link handleViewWait}.
  */
 export const handleWorktreeUntilWait = handleViewWait;
 

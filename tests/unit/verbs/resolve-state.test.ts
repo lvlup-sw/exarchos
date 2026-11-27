@@ -261,6 +261,36 @@ describe('resolveWorkflowState', () => {
     });
     expect(mismatches, `field-coverage divergence: ${JSON.stringify(mismatches)}`).toEqual([]);
   });
+
+  /** A state file from a build with the `merge-pending` detour reads as `delegate`, as the state schema reads it. */
+  it('ResolveWorkflowState_StoredMergePendingState_ResolvesToDelegate', async () => {
+    const stateFile = path.join(tempDir, 'detour.state.json');
+    fs.writeFileSync(
+      stateFile,
+      JSON.stringify({ featureId: 'detour', workflowType: 'feature', phase: 'merge-pending' }),
+      'utf-8',
+    );
+
+    const result = await resolveWorkflowState({ stateFile });
+
+    expect('state' in result && result.state.phase).toBe('delegate');
+  });
+
+  /** An in-flight feature log whose last transition went to `merge-pending` resolves to `delegate`. */
+  it('ResolveWorkflowState_LogEndingInMergePending_ResolvesToDelegate', async () => {
+    const eventStoreDir = path.join(tempDir, 'events-detour');
+    await fsPromises.mkdir(eventStoreDir, { recursive: true });
+    const eventStore = new EventStore(eventStoreDir);
+    await eventStore.initialize();
+    const streamId = 'detour-feature';
+    await eventStore.append(streamId, { type: 'workflow.started', data: { featureId: streamId, workflowType: 'feature' } });
+    await eventStore.append(streamId, { type: 'workflow.transition', data: { from: 'plan-review', to: 'delegate' } });
+    await eventStore.append(streamId, { type: 'workflow.transition', data: { from: 'delegate', to: 'merge-pending' } });
+
+    const result = await resolveWorkflowState({ featureId: streamId, eventStore });
+
+    expect('state' in result && result.state.phase).toBe('delegate');
+  });
 });
 
 describe('classifyStateFile', () => {

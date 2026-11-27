@@ -17,7 +17,6 @@ import {
   PLAN_CLOSEOUT,
   PLAN_COVERAGE_CHECK,
   PHASE_COMPRESSION,
-  MERGE_ORCHESTRATION,
   ALL_RUNBOOKS,
 } from '../../../src/runbooks/definitions.js';
 
@@ -153,7 +152,7 @@ describe('Runbook definitions', () => {
   });
 
   it('AllRunbooks_Count', () => {
-    expect(ALL_RUNBOOKS).toHaveLength(19);
+    expect(ALL_RUNBOOKS).toHaveLength(18);
   });
 
   /** The harness opens the pull request, so no runbook compiles synthesis closeout or names a provider writer. */
@@ -177,35 +176,6 @@ describe('Runbook definitions', () => {
       'stop',
       'continue',
     ]);
-  });
-
-  /**
-   * `MERGE_ORCHESTRATION` is the runbook of the `merge-pending` phase: a dry-run
-   * preflight, the merge, then a transition to `delegate`. Recovery emits only
-   * `merge.recovered`, so `autoEmits` must not name `merge.rollback`.
-   */
-  it('Runbook_PhaseMergePending_ReturnsPopulatedSteps', () => {
-    expect(MERGE_ORCHESTRATION).toBeDefined();
-    expect(MERGE_ORCHESTRATION.id).toBe('merge-orchestration');
-    expect(MERGE_ORCHESTRATION.phase).toBe('merge-pending');
-    expect(MERGE_ORCHESTRATION.steps).toHaveLength(3);
-    expect(MERGE_ORCHESTRATION.autoEmits).toEqual(
-      expect.arrayContaining([
-        'merge.preflight',
-        'merge.executed',
-        'merge.recovered',
-        'workflow.transition',
-      ]),
-    );
-    expect(MERGE_ORCHESTRATION.autoEmits).not.toContain('merge.rollback');
-    expect(MERGE_ORCHESTRATION.steps[0].tool).toBe('exarchos_orchestrate');
-    expect(MERGE_ORCHESTRATION.steps[0].action).toBe('merge_orchestrate');
-    expect(MERGE_ORCHESTRATION.steps[0].params?.dryRun).toBe(true);
-    expect(MERGE_ORCHESTRATION.steps[1].tool).toBe('exarchos_orchestrate');
-    expect(MERGE_ORCHESTRATION.steps[1].action).toBe('merge_orchestrate');
-    expect(MERGE_ORCHESTRATION.steps[2].tool).toBe('exarchos_workflow');
-    expect(MERGE_ORCHESTRATION.steps[2].action).toBe('transition');
-    expect(MERGE_ORCHESTRATION.steps[2].params?.target).toBe('delegate');
   });
 
   it('TaskClassification_HasCorrectPhase_Delegate', () => {

@@ -7,7 +7,7 @@
  * that resolves.
  *
  * The registry tests assert breadth through `actionAcceptsInferredValue`, and they call no
- * handler. Actions such as `merge_orchestrate` and `serialize_merge` have side effects that a
+ * handler. Actions such as `cutover_decide` and `reconcile_worktrees` have side effects that a
  * guard must not cause.
  */
 
@@ -79,14 +79,14 @@ describe('Roots featureId inference is gated on the receiving schema (#1838)', (
   it('RootsInference_ActionOmittingFeatureId_IsNeverEligibleForInjection', () => {
     const { declaring, omitting } = partitionRegistry();
 
-    expect(omitting.length).toBeGreaterThanOrEqual(54);
+    expect(omitting.length).toBeGreaterThanOrEqual(51);
     expect(declaring.length).toBeGreaterThanOrEqual(55);
     expect(omitting.length + declaring.length).toBe(
       TOOL_REGISTRY.reduce((n, t) => n + t.actions.length, 0),
     );
 
     const exposed = omitting.filter((r) => !LATENCY_SKIP.has(r.action));
-    expect(exposed.length).toBeGreaterThanOrEqual(48);
+    expect(exposed.length).toBeGreaterThanOrEqual(45);
 
     for (const ref of exposed) {
       const tool = TOOL_REGISTRY.find((t) => t.name === ref.tool);

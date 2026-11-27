@@ -9,6 +9,7 @@ import {
   withoutRetiredMutationCommand,
   withoutRetiredMutationReview,
   withoutRetiredRequiredReview,
+  withoutRetiredVcsKey,
 } from './exarchos-config-schema.js';
 import { RETIRED_VERIFICATION_GATE_NAMES, VERIFICATION_GATE_NAMES } from '../workflow/verification-policy.js';
 import {
@@ -70,10 +71,12 @@ const ReviewConfig = z.object({
   routing: RoutingConfig.optional(),
 }).strict().transform(withoutRetiredMutationReview);
 
-const VcsConfig = z.object({
-  provider: z.enum(['github', 'gitlab', 'azure-devops']).optional(),
-  settings: z.record(z.string(), z.unknown()).optional(),
-}).strict();
+/**
+ * The retired `vcs` block. No code reads it, because Exarchos builds no VCS provider. The schema accepts
+ * any value, so an existing `.exarchos.yml` keeps loading, and the full parse removes it.
+ * A stale provider or an unknown sub-key thus gives only the migration finding and never a failed full parse.
+ */
+const VcsConfig = z.unknown();
 
 const PhaseConfig = z.object({
   'human-checkpoint': z.boolean().optional(),
@@ -384,10 +387,10 @@ export type ProjectConfig = z.infer<typeof ProjectConfigSchema>;
  * The full `.exarchos.yml` schema: the merge of `ExarchosConfigBaseSchema` and `ProjectConfigSchema`.
  * It accepts a key that is valid in either schema and rejects a key that is valid in neither.
  * The config loaders and the invariants loader use it, so they reach the same verdict on a file.
- * The parse removes the retired `mutation` key, and the loader reports it as a migration finding.
+ * The parse removes the retired `mutation` and `vcs` keys, and the loader reports each as a migration finding.
  */
 export const FullExarchosConfigSchema = ExarchosConfigBaseSchema.merge(ProjectConfigSchema)
   .strict()
-  .transform(withoutRetiredMutationCommand);
+  .transform((document) => withoutRetiredVcsKey(withoutRetiredMutationCommand(document)));
 
 export type FullExarchosConfig = z.infer<typeof FullExarchosConfigSchema>;

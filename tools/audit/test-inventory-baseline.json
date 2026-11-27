@@ -4,11 +4,11 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1460,
-    "parsedFiles": 1416,
+    "testFiles": 1407,
+    "parsedFiles": 1363,
     "shellFiles": 44,
-    "cases": 16340,
-    "dynamicTitles": 321,
+    "cases": 15735,
+    "dynamicTitles": 317,
     "unparseableFiles": 0
   },
   "unparseable": [],
@@ -4910,7 +4910,7 @@
         },
         {
           "suite": "action-contract next_actions — allow-only registry advertisements",
-          "name": "NextActions_MergeOrchestrate_RehydrateTopology_StillPublishes",
+          "name": "NextActions_OldMergeState_RehydrateTopology_PublishesNoMergeOrchestrate",
           "dynamic": false
         },
         {
@@ -4943,27 +4943,6 @@
         {
           "suite": "registered-actions snapshot denominator",
           "name": "RegisteredActionsSnapshot_EqualsLiveRegistry",
-          "dynamic": false
-        }
-      ]
-    },
-    "tests/acceptance/action-contract-vcs-replay.test.ts": {
-      "file": "tests/acceptance/action-contract-vcs-replay.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "merge VCS worktree action contracts",
-          "name": "Registry_MergeVcsWorktreeActions_HaveCompleteContracts",
-          "dynamic": false
-        },
-        {
-          "suite": "merge VCS worktree action contracts",
-          "name": "Registry_NonIdempotentMutations_RequireClaimsOrRejectReplay",
-          "dynamic": false
-        },
-        {
-          "suite": "merge VCS worktree action contracts",
-          "name": "non-idempotent mutations declare claim-required or reject-replay",
           "dynamic": false
         }
       ]
@@ -8434,17 +8413,6 @@
         }
       ]
     },
-    "tests/core/integration/governance/merge-idempotency.test.ts": {
-      "file": "tests/core/integration/governance/merge-idempotency.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "DR-12 — duplicate merge prevention (shipped path)",
-          "name": "ExecuteMerge_DuplicateRequest_CreatesExactlyOneMergeCommit",
-          "dynamic": false
-        }
-      ]
-    },
     "tests/core/integration/public-root/actions.test.ts": {
       "file": "tests/core/integration/public-root/actions.test.ts",
       "runner": "vitest:root",
@@ -10250,6 +10218,32 @@
         }
       ]
     },
+    "tests/integration/1928-cancel-ledger.test.ts": {
+      "file": "tests/integration/1928-cancel-ledger.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "ledger-only cancellation",
+          "name": "CancelLedger_ARealCancel_LeavesEachResourceAndRecordsItOutstanding",
+          "dynamic": false
+        },
+        {
+          "suite": "ledger-only cancellation",
+          "name": "CancelLedger_MissingResources_StayOutstanding",
+          "dynamic": false
+        },
+        {
+          "suite": "ledger-only cancellation",
+          "name": "CancelLedger_APriorFailedRemoval_StaysAFailure",
+          "dynamic": false
+        },
+        {
+          "suite": "ledger-only cancellation",
+          "name": "CancelLedger_AWorktreeReservationOfAnOldLog_StaysOutstanding",
+          "dynamic": false
+        }
+      ]
+    },
     "tests/integration/1928-git-observer.test.ts": {
       "file": "tests/integration/1928-git-observer.test.ts",
       "runner": "vitest:root",
@@ -10595,17 +10589,7 @@
         },
         {
           "suite": "constrained observational reads: Git path selection",
-          "name": "PrimedGitPath_DetectionWithoutGitPath_OnlyThePrimedWrapperRuns",
-          "dynamic": false
-        },
-        {
-          "suite": "constrained observational reads: Git path selection",
           "name": "UnprimedProcess_SinglePathResolution_NoRelativeOrEmptyEntryRuns",
-          "dynamic": false
-        },
-        {
-          "suite": "constrained observational reads: Git path selection",
-          "name": "Detection_UnusableGitPath_GivesNullAndNoShimGit",
           "dynamic": false
         },
         {
@@ -10626,36 +10610,6 @@
         {
           "suite": "constrained observational reads: the outcome of each site",
           "name": "ReviewAndPolishScope_RefusedLoadedConfig_GiveDiffFailed",
-          "dynamic": false
-        },
-        {
-          "suite": "constrained observational reads: acquire_worktree adoption",
-          "name": "AcquireWorktree_ReadableStaleAndOutsideCheckout_KeepTheirOutcomes",
-          "dynamic": false
-        },
-        {
-          "suite": "constrained observational reads: acquire_worktree adoption",
-          "name": "AcquireWorktree_UnreadableListingCauses_RefuseWithNoEvent",
-          "dynamic": false
-        },
-        {
-          "suite": "constrained observational reads: acquire_worktree adoption",
-          "name": "AcquireWorktree_MidLineHeaders_RefuseWithNoEvent",
-          "dynamic": false
-        },
-        {
-          "suite": "constrained observational reads: acquire_worktree adoption",
-          "name": "AcquireWorktree_ShallowRepository_DecidedAndUndecidedOutcomes",
-          "dynamic": false
-        },
-        {
-          "suite": "constrained observational reads: acquire_worktree adoption",
-          "name": "AcquireWorktree_OwnConfigWorktreeBranchSection_GivesHeadUnresolved",
-          "dynamic": false
-        },
-        {
-          "suite": "constrained observational reads: acquire_worktree adoption",
-          "name": "AcquireWorktree_MainWorktreeConfigWorktree_DoesNotMoveALinkedUpstream",
           "dynamic": false
         }
       ]
@@ -11048,7 +11002,7 @@
         },
         {
           "suite": "F.4 — ComputeNextActions per-workflow-type schema round-trip",
-          "name": "ComputeNextActions_MergePending_WithOrchestratorPending_EmitsValidMergeVerb",
+          "name": "ComputeNextActions_DelegateWithAnOldPendingMergeState_EmitsOnlyTheReviewEdge",
           "dynamic": false
         }
       ]
@@ -11408,17 +11362,6 @@
         }
       ]
     },
-    "tests/outcome/merge-orchestrate-multiworktree.test.ts": {
-      "file": "tests/outcome/merge-orchestrate-multiworktree.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "merge-orchestrate multi-worktree topology outcome (#1356)",
-          "name": "MergeOrchestrate_TargetCheckedOutInSibling_AbortsCleanly",
-          "dynamic": false
-        }
-      ]
-    },
     "tests/outcome/onboard.test.ts": {
       "file": "tests/outcome/onboard.test.ts",
       "runner": "vitest:root",
@@ -11426,22 +11369,6 @@
         {
           "suite": "onboard outcome",
           "name": "Onboard_claude_DrivesRepoGreenAndInstallsSubagentStopHook",
-          "dynamic": false
-        }
-      ]
-    },
-    "tests/outcome/preflight-debug.test.ts": {
-      "file": "tests/outcome/preflight-debug.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "preflight debug payload (#1362 phase 1)",
-          "name": "Preflight_DebugEnvUnset_NoDebugField",
-          "dynamic": false
-        },
-        {
-          "suite": "preflight debug payload (#1362 phase 1)",
-          "name": "Preflight_DebugEnvSetAndAncestryFail_AttachesDebugBlock",
           "dynamic": false
         }
       ]
@@ -11511,22 +11438,6 @@
         {
           "suite": "Roots featureId inference is gated on the receiving schema (#1838)",
           "name": "Dispatch_EventAppendUnderResolvingRoots_IsNotRefusedForInjectedFeatureId",
-          "dynamic": false
-        }
-      ]
-    },
-    "tests/outcome/runbook-merge-orchestration.test.ts": {
-      "file": "tests/outcome/runbook-merge-orchestration.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "MERGE_ORCHESTRATION runbook outcome (#1363)",
-          "name": "Runbook_MergePendingPhase_ReturnsCanonicalFourEventSequence",
-          "dynamic": false
-        },
-        {
-          "suite": "MERGE_ORCHESTRATION runbook outcome (#1363)",
-          "name": "Runbook_OtherPhases_StillPopulated",
           "dynamic": false
         }
       ]
@@ -12093,17 +12004,6 @@
         {
           "suite": "parity: exarchos workflow rehydrate — CLI ↔ MCP",
           "name": "workflowRehydrate_replayedEvents_reconstructEqualProjection",
-          "dynamic": false
-        }
-      ]
-    },
-    "tests/process/saga-merge-detour.test.ts": {
-      "file": "tests/process/saga-merge-detour.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "#1208 — task.completed{worktreePath} auto-detours to merge-pending",
-          "name": "next_actions surfaces merge_orchestrate after worktree-bearing task.completed",
           "dynamic": false
         }
       ]
@@ -17026,37 +16926,6 @@
         }
       ]
     },
-    "tests/unit/adapters/cli/cli-merge-orchestrate.test.ts": {
-      "file": "tests/unit/adapters/cli/cli-merge-orchestrate.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "exarchos merge-orchestrate CLI",
-          "name": "cliMergeOrchestrate_ValidArgs_CallsHandleMergeOrchestrate",
-          "dynamic": false
-        },
-        {
-          "suite": "exarchos merge-orchestrate CLI",
-          "name": "cliMergeOrchestrate_PreflightFails_ExitCode2",
-          "dynamic": false
-        },
-        {
-          "suite": "exarchos merge-orchestrate CLI",
-          "name": "cliMergeOrchestrate_MissingStrategy_ExitCode1",
-          "dynamic": false
-        },
-        {
-          "suite": "exarchos merge-orchestrate CLI",
-          "name": "cliMergeOrchestrate_InvalidStrategy_ExitCode1",
-          "dynamic": false
-        },
-        {
-          "suite": "exarchos merge-orchestrate CLI",
-          "name": "cliMergeOrchestrate_DryRunFlag_PassesDryRunTrueToHandler",
-          "dynamic": false
-        }
-      ]
-    },
     "tests/unit/adapters/cli/cli.correlation-flags.test.ts": {
       "file": "tests/unit/adapters/cli/cli.correlation-flags.test.ts",
       "runner": "vitest:root",
@@ -19519,7 +19388,7 @@
         },
         {
           "suite": "DR-12 live tree — the widened census is green and load-bearing",
-          "name": "the widened detector actually SEES merge + branch.create on the live tree",
+          "name": "the widened detector SEES branch.create on the live tree and finds no local merge",
           "dynamic": false
         },
         {
@@ -20185,6 +20054,21 @@
           "dynamic": false
         },
         {
+          "suite": "FullExarchosConfigSchema — retired vcs key",
+          "name": "RetiredVcsKey_StillParses_IsRemoved_AndGetsAMigrationFinding",
+          "dynamic": false
+        },
+        {
+          "suite": "FullExarchosConfigSchema — retired vcs key",
+          "name": "RetiredVcsKey_WithAnyValue_StillParses_%s",
+          "dynamic": false
+        },
+        {
+          "suite": "FullExarchosConfigSchema — retired vcs key",
+          "name": "<dynamic-case-1>",
+          "dynamic": true
+        },
+        {
           "suite": "ExarchosConfigSchema — invariants.devCatalog retirement (DR-31 / T-43)",
           "name": "ExarchosConfig_DevCatalogRemoved_EffectiveCatalogUnchanged",
           "dynamic": false
@@ -20454,7 +20338,7 @@
         },
         {
           "suite": "resolveConfig",
-          "name": "resolveConfig_VcsProvider_OverridesDefault",
+          "name": "resolveConfig_RetiredVcsKey_GivesNoResolvedField",
           "dynamic": false
         },
         {
@@ -21605,6 +21489,11 @@
         },
         {
           "suite": "loadProjectConfig",
+          "name": "loadProjectConfig_RetiredVcsKey_LoadsAndIsRemoved",
+          "dynamic": false
+        },
+        {
+          "suite": "loadProjectConfig",
           "name": "loadProjectConfig_MalformedYaml_ReturnsEmptyConfig",
           "dynamic": false
         },
@@ -21706,7 +21595,7 @@
         },
         {
           "suite": "ProjectConfigSchema",
-          "name": "ProjectConfigSchema_VcsProvider_ValidatesEnum",
+          "name": "ProjectConfigSchema_RetiredVcsKey_AcceptsAnyValue",
           "dynamic": false
         },
         {
@@ -21842,6 +21731,11 @@
         {
           "suite": "ProjectConfigSchema > default .exarchos.yml",
           "name": "FullExarchosConfigSchema_TypoTopLevelKey_StillRejected",
+          "dynamic": false
+        },
+        {
+          "suite": "ProjectConfigSchema > verification section",
+          "name": "ProjectConfigSchema_VerificationRetiredGateName_RemovedFromParsedCell",
           "dynamic": false
         },
         {
@@ -25268,12 +25162,12 @@
         },
         {
           "suite": "initializeContext — projectConfig (YAML)",
-          "name": "initializeContext_WithProjectRoot_VcsProviderAvailable",
+          "name": "initializeContext_WithProjectRoot_BuildsNoVcsProvider",
           "dynamic": false
         },
         {
           "suite": "initializeContext — projectConfig (YAML)",
-          "name": "initializeContext_WithGitLabConfig_VcsProviderIsGitLab",
+          "name": "initializeContext_WithGitLabConfig_VcsKeyLoadsWithoutProvider",
           "dynamic": false
         },
         {
@@ -25283,12 +25177,7 @@
         },
         {
           "suite": "initializeContext — projectConfig (YAML)",
-          "name": "InitializeContext_DetectVcsFalse_AppliesDurabilityWithoutVcsProvider",
-          "dynamic": false
-        },
-        {
-          "suite": "initializeContext — projectConfig (YAML)",
-          "name": "InitializeContext_DetectVcsAbsent_CallsTheVcsFactory",
+          "name": "InitializeContext_WithProjectRoot_AppliesDurabilityWithoutVcsProvider",
           "dynamic": false
         },
         {
@@ -25313,7 +25202,7 @@
         },
         {
           "suite": "initializeContext — topology loader wired at startup (T58, DR-7)",
-          "name": "Context_InitializeWithDetectVcsFalse_LoadsTopology",
+          "name": "Context_InitializeWithProjectRoot_LoadsTopology",
           "dynamic": false
         },
         {
@@ -28458,7 +28347,7 @@
       "cases": [
         {
           "suite": "DR-2 liveness emitters",
-          "name": "ThreeLiveEmittersAndTheStoredMutationPair_CarryCanonicalInstanceIdAdditively",
+          "name": "TheStoredLaunchMergeMutationAndPrunePairs_CarryCanonicalInstanceIdAdditively",
           "dynamic": false
         }
       ]
@@ -31001,7 +30890,7 @@
         },
         {
           "suite": "harness-launcher event schemas (DR-2)",
-          "name": "EmissionRegistry_LaunchPairAuto_CreatePairRetired_SchemasKept",
+          "name": "EmissionRegistry_LaunchAndCreatePairsRetired_SchemasKept",
           "dynamic": false
         },
         {
@@ -31354,11 +31243,6 @@
         {
           "suite": "EventStore multi-stream linearizability [sqlite]",
           "name": "Multistream_NConcurrentStreamsXM_AllPerStreamSequencesDenseAndIsolated",
-          "dynamic": false
-        },
-        {
-          "suite": "handleMergeOrchestrate race (#1303 α-03)",
-          "name": "MergeOrchestrate_TwoConcurrentInvocationsSameStream_NoDuplicateSequences",
           "dynamic": false
         }
       ]
@@ -36887,11 +36771,6 @@
           "suite": "skill content lint (#1360)",
           "name": "Skill_Checkpoint_ContainsReservedFieldsSection",
           "dynamic": false
-        },
-        {
-          "suite": "skill content lint (#1360)",
-          "name": "Skill_MergeOrchestrator_CrossLinksReservedFields",
-          "dynamic": false
         }
       ]
     },
@@ -37966,16 +37845,6 @@
         },
         {
           "suite": "computeNextActions (T040, DR-8)",
-          "name": "computeNextActions_MergePendingPhase_ReturnsMergeOrchestrate",
-          "dynamic": false
-        },
-        {
-          "suite": "computeNextActions (T040, DR-8)",
-          "name": "computeNextActions_MergeOrchestratorPending_IncludesIdempotencyKey",
-          "dynamic": false
-        },
-        {
-          "suite": "computeNextActions (T040, DR-8)",
           "name": "computeNextActions_MergeOrchestratorCompleted_OmitsMergeOrchestrate",
           "dynamic": false
         },
@@ -37987,11 +37856,6 @@
         {
           "suite": "computeNextActions (T040, DR-8)",
           "name": "computeNextActions_MergeOrchestratorAborted_OmitsMergeOrchestrate",
-          "dynamic": false
-        },
-        {
-          "suite": "computeNextActions (T040, DR-8)",
-          "name": "mergePendingDetour_TaskCompletedWithWorktreePath_SurfacesMergeOrchestrateVerb",
           "dynamic": false
         },
         {
@@ -38141,7 +38005,7 @@
         },
         {
           "suite": "computeRegistryAdvertisements — allow-only ActionIds",
-          "name": "NextActions_MergeOrchestrate_RehydrateTopology_StillPublishes",
+          "name": "NextActions_MergePending_RehydrateTopology_PublishesNoMergeOrchestrate",
           "dynamic": false
         },
         {
@@ -38182,7 +38046,7 @@
         },
         {
           "suite": "nextActionsFromResult — shape recognition",
-          "name": "surfaces merge_orchestrate from shape 2 when phase is merge-pending",
+          "name": "offers only the review edge from shape 2 when an old merge state is pending",
           "dynamic": false
         },
         {
@@ -38193,16 +38057,6 @@
         {
           "suite": "nextActionsFromResult — shape recognition",
           "name": "prefers shape 1 when both shapes could match",
-          "dynamic": false
-        },
-        {
-          "suite": "nextActionsFromResult — shape recognition",
-          "name": "backfills mergeOrchestrator from workflowState when shape 1 supplies phase",
-          "dynamic": false
-        },
-        {
-          "suite": "nextActionsFromResult — shape recognition",
-          "name": "reads mergeOrchestrator at top level when shape 1 carries it directly",
           "dynamic": false
         },
         {
@@ -38247,7 +38101,7 @@
         },
         {
           "suite": "nextActionsFromResult — shape recognition > #1238 ResultDataSchema discriminated union",
-          "name": "NextActionsFromResult_RehydrationDocWithExecutingMergePhase_StillSurfacesMergeOrchestrate",
+          "name": "NextActionsFromResult_RehydrationDocWithExecutingMergePhase_StillOffersTheReviewEdge",
           "dynamic": false
         },
         {
@@ -38267,7 +38121,7 @@
         },
         {
           "suite": "nextActionsFromResult — #1374 cross-boundary pin (reducer ⇒ reader)",
-          "name": "NextActions_FromReducerProjectedRehydrationDoc_AfterWorktreeBearingTaskCompleted_SurfacesMergeOrchestrate",
+          "name": "NextActions_FromReducerProjectedRehydrationDoc_AfterWorktreeBearingTaskCompleted_OffersTheReviewEdge",
           "dynamic": false
         },
         {
@@ -38856,93 +38710,6 @@
         {
           "suite": "assertReducerImmutable",
           "name": "Reducer_DeepFrozenInput_DoesNotMutate",
-          "dynamic": false
-        }
-      ]
-    },
-    "tests/unit/projections/merge-orchestrator/index.test.ts": {
-      "file": "tests/unit/projections/merge-orchestrator/index.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "merge-orchestrator barrel registration (Wave 2B.4)",
-          "name": "MergeOrchestratorReducer_RegistersOnBarrelImport",
-          "dynamic": false
-        }
-      ]
-    },
-    "tests/unit/projections/merge-orchestrator/reducer.test.ts": {
-      "file": "tests/unit/projections/merge-orchestrator/reducer.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "mergeOrchestratorReducer — identity (Wave 2B.2, DR-1)",
-          "name": "MergeOrchestratorReducer_IdentityIsCanonical",
-          "dynamic": false
-        },
-        {
-          "suite": "mergeOrchestratorReducer — identity (Wave 2B.2, DR-1)",
-          "name": "MergeOrchestratorReducer_NoEvents_ReturnsInitialState",
-          "dynamic": false
-        },
-        {
-          "suite": "mergeOrchestratorReducer.apply — phase transitions (Wave 2B.2)",
-          "name": "Apply_MergePreflight_TransitionsToPreflight",
-          "dynamic": false
-        },
-        {
-          "suite": "mergeOrchestratorReducer.apply — phase transitions (Wave 2B.2)",
-          "name": "Apply_MergePreflight_CapturesFailureReason",
-          "dynamic": false
-        },
-        {
-          "suite": "mergeOrchestratorReducer.apply — phase transitions (Wave 2B.2)",
-          "name": "Apply_MergeRequested_TransitionsToRequested",
-          "dynamic": false
-        },
-        {
-          "suite": "mergeOrchestratorReducer.apply — phase transitions (Wave 2B.2)",
-          "name": "Apply_MergeExecuted_TransitionsToExecuted",
-          "dynamic": false
-        },
-        {
-          "suite": "mergeOrchestratorReducer.apply — phase transitions (Wave 2B.2)",
-          "name": "Apply_MergeRollback_TransitionsToRecovering",
-          "dynamic": false
-        },
-        {
-          "suite": "mergeOrchestratorReducer.apply — phase transitions (Wave 2B.2)",
-          "name": "Apply_MergeRecovered_AdvancesToRecovering_WithoutLegacyRollback",
-          "dynamic": false
-        },
-        {
-          "suite": "mergeOrchestratorReducer.apply — phase transitions (Wave 2B.2)",
-          "name": "Apply_MergeRollback_FoldsRecoveryErrorDiscriminator",
-          "dynamic": false
-        },
-        {
-          "suite": "mergeOrchestratorReducer.apply — phase transitions (Wave 2B.2)",
-          "name": "Apply_MergeRollback_RejectsUnrecognisedRecoveryError",
-          "dynamic": false
-        },
-        {
-          "suite": "mergeOrchestratorReducer.apply — phase transitions (Wave 2B.2)",
-          "name": "Apply_MergeRollback_AnyPhaseTransitionsToRecovering",
-          "dynamic": false
-        },
-        {
-          "suite": "mergeOrchestratorReducer.apply — phase transitions (Wave 2B.2)",
-          "name": "Apply_MergeCompleted_TransitionsToCompleted",
-          "dynamic": false
-        },
-        {
-          "suite": "mergeOrchestratorReducer.apply — phase transitions (Wave 2B.2)",
-          "name": "MergeOrchestratorReducer_IsImmutable",
-          "dynamic": false
-        },
-        {
-          "suite": "mergeOrchestratorReducer.apply — phase transitions (Wave 2B.2)",
-          "name": "Apply_UnknownEvent_ReturnsStateUnchanged",
           "dynamic": false
         }
       ]
@@ -39618,7 +39385,7 @@
         },
         {
           "suite": "validateExample against the LIVE registry — seeded drift FAILS",
-          "name": "flags a value outside a real enum (strategy)",
+          "name": "flags a value outside a real enum (synthesisPolicy)",
           "dynamic": false
         },
         {
@@ -39803,6 +39570,16 @@
           "dynamic": false
         },
         {
+          "suite": "rehydration reducer — retired feature phases",
+          "name": "Rehydration_FeatureTransitionToMergePending_ReadsAsDelegate",
+          "dynamic": false
+        },
+        {
+          "suite": "rehydration reducer — retired feature phases",
+          "name": "Rehydration_OtherTypeTransitionToMergePending_KeepsThePhase",
+          "dynamic": false
+        },
+        {
           "suite": "rehydration reducer — workflow events fold (T024, DR-3)",
           "name": "Rehydration_Given_WorkflowStarted_When_Fold_Then_WorkflowStatePopulated",
           "dynamic": false
@@ -39898,73 +39675,38 @@
           "dynamic": false
         },
         {
-          "suite": "rehydration reducer — worktree auto-detour (#1208)",
-          "name": "Rehydration_TaskCompletedWithWorktreePath_StampsMergePending",
+          "suite": "rehydration reducer — no merge substate",
+          "name": "Rehydration_TaskCompletedWith_%s_KeepsThePhase",
           "dynamic": false
         },
         {
-          "suite": "rehydration reducer — worktree auto-detour (#1208)",
-          "name": "Rehydration_TaskCompletedWithWorktree_StampsMergePending",
-          "dynamic": false
+          "suite": "rehydration reducer — no merge substate",
+          "name": "<dynamic-case-1>",
+          "dynamic": true
         },
         {
-          "suite": "rehydration reducer — worktree auto-detour (#1208)",
+          "suite": "rehydration reducer — no merge substate",
           "name": "Rehydration_TaskCompletedNoWorktree_LeavesPhaseUntouched",
           "dynamic": false
         },
         {
-          "suite": "rehydration reducer — worktree auto-detour (#1208)",
-          "name": "Rehydration_TaskCompletedWithWorktreeOnRefactorWorkflow_DoesNotDetour",
+          "suite": "rehydration reducer — no merge substate",
+          "name": "Rehydration_TaskCompletedWithWorktreeOnRefactorWorkflow_KeepsThePhase",
           "dynamic": false
         },
         {
-          "suite": "rehydration reducer — worktree auto-detour (#1208)",
-          "name": "Rehydration_TaskCompletedWithWorktreeFeatureOutsideDelegate_DoesNotDetour",
+          "suite": "rehydration reducer — no merge substate",
+          "name": "Rehydration_%s_InReview_KeepsThePhaseAndTheSequence",
           "dynamic": false
         },
         {
-          "suite": "rehydration reducer — worktree auto-detour (#1208)",
-          "name": "Rehydration_MergeExecuted_RevertsPhaseAndStampsTerminal",
-          "dynamic": false
+          "suite": "rehydration reducer — no merge substate",
+          "name": "<dynamic-case-2>",
+          "dynamic": true
         },
         {
-          "suite": "rehydration reducer — worktree auto-detour (#1208)",
-          "name": "Rehydration_MergeRollback_RevertsPhaseAndStampsRolledBack",
-          "dynamic": false
-        },
-        {
-          "suite": "rehydration reducer — worktree auto-detour (#1208)",
-          "name": "Rehydration_MergeAborted_RevertsPhaseAndStampsAborted",
-          "dynamic": false
-        },
-        {
-          "suite": "rehydration reducer — worktree auto-detour (#1208)",
-          "name": "Rehydration_MergeTerminalEventWithoutPriorPending_NoOps",
-          "dynamic": false
-        },
-        {
-          "suite": "rehydration reducer — worktree auto-detour (#1208)",
-          "name": "Rehydration_TaskCompletedWithWhitespaceWorktree_DoesNotDetour",
-          "dynamic": false
-        },
-        {
-          "suite": "rehydration reducer — worktree auto-detour (#1208)",
-          "name": "Rehydration_TaskCompletedWithDifferentTaskActivePending_DoesNotClobberMergeOrchestrator",
-          "dynamic": false
-        },
-        {
-          "suite": "rehydration reducer — worktree auto-detour (#1208)",
-          "name": "Rehydration_TaskCompletedAfterTerminalForOtherTask_StampsForNewTask",
-          "dynamic": false
-        },
-        {
-          "suite": "rehydration reducer — worktree auto-detour (#1208)",
-          "name": "Rehydration_RefoldedTerminalMergeEvent_IsNoOp",
-          "dynamic": false
-        },
-        {
-          "suite": "rehydration reducer — worktree auto-detour (#1208)",
-          "name": "Rehydration_RefoldedSameTaskCompleted_DoesNotRegressTerminalMerge",
+          "suite": "rehydration reducer — no merge substate",
+          "name": "Rehydration_TaskCompletedWithWhitespaceWorktree_KeepsThePhase",
           "dynamic": false
         },
         {
@@ -43917,6 +43659,21 @@
           "dynamic": false
         },
         {
+          "suite": "ViewMaterializer stale merge-pending workflow-state cache",
+          "name": "LoadFromSnapshot_BackendCacheInMergePending_ReadsDelegateAfterMergeExecuted",
+          "dynamic": false
+        },
+        {
+          "suite": "ViewMaterializer stale merge-pending workflow-state cache",
+          "name": "LoadFromSnapshot_SnapshotStoreInMergePending_ReadsDelegate",
+          "dynamic": false
+        },
+        {
+          "suite": "ViewMaterializer stale merge-pending workflow-state cache",
+          "name": "FromSnapshot_CurrentPhase_ReturnsTheSameView",
+          "dynamic": false
+        },
+        {
           "suite": "ViewMaterializer Cache Stats",
           "name": "getCacheStats_NewMaterializer_ReturnsZeros",
           "dynamic": false
@@ -45010,6 +44767,16 @@
           "dynamic": false
         },
         {
+          "suite": "WorkflowStateProjection retired feature phases",
+          "name": "Apply_FeatureTransitionToMergePending_ReadsAsDelegate",
+          "dynamic": false
+        },
+        {
+          "suite": "WorkflowStateProjection retired feature phases",
+          "name": "Apply_OtherTypeTransitionToMergePending_KeepsThePhase",
+          "dynamic": false
+        },
+        {
           "suite": "WorkflowStateProjection task events > Apply_TaskAssigned_PushesToTasksArray",
           "name": "should add a new task with pending status",
           "dynamic": false
@@ -45632,11 +45399,6 @@
         {
           "suite": "buildRegistrationSchema",
           "name": "should expose agent_spec outputFormat on the real orchestrate registration schema",
-          "dynamic": false
-        },
-        {
-          "suite": "merge_orchestrate description",
-          "name": "MergeOrchestrateDescription_StatesDoNotUseFor_WithPointers",
           "dynamic": false
         },
         {
@@ -46271,7 +46033,7 @@
         },
         {
           "suite": "Registry — taskSuitable annotations (T9, #1440 Op 2)",
-          "name": "Registry_TaskSuitableAnnotations_FourActionsMarked",
+          "name": "Registry_TaskSuitableAnnotations_ThreeActionsMarked",
           "dynamic": false
         },
         {
@@ -46699,337 +46461,6 @@
         }
       ]
     },
-    "tests/unit/review/providers/coderabbit.test.ts": {
-      "file": "tests/unit/review/providers/coderabbit.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "coderabbitAdapter",
-          "name": "CoderabbitAdapter_PotentialIssueTier_NormalizesToHigh",
-          "dynamic": false
-        },
-        {
-          "suite": "coderabbitAdapter",
-          "name": "CoderabbitAdapter_RefactorSuggestionTier_NormalizesToMedium",
-          "dynamic": false
-        },
-        {
-          "suite": "coderabbitAdapter",
-          "name": "CoderabbitAdapter_VerificationAgentTier_NormalizesToLow",
-          "dynamic": false
-        },
-        {
-          "suite": "coderabbitAdapter",
-          "name": "CoderabbitAdapter_NitpickHeader_NormalizesToLow",
-          "dynamic": false
-        },
-        {
-          "suite": "coderabbitAdapter",
-          "name": "CoderabbitAdapter_UnrecognizedTier_DefaultsToMedium",
-          "dynamic": false
-        },
-        {
-          "suite": "coderabbitAdapter",
-          "name": "CoderabbitAdapter_NonCoderabbitAuthor_ReturnsNull",
-          "dynamic": false
-        },
-        {
-          "suite": "coderabbitAdapter",
-          "name": "CoderabbitAdapter_PopulatesFileAndLine",
-          "dynamic": false
-        },
-        {
-          "suite": "coderabbitAdapter",
-          "name": "CoderabbitAdapter_CriticalHeading_NormalizesToHigh",
-          "dynamic": false
-        },
-        {
-          "suite": "coderabbitAdapter",
-          "name": "CoderabbitAdapter_MajorBoldHeading_NormalizesToHigh",
-          "dynamic": false
-        },
-        {
-          "suite": "coderabbitAdapter",
-          "name": "CoderabbitAdapter_UnknownTier_PopulatesRawTier",
-          "dynamic": false
-        },
-        {
-          "suite": "coderabbitAdapter",
-          "name": "CoderabbitAdapter_MidSentenceMinor_DoesNotMatchLow",
-          "dynamic": false
-        },
-        {
-          "suite": "coderabbitAdapter",
-          "name": "CoderabbitAdapter_NitpickHeading_StillMatchesLow",
-          "dynamic": false
-        },
-        {
-          "suite": "coderabbitAdapter",
-          "name": "CoderabbitAdapter_MalformedInput_DoesNotThrow",
-          "dynamic": false
-        }
-      ]
-    },
-    "tests/unit/review/providers/github-copilot.test.ts": {
-      "file": "tests/unit/review/providers/github-copilot.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "githubCopilotAdapter",
-          "name": "GithubCopilotAdapter_KindIsGithubCopilot",
-          "dynamic": false
-        },
-        {
-          "suite": "githubCopilotAdapter > GithubCopilotAdapter_KnownCopilotAuthor_ReturnsActionItem",
-          "name": "<dynamic-case-1>",
-          "dynamic": true
-        },
-        {
-          "suite": "githubCopilotAdapter",
-          "name": "GithubCopilotAdapter_AnyComment_DefaultsToMedium",
-          "dynamic": false
-        },
-        {
-          "suite": "githubCopilotAdapter",
-          "name": "GithubCopilotAdapter_NonCopilotAuthor_ReturnsNull",
-          "dynamic": false
-        },
-        {
-          "suite": "githubCopilotAdapter",
-          "name": "GithubCopilotAdapter_PopulatesFileAndLine",
-          "dynamic": false
-        },
-        {
-          "suite": "githubCopilotAdapter",
-          "name": "GithubCopilotAdapter_LongBody_TruncatesDescriptionTo100Chars",
-          "dynamic": false
-        },
-        {
-          "suite": "githubCopilotAdapter",
-          "name": "GithubCopilotAdapter_ShortBody_DescriptionUntruncated",
-          "dynamic": false
-        },
-        {
-          "suite": "githubCopilotAdapter",
-          "name": "GithubCopilotAdapter_PrIsZero",
-          "dynamic": false
-        },
-        {
-          "suite": "githubCopilotAdapter",
-          "name": "GithubCopilotAdapter_MissingFileAndLine_ReturnsUndefined",
-          "dynamic": false
-        },
-        {
-          "suite": "githubCopilotAdapter",
-          "name": "GithubCopilotAdapter_MalformedInput_DoesNotThrow",
-          "dynamic": false
-        }
-      ]
-    },
-    "tests/unit/review/providers/human.test.ts": {
-      "file": "tests/unit/review/providers/human.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "humanAdapter",
-          "name": "HumanAdapter_HumanAuthor_ReturnsActionItem",
-          "dynamic": false
-        },
-        {
-          "suite": "humanAdapter",
-          "name": "HumanAdapter_AnyComment_DefaultsToMedium",
-          "dynamic": false
-        },
-        {
-          "suite": "humanAdapter",
-          "name": "HumanAdapter_BotAuthor_ReturnsNull",
-          "dynamic": false
-        },
-        {
-          "suite": "humanAdapter",
-          "name": "HumanAdapter_CopilotAuthor_ReturnsNull",
-          "dynamic": false
-        },
-        {
-          "suite": "humanAdapter",
-          "name": "HumanAdapter_PopulatesFileAndLine",
-          "dynamic": false
-        },
-        {
-          "suite": "humanAdapter",
-          "name": "HumanAdapter_TruncatesLongBodyTo100Chars",
-          "dynamic": false
-        },
-        {
-          "suite": "humanAdapter",
-          "name": "HumanAdapter_KindIsHuman",
-          "dynamic": false
-        },
-        {
-          "suite": "humanAdapter",
-          "name": "HumanAdapter_MalformedInput_DoesNotThrow",
-          "dynamic": false
-        }
-      ]
-    },
-    "tests/unit/review/providers/sentry.test.ts": {
-      "file": "tests/unit/review/providers/sentry.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "sentryAdapter",
-          "name": "SentryAdapter_CriticalTag_NormalizesToHigh",
-          "dynamic": false
-        },
-        {
-          "suite": "sentryAdapter",
-          "name": "SentryAdapter_HighTag_NormalizesToHigh",
-          "dynamic": false
-        },
-        {
-          "suite": "sentryAdapter",
-          "name": "SentryAdapter_MediumTag_NormalizesToMedium",
-          "dynamic": false
-        },
-        {
-          "suite": "sentryAdapter",
-          "name": "SentryAdapter_LowTag_NormalizesToLow",
-          "dynamic": false
-        },
-        {
-          "suite": "sentryAdapter",
-          "name": "SentryAdapter_NoSeverityTag_DefaultsToMedium",
-          "dynamic": false
-        },
-        {
-          "suite": "sentryAdapter",
-          "name": "SentryAdapter_NonSentryAuthor_ReturnsNull",
-          "dynamic": false
-        },
-        {
-          "suite": "sentryAdapter",
-          "name": "SentryAdapter_PopulatesFileAndLine",
-          "dynamic": false
-        },
-        {
-          "suite": "sentryAdapter",
-          "name": "SentryAdapter_MalformedInput_DoesNotThrow",
-          "dynamic": false
-        },
-        {
-          "suite": "sentryAdapter",
-          "name": "SentryAdapter_NoTier_DoesNotSetUnknownTier",
-          "dynamic": false
-        }
-      ]
-    },
-    "tests/unit/review/providers/unknown.test.ts": {
-      "file": "tests/unit/review/providers/unknown.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "unknownAdapter",
-          "name": "UnknownAdapter_AnyAuthor_AlwaysParses",
-          "dynamic": false
-        },
-        {
-          "suite": "unknownAdapter",
-          "name": "UnknownAdapter_AnyComment_DefaultsToMedium",
-          "dynamic": false
-        },
-        {
-          "suite": "unknownAdapter",
-          "name": "UnknownAdapter_PopulatesFileAndLine",
-          "dynamic": false
-        },
-        {
-          "suite": "unknownAdapter",
-          "name": "UnknownAdapter_PopulatesThreadIdAndRaw",
-          "dynamic": false
-        },
-        {
-          "suite": "unknownAdapter",
-          "name": "UnknownAdapter_MalformedInput_DoesNotThrow",
-          "dynamic": false
-        }
-      ]
-    },
-    "tests/unit/review/registry.test.ts": {
-      "file": "tests/unit/review/registry.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "createReviewAdapterRegistry",
-          "name": "CreateReviewAdapterRegistry_ReturnsAllFiveAdapters",
-          "dynamic": false
-        },
-        {
-          "suite": "createReviewAdapterRegistry",
-          "name": "CreateReviewAdapterRegistry_ForReviewerCoderabbit_ReturnsCoderabbitAdapter",
-          "dynamic": false
-        },
-        {
-          "suite": "createReviewAdapterRegistry",
-          "name": "CreateReviewAdapterRegistry_ForReviewerSentry_ReturnsSentryAdapter",
-          "dynamic": false
-        },
-        {
-          "suite": "createReviewAdapterRegistry",
-          "name": "CreateReviewAdapterRegistry_ForReviewerHuman_ReturnsHumanAdapter",
-          "dynamic": false
-        },
-        {
-          "suite": "createReviewAdapterRegistry",
-          "name": "CreateReviewAdapterRegistry_ForReviewerGithubCopilot_ReturnsCopilotAdapter",
-          "dynamic": false
-        },
-        {
-          "suite": "createReviewAdapterRegistry",
-          "name": "CreateReviewAdapterRegistry_ForReviewerUnknown_ReturnsUnknownAdapter",
-          "dynamic": false
-        },
-        {
-          "suite": "createReviewAdapterRegistry",
-          "name": "CreateReviewAdapterRegistry_ListIsImmutable",
-          "dynamic": false
-        },
-        {
-          "suite": "detectKind",
-          "name": "DetectKind_CoderabbitAuthor_ReturnsCoderabbit",
-          "dynamic": false
-        },
-        {
-          "suite": "detectKind",
-          "name": "DetectKind_SentryAuthor_ReturnsSentry",
-          "dynamic": false
-        },
-        {
-          "suite": "detectKind",
-          "name": "DetectKind_GithubCopilotBotAuthor_ReturnsGithubCopilot",
-          "dynamic": false
-        },
-        {
-          "suite": "detectKind",
-          "name": "DetectKind_CopilotShortBotAuthor_ReturnsGithubCopilot",
-          "dynamic": false
-        },
-        {
-          "suite": "detectKind",
-          "name": "DetectKind_CopilotDisplayName_ReturnsGithubCopilot",
-          "dynamic": false
-        },
-        {
-          "suite": "detectKind",
-          "name": "DetectKind_HumanAuthor_ReturnsHuman",
-          "dynamic": false
-        },
-        {
-          "suite": "detectKind",
-          "name": "DetectKind_UnknownBot_ReturnsUnknown",
-          "dynamic": false
-        }
-      ]
-    },
     "tests/unit/review/review-triage.test.ts": {
       "file": "tests/unit/review/review-triage.test.ts",
       "runner": "vitest:root",
@@ -47234,7 +46665,7 @@
         },
         {
           "suite": "Decision runbooks",
-          "name": "Runbook_MergePending_TemplateVarsExpand",
+          "name": "Runbook_NoMergePendingRunbook_Remains",
           "dynamic": false
         },
         {
@@ -47377,11 +46808,6 @@
         {
           "suite": "Runbook definitions",
           "name": "PlanCloseout_HasThreeSteps_TwoBlockingGatesFirst",
-          "dynamic": false
-        },
-        {
-          "suite": "Runbook definitions",
-          "name": "Runbook_PhaseMergePending_ReturnsPopulatedSteps",
           "dynamic": false
         },
         {
@@ -49349,48 +48775,6 @@
         {
           "suite": "FileVersionLedger (P03-08 durable anti-rollback)",
           "name": "Ledger_CorruptFile_FailsClosed",
-          "dynamic": false
-        }
-      ]
-    },
-    "tests/unit/runtime/launcher/launch-reconcile.test.ts": {
-      "file": "tests/unit/runtime/launcher/launch-reconcile.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "phantom-launch reconciler (DR-6)",
-          "name": "Reconcile_DeadHolderStartedNoExecuted_EmitsTerminal",
-          "dynamic": false
-        },
-        {
-          "suite": "phantom-launch reconciler (DR-6)",
-          "name": "Reconcile_OneTerminalAppendFails_OthersStillReconciled",
-          "dynamic": false
-        },
-        {
-          "suite": "phantom-launch reconciler (DR-6)",
-          "name": "Reconcile_LiveHolder_LeftInFlight",
-          "dynamic": false
-        },
-        {
-          "suite": "phantom-launch reconciler (DR-6)",
-          "name": "Reconcile_OnDemandOnly_NoPolling",
-          "dynamic": false
-        }
-      ]
-    },
-    "tests/unit/runtime/launcher/liveness.test.ts": {
-      "file": "tests/unit/runtime/launcher/liveness.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "launcher liveness emitters (DR-2)",
-          "name": "Liveness_EmitsStartedAndExecuted",
-          "dynamic": false
-        },
-        {
-          "suite": "launcher liveness emitters (DR-2)",
-          "name": "Liveness_TerminalSeam_Idempotent",
           "dynamic": false
         }
       ]
@@ -52899,892 +52283,6 @@
         }
       ]
     },
-    "tests/unit/vcs/azure-devops.test.ts": {
-      "file": "tests/unit/vcs/azure-devops.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "AzureDevOpsProvider",
-          "name": "AzureDevOpsProvider_Name_IsAzureDevOps",
-          "dynamic": false
-        },
-        {
-          "suite": "AzureDevOpsProvider",
-          "name": "AzureDevOpsProvider_CreatePr_CallsAzWithCorrectArgs",
-          "dynamic": false
-        },
-        {
-          "suite": "AzureDevOpsProvider",
-          "name": "AzureDevOpsProvider_CreatePr_IncludesDraftFlag",
-          "dynamic": false
-        },
-        {
-          "suite": "AzureDevOpsProvider",
-          "name": "AzureDevOpsProvider_CreatePr_IncludesLabels",
-          "dynamic": false
-        },
-        {
-          "suite": "AzureDevOpsProvider",
-          "name": "AzureDevOps_CreatePr_UsesOutputJsonNotWriteJsonFlag",
-          "dynamic": false
-        },
-        {
-          "suite": "AzureDevOpsProvider",
-          "name": "AzureDevOpsProvider_CreatePr_PropagatesExecError",
-          "dynamic": false
-        },
-        {
-          "suite": "AzureDevOpsProvider",
-          "name": "AzureDevOpsProvider_CheckCi_ParsesPipelineRuns",
-          "dynamic": false
-        },
-        {
-          "suite": "AzureDevOpsProvider",
-          "name": "AzureDevOpsProvider_CheckCi_AllPassing",
-          "dynamic": false
-        },
-        {
-          "suite": "AzureDevOpsProvider",
-          "name": "AzureDevOpsProvider_CheckCi_PendingRuns",
-          "dynamic": false
-        },
-        {
-          "suite": "AzureDevOpsProvider",
-          "name": "AzureDevOpsProvider_CheckCi_NoRuns",
-          "dynamic": false
-        },
-        {
-          "suite": "AzureDevOpsProvider",
-          "name": "AzureDevOpsProvider_CheckCi_PropagatesExecError",
-          "dynamic": false
-        },
-        {
-          "suite": "AzureDevOpsProvider",
-          "name": "AzureDevOpsProvider_MergePr_SquashStrategy",
-          "dynamic": false
-        },
-        {
-          "suite": "AzureDevOpsProvider",
-          "name": "AzureDevOpsProvider_MergePr_RebaseStrategy",
-          "dynamic": false
-        },
-        {
-          "suite": "AzureDevOpsProvider",
-          "name": "AzureDevOpsProvider_MergePr_MergeStrategy",
-          "dynamic": false
-        },
-        {
-          "suite": "AzureDevOpsProvider",
-          "name": "AzureDevOpsProvider_MergePr_HandlesFailure",
-          "dynamic": false
-        },
-        {
-          "suite": "AzureDevOpsProvider",
-          "name": "AzureDevOpsProvider_MergePr_NoMergeCommit",
-          "dynamic": false
-        },
-        {
-          "suite": "AzureDevOpsProvider",
-          "name": "AzureDevOpsProvider_AddComment_CallsAzReposPrCommentCreate",
-          "dynamic": false
-        },
-        {
-          "suite": "AzureDevOpsProvider",
-          "name": "AzureDevOpsProvider_GetReviewStatus_ParsesApproved",
-          "dynamic": false
-        },
-        {
-          "suite": "AzureDevOpsProvider",
-          "name": "AzureDevOpsProvider_GetReviewStatus_ParsesRejected",
-          "dynamic": false
-        },
-        {
-          "suite": "AzureDevOpsProvider",
-          "name": "AzureDevOpsProvider_GetReviewStatus_ParsesWaitingForAuthor",
-          "dynamic": false
-        },
-        {
-          "suite": "AzureDevOpsProvider",
-          "name": "AzureDevOpsProvider_GetReviewStatus_ParsesPending",
-          "dynamic": false
-        },
-        {
-          "suite": "AzureDevOpsProvider",
-          "name": "AzureDevOpsProvider_GetReviewStatus_MixedVotes",
-          "dynamic": false
-        },
-        {
-          "suite": "AzureDevOpsProvider",
-          "name": "AzureDevOpsProvider_GetReviewStatus_NoReviewers",
-          "dynamic": false
-        },
-        {
-          "suite": "AzureDevOpsProvider",
-          "name": "AzureDevOpsProvider_GetReviewStatus_ApprovedWithSuggestions",
-          "dynamic": false
-        },
-        {
-          "suite": "AzureDevOpsProvider",
-          "name": "AzureDevOps_GetPrComments_AggregatesThreads",
-          "dynamic": false
-        },
-        {
-          "suite": "AzureDevOpsProvider",
-          "name": "AzureDevOps_GetPrComments_ClassifiesThreadContextAsReviewInlineWithPathLine",
-          "dynamic": false
-        },
-        {
-          "suite": "AzureDevOpsProvider",
-          "name": "AzureDevOps_GetPrComments_ComposesPrUniqueIdsAcrossThreads",
-          "dynamic": false
-        },
-        {
-          "suite": "AzureDevOpsProvider",
-          "name": "AzureDevOps_GetPrComments_ExcludesSystemThreads",
-          "dynamic": false
-        },
-        {
-          "suite": "AzureDevOpsProvider",
-          "name": "AzureDevOps_GetPrComments_MapsDecidedStatusesToResolvedTrue",
-          "dynamic": false
-        },
-        {
-          "suite": "AzureDevOpsProvider",
-          "name": "AzureDevOps_GetPrComments_MapsOpenStatusesToResolvedFalse",
-          "dynamic": false
-        },
-        {
-          "suite": "AzureDevOpsProvider",
-          "name": "AzureDevOps_GetPrComments_ThreadsRepliesByParentId",
-          "dynamic": false
-        },
-        {
-          "suite": "AzureDevOpsProvider",
-          "name": "AzureDevOps_GetPrComments_EmitsOnlyContractKeys",
-          "dynamic": false
-        },
-        {
-          "suite": "AzureDevOpsProvider",
-          "name": "AzureDevOps_GetPrComments_LeavesResolvedAbsentOnUnknownStatus",
-          "dynamic": false
-        }
-      ]
-    },
-    "tests/unit/vcs/detector.test.ts": {
-      "file": "tests/unit/vcs/detector.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "detectVcsProvider — GitHub URL parsing",
-          "name": "detectVcsProvider_GitHubHttpsUrl_ReturnsGitHub",
-          "dynamic": false
-        },
-        {
-          "suite": "detectVcsProvider — GitHub URL parsing",
-          "name": "detectVcsProvider_GitHubSshUrl_ReturnsGitHub",
-          "dynamic": false
-        },
-        {
-          "suite": "detectVcsProvider — GitLab + Azure DevOps URL parsing",
-          "name": "detectVcsProvider_GitLabUrl_ReturnsGitLab",
-          "dynamic": false
-        },
-        {
-          "suite": "detectVcsProvider — GitLab + Azure DevOps URL parsing",
-          "name": "detectVcsProvider_AzureDevOpsUrl_ReturnsAzureDevOps",
-          "dynamic": false
-        },
-        {
-          "suite": "detectVcsProvider — GitLab + Azure DevOps URL parsing",
-          "name": "detectVcsProvider_AzureDevOpsVisualStudioUrl_ReturnsAzureDevOps",
-          "dynamic": false
-        },
-        {
-          "suite": "detectVcsProvider — GitLab + Azure DevOps URL parsing",
-          "name": "detectVcsProvider_SelfHostedGitLab_ReturnsGitLab",
-          "dynamic": false
-        },
-        {
-          "suite": "detectVcsProvider — CLI availability",
-          "name": "detectVcsProvider_GhNotOnPath_CliAvailableFalse",
-          "dynamic": false
-        },
-        {
-          "suite": "detectVcsProvider — CLI availability",
-          "name": "detectVcsProvider_GhOnPath_CliAvailableTrue",
-          "dynamic": false
-        },
-        {
-          "suite": "detectVcsProvider — CLI availability",
-          "name": "detectVcsProvider_GlabOnPath_CliAvailableTrue",
-          "dynamic": false
-        },
-        {
-          "suite": "detectVcsProvider — CLI availability",
-          "name": "detectVcsProvider_AzOnPath_CliAvailableTrue",
-          "dynamic": false
-        },
-        {
-          "suite": "detectVcsProvider — env var override",
-          "name": "detectVcsProvider_ExarchosVcsProviderEnv_OverridesDetection",
-          "dynamic": false
-        },
-        {
-          "suite": "detectVcsProvider — env var override",
-          "name": "detectVcsProvider_ExarchosVcsProviderEnvInvalid_IgnoresOverride",
-          "dynamic": false
-        },
-        {
-          "suite": "detectVcsProvider — env var override",
-          "name": "detectVcsProvider_ExarchosVcsProviderEnvNoRemote_StillDetectsProvider",
-          "dynamic": false
-        },
-        {
-          "suite": "detectVcsProvider — edge cases",
-          "name": "detectVcsProvider_NoRemote_ReturnsNull",
-          "dynamic": false
-        },
-        {
-          "suite": "detectVcsProvider — edge cases",
-          "name": "detectVcsProvider_UnknownHost_ReturnsNull",
-          "dynamic": false
-        },
-        {
-          "suite": "detectVcsProvider — edge cases",
-          "name": "detectVcsProvider_MalformedUrl_ReturnsNull",
-          "dynamic": false
-        },
-        {
-          "suite": "detectVcsProvider — edge cases",
-          "name": "detectVcsProvider_EmptyRemoteUrl_ReturnsNull",
-          "dynamic": false
-        },
-        {
-          "suite": "detectVcsProvider — edge cases",
-          "name": "detectVcsProvider_WhitespaceInUrl_TrimsAndParses",
-          "dynamic": false
-        },
-        {
-          "suite": "detectVcsProvider — constrained remote read",
-          "name": "DetectVcsProvider_ConstrainedRead_NeverRunsGitThroughExec",
-          "dynamic": false
-        },
-        {
-          "suite": "detectVcsProvider — constrained remote read",
-          "name": "DetectVcsProvider_SubdirectoryCwd_ClimbsToTheCheckout",
-          "dynamic": false
-        },
-        {
-          "suite": "detectVcsProvider — constrained remote read",
-          "name": "DetectVcsProvider_UnreadableRead_GivesNullOrTheOverrideWithAnEmptyUrl",
-          "dynamic": false
-        },
-        {
-          "suite": "detectVcsProvider — constrained remote read",
-          "name": "DetectVcsProvider_InjectedReader_IsTheOnlyReader",
-          "dynamic": false
-        }
-      ]
-    },
-    "tests/unit/vcs/factory.test.ts": {
-      "file": "tests/unit/vcs/factory.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "createVcsProvider",
-          "name": "createVcsProvider_GitHub_ReturnsGitHubProvider",
-          "dynamic": false
-        },
-        {
-          "suite": "createVcsProvider",
-          "name": "createVcsProvider_GitLab_ReturnsGitLabProvider",
-          "dynamic": false
-        },
-        {
-          "suite": "createVcsProvider",
-          "name": "createVcsProvider_AzureDevOps_ReturnsAzureProvider",
-          "dynamic": false
-        },
-        {
-          "suite": "createVcsProvider",
-          "name": "createVcsProvider_PassesSettings_ToProvider",
-          "dynamic": false
-        },
-        {
-          "suite": "createVcsProvider",
-          "name": "createVcsProvider_NoOpts_DefaultsToGitHub",
-          "dynamic": false
-        },
-        {
-          "suite": "createVcsProvider",
-          "name": "CreateVcsProvider_AutoDetect_UsesDetectedProvider",
-          "dynamic": false
-        },
-        {
-          "suite": "createVcsProvider",
-          "name": "CreateVcsProvider_ExplicitConfig_SkipsDetection",
-          "dynamic": false
-        },
-        {
-          "suite": "createVcsProvider",
-          "name": "CreateVcsProvider_NoRemote_DefaultsToGitHub",
-          "dynamic": false
-        },
-        {
-          "suite": "createVcsProvider",
-          "name": "CreateVcsProvider_AutoDetect_AzureDevOps",
-          "dynamic": false
-        },
-        {
-          "suite": "createVcsProvider",
-          "name": "CreateVcsProvider_AutoDetect_GitHub",
-          "dynamic": false
-        },
-        {
-          "suite": "createVcsProvider",
-          "name": "CreateVcsProvider_AutoDetect_UnknownHost_DefaultsToGitHub",
-          "dynamic": false
-        }
-      ]
-    },
-    "tests/unit/vcs/github-pr-id-injection.test.ts": {
-      "file": "tests/unit/vcs/github-pr-id-injection.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "GitHub pull request id injection > GitHubProvider argument vector",
-          "name": "mergePr passes a numeric id after -- and keeps the strategy flag before it",
-          "dynamic": false
-        },
-        {
-          "suite": "GitHub pull request id injection > GitHubProvider argument vector",
-          "name": "mergePr does not invoke gh for prId %j",
-          "dynamic": false
-        },
-        {
-          "suite": "GitHub pull request id injection > GitHubProvider argument vector",
-          "name": "<dynamic-case-1>",
-          "dynamic": true
-        },
-        {
-          "suite": "GitHub pull request id injection > GitHubProvider argument vector",
-          "name": "checkCi passes a numeric id after --",
-          "dynamic": false
-        },
-        {
-          "suite": "GitHub pull request id injection > GitHubProvider argument vector",
-          "name": "checkCi does not invoke gh for prId %j",
-          "dynamic": false
-        },
-        {
-          "suite": "GitHub pull request id injection > GitHubProvider argument vector",
-          "name": "<dynamic-case-2>",
-          "dynamic": true
-        },
-        {
-          "suite": "GitHub pull request id injection > GitHubProvider argument vector",
-          "name": "getReviewStatus passes a numeric id after --",
-          "dynamic": false
-        },
-        {
-          "suite": "GitHub pull request id injection > GitHubProvider argument vector",
-          "name": "getReviewStatus does not invoke gh for prId %j",
-          "dynamic": false
-        },
-        {
-          "suite": "GitHub pull request id injection > GitHubProvider argument vector",
-          "name": "<dynamic-case-3>",
-          "dynamic": true
-        },
-        {
-          "suite": "GitHub pull request id injection > GitHubProvider argument vector",
-          "name": "getPrDiff passes a numeric id after --",
-          "dynamic": false
-        },
-        {
-          "suite": "GitHub pull request id injection > GitHubProvider argument vector",
-          "name": "getPrDiff does not invoke gh for prId %j",
-          "dynamic": false
-        },
-        {
-          "suite": "GitHub pull request id injection > GitHubProvider argument vector",
-          "name": "<dynamic-case-4>",
-          "dynamic": true
-        },
-        {
-          "suite": "GitHub pull request id injection > GitHubProvider argument vector",
-          "name": "addComment passes a numeric id after -- and the body stays a flag value",
-          "dynamic": false
-        },
-        {
-          "suite": "GitHub pull request id injection > GitHubProvider argument vector",
-          "name": "addComment does not invoke gh for prId %j",
-          "dynamic": false
-        },
-        {
-          "suite": "GitHub pull request id injection > GitHubProvider argument vector",
-          "name": "<dynamic-case-5>",
-          "dynamic": true
-        },
-        {
-          "suite": "GitHub pull request id injection > GitHubProvider argument vector",
-          "name": "addReply builds the reply path from numeric segments only",
-          "dynamic": false
-        },
-        {
-          "suite": "GitHub pull request id injection > GitHubProvider argument vector",
-          "name": "addReply does not invoke gh for prId %j",
-          "dynamic": false
-        },
-        {
-          "suite": "GitHub pull request id injection > GitHubProvider argument vector",
-          "name": "<dynamic-case-6>",
-          "dynamic": true
-        },
-        {
-          "suite": "GitHub pull request id injection > GitHubProvider argument vector",
-          "name": "addReply does not invoke gh for threadId %j",
-          "dynamic": false
-        },
-        {
-          "suite": "GitHub pull request id injection > GitHubProvider argument vector",
-          "name": "<dynamic-case-7>",
-          "dynamic": true
-        },
-        {
-          "suite": "GitHub pull request id injection > GitHubProvider argument vector",
-          "name": "getPrComments requests only numeric issue, review, and diff-comment paths",
-          "dynamic": false
-        },
-        {
-          "suite": "GitHub pull request id injection > GitHubProvider argument vector",
-          "name": "getPrComments does not invoke gh for prId %j",
-          "dynamic": false
-        },
-        {
-          "suite": "GitHub pull request id injection > GitHubProvider argument vector",
-          "name": "<dynamic-case-8>",
-          "dynamic": true
-        }
-      ]
-    },
-    "tests/unit/vcs/github.test.ts": {
-      "file": "tests/unit/vcs/github.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "GitHubProvider",
-          "name": "GitHubProvider_Name_IsGithub",
-          "dynamic": false
-        },
-        {
-          "suite": "GitHubProvider",
-          "name": "GitHubProvider_CreatePr_CallsGhWithCorrectArgs",
-          "dynamic": false
-        },
-        {
-          "suite": "GitHubProvider",
-          "name": "GitHubProvider_CreatePr_IncludesDraftFlag",
-          "dynamic": false
-        },
-        {
-          "suite": "GitHubProvider",
-          "name": "GitHubProvider_CreatePr_IncludesLabels",
-          "dynamic": false
-        },
-        {
-          "suite": "GitHubProvider",
-          "name": "GitHub_CreatePr_OmitsJsonFlag",
-          "dynamic": false
-        },
-        {
-          "suite": "GitHubProvider",
-          "name": "GitHub_CreatePr_ParsesNumberFromUrl",
-          "dynamic": false
-        },
-        {
-          "suite": "GitHubProvider",
-          "name": "GitHub_CreatePr_FallsBackToPrViewOnUnparseableUrl",
-          "dynamic": false
-        },
-        {
-          "suite": "GitHubProvider",
-          "name": "checkCi_CurrentGhStateField_ParsesRunStatus",
-          "dynamic": false
-        },
-        {
-          "suite": "GitHubProvider",
-          "name": "checkCi_RecordedGhOutput_ClassifiesPassAndFail",
-          "dynamic": false
-        },
-        {
-          "suite": "GitHubProvider",
-          "name": "checkCi_InProgressState_MapsToPending",
-          "dynamic": false
-        },
-        {
-          "suite": "GitHubProvider",
-          "name": "checkCi_SkippedOnlyRun_IsOverallPass",
-          "dynamic": false
-        },
-        {
-          "suite": "GitHubProvider",
-          "name": "GitHubProvider_MergePr_DefaultsToSquash",
-          "dynamic": false
-        },
-        {
-          "suite": "GitHubProvider",
-          "name": "GitHubProvider_MergePr_UsesRebaseStrategy",
-          "dynamic": false
-        },
-        {
-          "suite": "GitHubProvider",
-          "name": "GitHubProvider_MergePr_UsesMergeStrategy",
-          "dynamic": false
-        },
-        {
-          "suite": "GitHubProvider",
-          "name": "GitHubProvider_MergePr_ReturnsMergedResult",
-          "dynamic": false
-        },
-        {
-          "suite": "GitHubProvider",
-          "name": "GitHubProvider_MergePr_ReturnsMergedWithoutSha_WhenViewFails",
-          "dynamic": false
-        },
-        {
-          "suite": "GitHubProvider",
-          "name": "GitHubProvider_MergePr_FetchesShaViaGhPrView",
-          "dynamic": false
-        },
-        {
-          "suite": "GitHubProvider",
-          "name": "GitHubProvider_MergePr_HandlesFailure",
-          "dynamic": false
-        },
-        {
-          "suite": "GitHubProvider",
-          "name": "GitHubProvider_AddComment_CallsGhPrComment",
-          "dynamic": false
-        },
-        {
-          "suite": "GitHubProvider",
-          "name": "GitHubProvider_AddReply_PostsToRepliesEndpointWithBody",
-          "dynamic": false
-        },
-        {
-          "suite": "GitHubProvider",
-          "name": "GitHubProvider_AddReply_ReturnsIdFromResponse",
-          "dynamic": false
-        },
-        {
-          "suite": "GitHubProvider",
-          "name": "GitHubProvider_GetReviewStatus_ParsesApproved",
-          "dynamic": false
-        },
-        {
-          "suite": "GitHubProvider",
-          "name": "GitHubProvider_GetReviewStatus_ParsesChangesRequested",
-          "dynamic": false
-        },
-        {
-          "suite": "GitHubProvider",
-          "name": "GitHubProvider_GetReviewStatus_ParsesPending",
-          "dynamic": false
-        },
-        {
-          "suite": "GitHubProvider",
-          "name": "GitHubProvider_ListPrs_ReturnsFilteredResults",
-          "dynamic": false
-        },
-        {
-          "suite": "GitHubProvider",
-          "name": "GitHubProvider_ListPrs_FiltersOpenByHead",
-          "dynamic": false
-        },
-        {
-          "suite": "GitHubProvider",
-          "name": "GitHubProvider_ListPrs_NoFilter_ReturnsAll",
-          "dynamic": false
-        },
-        {
-          "suite": "GitHubProvider",
-          "name": "GitHubProvider_ListPrs_FilterByBase",
-          "dynamic": false
-        },
-        {
-          "suite": "GitHubProvider",
-          "name": "GitHubProvider_ListPrs_StateAll",
-          "dynamic": false
-        },
-        {
-          "suite": "GitHubProvider",
-          "name": "GitHubProvider_GetPrComments_ReturnsParsedComments",
-          "dynamic": false
-        },
-        {
-          "suite": "GitHubProvider",
-          "name": "GetPrComments_AggregatesAllThreeSources",
-          "dynamic": false
-        },
-        {
-          "suite": "GitHubProvider",
-          "name": "GetPrComments_LinksRepliesViaParentId",
-          "dynamic": false
-        },
-        {
-          "suite": "GitHubProvider",
-          "name": "GetPrComments_AnyAuthor_IncludesBots",
-          "dynamic": false
-        },
-        {
-          "suite": "GitHubProvider",
-          "name": "GetPrComments_AddCommentVerifyPath_StillFindsPostedComment",
-          "dynamic": false
-        },
-        {
-          "suite": "GitHubProvider",
-          "name": "GetPrComments_BodylessReview_Excluded",
-          "dynamic": false
-        },
-        {
-          "suite": "GitHubProvider",
-          "name": "GetPrComments_ResolvedStatus_GraphqlEnrichmentFailSoft",
-          "dynamic": false
-        },
-        {
-          "suite": "GitHubProvider",
-          "name": "GitHubProvider_GetRepository_ReturnsNameWithOwner",
-          "dynamic": false
-        },
-        {
-          "suite": "GitHubProvider",
-          "name": "GitHubProvider_GetPrDiff_ReturnsDiffString",
-          "dynamic": false
-        },
-        {
-          "suite": "GitHubProvider",
-          "name": "GitHubProvider_CreateIssue_ReturnsIssueResult",
-          "dynamic": false
-        },
-        {
-          "suite": "GitHubProvider",
-          "name": "GitHubProvider_CreateIssue_NoLabels",
-          "dynamic": false
-        },
-        {
-          "suite": "GitHubProvider",
-          "name": "GitHubProvider_CreateIssue_WithAssignees_PassesAssigneeFlag",
-          "dynamic": false
-        },
-        {
-          "suite": "GitHubProvider",
-          "name": "GitHubProvider_SearchIssuesByMarker_ListsRecentIssuesAndFiltersClientSide",
-          "dynamic": false
-        },
-        {
-          "suite": "GitHubProvider",
-          "name": "GitHubProvider_SearchIssuesByMarker_NoMatches_ReturnsEmptyArray",
-          "dynamic": false
-        },
-        {
-          "suite": "GitHubProvider",
-          "name": "getPrComments_DefaultLimit_ReturnsPageWithHasMore",
-          "dynamic": false
-        },
-        {
-          "suite": "GitHubProvider",
-          "name": "getPrComments_FieldsProjection_ReturnsOnlyRequestedKeys",
-          "dynamic": false
-        },
-        {
-          "suite": "GitHubProvider",
-          "name": "getPrComments_ExplicitOffset_PagesDeterministically",
-          "dynamic": false
-        },
-        {
-          "suite": "GitHubProvider",
-          "name": "getPrCommentsPage_LastPage_NoHasMoreNoNotice",
-          "dynamic": false
-        }
-      ]
-    },
-    "tests/unit/vcs/gitlab.test.ts": {
-      "file": "tests/unit/vcs/gitlab.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "GitLabProvider",
-          "name": "GitLabProvider_Name_IsGitlab",
-          "dynamic": false
-        },
-        {
-          "suite": "GitLabProvider",
-          "name": "GitLabProvider_CreatePr_CallsGlabWithCorrectArgs",
-          "dynamic": false
-        },
-        {
-          "suite": "GitLabProvider",
-          "name": "GitLab_CreatePr_OmitsJsonFlagOnCreate",
-          "dynamic": false
-        },
-        {
-          "suite": "GitLabProvider",
-          "name": "GitLab_CreatePr_ReadsIidAndUrlFromMrView",
-          "dynamic": false
-        },
-        {
-          "suite": "GitLabProvider",
-          "name": "GitLab_CreatePr_ThrowsWhenViewReadFails",
-          "dynamic": false
-        },
-        {
-          "suite": "GitLabProvider",
-          "name": "GitLabProvider_CreatePr_IncludesDraftFlag",
-          "dynamic": false
-        },
-        {
-          "suite": "GitLabProvider",
-          "name": "GitLabProvider_CreatePr_IncludesLabels",
-          "dynamic": false
-        },
-        {
-          "suite": "GitLabProvider",
-          "name": "GitLabProvider_CreatePr_PropagatesExecError",
-          "dynamic": false
-        },
-        {
-          "suite": "GitLabProvider",
-          "name": "GitLabProvider_CheckCi_ParsesPipelineJobs",
-          "dynamic": false
-        },
-        {
-          "suite": "GitLabProvider",
-          "name": "GitLabProvider_CheckCi_AllPassing",
-          "dynamic": false
-        },
-        {
-          "suite": "GitLabProvider",
-          "name": "GitLabProvider_CheckCi_PendingJobs",
-          "dynamic": false
-        },
-        {
-          "suite": "GitLabProvider",
-          "name": "GitLabProvider_CheckCi_SkippedJobs",
-          "dynamic": false
-        },
-        {
-          "suite": "GitLabProvider",
-          "name": "GitLabProvider_CheckCi_NoPipeline",
-          "dynamic": false
-        },
-        {
-          "suite": "GitLabProvider",
-          "name": "GitLabProvider_CheckCi_PropagatesExecError",
-          "dynamic": false
-        },
-        {
-          "suite": "GitLabProvider",
-          "name": "GitLabProvider_MergePr_CallsGlabMergeWithSquash",
-          "dynamic": false
-        },
-        {
-          "suite": "GitLabProvider",
-          "name": "GitLabProvider_MergePr_RebaseStrategy",
-          "dynamic": false
-        },
-        {
-          "suite": "GitLabProvider",
-          "name": "GitLabProvider_MergePr_MergeStrategy",
-          "dynamic": false
-        },
-        {
-          "suite": "GitLabProvider",
-          "name": "GitLabProvider_MergePr_ReturnsSha",
-          "dynamic": false
-        },
-        {
-          "suite": "GitLabProvider",
-          "name": "GitLabProvider_MergePr_ReturnsMergedWithoutSha_WhenViewFails",
-          "dynamic": false
-        },
-        {
-          "suite": "GitLabProvider",
-          "name": "GitLabProvider_MergePr_HandlesFailure",
-          "dynamic": false
-        },
-        {
-          "suite": "GitLabProvider",
-          "name": "GitLabProvider_AddComment_CallsGlabMrComment",
-          "dynamic": false
-        },
-        {
-          "suite": "GitLabProvider",
-          "name": "GitLabProvider_GetReviewStatus_ParsesApproved",
-          "dynamic": false
-        },
-        {
-          "suite": "GitLabProvider",
-          "name": "GitLabProvider_GetReviewStatus_ParsesPending",
-          "dynamic": false
-        },
-        {
-          "suite": "GitLabProvider",
-          "name": "GitLabProvider_GetReviewStatus_PartialApproval",
-          "dynamic": false
-        },
-        {
-          "suite": "GitLabProvider",
-          "name": "GitLabProvider_GetReviewStatus_NoReviewers",
-          "dynamic": false
-        },
-        {
-          "suite": "GitLabProvider",
-          "name": "GitLab_GetPrComments_AggregatesNotesAndThreads",
-          "dynamic": false
-        },
-        {
-          "suite": "GitLabProvider",
-          "name": "GitLab_GetPrComments_ClassifiesDiffNoteAsReviewInlineWithPathLine",
-          "dynamic": false
-        },
-        {
-          "suite": "GitLabProvider",
-          "name": "GitLab_GetPrComments_MapsResolvableDiscussionTriState",
-          "dynamic": false
-        },
-        {
-          "suite": "GitLabProvider",
-          "name": "GitLab_GetPrComments_LeavesResolvedAbsentOnNonResolvableNote",
-          "dynamic": false
-        },
-        {
-          "suite": "GitLabProvider",
-          "name": "GitLab_GetPrComments_ThreadsRepliesByParentId",
-          "dynamic": false
-        },
-        {
-          "suite": "GitLabProvider",
-          "name": "GitLab_GetPrComments_PaginatesBeyondFirstPage",
-          "dynamic": false
-        },
-        {
-          "suite": "GitLabProvider",
-          "name": "GitLab_GetPrComments_EmitsOnlyContractKeys",
-          "dynamic": false
-        },
-        {
-          "suite": "GitLabProvider",
-          "name": "GitLab_GetPrComments_LeavesResolvedAbsentOnMissingResolutionField",
-          "dynamic": false
-        },
-        {
-          "suite": "GitLabProvider",
-          "name": "GitLab_GetPrComments_SkipsSystemNotes",
-          "dynamic": false
-        }
-      ]
-    },
     "tests/unit/vcs/mutation-owner.test.ts": {
       "file": "tests/unit/vcs/mutation-owner.test.ts",
       "runner": "vitest:root",
@@ -53882,138 +52380,6 @@
         {
           "suite": "shared git-mutation primitives (P04-05)",
           "name": "deleteBranchForce runs the forced-delete argv through the caller transport and returns its result",
-          "dynamic": false
-        }
-      ]
-    },
-    "tests/unit/vcs/provider.test.ts": {
-      "file": "tests/unit/vcs/provider.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "VcsProvider",
-          "name": "VcsProvider_Interface_DefinesRequiredMethods",
-          "dynamic": false
-        },
-        {
-          "suite": "VcsProvider",
-          "name": "GitLabProvider_Name_IsGitlab",
-          "dynamic": false
-        },
-        {
-          "suite": "VcsProvider",
-          "name": "AzureDevOpsProvider_Name_IsAzureDevOps",
-          "dynamic": false
-        },
-        {
-          "suite": "VcsProvider",
-          "name": "GitLabProvider_ImplementsVcsProvider",
-          "dynamic": false
-        },
-        {
-          "suite": "VcsProvider",
-          "name": "AzureDevOpsProvider_ImplementsVcsProvider",
-          "dynamic": false
-        },
-        {
-          "suite": "VcsProvider",
-          "name": "PrComment_Shape_CarriesSourceAuthorThreadResolved",
-          "dynamic": false
-        },
-        {
-          "suite": "VcsProvider",
-          "name": "PrComment_Resolved_AbsentIsUnknownNotFalse",
-          "dynamic": false
-        },
-        {
-          "suite": "windowPrComments",
-          "name": "windowPrComments_NoOpts_DefaultsToNewestLimit",
-          "dynamic": false
-        },
-        {
-          "suite": "windowPrComments",
-          "name": "windowPrComments_InvalidLimitOrOffset_Coerces",
-          "dynamic": false
-        },
-        {
-          "suite": "windowPrComments",
-          "name": "windowPrComments_FractionalLimit_DoesNotFloorToZeroPage",
-          "dynamic": false
-        },
-        {
-          "suite": "windowPrComments",
-          "name": "windowPrComments_OffsetBeyondTotal_EmptyNoMore",
-          "dynamic": false
-        },
-        {
-          "suite": "windowPrComments",
-          "name": "windowPrComments_EmptyFields_ReturnsFullComments",
-          "dynamic": false
-        },
-        {
-          "suite": "windowPrComments",
-          "name": "windowPrComments_ProjectsOnlyPresentKeys",
-          "dynamic": false
-        },
-        {
-          "suite": "computeOverallCiStatus (shared CI-status fold, DR-10)",
-          "name": "ComputeOverallCiStatus_EmptyChecks_Passes",
-          "dynamic": false
-        },
-        {
-          "suite": "computeOverallCiStatus (shared CI-status fold, DR-10)",
-          "name": "ComputeOverallCiStatus_AnyFail_FailsFast",
-          "dynamic": false
-        },
-        {
-          "suite": "computeOverallCiStatus (shared CI-status fold, DR-10)",
-          "name": "ComputeOverallCiStatus_PendingWithoutFail_IsPending",
-          "dynamic": false
-        },
-        {
-          "suite": "computeOverallCiStatus (shared CI-status fold, DR-10)",
-          "name": "ComputeOverallCiStatus_AllPassOrSkipped_Passes",
-          "dynamic": false
-        },
-        {
-          "suite": "computeOverallCiStatus (shared CI-status fold, DR-10)",
-          "name": "ComputeOverallCiStatus_FailPrecedesPending",
-          "dynamic": false
-        },
-        {
-          "suite": "partial-provider by-design throws (DR-10 extraction preservation)",
-          "name": "ComputeOverallCiStatus_GitLabPartialProvider_StillThrows",
-          "dynamic": false
-        },
-        {
-          "suite": "partial-provider by-design throws (DR-10 extraction preservation)",
-          "name": "ComputeOverallCiStatus_AzureDevOpsPartialProvider_StillThrows",
-          "dynamic": false
-        }
-      ]
-    },
-    "tests/unit/vcs/worktree-provisioner.test.ts": {
-      "file": "tests/unit/vcs/worktree-provisioner.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "mapWorktreeOutcome",
-          "name": "maps a fresh-create success to ok with both created flags true",
-          "dynamic": false
-        },
-        {
-          "suite": "mapWorktreeOutcome",
-          "name": "maps an idempotent no-op success (already existed) to ok with created flags false",
-          "dynamic": false
-        },
-        {
-          "suite": "mapWorktreeOutcome",
-          "name": "maps an error carrier to not-ok, surfacing the failure message",
-          "dynamic": false
-        },
-        {
-          "suite": "mapWorktreeOutcome",
-          "name": "maps a dry-run carrier to a typed not-ok non-provision (capability degrade)",
           "dynamic": false
         }
       ]
@@ -54170,12 +52536,7 @@
         },
         {
           "suite": "handleOrchestrate > merge orchestrate routing",
-          "name": "compositeOrchestrate_ActionMergeOrchestrate_RoutesToHandleMergeOrchestrate",
-          "dynamic": false
-        },
-        {
-          "suite": "handleOrchestrate > merge orchestrate routing",
-          "name": "OrchestrateRegistry_ActionList_IncludesMergeOrchestrate",
+          "name": "OrchestrateRegistry_ActionList_ExcludesRetiredMergeActions",
           "dynamic": false
         },
         {
@@ -60887,433 +59248,6 @@
           "suite": "Orchestrate_NoSetPhaseCalls_ForMergeTransitions (#1305 T15)",
           "name": "no orchestrate source applies a bare set({ phase }) for a merge-pending entry/exit transition",
           "dynamic": false
-        },
-        {
-          "suite": "Orchestrate_NoSetPhaseCalls_ForMergeTransitions (#1305 T15)",
-          "name": "the merge orchestrator source contains no top-level workflow phase-set call at all",
-          "dynamic": false
-        }
-      ]
-    },
-    "tests/unit/verbs/merge/execute-merge.deprecation-parity.test.ts": {
-      "file": "tests/unit/verbs/merge/execute-merge.deprecation-parity.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "merge.recovered recovery-terminal CLI↔MCP parity (DR-2, task 006)",
-          "name": "mergeRecovered_Payload_ByteEqualAcrossCliAndMcp",
-          "dynamic": false
-        },
-        {
-          "suite": "merge.recovered recovery-terminal CLI↔MCP parity (DR-2, task 006)",
-          "name": "mergeRecovered_OnlyCanonicalEmitted_LegacyRollbackAbsentOnEachSurface",
-          "dynamic": false
-        }
-      ]
-    },
-    "tests/unit/verbs/merge/execute-merge.migration.test.ts": {
-      "file": "tests/unit/verbs/merge/execute-merge.migration.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "handleExecuteMerge — Wave 4 / Task 4.3 two-event split",
-          "name": "ExecuteMerge_PostMigration_ProducesThreeEventSequence",
-          "dynamic": false
-        }
-      ]
-    },
-    "tests/unit/verbs/merge/execute-merge.test.ts": {
-      "file": "tests/unit/verbs/merge/execute-merge.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "handleExecuteMerge (T15)",
-          "name": "handleExecuteMerge_MergeSucceeds_DelegatesToVcsMergePr",
-          "dynamic": false
-        },
-        {
-          "suite": "handleExecuteMerge (T15)",
-          "name": "handleExecuteMerge_MergeSucceeds_EmitsMergeExecutedWithMergeSha",
-          "dynamic": false
-        },
-        {
-          "suite": "handleExecuteMerge (T15)",
-          "name": "handleExecuteMerge_MergeCompleted_CasPinsToLiveTailNotFrozenExecutedSequence",
-          "dynamic": false
-        },
-        {
-          "suite": "handleExecuteMerge (T15)",
-          "name": "handleExecuteMerge_MergeCompleted_RetriesInPlaceOnTransientSequenceConflict",
-          "dynamic": false
-        },
-        {
-          "suite": "handleExecuteMerge (T15)",
-          "name": "handleExecuteMerge_BeforeRefMutation_RollbackShaPersistedToWorkflowState",
-          "dynamic": false
-        },
-        {
-          "suite": "handleExecuteMerge rollback (T16)",
-          "name": "executeMerge_RecoveryPath_EmitsOnlyMergeRecovered",
-          "dynamic": false
-        },
-        {
-          "suite": "handleExecuteMerge rollback (T16)",
-          "name": "executeMerge_RecoveryPath_NoLegacyRollbackAppend",
-          "dynamic": false
-        },
-        {
-          "suite": "handleExecuteMerge rollback (T16)",
-          "name": "handleExecuteMerge_AfterRollback_HeadMatchesRecordedSha",
-          "dynamic": false
-        },
-        {
-          "suite": "handleExecuteMerge rollback (T16)",
-          "name": "handleExecuteMerge_RollbackPath_ReturnsToolResultFailureWithStructuredError",
-          "dynamic": false
-        },
-        {
-          "suite": "handleExecuteMerge rollback (T16)",
-          "name": "handleExecuteMerge_ResetKeepRefuses_SurfacesRecoveryErrorOnEventAndToolResult",
-          "dynamic": false
-        },
-        {
-          "suite": "handleExecuteMerge default persistState retries on VersionConflictError (T29)",
-          "name": "handleExecuteMerge_DefaultPersistState_VersionConflictThenSucceeds_RetriesAndCompletes",
-          "dynamic": false
-        },
-        {
-          "suite": "handleExecuteMerge default persistState retries on VersionConflictError (T29)",
-          "name": "handleExecuteMerge_DefaultPersistState_VersionConflictExhausted_BubblesErrorAsToolResult",
-          "dynamic": false
-        },
-        {
-          "suite": "handleExecuteMerge terminal-phase persistence (T27)",
-          "name": "handleExecuteMerge_OnCompleted_PersistsCompletedPhaseWithMergeSha",
-          "dynamic": false
-        },
-        {
-          "suite": "handleExecuteMerge terminal-phase persistence (T27)",
-          "name": "handleExecuteMerge_OnRolledBack_PersistsRolledBackPhaseWithReason",
-          "dynamic": false
-        },
-        {
-          "suite": "handleExecuteMerge terminal-phase persistence (T27)",
-          "name": "handleExecuteMerge_OnCompleted_EmitsMergeExecutedBeforePersistingTerminalState",
-          "dynamic": false
-        },
-        {
-          "suite": "handleExecuteMerge terminal-phase persistence (T27)",
-          "name": "handleExecuteMerge_OnRolledBack_EmitsMergeRecoveredBeforePersistingTerminalState",
-          "dynamic": false
-        },
-        {
-          "suite": "handleExecuteMerge terminal-phase persistence (T27)",
-          "name": "handleExecuteMerge_TimeoutOnceThenSuccess_EmitsOneRetryThenExecuted",
-          "dynamic": false
-        },
-        {
-          "suite": "handleExecuteMerge terminal-phase persistence (T27)",
-          "name": "ExecuteMerge_Timeline_ExecutingStartedBeforeTerminal",
-          "dynamic": false
-        },
-        {
-          "suite": "handleExecuteMerge terminal-phase persistence (T27)",
-          "name": "ExecuteMerge_Timeline_ExecutingStartedBeforeRecoveryTerminal",
-          "dynamic": false
-        },
-        {
-          "suite": "handleExecuteMerge DR-2 (task 006) — single-emit recovery + CAS idempotency",
-          "name": "ExecuteMerge_RecoveryPath_EmitsOnlyMergeRecovered_NoLegacyRollback",
-          "dynamic": false
-        },
-        {
-          "suite": "handleExecuteMerge DR-2 (task 006) — single-emit recovery + CAS idempotency",
-          "name": "ExecuteMerge_RecoveredPayload_ByteEqualAcrossRuns",
-          "dynamic": false
-        },
-        {
-          "suite": "handleExecuteMerge DR-2 (task 006) — single-emit recovery + CAS idempotency",
-          "name": "ExecuteMerge_RetriedRecovery_IdempotentOnMergeRecovered",
-          "dynamic": false
-        }
-      ]
-    },
-    "tests/unit/verbs/merge/local-git-merge.test.ts": {
-      "file": "tests/unit/verbs/merge/local-git-merge.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "buildLocalGitMergeAdapter > strategy=merge",
-          "name": "localMergeAdapter_NoFfMerge_ProducesMergeCommitWithTwoParents",
-          "dynamic": false
-        },
-        {
-          "suite": "buildLocalGitMergeAdapter > strategy=merge",
-          "name": "localMergeAdapter_LeavesCallerOnTargetBranch",
-          "dynamic": false
-        },
-        {
-          "suite": "buildLocalGitMergeAdapter > strategy=squash",
-          "name": "localMergeAdapter_Squash_ProducesSingleParentCommitWithFeatChanges",
-          "dynamic": false
-        },
-        {
-          "suite": "buildLocalGitMergeAdapter > strategy=rebase",
-          "name": "localMergeAdapter_Rebase_LinearHistory_NoMergeCommit",
-          "dynamic": false
-        },
-        {
-          "suite": "buildLocalGitMergeAdapter > failure modes",
-          "name": "localMergeAdapter_TargetBranchMissing_Throws",
-          "dynamic": false
-        },
-        {
-          "suite": "buildLocalGitMergeAdapter > failure modes",
-          "name": "localMergeAdapter_MergeConflict_ThrowsAndLeavesNoCommit",
-          "dynamic": false
-        },
-        {
-          "suite": "buildLocalGitMergeAdapter > failure modes",
-          "name": "localMergeAdapter_SourceBranchMissing_Throws",
-          "dynamic": false
-        },
-        {
-          "suite": "buildLocalGitMergeAdapter > end-to-end with executor rollback",
-          "name": "localMergeAdapter_MergeFails_ExecutorResetsToRollbackSha_HeadRestored",
-          "dynamic": false
-        }
-      ]
-    },
-    "tests/unit/verbs/merge/merge-orchestrate.api-refire.test.ts": {
-      "file": "tests/unit/verbs/merge/merge-orchestrate.api-refire.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "handleMergeOrchestrate — Wave 4 / Task 4.2b API-non-refire",
-          "name": "MergeOrchestrate_PostMigration_DoesNotRefireExecutorOnOccRetry",
-          "dynamic": false
-        }
-      ]
-    },
-    "tests/unit/verbs/merge/merge-orchestrate.busy.test.ts": {
-      "file": "tests/unit/verbs/merge/merge-orchestrate.busy.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "handleMergeOrchestrate — Wave 4 / Task 4.5a storage-busy contention",
-          "name": "MergeOrchestrate_StorageBusyContention_RetriesViaWithStateRetryAndEventuallySucceeds",
-          "dynamic": false
-        }
-      ]
-    },
-    "tests/unit/verbs/merge/merge-orchestrate.integration.test.ts": {
-      "file": "tests/unit/verbs/merge/merge-orchestrate.integration.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "Merge orchestrator happy timeline (T23, DR-MO-1, DR-MO-2)",
-          "name": "eventTimeline_TaskCompletedThroughMergeExecuted_FullyReconstructs",
-          "dynamic": false
-        },
-        {
-          "suite": "handleMergeOrchestrate integration — rollback timeline (T24)",
-          "name": "eventTimeline_RecoveryPath_ContainsMergeRecoveredWithCategorizedReason",
-          "dynamic": false
-        },
-        {
-          "suite": "handleMergeOrchestrate integration — rollback timeline (T24)",
-          "name": "eventTimeline_AfterRollback_NextActionsOmitMergeOrchestrate",
-          "dynamic": false
-        },
-        {
-          "suite": "handleMergeOrchestrate integration — idempotency & concurrency (#1303)",
-          "name": "MergeOrchestrate_CrashAfterMergeExecutedAppendThenResume_AppendsExactlyOneMergeExecutedEvent",
-          "dynamic": false
-        },
-        {
-          "suite": "MergePendingTransitions_EmitWorkflowTransition_NotSet (#1305 T15)",
-          "name": "MergePendingExit_DrivenThroughCanonicalPrimitive_EmitsWorkflowTransitionNotBarePhaseSet",
-          "dynamic": false
-        },
-        {
-          "suite": "MergePendingTransitions_EmitWorkflowTransition_NotSet (#1305 T15)",
-          "name": "MergePendingEntry_IsReachableThroughHsmEvaluatorAndCanonicalPrimitive",
-          "dynamic": false
-        }
-      ]
-    },
-    "tests/unit/verbs/merge/merge-orchestrate.migration.test.ts": {
-      "file": "tests/unit/verbs/merge/merge-orchestrate.migration.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "handleMergeOrchestrate — Wave 4 / Task 4.2 two-event split",
-          "name": "MergeOrchestrate_PostMigration_ProducesThreeEventSequence",
-          "dynamic": false
-        }
-      ]
-    },
-    "tests/unit/verbs/merge/merge-orchestrate.parity-harness.test.ts": {
-      "file": "tests/unit/verbs/merge/merge-orchestrate.parity-harness.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "Wave 4 / Task 4.4 — parity-harness fixture for merge-orchestrate",
-          "name": "Parity_MergeOrchestrate_CliAndMcpProduceIdenticalToolResult",
-          "dynamic": false
-        }
-      ]
-    },
-    "tests/unit/verbs/merge/merge-orchestrate.parity.test.ts": {
-      "file": "tests/unit/verbs/merge/merge-orchestrate.parity.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "exarchos merge-orchestrate CLI↔MCP parity (T22, DR-MO-1)",
-          "name": "mergeOrchestrate_CliAndMcpAdapters_ProduceIdenticalToolResult",
-          "dynamic": false
-        },
-        {
-          "suite": "exarchos merge-orchestrate CLI↔MCP parity (T22, DR-MO-1)",
-          "name": "mergeOrchestrate_TopLevelCli_MatchesMcpToolResult",
-          "dynamic": false
-        }
-      ]
-    },
-    "tests/unit/verbs/merge/merge-orchestrate.race.test.ts": {
-      "file": "tests/unit/verbs/merge/merge-orchestrate.race.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "handleMergeOrchestrate — Wave 4 / Task 4.5 concurrency race",
-          "name": "MergeOrchestrate_ConcurrentInvocations_OneWinsOneRetriesViaConcurrencyConflict",
-          "dynamic": false
-        }
-      ]
-    },
-    "tests/unit/verbs/merge/merge-orchestrate.test.ts": {
-      "file": "tests/unit/verbs/merge/merge-orchestrate.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "handleMergeOrchestrate (T11)",
-          "name": "handleMergeOrchestrate_PreflightAndExecutePass_ReturnsCompletedToolResult",
-          "dynamic": false
-        },
-        {
-          "suite": "handleMergeOrchestrate (T11)",
-          "name": "handleMergeOrchestrate_Always_EmitsMergePreflightEventOnce",
-          "dynamic": false
-        },
-        {
-          "suite": "handleMergeOrchestrate (T12 — preflight-fail abort)",
-          "name": "handleMergeOrchestrate_PreflightFails_PersistsPhaseAbortedAndReturnsToolResultFailure",
-          "dynamic": false
-        },
-        {
-          "suite": "handleMergeOrchestrate (T12 — preflight-fail abort)",
-          "name": "handleMergeOrchestrate_PreflightFails_DoesNotInvokeExecutor",
-          "dynamic": false
-        },
-        {
-          "suite": "handleMergeOrchestrate (T12 — preflight-fail abort)",
-          "name": "handleMergeOrchestrate_PreflightFails_EmitsMergePreflightWithPassedFalse",
-          "dynamic": false
-        },
-        {
-          "suite": "handleMergeOrchestrate (#1362 — preflight.debug event-wire)",
-          "name": "MergeOrchestrate_EnvSetAndAncestryFail_AppendsDebugBlockToEvent",
-          "dynamic": false
-        },
-        {
-          "suite": "handleMergeOrchestrate (#1362 — preflight.debug event-wire)",
-          "name": "MergeOrchestrate_EnvUnsetAndAncestryFail_NoDebugBlockOnEvent",
-          "dynamic": false
-        },
-        {
-          "suite": "handleMergeOrchestrate (#1362 — preflight.debug event-wire)",
-          "name": "MergeOrchestrate_PassingAncestryWithDebugInjected_DoesNotPersistDebug",
-          "dynamic": false
-        },
-        {
-          "suite": "handleMergeOrchestrate (T13 — dry-run path)",
-          "name": "handleMergeOrchestrate_DryRunFlag_RunsPreflightAndSkipsExecutor",
-          "dynamic": false
-        },
-        {
-          "suite": "handleMergeOrchestrate (T13 — dry-run path)",
-          "name": "handleMergeOrchestrate_DryRunPassedTrue_ReturnsToolResultSuccess",
-          "dynamic": false
-        },
-        {
-          "suite": "handleMergeOrchestrate (#1706 DR-1 — unknown-error coded envelopes)",
-          "name": "MergeOrchestrate_PreflightAppendUnknownError_ReturnsCodedEnvelopeNotThrow",
-          "dynamic": false
-        },
-        {
-          "suite": "handleMergeOrchestrate (#1706 DR-1 — unknown-error coded envelopes)",
-          "name": "MergeOrchestrate_PersistAbortStateUnknownError_ReturnsCodedEnvelopeNotThrow",
-          "dynamic": false
-        },
-        {
-          "suite": "handleMergeOrchestrate (#1706 DR-1 — unknown-error coded envelopes)",
-          "name": "MergeOrchestrate_MergeRequestedDecideUnknownError_ReturnsCodedEnvelopeNotThrow",
-          "dynamic": false
-        },
-        {
-          "suite": "handleMergeOrchestrate (T14 — resume path)",
-          "name": "handleMergeOrchestrate_ResumeWithExistingPendingState_LoadsAndContinues",
-          "dynamic": false
-        },
-        {
-          "suite": "handleMergeOrchestrate (T14 — resume path)",
-          "name": "handleMergeOrchestrate_ResumeWithCompletedState_ReturnsExistingResultNoOp",
-          "dynamic": false
-        },
-        {
-          "suite": "handleMergeOrchestrate (T14 — resume path)",
-          "name": "handleMergeOrchestrate_ResumeWithoutFlagButStateExists_StartsFresh",
-          "dynamic": false
-        },
-        {
-          "suite": "handleMergeOrchestrate (T14 — resume path)",
-          "name": "handleMergeOrchestrate_StateWriteVersionConflict_RetriesAndSucceeds",
-          "dynamic": false
-        },
-        {
-          "suite": "handleMergeOrchestrate (T14 — resume path)",
-          "name": "handleMergeOrchestrate_StateWriteRetriesExhausted_ReturnsToolResultFailure",
-          "dynamic": false
-        },
-        {
-          "suite": "handleMergeOrchestrate (DR-2 — single-writer lease guard)",
-          "name": "MergeOrchestrate_ForeignLiveLeaseOnTarget_FailsClosedNamingSerializeMerge",
-          "dynamic": false
-        },
-        {
-          "suite": "handleMergeOrchestrate (DR-2 — single-writer lease guard)",
-          "name": "MergeOrchestrate_NoLease_BehavesAsToday",
-          "dynamic": false
-        },
-        {
-          "suite": "handleMergeOrchestrate (DR-2 — single-writer lease guard)",
-          "name": "MergeOrchestrate_DeadHolderLease_ProceedsAfterProbe",
-          "dynamic": false
-        },
-        {
-          "suite": "handleMergeOrchestrate (DR-2 — single-writer lease guard)",
-          "name": "MergeOrchestrate_UnknownHolderLiveness_FailsClosed",
-          "dynamic": false
-        },
-        {
-          "suite": "handleMergeOrchestrate (DR-2 — single-writer lease guard)",
-          "name": "MergeOrchestrate_LeaseKeyShape_MatchesSerializerBareBranch",
-          "dynamic": false
-        },
-        {
-          "suite": "handleMergeOrchestrate (DR-2 — single-writer lease guard)",
-          "name": "MergeOrchestrate_MatchingLeaseOperationId_ProceedsThroughGuard",
-          "dynamic": false
         }
       ]
     },
@@ -61964,6 +59898,11 @@
         {
           "suite": "prepare — the compilation endpoint",
           "name": "Prepare_ADelegatingFeature_RecordsOneCapsuleWhoseBytesAreInCustody",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare — the compilation endpoint",
+          "name": "Prepare_ALogEndingInMergePending_CompilesAsDelegate",
           "dynamic": false
         },
         {
@@ -62861,102 +60800,6 @@
         }
       ]
     },
-    "tests/unit/verbs/pure/execute-merge.test.ts": {
-      "file": "tests/unit/verbs/pure/execute-merge.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "recordRecoveryPoint",
-          "name": "recordRecoveryPoint_HappyPath_ReturnsHeadSha",
-          "dynamic": false
-        },
-        {
-          "suite": "recordRecoveryPoint",
-          "name": "recordRecoveryPoint_GitFails_ReturnsStructuredError",
-          "dynamic": false
-        },
-        {
-          "suite": "recordRecoveryPoint",
-          "name": "recordRecoveryPoint_GitThrows_ReturnsStructuredError_DoesNotThrow",
-          "dynamic": false
-        },
-        {
-          "suite": "recordRecoveryPoint",
-          "name": "recordRecoveryPoint_EmptyStdout_ReturnsStructuredError",
-          "dynamic": false
-        },
-        {
-          "suite": "executeMerge",
-          "name": "executeMerge_MergeSucceeds_ReturnsMergeShaAndPhaseCompleted",
-          "dynamic": false
-        },
-        {
-          "suite": "executeMerge",
-          "name": "executeMerge_RecordsRollbackShaBeforeMergeCall_OrderingPreserved",
-          "dynamic": false
-        },
-        {
-          "suite": "executeMerge",
-          "name": "executeMerge_VcsMergeRejects_ResetsToRollbackShaWithReasonMergeFailed",
-          "dynamic": false
-        },
-        {
-          "suite": "executeMerge",
-          "name": "executeMerge_VerificationFails_ReasonVerificationFailed",
-          "dynamic": false
-        },
-        {
-          "suite": "executeMerge",
-          "name": "executeMerge_GitTimeout_ReasonTimeout",
-          "dynamic": false
-        },
-        {
-          "suite": "executeMerge",
-          "name": "executeMerge_RollbackPath_AfterReset_PhaseRolledBack",
-          "dynamic": false
-        },
-        {
-          "suite": "executeMerge",
-          "name": "executeMerge_ResetKeepExitsNonZero_SurfacesResetKeepBlocked",
-          "dynamic": false
-        },
-        {
-          "suite": "executeMerge",
-          "name": "executeMerge_ResetKeepThrows_SurfacesResetFailed",
-          "dynamic": false
-        },
-        {
-          "suite": "executeMerge",
-          "name": "executeMerge_RecoveryLeavesDrift_SurfacesUnexpectedMidMergeDrift",
-          "dynamic": false
-        },
-        {
-          "suite": "executeMerge",
-          "name": "ExecuteMerge_TimeoutOnceThenSuccess_EmitsOneRetryThenExecuted",
-          "dynamic": false
-        },
-        {
-          "suite": "executeMerge",
-          "name": "ExecuteMerge_NonTimeoutFailure_DoesNotRetry_RecoversImmediately",
-          "dynamic": false
-        },
-        {
-          "suite": "executeMerge",
-          "name": "ExecuteMerge_VerificationFailed_NoRetry",
-          "dynamic": false
-        },
-        {
-          "suite": "executeMerge",
-          "name": "ExecuteMerge_TimeoutExhaustsRetries_RecoversWithTimeoutReason",
-          "dynamic": false
-        },
-        {
-          "suite": "executeMerge",
-          "name": "ExecuteMerge_JitterApplied_WidensDelayWithinBand",
-          "dynamic": false
-        }
-      ]
-    },
     "tests/unit/verbs/pure/gate-preflight.test.ts": {
       "file": "tests/unit/verbs/pure/gate-preflight.test.ts",
       "runner": "vitest:root",
@@ -63055,97 +60898,6 @@
         {
           "suite": "runIntegrationSuite through a real spawned runner (WFQ-003)",
           "name": "IntegrationSuite_RealProcessGreenWithPreamble_ReportsPass",
-          "dynamic": false
-        }
-      ]
-    },
-    "tests/unit/verbs/pure/merge-preflight.test.ts": {
-      "file": "tests/unit/verbs/pure/merge-preflight.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "detectDrift — clean tree (T04)",
-          "name": "detectDrift_CleanTree_ReturnsCleanTrue",
-          "dynamic": false
-        },
-        {
-          "suite": "detectDrift — clean tree (T04)",
-          "name": "detectDrift_NoUncommittedFiles_EmptyList",
-          "dynamic": false
-        },
-        {
-          "suite": "detectDrift — drift extensions (T05)",
-          "name": "detectDrift_UncommittedFiles_ListsThemAndCleanFalse",
-          "dynamic": false
-        },
-        {
-          "suite": "detectDrift — drift extensions (T05)",
-          "name": "detectDrift_StaleIndex_IndexStaleTrue",
-          "dynamic": false
-        },
-        {
-          "suite": "detectDrift — drift extensions (T05)",
-          "name": "detectDrift_DetachedHead_DetachedHeadTrue",
-          "dynamic": false
-        },
-        {
-          "suite": "mergePreflight — happy path (T06)",
-          "name": "mergePreflight_AllGuardsPassAndCleanTree_ReturnsPassedTrue",
-          "dynamic": false
-        },
-        {
-          "suite": "mergePreflight — happy path (T06)",
-          "name": "mergePreflight_PopulatesAllFourSubResults_StructurePreserved",
-          "dynamic": false
-        },
-        {
-          "suite": "mergePreflight — failure paths (T07)",
-          "name": "mergePreflight_AncestryMissing_PassedFalseAndAncestryReasonAncestry",
-          "dynamic": false
-        },
-        {
-          "suite": "mergePreflight — failure paths (T07)",
-          "name": "mergePreflight_OnProtectedBranch_PassedFalseAndProtectionBlocked",
-          "dynamic": false
-        },
-        {
-          "suite": "mergePreflight — failure paths (T07)",
-          "name": "mergePreflight_FromSubagentWorktree_PassedFalseAndWorktreeNotMain",
-          "dynamic": false
-        },
-        {
-          "suite": "mergePreflight — failure paths (T07)",
-          "name": "mergePreflight_AncestryFails_MessageIncludesRebaseInstructionAndRunbookLink",
-          "dynamic": false
-        },
-        {
-          "suite": "mergePreflight — failure paths (T07)",
-          "name": "mergePreflight_DirtyTree_PassedFalseAndDriftFieldPopulated",
-          "dynamic": false
-        },
-        {
-          "suite": "gatherPreflightDebug (#1362)",
-          "name": "gatherPreflightDebug_AllGitCallsSucceed_PopulatesAllFields",
-          "dynamic": false
-        },
-        {
-          "suite": "gatherPreflightDebug (#1362)",
-          "name": "gatherPreflightDebug_GitVersionFails_ReturnsPartialBlock",
-          "dynamic": false
-        },
-        {
-          "suite": "mergePreflight env-gated debug attachment (#1362)",
-          "name": "MergePreflight_EnvUnsetAndAncestryFail_NoDebugField",
-          "dynamic": false
-        },
-        {
-          "suite": "mergePreflight env-gated debug attachment (#1362)",
-          "name": "MergePreflight_EnvSetAndAncestryPass_NoDebugField",
-          "dynamic": false
-        },
-        {
-          "suite": "mergePreflight env-gated debug attachment (#1362)",
-          "name": "MergePreflight_EnvSetAndAncestryFail_AttachesDebugBlock",
           "dynamic": false
         }
       ]
@@ -63958,6 +61710,16 @@
         {
           "suite": "resolveWorkflowState",
           "name": "ResolveWorkflowState_ProjectionFoldOverRealHistory_ReconstructsAllFileFields",
+          "dynamic": false
+        },
+        {
+          "suite": "resolveWorkflowState",
+          "name": "ResolveWorkflowState_StoredMergePendingState_ResolvesToDelegate",
+          "dynamic": false
+        },
+        {
+          "suite": "resolveWorkflowState",
+          "name": "ResolveWorkflowState_LogEndingInMergePending_ResolvesToDelegate",
           "dynamic": false
         },
         {
@@ -67391,16 +65153,6 @@
           "dynamic": false
         },
         {
-          "suite": "ImplementerDispatch_WorktreeEdit_DoesNotAppearInMainWorktree (characterization, #1301)",
-          "name": "resolves the agent write-root strictly inside <repoRoot>/.worktrees/, never the main worktree",
-          "dynamic": false
-        },
-        {
-          "suite": "ImplementerDispatch_WorktreeEdit_DoesNotAppearInMainWorktree (characterization, #1301)",
-          "name": "an agent-side write into its worktree does NOT mirror into the main worktree",
-          "dynamic": false
-        },
-        {
           "suite": "HandleOrchestrate_PrepareDelegation_StampsRiskTierBoundaryAndVerificationSequence",
           "name": "stamps riskTier, boundaryTouching, and an ordered verificationSequence per task",
           "dynamic": false
@@ -68713,6 +66465,46 @@
         },
         {
           "suite": "handlePruneStaleWorkflows",
+          "name": "handlePrune_ApplyAfter_%s_RejectsWithDryRunRequired",
+          "dynamic": false
+        },
+        {
+          "suite": "handlePruneStaleWorkflows",
+          "name": "<dynamic-case-1>",
+          "dynamic": true
+        },
+        {
+          "suite": "handlePruneStaleWorkflows",
+          "name": "handlePrune_AMarkedRecordAppendedThroughEventAppend_DoesNotOpenTheGuard",
+          "dynamic": false
+        },
+        {
+          "suite": "handlePruneStaleWorkflows",
+          "name": "handlePrune_TheGuardQuery_IsBoundedToTheWindow",
+          "dynamic": false
+        },
+        {
+          "suite": "handlePruneStaleWorkflows",
+          "name": "handlePrune_ACallerSuppliedNow_DoesNotMoveTheWindow",
+          "dynamic": false
+        },
+        {
+          "suite": "handlePruneStaleWorkflows",
+          "name": "handlePrune_AGuardQueryThatThrows_RejectsWithDryRunRequired",
+          "dynamic": false
+        },
+        {
+          "suite": "handlePruneStaleWorkflows",
+          "name": "handlePrune_AnEventStoreWithNoQuery_RejectsWithDryRunRequired",
+          "dynamic": false
+        },
+        {
+          "suite": "handlePruneStaleWorkflows",
+          "name": "handlePrune_EachRun_AppendsAMarkedRecord_AlsoUnderSkip",
+          "dynamic": false
+        },
+        {
+          "suite": "handlePruneStaleWorkflows",
           "name": "handlePrune_FullConfigApplied_AllKnobsEffective",
           "dynamic": false
         },
@@ -68780,233 +66572,6 @@
         {
           "suite": "handleRequestSynthesize",
           "name": "handleRequestSynthesize_resolvesFromEventsWhenGivenStateDir",
-          "dynamic": false
-        }
-      ]
-    },
-    "tests/unit/verbs/team/setup-worktree.integration.test.ts": {
-      "file": "tests/unit/verbs/team/setup-worktree.integration.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "setup_worktree / merge production-path exit proofs (P04-05)",
-          "name": "(a) a duplicate setup_worktree request creates exactly ONE worktree",
-          "dynamic": false
-        },
-        {
-          "suite": "setup_worktree / merge production-path exit proofs (P04-05)",
-          "name": "(b) an interrupted setup_worktree leaves a durable intent (no event-less orphan) and converges on retry",
-          "dynamic": false
-        },
-        {
-          "suite": "setup_worktree / merge production-path exit proofs (P04-05)",
-          "name": "(c) a duplicate merge request runs the local-git merge adapter exactly ONCE",
-          "dynamic": false
-        },
-        {
-          "suite": "setup_worktree / merge production-path exit proofs (P04-05)",
-          "name": "the default owner-backed provisioner provisions a real worktree end-to-end",
-          "dynamic": false
-        }
-      ]
-    },
-    "tests/unit/verbs/team/setup-worktree.test.ts": {
-      "file": "tests/unit/verbs/team/setup-worktree.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "handleSetupWorktree",
-          "name": "DerivedPaths_AreCorrect",
-          "dynamic": false
-        },
-        {
-          "suite": "handleSetupWorktree",
-          "name": "FullSetup_AllStepsPass",
-          "dynamic": false
-        },
-        {
-          "suite": "handleSetupWorktree",
-          "name": "BranchExists_SkipsCreation_StepPasses",
-          "dynamic": false
-        },
-        {
-          "suite": "handleSetupWorktree",
-          "name": "WorktreeExists_SkipsCreation_StepPasses",
-          "dynamic": false
-        },
-        {
-          "suite": "handleSetupWorktree",
-          "name": "WorktreesNotGitignored_AddsToGitignore",
-          "dynamic": false
-        },
-        {
-          "suite": "handleSetupWorktree",
-          "name": "WorktreesNotGitignored_ExistingGitignoreNoTrailingNewline_PrependsNewline",
-          "dynamic": false
-        },
-        {
-          "suite": "handleSetupWorktree",
-          "name": "NpmInstallFails_Step4Fails",
-          "dynamic": false
-        },
-        {
-          "suite": "handleSetupWorktree",
-          "name": "SkipTests_Step5Skipped",
-          "dynamic": false
-        },
-        {
-          "suite": "handleSetupWorktree",
-          "name": "TestsFail_Step5Fails_OverallFails",
-          "dynamic": false
-        },
-        {
-          "suite": "handleSetupWorktree",
-          "name": "MissingRepoRoot_ReturnsError",
-          "dynamic": false
-        },
-        {
-          "suite": "handleSetupWorktree",
-          "name": "MissingTaskId_ReturnsError",
-          "dynamic": false
-        },
-        {
-          "suite": "handleSetupWorktree",
-          "name": "MissingTaskName_ReturnsError",
-          "dynamic": false
-        },
-        {
-          "suite": "handleSetupWorktree",
-          "name": "runInstallStep_NoPackageJson_SkipsWithReason",
-          "dynamic": false
-        },
-        {
-          "suite": "handleSetupWorktree",
-          "name": "runInstallStep_NpmProject_RunsNpmInstall",
-          "dynamic": false
-        },
-        {
-          "suite": "handleSetupWorktree",
-          "name": "runInstallStep_PnpmLockfilePresent_DoesNotRunNpmInstall_RunsPnpmInstall",
-          "dynamic": false
-        },
-        {
-          "suite": "handleSetupWorktree",
-          "name": "runInstallStep_YarnClassicLockfilePresent_RunsYarnInstallFrozen",
-          "dynamic": false
-        },
-        {
-          "suite": "handleSetupWorktree",
-          "name": "runInstallStep_YarnBerryViaYarnrcYml_RunsYarnInstallImmutable",
-          "dynamic": false
-        },
-        {
-          "suite": "handleSetupWorktree",
-          "name": "runInstallStep_BunLockfilePresent_RunsBunInstall",
-          "dynamic": false
-        },
-        {
-          "suite": "handleSetupWorktree",
-          "name": "runBaselineTests_PnpmProject_RunsPnpmTest",
-          "dynamic": false
-        },
-        {
-          "suite": "handleSetupWorktree",
-          "name": "runBaselineTests_BunProjectWithTestRunScript_RunsBunRunTestRun",
-          "dynamic": false
-        },
-        {
-          "suite": "handleSetupWorktree",
-          "name": "runBaselineTests_BunProjectWithoutTestRunScript_FallsBackToBunTest",
-          "dynamic": false
-        },
-        {
-          "suite": "handleSetupWorktree",
-          "name": "runBaselineTests_NpmMissingTestRunScript_SkipsWithRemediation",
-          "dynamic": false
-        },
-        {
-          "suite": "handleSetupWorktree",
-          "name": "runBaselineTests_PythonProject_RunsPytest",
-          "dynamic": false
-        },
-        {
-          "suite": "handleSetupWorktree",
-          "name": "runBaselineTests_NoMarkers_SkipsWithRemediation",
-          "dynamic": false
-        },
-        {
-          "suite": "handleSetupWorktree",
-          "name": "runInstallStep_BunPriorityOverPnpm_BunWins",
-          "dynamic": false
-        },
-        {
-          "suite": "handleSetupWorktree > ensureGitignored direct-read behavior",
-          "name": "ensureGitignored_AlreadyPresent_ReportsAlreadyPresent",
-          "dynamic": false
-        },
-        {
-          "suite": "handleSetupWorktree > ensureGitignored direct-read behavior",
-          "name": "ensureGitignored_NotPresent_AppendsAndReportsAdded",
-          "dynamic": false
-        },
-        {
-          "suite": "handleSetupWorktree > ensureGitignored direct-read behavior",
-          "name": "ensureGitignored_FileMissing_CreatesWithEntry",
-          "dynamic": false
-        },
-        {
-          "suite": "handleSetupWorktree > ensureGitignored direct-read behavior",
-          "name": "ensureGitignored_GlobalIgnoreOnlyMatch_StillReportsHonestlyAndUpdatesRepoGitignore",
-          "dynamic": false
-        },
-        {
-          "suite": "handleSetupWorktree > ensureGitignored direct-read behavior",
-          "name": "ensureGitignored_AppendThrows_ReportsFail",
-          "dynamic": false
-        },
-        {
-          "suite": "handleSetupWorktree > branch-override resolution (DR-3)",
-          "name": "setupWorktree_WorkflowTasksHasBranch_UsesItOverDefault",
-          "dynamic": false
-        },
-        {
-          "suite": "handleSetupWorktree > branch-override resolution (DR-3)",
-          "name": "setupWorktree_ArgBranchOverridesWorkflowState",
-          "dynamic": false
-        },
-        {
-          "suite": "handleSetupWorktree > branch-override resolution (DR-3)",
-          "name": "setupWorktree_NoBranchAnywhere_UsesLegacyDefault",
-          "dynamic": false
-        },
-        {
-          "suite": "handleSetupWorktree > base-branch resolution (#1509/#1501)",
-          "name": "BaseBranch_ExplicitArg_Wins",
-          "dynamic": false
-        },
-        {
-          "suite": "handleSetupWorktree > base-branch resolution (#1509/#1501)",
-          "name": "BaseBranch_SynthesisIntegrationBranch_WhenNoArg",
-          "dynamic": false
-        },
-        {
-          "suite": "handleSetupWorktree > base-branch resolution (#1509/#1501)",
-          "name": "BaseBranch_CurrentHead_WhenNoArgOrSynthesis",
-          "dynamic": false
-        },
-        {
-          "suite": "handleSetupWorktree > base-branch resolution (#1509/#1501)",
-          "name": "BaseBranch_FallsBackToMain_WhenHeadUnresolvable",
-          "dynamic": false
-        },
-        {
-          "suite": "handleSetupWorktree > DR-1 burst-creation stagger",
-          "name": "SetupWorktree_BurstCreation_StaggersWithinConfiguredJitterWindow",
-          "dynamic": false
-        },
-        {
-          "suite": "handleSetupWorktree > DR-1 burst-creation stagger",
-          "name": "SetupWorktree_SingleCreation_NoStaggerDelay",
           "dynamic": false
         }
       ]
@@ -69216,32 +66781,6 @@
         {
           "suite": "OrchestrateToolResponses_AllActions_ReturnEnvelope (T038, DR-7)",
           "name": "describe action returns Envelope",
-          "dynamic": false
-        }
-      ]
-    },
-    "tests/unit/verbs/vcs/git-exec-default.test.ts": {
-      "file": "tests/unit/verbs/vcs/git-exec-default.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "git-exec-default",
-          "name": "DefaultGitExec_RunsGitArgs_ReturnsStdoutAndExitCode",
-          "dynamic": false
-        },
-        {
-          "suite": "git-exec-default",
-          "name": "DefaultGitExec_GitFailure_CapturesStderrAndExitCode",
-          "dynamic": false
-        },
-        {
-          "suite": "git-exec-default — DR-1 index.lock retry composition",
-          "name": "DefaultGitExecComposition_RealIndexLockFile_RetriesAndSucceeds",
-          "dynamic": false
-        },
-        {
-          "suite": "git-exec-default — DR-1 index.lock retry composition",
-          "name": "DefaultGitExecComposition_PersistentLock_ReturnsContentionResultNotSilentFailure",
           "dynamic": false
         }
       ]
@@ -69630,7 +67169,7 @@
       "cases": [
         {
           "suite": "worktree dispatch routing (WLM foundation, task 008)",
-          "name": "Dispatch_ThreeOrchestrateActions_RouteThroughHandleOrchestrate_NotUnknownAction",
+          "name": "Dispatch_ThreeRetiredOrchestrateActions_AbsentAndRefusedByTheClosedTable",
           "dynamic": false
         },
         {
@@ -69660,119 +67199,13 @@
         }
       ]
     },
-    "tests/unit/verbs/worktree/git-retry.test.ts": {
-      "file": "tests/unit/verbs/worktree/git-retry.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "git-retry — index.lock contention resilience (DR-8)",
-          "name": "GitRetry_TransientIndexLock_RetriesWithBackoffAndSucceeds",
-          "dynamic": false
-        },
-        {
-          "suite": "git-retry — index.lock contention resilience (DR-8)",
-          "name": "GitRetry_InjectedSeam_AssertsDeterministicRetrySequence",
-          "dynamic": false
-        },
-        {
-          "suite": "git-retry — index.lock contention resilience (DR-8)",
-          "name": "GitRetry_BurstCreationJitter_AssertedDeterministically",
-          "dynamic": false
-        },
-        {
-          "suite": "git-retry — index.lock contention resilience (DR-8)",
-          "name": "GitRetry_ExhaustedRetries_ReturnsStructuredErrorNotSilentNoOp",
-          "dynamic": false
-        },
-        {
-          "suite": "git-retry — index.lock contention resilience (DR-8)",
-          "name": "GitRetry_NonLockError_RethrowsImmediatelyWithoutRetry",
-          "dynamic": false
-        },
-        {
-          "suite": "git-retry — index.lock contention resilience (DR-8)",
-          "name": "extractLockPath / isIndexLockError recognize the git signature",
-          "dynamic": false
-        },
-        {
-          "suite": "git-retry — result-aware predicate (DR-1)",
-          "name": "isIndexLockResult / extractLockPathFromResult gate on exitCode !== 0",
-          "dynamic": false
-        },
-        {
-          "suite": "git-retry — withIndexLockRetrySync (DR-1)",
-          "name": "WithIndexLockRetrySync_ContentionResult_RetriesWithBackoffThenSucceeds",
-          "dynamic": false
-        },
-        {
-          "suite": "git-retry — withIndexLockRetrySync (DR-1)",
-          "name": "WithIndexLockRetrySync_PersistentContention_ReturnsStructuredResultNotThrow",
-          "dynamic": false
-        },
-        {
-          "suite": "git-retry — withIndexLockRetrySync (DR-1)",
-          "name": "WithIndexLockRetrySync_NonLockFailure_ReturnsImmediatelyWithoutRetry",
-          "dynamic": false
-        },
-        {
-          "suite": "git-retry — withIndexLockRetryResult (DR-1)",
-          "name": "WithIndexLockRetryResult_ContentionResult_RetriesThenSucceeds",
-          "dynamic": false
-        },
-        {
-          "suite": "git-retry — withIndexLockRetryResult (DR-1)",
-          "name": "WithIndexLockRetryResult_PersistentContention_ReturnsStructuredResultNotThrow",
-          "dynamic": false
-        }
-      ]
-    },
     "tests/unit/verbs/worktree/handlers.test.ts": {
       "file": "tests/unit/verbs/worktree/handlers.test.ts",
       "runner": "vitest:root",
       "cases": [
         {
-          "suite": "resolveOwner all-or-nothing (acquire_worktree)",
-          "name": "AcquireWorktree_PartialOwnerOverride_OnlyPid_Rejected",
-          "dynamic": false
-        },
-        {
-          "suite": "resolveOwner all-or-nothing (acquire_worktree)",
-          "name": "AcquireWorktree_PartialOwnerOverride_OnlyStartedAt_Rejected",
-          "dynamic": false
-        },
-        {
-          "suite": "resolveOwner all-or-nothing (acquire_worktree)",
-          "name": "AcquireWorktree_BothOwnerFields_Accepted",
-          "dynamic": false
-        },
-        {
-          "suite": "resolveOwner all-or-nothing (acquire_worktree)",
-          "name": "AcquireWorktree_NeitherOwnerField_DerivesBoth_Accepted",
-          "dynamic": false
-        },
-        {
-          "suite": "DR-5 null-ready ownerStartedAt (acquire_worktree)",
-          "name": "Reserve_UnresolvableCreateTime_StoresNullNeverEmptyString",
-          "dynamic": false
-        },
-        {
-          "suite": "exclusive ownership (acquire/release handlers)",
-          "name": "AcquireWorktree_AlreadyReservedByLiveOwner_ReturnsReservedError",
-          "dynamic": false
-        },
-        {
-          "suite": "exclusive ownership (acquire/release handlers)",
-          "name": "ReleaseWorktree_ForeignLiveOwner_ReturnsOwnedByOtherError",
-          "dynamic": false
-        },
-        {
           "suite": "ps — in-flight liveness read (DR-4)",
-          "name": "HandleView_Ps_ListsInFlightFromInFlightMerges_NoProcessScan",
-          "dynamic": false
-        },
-        {
-          "suite": "ps — in-flight liveness read (DR-4)",
-          "name": "ReconcileWorktrees_DeadOwners_ReleasedAndOrphanedEmitted",
+          "name": "HandleView_Ps_ListsInFlightFromInFlightMerges_AppendsNothing",
           "dynamic": false
         },
         {
@@ -69782,7 +67215,12 @@
         },
         {
           "suite": "ps — in-flight liveness read (DR-4)",
-          "name": "ReconcileWorktrees_PhantomLaunch_HealedToTerminal",
+          "name": "HandleView_Ps_PhantomLaunch_StaysInFlightAndHealsNothing",
+          "dynamic": false
+        },
+        {
+          "suite": "worktrees — governed set read of old logs",
+          "name": "HandleViewWorktrees_ReservedRowWithNullStartTime_FoldsNullNeverEmptyString",
           "dynamic": false
         },
         {
@@ -69802,7 +67240,7 @@
         },
         {
           "suite": "wait — caller-bounded merge-terminal poll (DR-4)",
-          "name": "Manager_NoBackgroundTimer_SetIntervalSpyZeroCalls",
+          "name": "Wait_NoBackgroundTimer_SetIntervalSpyZeroCalls",
           "dynamic": false
         },
         {
@@ -69823,280 +67261,6 @@
         {
           "suite": "wait — until: 'idle' CLI/MCP flag parity (DR-3, task-021)",
           "name": "WaitSchema_UntilIdleFlag_ParityCliMcp",
-          "dynamic": false
-        }
-      ]
-    },
-    "tests/unit/verbs/worktree/manager.adopt.test.ts": {
-      "file": "tests/unit/verbs/worktree/manager.adopt.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "WorktreeManager.adopt (real git + real event store)",
-          "name": "Adopt_HarnessOrHandMadeWorktree_AdoptedWithoutManagerCreating",
-          "dynamic": false
-        },
-        {
-          "suite": "WorktreeManager.adopt (real git + real event store)",
-          "name": "Adopt_NoHarnessSpecificCreationAssumption",
-          "dynamic": false
-        },
-        {
-          "suite": "WorktreeManager.adopt (real git + real event store)",
-          "name": "Adopt_HandMadeWorktree_RecordsFeatureIdNull",
-          "dynamic": false
-        },
-        {
-          "suite": "WorktreeManager.adopt (real git + real event store)",
-          "name": "Adopt_StaleAfterExternalPush_ReverifiesHeadBeforeMutation",
-          "dynamic": false
-        },
-        {
-          "suite": "WorktreeManager.adopt (real git + real event store)",
-          "name": "Released_WorktreeIsGcEligible_NotRecycledIntoPool",
-          "dynamic": false
-        },
-        {
-          "suite": "WorktreeManager.adopt (real git + real event store)",
-          "name": "Reconcile_RealGitProbePlusReplay_EqualsFreshEventLogReplay",
-          "dynamic": false
-        }
-      ]
-    },
-    "tests/unit/verbs/worktree/manager.prune.test.ts": {
-      "file": "tests/unit/verbs/worktree/manager.prune.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "WorktreeManager.prune (real git + real event store)",
-          "name": "Prune_DefaultInvocation_DeletesNothing_ReportsCandidatesAndBytes",
-          "dynamic": false
-        },
-        {
-          "suite": "WorktreeManager.prune (real git + real event store)",
-          "name": "Prune_AdoptGate_ReconcilesUnadoptedWorktreesBeforeLadder",
-          "dynamic": false
-        },
-        {
-          "suite": "WorktreeManager.prune (real git + real event store)",
-          "name": "Prune_OnlyReleasedOrOrphanState_IsDeletionEligible",
-          "dynamic": false
-        },
-        {
-          "suite": "WorktreeManager.prune (real git + real event store)",
-          "name": "Prune_UnadoptedCleanWorktree_NotDeleted_ReproducesAndBlocks55724",
-          "dynamic": false
-        },
-        {
-          "suite": "WorktreeManager.prune (real git + real event store)",
-          "name": "Prune_LongRunningUnreleasedWorktree_StaleMtime_NotDeleted",
-          "dynamic": false
-        },
-        {
-          "suite": "WorktreeManager.prune (real git + real event store)",
-          "name": "Prune_ResolvesIntegrationRefPerWorktreeFromFeatureId",
-          "dynamic": false
-        },
-        {
-          "suite": "WorktreeManager.prune (real git + real event store)",
-          "name": "Prune_NullFeatureIdOrUnresolvableBranch_FailsClosed",
-          "dynamic": false
-        },
-        {
-          "suite": "WorktreeManager.prune (real git + real event store)",
-          "name": "Prune_UncommittedOrUntracked_NeverDeleted",
-          "dynamic": false
-        },
-        {
-          "suite": "WorktreeManager.prune (real git + real event store)",
-          "name": "Prune_Orphan_OnlyDeletedWithExplicitPruneOrphansYes",
-          "dynamic": false
-        },
-        {
-          "suite": "WorktreeManager.prune (real git + real event store)",
-          "name": "Prune_OriginUnreachable_FailsClosed",
-          "dynamic": false
-        },
-        {
-          "suite": "WorktreeManager.prune (real git + real event store)",
-          "name": "Prune_Deletion_EmitsRemoveRequestedThenExecuted",
-          "dynamic": false
-        },
-        {
-          "suite": "WorktreeManager.prune (real git + real event store)",
-          "name": "PruneWorktrees_Run_EmitsStartedAndTerminalExactlyOnce",
-          "dynamic": false
-        },
-        {
-          "suite": "WorktreeManager.prune (real git + real event store)",
-          "name": "PruneWorktrees_DryRun_AlsoEmitsLivenessPairSoPsSeesIt",
-          "dynamic": false
-        },
-        {
-          "suite": "WorktreeManager.prune (real git + real event store)",
-          "name": "PruneWorktrees_LadderThrows_StillEmitsTerminal_PairStays1To1",
-          "dynamic": false
-        },
-        {
-          "suite": "WorktreeManager.prune (real git + real event store)",
-          "name": "Prune_CrashBetweenRequestedAndDelete_ResumesIdempotently_SingleExecuted",
-          "dynamic": false
-        },
-        {
-          "suite": "WorktreeManager.prune (real git + real event store)",
-          "name": "Prune_ConcurrentWithReconcile_ReverifiesUnderLock_NoDoubleFree",
-          "dynamic": false
-        },
-        {
-          "suite": "WorktreeManager.prune (real git + real event store)",
-          "name": "Prune_DirtyProbeFails_BackingPresent_FailsClosed_NotDeleted",
-          "dynamic": false
-        },
-        {
-          "suite": "WorktreeManager.prune (real git + real event store)",
-          "name": "Prune_GoesDirtyBetweenPlanAndCommit_NotDeleted",
-          "dynamic": false
-        },
-        {
-          "suite": "WorktreeManager.prune (real git + real event store)",
-          "name": "Prune_RecoveryPath_NeverUsesResetHard",
-          "dynamic": false
-        },
-        {
-          "suite": "WorktreeManager.prune (real git + real event store)",
-          "name": "PruneExecutor_TransientIndexLock_RetriesWithBackoffThenRemoves",
-          "dynamic": false
-        },
-        {
-          "suite": "WorktreeManager.prune (real git + real event store)",
-          "name": "PruneExecutor_ExhaustedIndexLockRetry_PropagatesStructuredErrorNoDelete",
-          "dynamic": false
-        }
-      ]
-    },
-    "tests/unit/verbs/worktree/manager.reconcile.test.ts": {
-      "file": "tests/unit/verbs/worktree/manager.reconcile.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "WorktreeManager (real event store)",
-          "name": "Reserve_AppendsToWorktreesStream_WithOperationIdKey",
-          "dynamic": false
-        },
-        {
-          "suite": "WorktreeManager (real event store)",
-          "name": "Reserve_ConcurrentDifferentOwners_OneWins_NoDoubleReserve",
-          "dynamic": false
-        },
-        {
-          "suite": "WorktreeManager (real event store)",
-          "name": "Reserve_AlreadyReservedByLiveOwner_RejectsSecondClaim",
-          "dynamic": false
-        },
-        {
-          "suite": "WorktreeManager (real event store)",
-          "name": "Release_ForeignLiveOwner_Rejected_LeavesReservationIntact",
-          "dynamic": false
-        },
-        {
-          "suite": "WorktreeManager (real event store)",
-          "name": "Reconcile_DeadOwner_EmitsReleasedExactlyOnce",
-          "dynamic": false
-        },
-        {
-          "suite": "WorktreeManager (real event store)",
-          "name": "Reconcile_LiveOwnerPidAndStartedAtMatch_NeverReleases",
-          "dynamic": false
-        },
-        {
-          "suite": "WorktreeManager (real event store)",
-          "name": "Reconcile_RepeatedRun_IsIdempotent",
-          "dynamic": false
-        },
-        {
-          "suite": "WorktreeManager (real event store)",
-          "name": "Reservation_LeavesNoAdvisoryLockFile",
-          "dynamic": false
-        },
-        {
-          "suite": "WorktreeManager (real event store)",
-          "name": "ReserveRelease_WritesNoJsonSideFile",
-          "dynamic": false
-        },
-        {
-          "suite": "WorktreeManager (real event store)",
-          "name": "Reconcile_ConcurrentSameWorktree_StreamLockSerializes_NoDoubleRelease",
-          "dynamic": false
-        }
-      ]
-    },
-    "tests/unit/verbs/worktree/merge-serializer.test.ts": {
-      "file": "tests/unit/verbs/worktree/merge-serializer.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "serialize_merge — single-writer ordering",
-          "name": "SerializeMerge_TwoFeatureIdsSameBranch_SecondWaitsForFirstExecutedBeforeClaiming",
-          "dynamic": false
-        },
-        {
-          "suite": "serialize_merge — unsupported process table (DR-7 fail-closed)",
-          "name": "SerializeMerge_UnsupportedProcessTable_DoesNotReclaimLiveHolder",
-          "dynamic": false
-        },
-        {
-          "suite": "serialize_merge — cross-process OCC",
-          "name": "SerializeMerge_ConcurrentClaims_OccResolvesSingleHolderCrossProcess",
-          "dynamic": false
-        },
-        {
-          "suite": "serialize_merge — composition",
-          "name": "SerializeMerge_MergeOrchestrateComposedUnchanged_FeatureStreamEventsMatchModuloVolatileAndShas",
-          "dynamic": false
-        },
-        {
-          "suite": "serialize_merge — release semantics",
-          "name": "SerializeMerge_ReleaseIsPlainKeyedAppend_NotCasPinnedToClaimSeq",
-          "dynamic": false
-        },
-        {
-          "suite": "serialize_merge — the lease IS the serialization",
-          "name": "SerializeMerge_WritesNoLockFile_ImportsNoFlockLib",
-          "dynamic": false
-        },
-        {
-          "suite": "serialize_merge — unresolvable create-time (Sentry #15023070/1)",
-          "name": "SerializeMerge_UnresolvedStartTime_EmitsNullHolderStartedAt_SchemaValid",
-          "dynamic": false
-        },
-        {
-          "suite": "serialize_merge — unresolvable create-time (Sentry #15023070/1)",
-          "name": "SerializeMerge_Release_EmitsSchemaValidStatus_NoStraySourceBranch",
-          "dynamic": false
-        },
-        {
-          "suite": "serialize_merge — dispatch wiring",
-          "name": "HandleOrchestrate_SerializeMerge_RoutesToHandler_NotUnknownAction",
-          "dynamic": false
-        },
-        {
-          "suite": "serialize_merge — bounded wait + reclamation",
-          "name": "SerializeMerge_LiveHolderPastDeadline_ReturnsMergeSlotTimeout",
-          "dynamic": false
-        },
-        {
-          "suite": "serialize_merge — bounded wait + reclamation",
-          "name": "SerializeMerge_DeadHolder_ReclaimedInline_ThenClaimsAndMerges",
-          "dynamic": false
-        },
-        {
-          "suite": "handleSerializeMerge — input guards",
-          "name": "HandleSerializeMerge_MissingStrategy_RejectsInvalidInput",
-          "dynamic": false
-        },
-        {
-          "suite": "serialize_merge — DR-2 lease threading through the guard",
-          "name": "SerializeMerge_OwnLeaseThreadedThroughComposedCall_PassesGuard",
           "dynamic": false
         }
       ]
@@ -70222,77 +67386,6 @@
         }
       ]
     },
-    "tests/unit/verbs/worktree/pure/ownership.test.ts": {
-      "file": "tests/unit/verbs/worktree/pure/ownership.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "reservationLiveness",
-          "name": "LiveOwner_PidPresentAndStartedAtMatches_IsAlive",
-          "dynamic": false
-        },
-        {
-          "suite": "reservationLiveness",
-          "name": "DeadOwner_PidAbsent_IsDead",
-          "dynamic": false
-        },
-        {
-          "suite": "reservationLiveness",
-          "name": "ReusedPid_CreateTimeMismatch_IsDead",
-          "dynamic": false
-        },
-        {
-          "suite": "reservationLiveness",
-          "name": "ProbeFailed_IsUnknown_NotDead",
-          "dynamic": false
-        },
-        {
-          "suite": "reservationLiveness",
-          "name": "IncompleteOwner_NullPid_IsTreatedAsDead",
-          "dynamic": false
-        },
-        {
-          "suite": "reservationLiveness",
-          "name": "IncompleteOwner_NullStartedAt_IsTreatedAsDead",
-          "dynamic": false
-        },
-        {
-          "suite": "reservationLiveness",
-          "name": "ReservationLiveness_NullOwnerStartedAt_TreatedFailClosed",
-          "dynamic": false
-        },
-        {
-          "suite": "reservationLiveness",
-          "name": "NonReservedState_IsDead",
-          "dynamic": false
-        },
-        {
-          "suite": "selectDeadReservations",
-          "name": "SelectsOnlyDeadReservedEntries_LeavesLiveAndNonReserved",
-          "dynamic": false
-        },
-        {
-          "suite": "selectDeadReservations",
-          "name": "LiveOwner_NeverSelected",
-          "dynamic": false
-        },
-        {
-          "suite": "selectDeadReservations",
-          "name": "PreservesIterationOrder",
-          "dynamic": false
-        },
-        {
-          "suite": "selectDeadReservations",
-          "name": "EmptyInput_ReturnsEmpty",
-          "dynamic": false
-        },
-        {
-          "suite": "selectDeadReservations",
-          "name": "ProbeFailedOwner_IsNotReleased_ButAbsentOwnerIs",
-          "dynamic": false
-        }
-      ]
-    },
     "tests/unit/verbs/worktree/pure/path-containment.test.ts": {
       "file": "tests/unit/verbs/worktree/pure/path-containment.test.ts",
       "runner": "vitest:root",
@@ -70344,301 +67437,6 @@
         }
       ]
     },
-    "tests/unit/verbs/worktree/pure/probe.test.ts": {
-      "file": "tests/unit/verbs/worktree/pure/probe.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "protectedAncestry",
-          "name": "walks the full pid -> ppid chain and terminates at a cycle",
-          "dynamic": false
-        },
-        {
-          "suite": "probeWorktreeUsage",
-          "name": "Probe_SelfRootedCwd_ExcludedFromInUseSet",
-          "dynamic": false
-        },
-        {
-          "suite": "probeWorktreeUsage",
-          "name": "Probe_OwnerAncestryChain_FullyProtected",
-          "dynamic": false
-        },
-        {
-          "suite": "probeWorktreeUsage",
-          "name": "Probe_SymlinkedWorktreePath_ContainmentMatches",
-          "dynamic": false
-        },
-        {
-          "suite": "probeWorktreeUsage",
-          "name": "Probe_ForeignCwdRealpathEacces_IsOutsideTheWorktree",
-          "dynamic": false
-        },
-        {
-          "suite": "probeWorktreeUsage",
-          "name": "Probe_WorktreePathErrorAndOtherForeignCodes_Rethrow",
-          "dynamic": false
-        },
-        {
-          "suite": "probeReservations",
-          "name": "Probe_DeadOwner_ReportedReleasable",
-          "dynamic": false
-        },
-        {
-          "suite": "probeReservations",
-          "name": "Probe_UnsupportedPlatformTable_FailsClosed_NeverReleasable",
-          "dynamic": false
-        },
-        {
-          "suite": "probeWorktrees (composite)",
-          "name": "live occupancy vetoes a dead-owner release (orphan-candidate only when truly free)",
-          "dynamic": false
-        },
-        {
-          "suite": "probeWorktrees (composite)",
-          "name": "Probe_UnsupportedTable_OwnerUnknown_NotReleasableNorOrphan",
-          "dynamic": false
-        },
-        {
-          "suite": "probeWorktrees (composite)",
-          "name": "reports ownerLiveness \"none\" for an unreserved worktree",
-          "dynamic": false
-        },
-        {
-          "suite": "probeLaunchHolders (DR-6)",
-          "name": "reconciles a dead supervisor holder, holds a live one",
-          "dynamic": false
-        },
-        {
-          "suite": "probeLaunchHolders (DR-6)",
-          "name": "holds a launch whose holder identity was never captured (null)",
-          "dynamic": false
-        },
-        {
-          "suite": "probeLaunchHolders (DR-6)",
-          "name": "Probe_UnsupportedPlatformTable_FailsClosed_NeverReconcilable",
-          "dynamic": false
-        },
-        {
-          "suite": "makeDefaultProcessTableSource (win32 process source — DR-5)",
-          "name": "ProcessSource_Win32_ResolvesCwdAndCreateTime",
-          "dynamic": false
-        },
-        {
-          "suite": "makeDefaultProcessTableSource (win32 process source — DR-5)",
-          "name": "ProcessSource_UnsupportedPlatform_ReturnsUnknownFailClosed",
-          "dynamic": false
-        },
-        {
-          "suite": "makeDefaultProcessTableSource (win32 process source — DR-5)",
-          "name": "WinLiveness_BeforeFirstList_IsUnsupported",
-          "dynamic": false
-        },
-        {
-          "suite": "makeDefaultProcessTableSource (win32 process source — DR-5)",
-          "name": "WinLiveness_ReaderThrows_FailsClosed",
-          "dynamic": false
-        },
-        {
-          "suite": "makeDefaultProcessTableSource (win32 process source — DR-5)",
-          "name": "WinLiveness_ReaderReturnsNoRows_FailsClosed",
-          "dynamic": false
-        },
-        {
-          "suite": "makeDefaultProcessTableSource (win32 process source — DR-5)",
-          "name": "WinLiveness_SupportFollowsMostRecentSnapshot",
-          "dynamic": false
-        },
-        {
-          "suite": "makeDefaultProcessTableSource (win32 process source — DR-5)",
-          "name": "Win32ProcessTable_Parses_SkipsMalformed_KeepsEmptyCwd_PreservesSpaces",
-          "dynamic": false
-        }
-      ]
-    },
-    "tests/unit/verbs/worktree/pure/process-identity.test.ts": {
-      "file": "tests/unit/verbs/worktree/pure/process-identity.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "ownerLiveness",
-          "name": "ProcessIdentity_PidAbsentOrStartedAtMismatch_ReportsDead",
-          "dynamic": false
-        },
-        {
-          "suite": "ownerLiveness",
-          "name": "ProcessIdentity_PidPresentAndStartedAtMatches_ReportsAlive",
-          "dynamic": false
-        },
-        {
-          "suite": "ownerLiveness",
-          "name": "ProcessIdentity_ProbeCouldNotRun_ReportsUnknown_NotDead",
-          "dynamic": false
-        },
-        {
-          "suite": "ownerLiveness",
-          "name": "ProcessIdentity_CreateTime_ResolvesOnLinuxMacWindows",
-          "dynamic": false
-        },
-        {
-          "suite": "resolveStartedAt",
-          "name": "ResolveStartedAt_UnresolvableOrEmpty_ReturnsNullNeverEmptyString",
-          "dynamic": false
-        },
-        {
-          "suite": "resolveStartedAt",
-          "name": "ResolveStartedAt_PresentNonEmpty_ReturnsCreateTimeVerbatim",
-          "dynamic": false
-        },
-        {
-          "suite": "defaultProcessSource",
-          "name": "short-circuits non-positive PIDs to absent without any OS access",
-          "dynamic": false
-        }
-      ]
-    },
-    "tests/unit/verbs/worktree/pure/prune-ladder.test.ts": {
-      "file": "tests/unit/verbs/worktree/pure/prune-ladder.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "classifyPruneCandidate",
-          "name": "PruneLadder_ReservedLiveOwner_SkippedInUse",
-          "dynamic": false
-        },
-        {
-          "suite": "classifyPruneCandidate",
-          "name": "PruneLadder_UntrackedOnlyChanges_SkippedDirty",
-          "dynamic": false
-        },
-        {
-          "suite": "classifyPruneCandidate",
-          "name": "PruneLadder_HeadNotAncestorOfInjectedIntegrationRef_SkippedUnmerged",
-          "dynamic": false
-        },
-        {
-          "suite": "classifyPruneCandidate",
-          "name": "PruneLadder_NullIntegrationRef_TreatedUnverifiable_FailClosed",
-          "dynamic": false
-        },
-        {
-          "suite": "classifyPruneCandidate",
-          "name": "PruneLadder_NoAdoptionRecord_ClassifiedUnverifiable_NotDeletable",
-          "dynamic": false
-        },
-        {
-          "suite": "classifyPruneCandidate",
-          "name": "PruneLadder_BackingGitdirMissing_ClassifiedOrphan",
-          "dynamic": false
-        },
-        {
-          "suite": "classifyPruneCandidate",
-          "name": "PruneLadder_NullHeadAncestorWithBacking_FailsClosed",
-          "dynamic": false
-        },
-        {
-          "suite": "classifyPruneCandidate",
-          "name": "PruneLadder_OriginUnreachable_LeftUntouchedFailClosed",
-          "dynamic": false
-        },
-        {
-          "suite": "classifyPruneCandidate",
-          "name": "PruneLadder_ReleasedCleanMergedReachable_DeleteEligible",
-          "dynamic": false
-        },
-        {
-          "suite": "classifyPruneCandidate",
-          "name": "PruneLadder_AdoptedNeverReleased_SkippedActive_NotMtimeBased",
-          "dynamic": false
-        },
-        {
-          "suite": "classifyPruneCandidate",
-          "name": "PruneLadder_ReservedDeadOwnerNotYetReconciled_SkippedActive",
-          "dynamic": false
-        },
-        {
-          "suite": "classifyPruneCandidate",
-          "name": "PruneLadder_InUseTakesPrecedenceOverDirtyAndUnmerged",
-          "dynamic": false
-        }
-      ]
-    },
-    "tests/unit/verbs/worktree/recovery.test.ts": {
-      "file": "tests/unit/verbs/worktree/recovery.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "DR-12 — crash-mid-merge recovery via the production serialize_merge path",
-          "name": "Recovery_MergeRequestedNoExecuted_ResumeEmitsSingleExecuted",
-          "dynamic": false
-        },
-        {
-          "suite": "DR-3 — crash-mid-merge reconciled from the reconcile_worktrees production entry",
-          "name": "CrashedMerge_RecoveredFromProductionEntryPoint_ExactlyOneTerminalEvent",
-          "dynamic": false
-        },
-        {
-          "suite": "DR-3 — crash-mid-merge reconciled from the reconcile_worktrees production entry",
-          "name": "CrashedMerge_LiveHolder_ReconcileLeavesLeaseInFlight_FailClosed",
-          "dynamic": false
-        },
-        {
-          "suite": "DR-12 — stale dead-holder reclamation",
-          "name": "Recovery_StaleLeaseDeadHolder_WaitLoopReclaimsInlineNoFullTimeout",
-          "dynamic": false
-        },
-        {
-          "suite": "DR-12 — concurrent prune + merge",
-          "name": "Recovery_ConcurrentPruneAndMerge_PruneSkipsBranchWithInFlightLease",
-          "dynamic": false
-        },
-        {
-          "suite": "DR-12 — exhausted index.lock retry",
-          "name": "Recovery_ExhaustedIndexLockRetry_SurfacesStructuredErrorNoHalfMerge",
-          "dynamic": false
-        },
-        {
-          "suite": "DR-12 — no reset --hard, INV-14 pass-through",
-          "name": "Recovery_SerializerIntroducesNoResetHard_SurfacesRecoveryErrorFromMergeOrchestrate",
-          "dynamic": false
-        },
-        {
-          "suite": "DR-12 — unsupported process table fails closed (REV-H1)",
-          "name": "ProbeAndReclaim_UnsupportedTable_EmitsNoEvents",
-          "dynamic": false
-        },
-        {
-          "suite": "probeAndReclaim — per-entry fault isolation",
-          "name": "ProbeAndReclaim_OneReleaseAppendThrows_RemainingStillReclaimed",
-          "dynamic": false
-        }
-      ]
-    },
-    "tests/unit/verbs/worktree/serialize-dryrun.test.ts": {
-      "file": "tests/unit/verbs/worktree/serialize-dryrun.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "serialize_merge — DR-1 dry-run default",
-          "name": "SerializeMerge_DefaultDryRun_ClaimsNoLease",
-          "dynamic": false
-        },
-        {
-          "suite": "serialize_merge — DR-1 dry-run default",
-          "name": "SerializeMerge_ExplicitDryRunFalse_ClaimsLeaseAndMerges",
-          "dynamic": false
-        },
-        {
-          "suite": "acquire_worktree — mutable-as-hard-gate (DR-1)",
-          "name": "AcquireWorktree_NotMutable_RefusesReserve",
-          "dynamic": false
-        },
-        {
-          "suite": "acquire_worktree — mutable-as-hard-gate (DR-1)",
-          "name": "AcquireWorktree_Mutable_ReservesAsBefore",
-          "dynamic": false
-        }
-      ]
-    },
     "tests/unit/verbs/worktree/worktree-schemas.test.ts": {
       "file": "tests/unit/verbs/worktree/worktree-schemas.test.ts",
       "runner": "vitest:root",
@@ -70650,17 +67448,12 @@
         },
         {
           "suite": "worktree surface — typed outputSchema registration (DR-1)",
-          "name": "WorktreeActions_SixActions_CarryDoNotUseForGuidance",
+          "name": "WorktreeActions_ThreeReadActions_CarryDoNotUseForGuidance",
           "dynamic": false
         },
         {
           "suite": "worktree surface — real handler output validates against schema (DR-1)",
           "name": "WorktreeActions_RealHandlerOutput_SafeParsesAgainstSchema — success payloads",
-          "dynamic": false
-        },
-        {
-          "suite": "worktree surface — real handler output validates against schema (DR-1)",
-          "name": "WorktreeActions_SerializeMergeExecuted_OutputSafeParsesAndAnnotatesLease — executed path (DR-1)",
           "dynamic": false
         },
         {
@@ -71157,7 +67950,7 @@
         },
         {
           "suite": "shared-IR coverage (exit-proof a support)",
-          "name": "covers all six phase kinds across the IR edges (cutover-gate coverage)",
+          "name": "covers all five phase kinds across the IR edges (cutover-gate coverage)",
           "dynamic": false
         },
         {
@@ -71285,7 +68078,7 @@
         },
         {
           "suite": "CutoverGate_PhaseKinds",
-          "name": "covers all six phase kinds",
+          "name": "covers all five phase kinds",
           "dynamic": false
         },
         {
@@ -72066,7 +68859,7 @@
         },
         {
           "suite": "projectStateToFacts — reads real legacy state",
-          "name": "derives task completion and merge-pending readiness from real state",
+          "name": "derives task completion from real state and projects the retired merge readiness facts as false",
           "dynamic": false
         },
         {
@@ -73778,7 +70571,7 @@
         },
         {
           "suite": "v2.12 cancellation process manager (DR-7)",
-          "name": "CancelFailedEffect_RecordsFailureAndNeverReadiness",
+          "name": "CancelPriorFailedRemoval_StaysAFailureAndNeverReadiness",
           "dynamic": false
         },
         {
@@ -74119,8 +70912,8 @@
           "dynamic": false
         },
         {
-          "suite": "merge_orchestrate posture (#1305 T13)",
-          "name": "MergeOrchestrate_Posture_ResolvesSharedMutatingWriteCaps",
+          "suite": "shared-mutating posture (#1305 T13)",
+          "name": "CutoverDecide_Posture_ResolvesSharedMutatingWriteCaps",
           "dynamic": false
         }
       ]
@@ -74141,12 +70934,12 @@
         },
         {
           "suite": "shared-mutating posture gate — removed (INV-11)",
-          "name": "TaskIsolatedCaller_SerializeMerge_ReachesTheHandler",
+          "name": "TaskIsolatedCaller_SharedMutatingAction_ReachesTheHandler",
           "dynamic": false
         },
         {
           "suite": "shared-mutating posture gate — removed (INV-11)",
-          "name": "ReadOnlyCaller_PruneWorktrees_IsStillRejected_ByTheReadonlyGate",
+          "name": "ReadOnlyCaller_StackPlace_IsRejected_ByTheReadonlyGate",
           "dynamic": false
         }
       ]
@@ -74779,28 +71572,13 @@
           "dynamic": false
         },
         {
-          "suite": "Compensation > ExecuteCompensation_PartialFailure_ContinuesOtherActions",
-          "name": "should continue with remaining actions when one fails and report partial failure",
-          "dynamic": false
-        },
-        {
           "suite": "Compensation > ExecuteCompensation_DryRun_ListsActionsNoExecution",
           "name": "should list what would happen in dry-run mode without executing",
           "dynamic": false
         },
         {
-          "suite": "Compensation > ExecuteCompensation_CommandInjection_PreventsShellInterpolation",
-          "name": "should pass branch names as separate arguments to prevent command injection",
-          "dynamic": false
-        },
-        {
-          "suite": "Compensation > ExecuteCompensation_CommandInjection_PreventsShellInterpolation",
-          "name": "should use cwd from options.stateDir when provided",
-          "dynamic": false
-        },
-        {
-          "suite": "Compensation > ExecuteCompensation_CommandInjection_PreventsShellInterpolation",
-          "name": "should include timeout option in command execution",
+          "suite": "Compensation > ExecuteCompensation_LedgerOnly_StartsNoProcess",
+          "name": "should record a shell-shaped branch name literally and start no process",
           "dynamic": false
         },
         {
@@ -74859,58 +71637,13 @@
           "dynamic": false
         },
         {
-          "suite": "Compensation > CleanupWorktrees_DryRun_ListsBranchNames",
-          "name": "should list worktree branch names in dry-run message",
+          "suite": "Compensation > CleanupWorktrees_DryRun_ListsWorktreePaths",
+          "name": "should list worktree paths in dry-run message",
           "dynamic": false
         },
         {
-          "suite": "Compensation > CleanupWorktrees_OuterCatch_ReturnsFailed",
-          "name": "should trigger outer catch when worktree property access throws",
-          "dynamic": false
-        },
-        {
-          "suite": "Compensation > CleanupWorktrees_OuterCatch_ReturnsFailed",
-          "name": "should handle non-Error thrown values in outer catch via String()",
-          "dynamic": false
-        },
-        {
-          "suite": "Compensation > DeleteFeatureBranches_OuterCatch_ViaCorruptedIteration",
-          "name": "should trigger outer catch when branches array iteration throws unexpectedly",
-          "dynamic": false
-        },
-        {
-          "suite": "Compensation > DeleteIntegrationBranch_RemoteDeleteFailure_StillSucceeds",
-          "name": "should succeed when remote branch delete fails (inner catch swallows)",
-          "dynamic": false
-        },
-        {
-          "suite": "Compensation > CleanupWorktrees_WorktreeRemoveFailure_StillSucceeds",
-          "name": "should succeed when worktree remove command fails (inner catch swallows)",
-          "dynamic": false
-        },
-        {
-          "suite": "Compensation > DeleteIntegrationBranch_Executed_ReturnsSuccess",
-          "name": "should delete the local branch it finds and leave an absent remote alone",
-          "dynamic": false
-        },
-        {
-          "suite": "Compensation > DeleteIntegrationBranch_Executed_ReturnsSuccess",
-          "name": "should report failed when the delete errors and the branch still exists",
-          "dynamic": false
-        },
-        {
-          "suite": "Compensation > DeleteIntegrationBranch_Executed_ReturnsSuccess",
-          "name": "should report executed when the delete errors but the branch is gone",
-          "dynamic": false
-        },
-        {
-          "suite": "Compensation > DeleteFeatureBranches_RemoteDeleteFailure_StillSucceeds",
-          "name": "should succeed when remote branch push --delete fails (inner catch swallows)",
-          "dynamic": false
-        },
-        {
-          "suite": "Compensation > DeleteFeatureBranches_RemoteDeleteFailure_StillSucceeds",
-          "name": "should succeed when both local and remote deletes fail for feature branches",
+          "suite": "Compensation > DeleteIntegrationBranch_RecordsOutstanding",
+          "name": "should record the integration branch as outstanding without a probe",
           "dynamic": false
         },
         {
@@ -74926,11 +71659,6 @@
         {
           "suite": "Compensation > ExecuteCompensation_ReturnsCheckpoint",
           "name": "should return null checkpoint when all actions succeed",
-          "dynamic": false
-        },
-        {
-          "suite": "Compensation > ExecuteCompensation_ReturnsCheckpoint",
-          "name": "should return a checkpoint with completed action IDs on partial failure",
           "dynamic": false
         },
         {
@@ -74955,123 +71683,53 @@
       "runner": "vitest:root",
       "cases": [
         {
-          "suite": "B4: delete-feature-branches two-event split",
-          "name": "DeleteFeatureBranches_PhaseARetry_DoesNotRefireGitDeletion",
+          "suite": "ledger-only compensation",
+          "name": "Compensation_EachResource_RecordedOutstandingWithNoProcess (checkpoint)",
           "dynamic": false
         },
         {
-          "suite": "B4: delete-feature-branches two-event split",
-          "name": "DeleteFeatureBranches_BranchAlreadyAbsent_RecoversWithoutError",
+          "suite": "ledger-only compensation",
+          "name": "Compensation_EachResource_RecordedOutstandingWithNoProcess (process-managed)",
           "dynamic": false
         },
         {
-          "suite": "B4: delete-feature-branches two-event split",
-          "name": "DeleteFeatureBranches_PhaseCExecutedAppend_RetriesOnConcurrencyError",
+          "suite": "ledger-only compensation",
+          "name": "Compensation_AbsentWorktreeAndBranch_StayOutstanding",
           "dynamic": false
         },
         {
-          "suite": "B5: cleanup-worktrees two-event split",
-          "name": "CleanupWorktrees_PhaseARetry_DoesNotRefireGitWorktreeRemove",
+          "suite": "ledger-only compensation",
+          "name": "Compensation_PriorFailedRemoval_StaysAFailure",
           "dynamic": false
         },
         {
-          "suite": "B5: cleanup-worktrees two-event split",
-          "name": "CleanupWorktrees_WorktreeAlreadyAbsent_RecoversWithoutError",
+          "suite": "ledger-only compensation",
+          "name": "Compensation_MalformedPriorOutcome_IsNotAFailedRemoval",
           "dynamic": false
         },
         {
-          "suite": "B4.5: delete-feature-branches parity harness (two-event sequence)",
-          "name": "DeleteFeatureBranches_Parity_BothCarriersObserveTwoEventSequence",
+          "suite": "ledger-only compensation",
+          "name": "Compensation_ProcessManaged_FreshRunReportsStatusAndReplayKeepsItsResult",
           "dynamic": false
         },
         {
-          "suite": "B5.5: cleanup-worktrees parity harness (two-event sequence)",
-          "name": "CleanupWorktrees_Parity_BothCarriersObserveTwoEventSequence",
+          "suite": "ledger-only compensation",
+          "name": "Compensation_ProcessManaged_ReturnsOneLedgerRecordPerAction",
           "dynamic": false
         },
         {
-          "suite": "#1352: compensation operationId recovery (reuse vs mint)",
-          "name": "Compensation_RecoveryWithUnmatchedRequested_ReusesOperationId (cleanup-worktrees)",
+          "suite": "ledger-only compensation",
+          "name": "Compensation_WorktreeReservation_StaysOutstanding",
           "dynamic": false
         },
         {
-          "suite": "#1352: compensation operationId recovery (reuse vs mint)",
-          "name": "Compensation_NoPriorRequested_MintsFreshId (cleanup-worktrees)",
+          "suite": "ledger-only compensation",
+          "name": "Compensation_DryRun_ListsTheResourcesAndWritesNothing",
           "dynamic": false
         },
         {
-          "suite": "#1352: compensation operationId recovery (reuse vs mint)",
-          "name": "Compensation_RecoveryWithUnmatchedRequested_ReusesOperationId (delete-feature-branches)",
-          "dynamic": false
-        },
-        {
-          "suite": "#1352: compensation operationId recovery (reuse vs mint)",
-          "name": "Compensation_NoPriorRequested_MintsFreshId (delete-feature-branches)",
-          "dynamic": false
-        },
-        {
-          "suite": "#1352: compensation operationId recovery (reuse vs mint)",
-          "name": "Compensation_PriorRequestedAlreadyExecuted_MintsFreshId (delete-feature-branches)",
-          "dynamic": false
-        },
-        {
-          "suite": "Compensation action error handling (close-pr)",
-          "name": "ClosePR_GhCommandFails_ReturnsFailed",
-          "dynamic": false
-        },
-        {
-          "suite": "Compensation action error handling (close-pr)",
-          "name": "ClosePR_NonErrorThrown_StringifiesMessage",
-          "dynamic": false
-        },
-        {
-          "suite": "compensation: operational git failures surface (CodeRabbit #3224631272)",
-          "name": "DeleteFeatureBranches_GitRevParseTimesOut_ActionFails",
-          "dynamic": false
-        },
-        {
-          "suite": "compensation: operational git failures surface (CodeRabbit #3224631272)",
-          "name": "CleanupWorktrees_GitNotARepository_ActionFails",
-          "dynamic": false
-        },
-        {
-          "suite": "compensation: operational git failures surface (CodeRabbit #3224631272)",
-          "name": "DeleteFeatureBranches_BranchAbsentExitCode_StillRecoversCleanly",
-          "dynamic": false
-        },
-        {
-          "suite": "Task 009: worktree.remove unified onto the `worktrees` stream (DR-3/DR-1)",
-          "name": "Compensation_WorktreeRemove_AdoptsThenEmitsPairOnWorktreesStream_ViewDropsEntry",
-          "dynamic": false
-        },
-        {
-          "suite": "Task 009: worktree.remove unified onto the `worktrees` stream (DR-3/DR-1)",
-          "name": "Compensation_CrashBetweenRequestedAndExecuted_ResumesIdempotently",
-          "dynamic": false
-        },
-        {
-          "suite": "Task 009: worktree.remove unified onto the `worktrees` stream (DR-3/DR-1)",
-          "name": "Compensation_PreDeployCrashLegacyFeatureStreamRequested_ResumedUnderOriginalOperationId",
-          "dynamic": false
-        },
-        {
-          "suite": "Task 009: worktree.remove unified onto the `worktrees` stream (DR-3/DR-1)",
-          "name": "Compensation_WorktreeRemove_IndexLockContention_RetriesRemove (DR-1)",
-          "dynamic": false
-        },
-        {
-          "suite": "Task 010: teardown dirty-guard (INV-14 / DR-3)",
-          "name": "Compensation_DirtyWorktreeIncludingUntrackedOnly_SkippedAndSurfacedNeverForceRemoved",
-          "dynamic": false
-        },
-        {
-          "suite": "Task 010: teardown dirty-guard (INV-14 / DR-3)",
-          "name": "Compensation_CleanWorktree_RemovedAsBefore",
-          "dynamic": false
-        },
-        {
-          "suite": "Task 010: teardown dirty-guard (INV-14 / DR-3)",
-          "name": "Compensation_SkipResult_CarriesScannableReason",
+          "suite": "ledger-only compensation",
+          "name": "Compensation_EventStoreWithoutFeatureId_Throws",
           "dynamic": false
         }
       ]
@@ -75230,7 +71888,7 @@
         },
         {
           "suite": "buildConfigDescription",
-          "name": "DescribeConfig_VcsOverride_ShowsSource",
+          "name": "DescribeConfig_RetiredVcsKey_GivesNoSection",
           "dynamic": false
         },
         {
@@ -75331,13 +71989,8 @@
         },
         {
           "suite": "bootstrap prefix routing",
-          "name": "Bootstrap_UnsupportedPrefix_%s_Refuses",
+          "name": "Bootstrap_UnsupportedPrefix_SYNTHESIZE_Refuses",
           "dynamic": false
-        },
-        {
-          "suite": "bootstrap prefix routing",
-          "name": "<dynamic-case-1>",
-          "dynamic": true
         },
         {
           "suite": "bootstrap prefix routing",
@@ -75391,7 +72044,7 @@
         },
         {
           "suite": "bootstrap prefix routing",
-          "name": "<dynamic-case-2>",
+          "name": "<dynamic-case-1>",
           "dynamic": true
         },
         {
@@ -75401,7 +72054,7 @@
         },
         {
           "suite": "bootstrap prefix routing",
-          "name": "<dynamic-case-3>",
+          "name": "<dynamic-case-2>",
           "dynamic": true
         },
         {
@@ -75411,7 +72064,7 @@
         },
         {
           "suite": "bootstrap prefix routing",
-          "name": "<dynamic-case-4>",
+          "name": "<dynamic-case-3>",
           "dynamic": true
         },
         {
@@ -75441,7 +72094,7 @@
         },
         {
           "suite": "bootstrap frozen entry association",
-          "name": "<dynamic-case-5>",
+          "name": "<dynamic-case-4>",
           "dynamic": true
         },
         {
@@ -77220,8 +73873,8 @@
           "dynamic": false
         },
         {
-          "suite": "Integration > Compensation_WorkflowWithSideEffects_CleansUpOnCancel",
-          "name": "should run compensation actions and log events on cancel",
+          "suite": "Integration > Compensation_WorkflowWithSideEffects_RecordsResourcesOnCancel",
+          "name": "should record each resource as outstanding and leave the branches in place on cancel",
           "dynamic": false
         },
         {
@@ -78828,6 +75481,16 @@
           "suite": "handleRehydrate — degradation precedence (P04-06, EFF-004)",
           "name": "Rehydrate_ColdProbeUnknownFeature_NoEvent_WorkflowExistsFalse",
           "dynamic": false
+        },
+        {
+          "suite": "handleRehydrate — stale merge-pending snapshot",
+          "name": "Rehydrate_VersionOneMergePendingSnapshotThenMergeExecuted_ReadsDelegate",
+          "dynamic": false
+        },
+        {
+          "suite": "handleRehydrate — stale merge-pending snapshot",
+          "name": "HydrateFromSnapshotThenTail_VersionOneMergePendingSnapshot_FoldsTheStreamAgain",
+          "dynamic": false
         }
       ]
     },
@@ -79680,13 +76343,33 @@
           "dynamic": false
         },
         {
-          "suite": "FeaturePhaseSchema (T26)",
-          "name": "FeaturePhaseSchema_MergePending_Parses",
+          "suite": "FeaturePhaseSchema",
+          "name": "FeaturePhaseSchema_MergePending_ParsesAsDelegate",
           "dynamic": false
         },
         {
-          "suite": "FeaturePhaseSchema (T26)",
+          "suite": "FeaturePhaseSchema",
           "name": "FeaturePhaseSchema_TypoInMergePending_Rejects",
+          "dynamic": false
+        },
+        {
+          "suite": "readStoredPhase",
+          "name": "ReadStoredPhase_FeatureMergePending_ReadsAsDelegate",
+          "dynamic": false
+        },
+        {
+          "suite": "readStoredPhase",
+          "name": "ReadStoredPhase_FeatureIdeate_ReadsAsPlan",
+          "dynamic": false
+        },
+        {
+          "suite": "readStoredPhase",
+          "name": "ReadStoredPhase_LivePhase_IsUnchanged",
+          "dynamic": false
+        },
+        {
+          "suite": "readStoredPhase",
+          "name": "ReadStoredPhase_OtherWorkflowType_IsUnchanged",
           "dynamic": false
         },
         {
@@ -80795,33 +77478,13 @@
           "dynamic": false
         },
         {
-          "suite": "Feature workflow merge-pending substate",
-          "name": "exposes EXCLUDED_MERGE_PHASES as a reusable constant",
+          "suite": "Feature workflow without the merge-pending substate",
+          "name": "featureHsm_HasNoMergePendingState",
           "dynamic": false
         },
         {
-          "suite": "Feature workflow merge-pending substate",
-          "name": "featureHsm_TaskCompletedWithWorktree_TransitionsToMergePending",
-          "dynamic": false
-        },
-        {
-          "suite": "Feature workflow merge-pending substate",
-          "name": "featureHsm_TaskCompletedWithoutWorktree_DoesNotTransitionToMergePending",
-          "dynamic": false
-        },
-        {
-          "suite": "Feature workflow merge-pending substate",
-          "name": "featureHsm_MergeCompletedEvent_LeavesMergePendingState",
-          "dynamic": false
-        },
-        {
-          "suite": "Feature workflow merge-pending substate",
-          "name": "featureHsm_MergeRecoveredEvent_LeavesMergePendingState",
-          "dynamic": false
-        },
-        {
-          "suite": "Feature workflow merge-pending substate",
-          "name": "featureHsm_TaskCompletedWithWorktree_DoesNotTransitionWhenMergeCompleted",
+          "suite": "Feature workflow without the merge-pending substate",
+          "name": "featureHsm_TaskCompletedWithWorktree_HasNoMergePendingTarget",
           "dynamic": false
         },
         {
@@ -80907,37 +77570,6 @@
         {
           "suite": "plan-review bound retirement is edge-scoped (WLM-6 DR-2, task 005)",
           "name": "Delegate_FixCycleLoop_Unchanged",
-          "dynamic": false
-        }
-      ]
-    },
-    "tests/unit/workflow/state-retry.test.ts": {
-      "file": "tests/unit/workflow/state-retry.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "DR-2 retry contract — plain append surface is not retry-wrapped",
-          "name": "EventAppendHandlers_NotWrappedInWithStateRetry",
-          "dynamic": false
-        },
-        {
-          "suite": "withStateRetry — Wave 4 / Task 4.1",
-          "name": "WithStateRetry_RetriesOnConcurrencyError",
-          "dynamic": false
-        },
-        {
-          "suite": "withStateRetry — Wave 4 / Task 4.1",
-          "name": "WithStateRetry_RetriesOnStorageBusyError",
-          "dynamic": false
-        },
-        {
-          "suite": "withStateRetry — Wave 4 / Task 4.1",
-          "name": "WithStateRetry_ExhaustsAfterMaxAttempts_ForConcurrencyError",
-          "dynamic": false
-        },
-        {
-          "suite": "withStateRetry — Wave 4 / Task 4.1",
-          "name": "WithStateRetry_ExhaustsAfterMaxAttempts_ForStorageBusyError",
           "dynamic": false
         }
       ]
@@ -89625,7 +86257,7 @@
         },
         {
           "suite": "the authored built-in definitions against the golden",
-          "name": "AuthoredDefinition_TheProjection_HoldsFiveDefinitionsAnd51Edges",
+          "name": "AuthoredDefinition_TheProjection_HoldsFiveDefinitionsAnd49Edges",
           "dynamic": false
         }
       ]
@@ -89844,7 +86476,7 @@
       "cases": [
         {
           "suite": "the admission IR that derives from the built-in definitions",
-          "name": "DerivedIR_TheEdges_Are51In12_16_17_4_2",
+          "name": "DerivedIR_TheEdges_Are49In10_16_17_4_2",
           "dynamic": false
         },
         {
@@ -91423,7 +88055,7 @@
         },
         {
           "suite": "the comparator of the two guard inputs",
-          "name": "CompareGuardInputs_ATerminalMergePhaseOnOneSide_IsMergeOrchestrator",
+          "name": "CompareGuardInputs_AMergeStateDriftOfAnOldDocument_ChangesNoFact",
           "dynamic": false
         },
         {
@@ -91515,13 +88147,23 @@
         },
         {
           "suite": "the corpus agreement of the ledger fold and the state document",
-          "name": "CorpusAgreement_TheCases_Are131In102_6_23",
+          "name": "<dynamic-case-1>",
+          "dynamic": true
+        },
+        {
+          "suite": "the corpus agreement of the ledger fold and the state document",
+          "name": "CorpusAgreement_TheCases_Are127In98_6_23",
           "dynamic": false
         },
         {
           "suite": "the corpus agreement of the ledger fold and the state document",
           "name": "CorpusAgreement_%s_EachSideGivesTheRecordedVerdict",
           "dynamic": false
+        },
+        {
+          "suite": "the corpus agreement of the ledger fold and the state document",
+          "name": "<dynamic-case-2>",
+          "dynamic": true
         },
         {
           "suite": "the corpus agreement of the ledger fold and the state document",
@@ -91655,11 +88297,6 @@
         {
           "suite": "the guard fold and the document side",
           "name": "DocumentGuardInput_KeepsEachDocumentFieldAndTakesTheEventsFromTheRows",
-          "dynamic": false
-        },
-        {
-          "suite": "the guard fold and the document side",
-          "name": "FoldGuardInput_OnTheStorePath_MergePendingEntryDeniesACompletionWithAWorktree",
           "dynamic": false
         },
         {
@@ -92263,6 +88900,16 @@
         },
         {
           "suite": "settle moves the phase on one plain edge",
+          "name": "Settle_ALogEndingInMergePending_MovesFromDelegate",
+          "dynamic": false
+        },
+        {
+          "suite": "settle moves the phase on one plain edge",
+          "name": "Settle_ACapsuleThatPinsTheMergePendingDetour_MovesFromDelegateToReview",
+          "dynamic": false
+        },
+        {
+          "suite": "settle moves the phase on one plain edge",
           "name": "Settle_TheReceipt_NamesTheEdge",
           "dynamic": false
         },
@@ -92569,6 +89216,11 @@
         },
         {
           "suite": "Cancellation resource authority",
+          "name": "HandleCancel_EmptyLedgerContainers_ExcludeObsoleteDocumentResources (%s)",
+          "dynamic": false
+        },
+        {
+          "suite": "Cancellation resource authority",
           "name": "<dynamic-case-3>",
           "dynamic": true
         },
@@ -92580,6 +89232,11 @@
         {
           "suite": "Cancellation resource authority",
           "name": "HandleCancel_CompensationResourceMutation_DoesNotAliasFoldRowsOrDocument",
+          "dynamic": false
+        },
+        {
+          "suite": "Cancellation resource authority",
+          "name": "HandleCancel_FallbackResources_KeepDocumentContainers (%s)",
           "dynamic": false
         },
         {

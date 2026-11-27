@@ -3,7 +3,7 @@
     {
       "name": "feature",
       "initialPhase": "plan",
-      "phaseCount": 10,
+      "phaseCount": 9,
       "trackCount": 1
     },
     {
@@ -34,8 +34,8 @@
   "workflows": {
     "feature": {
       "initialPhase": "plan",
-      "machine": "{\"id\":\"feature\",\"states\":{\"plan\":{\"id\":\"plan\",\"type\":\"atomic\",\"kind\":\"PLAN\"},\"plan-review\":{\"id\":\"plan-review\",\"type\":\"atomic\",\"kind\":\"PLAN\"},\"implementation\":{\"id\":\"implementation\",\"type\":\"compound\",\"initial\":\"delegate\",\"maxFixCycles\":3,\"onEntry\":[\"log\"],\"onExit\":[\"log\"]},\"delegate\":{\"id\":\"delegate\",\"type\":\"atomic\",\"kind\":\"IMPLEMENT\",\"parent\":\"implementation\"},\"review\":{\"id\":\"review\",\"type\":\"atomic\",\"kind\":\"REVIEW\",\"parent\":\"implementation\"},\"merge-pending\":{\"id\":\"merge-pending\",\"type\":\"atomic\",\"kind\":\"MERGE\",\"parent\":\"implementation\"},\"synthesize\":{\"id\":\"synthesize\",\"type\":\"atomic\",\"kind\":\"SYNTHESIZE\"},\"completed\":{\"id\":\"completed\",\"type\":\"final\"},\"cancelled\":{\"id\":\"cancelled\",\"type\":\"final\"},\"blocked\":{\"id\":\"blocked\",\"type\":\"atomic\",\"kind\":\"GATHER\"}},\"transitions\":[{\"from\":\"plan\",\"to\":\"plan-review\",\"guard\":{\"id\":\"plan-artifact-exists\",\"description\":\"Plan artifact must exist\"}},{\"from\":\"plan-review\",\"to\":\"delegate\",\"guard\":{\"id\":\"plan-review-complete\",\"description\":\"Plan review must be complete with no gaps\"}},{\"from\":\"plan-review\",\"to\":\"blocked\",\"guard\":{\"id\":\"revisions-exhausted\",\"description\":\"Plan revision count has reached the maximum allowed\"}},{\"from\":\"plan-review\",\"to\":\"plan\",\"guard\":{\"id\":\"plan-review-gaps-found\",\"description\":\"Plan review found coverage gaps\"},\"isRevision\":true,\"effects\":[\"log\"]},{\"from\":\"delegate\",\"to\":\"review\",\"guard\":{\"id\":\"all-tasks-complete+team-disbanded\",\"description\":\"All tasks must be complete and team must be disbanded\"}},{\"from\":\"delegate\",\"to\":\"merge-pending\",\"guard\":{\"id\":\"merge-pending-entry\",\"description\":\"Most recent task.completed must carry a worktree association and mergeOrchestrator must not already be in a terminal phase\"}},{\"from\":\"merge-pending\",\"to\":\"delegate\",\"guard\":{\"id\":\"merge-pending-exit\",\"description\":\"A merge.executed/merge.rollback/merge.recovered/merge.aborted must follow the latest task.completed (or mergeOrchestrator.phase must be terminal)\"}},{\"from\":\"review\",\"to\":\"synthesize\",\"guard\":{\"id\":\"all-reviews-passed\",\"description\":\"All required reviews must be present and have passed\"}},{\"from\":\"review\",\"to\":\"delegate\",\"guard\":{\"id\":\"any-review-failed\",\"description\":\"At least one review must have failed\"},\"isFixCycle\":true,\"effects\":[\"increment-fix-cycle\"]},{\"from\":\"synthesize\",\"to\":\"delegate\",\"guard\":{\"id\":\"synthesize-retryable\",\"description\":\"Synthesis can be retried (has error and retries remaining)\"}},{\"from\":\"synthesize\",\"to\":\"completed\",\"guard\":{\"id\":\"pr-url-exists\",\"description\":\"PR URL must exist\"}},{\"from\":\"blocked\",\"to\":\"delegate\",\"guard\":{\"id\":\"human-unblocked\",\"description\":\"Human must have unblocked the workflow\"}}]}",
-      "topology": "{\"workflowType\":\"feature\",\"initialPhase\":\"plan\",\"states\":{\"plan\":{\"id\":\"plan\",\"type\":\"atomic\"},\"plan-review\":{\"id\":\"plan-review\",\"type\":\"atomic\"},\"implementation\":{\"id\":\"implementation\",\"type\":\"compound\",\"initial\":\"delegate\",\"maxFixCycles\":3,\"onEntry\":[\"log\"],\"onExit\":[\"log\"]},\"delegate\":{\"id\":\"delegate\",\"type\":\"atomic\",\"parent\":\"implementation\"},\"review\":{\"id\":\"review\",\"type\":\"atomic\",\"parent\":\"implementation\"},\"merge-pending\":{\"id\":\"merge-pending\",\"type\":\"atomic\",\"parent\":\"implementation\"},\"synthesize\":{\"id\":\"synthesize\",\"type\":\"atomic\"},\"completed\":{\"id\":\"completed\",\"type\":\"final\"},\"cancelled\":{\"id\":\"cancelled\",\"type\":\"final\"},\"blocked\":{\"id\":\"blocked\",\"type\":\"atomic\"}},\"transitions\":[{\"from\":\"plan\",\"to\":\"plan-review\",\"guard\":{\"id\":\"plan-artifact-exists\",\"description\":\"Plan artifact must exist\"}},{\"from\":\"plan-review\",\"to\":\"delegate\",\"guard\":{\"id\":\"plan-review-complete\",\"description\":\"Plan review must be complete with no gaps\"}},{\"from\":\"plan-review\",\"to\":\"blocked\",\"guard\":{\"id\":\"revisions-exhausted\",\"description\":\"Plan revision count has reached the maximum allowed\"}},{\"from\":\"plan-review\",\"to\":\"plan\",\"guard\":{\"id\":\"plan-review-gaps-found\",\"description\":\"Plan review found coverage gaps\"},\"isRevision\":true,\"effects\":[\"log\"]},{\"from\":\"delegate\",\"to\":\"review\",\"guard\":{\"id\":\"all-tasks-complete+team-disbanded\",\"description\":\"All tasks must be complete and team must be disbanded\"}},{\"from\":\"delegate\",\"to\":\"merge-pending\",\"guard\":{\"id\":\"merge-pending-entry\",\"description\":\"Most recent task.completed must carry a worktree association and mergeOrchestrator must not already be in a terminal phase\"}},{\"from\":\"merge-pending\",\"to\":\"delegate\",\"guard\":{\"id\":\"merge-pending-exit\",\"description\":\"A merge.executed/merge.rollback/merge.recovered/merge.aborted must follow the latest task.completed (or mergeOrchestrator.phase must be terminal)\"}},{\"from\":\"review\",\"to\":\"synthesize\",\"guard\":{\"id\":\"all-reviews-passed\",\"description\":\"All required reviews must be present and have passed\"}},{\"from\":\"review\",\"to\":\"delegate\",\"guard\":{\"id\":\"any-review-failed\",\"description\":\"At least one review must have failed\"},\"isFixCycle\":true,\"effects\":[\"increment-fix-cycle\"]},{\"from\":\"synthesize\",\"to\":\"delegate\",\"guard\":{\"id\":\"synthesize-retryable\",\"description\":\"Synthesis can be retried (has error and retries remaining)\"}},{\"from\":\"synthesize\",\"to\":\"completed\",\"guard\":{\"id\":\"pr-url-exists\",\"description\":\"PR URL must exist\"}},{\"from\":\"blocked\",\"to\":\"delegate\",\"guard\":{\"id\":\"human-unblocked\",\"description\":\"Human must have unblocked the workflow\"}}],\"tracks\":{\"implementation\":[\"delegate\",\"review\",\"merge-pending\"]}}",
+      "machine": "{\"id\":\"feature\",\"states\":{\"plan\":{\"id\":\"plan\",\"type\":\"atomic\",\"kind\":\"PLAN\"},\"plan-review\":{\"id\":\"plan-review\",\"type\":\"atomic\",\"kind\":\"PLAN\"},\"implementation\":{\"id\":\"implementation\",\"type\":\"compound\",\"initial\":\"delegate\",\"maxFixCycles\":3,\"onEntry\":[\"log\"],\"onExit\":[\"log\"]},\"delegate\":{\"id\":\"delegate\",\"type\":\"atomic\",\"kind\":\"IMPLEMENT\",\"parent\":\"implementation\"},\"review\":{\"id\":\"review\",\"type\":\"atomic\",\"kind\":\"REVIEW\",\"parent\":\"implementation\"},\"synthesize\":{\"id\":\"synthesize\",\"type\":\"atomic\",\"kind\":\"SYNTHESIZE\"},\"completed\":{\"id\":\"completed\",\"type\":\"final\"},\"cancelled\":{\"id\":\"cancelled\",\"type\":\"final\"},\"blocked\":{\"id\":\"blocked\",\"type\":\"atomic\",\"kind\":\"GATHER\"}},\"transitions\":[{\"from\":\"plan\",\"to\":\"plan-review\",\"guard\":{\"id\":\"plan-artifact-exists\",\"description\":\"Plan artifact must exist\"}},{\"from\":\"plan-review\",\"to\":\"delegate\",\"guard\":{\"id\":\"plan-review-complete\",\"description\":\"Plan review must be complete with no gaps\"}},{\"from\":\"plan-review\",\"to\":\"blocked\",\"guard\":{\"id\":\"revisions-exhausted\",\"description\":\"Plan revision count has reached the maximum allowed\"}},{\"from\":\"plan-review\",\"to\":\"plan\",\"guard\":{\"id\":\"plan-review-gaps-found\",\"description\":\"Plan review found coverage gaps\"},\"isRevision\":true,\"effects\":[\"log\"]},{\"from\":\"delegate\",\"to\":\"review\",\"guard\":{\"id\":\"all-tasks-complete+team-disbanded\",\"description\":\"All tasks must be complete and team must be disbanded\"}},{\"from\":\"review\",\"to\":\"synthesize\",\"guard\":{\"id\":\"all-reviews-passed\",\"description\":\"All required reviews must be present and have passed\"}},{\"from\":\"review\",\"to\":\"delegate\",\"guard\":{\"id\":\"any-review-failed\",\"description\":\"At least one review must have failed\"},\"isFixCycle\":true,\"effects\":[\"increment-fix-cycle\"]},{\"from\":\"synthesize\",\"to\":\"delegate\",\"guard\":{\"id\":\"synthesize-retryable\",\"description\":\"Synthesis can be retried (has error and retries remaining)\"}},{\"from\":\"synthesize\",\"to\":\"completed\",\"guard\":{\"id\":\"pr-url-exists\",\"description\":\"PR URL must exist\"}},{\"from\":\"blocked\",\"to\":\"delegate\",\"guard\":{\"id\":\"human-unblocked\",\"description\":\"Human must have unblocked the workflow\"}}]}",
+      "topology": "{\"workflowType\":\"feature\",\"initialPhase\":\"plan\",\"states\":{\"plan\":{\"id\":\"plan\",\"type\":\"atomic\"},\"plan-review\":{\"id\":\"plan-review\",\"type\":\"atomic\"},\"implementation\":{\"id\":\"implementation\",\"type\":\"compound\",\"initial\":\"delegate\",\"maxFixCycles\":3,\"onEntry\":[\"log\"],\"onExit\":[\"log\"]},\"delegate\":{\"id\":\"delegate\",\"type\":\"atomic\",\"parent\":\"implementation\"},\"review\":{\"id\":\"review\",\"type\":\"atomic\",\"parent\":\"implementation\"},\"synthesize\":{\"id\":\"synthesize\",\"type\":\"atomic\"},\"completed\":{\"id\":\"completed\",\"type\":\"final\"},\"cancelled\":{\"id\":\"cancelled\",\"type\":\"final\"},\"blocked\":{\"id\":\"blocked\",\"type\":\"atomic\"}},\"transitions\":[{\"from\":\"plan\",\"to\":\"plan-review\",\"guard\":{\"id\":\"plan-artifact-exists\",\"description\":\"Plan artifact must exist\"}},{\"from\":\"plan-review\",\"to\":\"delegate\",\"guard\":{\"id\":\"plan-review-complete\",\"description\":\"Plan review must be complete with no gaps\"}},{\"from\":\"plan-review\",\"to\":\"blocked\",\"guard\":{\"id\":\"revisions-exhausted\",\"description\":\"Plan revision count has reached the maximum allowed\"}},{\"from\":\"plan-review\",\"to\":\"plan\",\"guard\":{\"id\":\"plan-review-gaps-found\",\"description\":\"Plan review found coverage gaps\"},\"isRevision\":true,\"effects\":[\"log\"]},{\"from\":\"delegate\",\"to\":\"review\",\"guard\":{\"id\":\"all-tasks-complete+team-disbanded\",\"description\":\"All tasks must be complete and team must be disbanded\"}},{\"from\":\"review\",\"to\":\"synthesize\",\"guard\":{\"id\":\"all-reviews-passed\",\"description\":\"All required reviews must be present and have passed\"}},{\"from\":\"review\",\"to\":\"delegate\",\"guard\":{\"id\":\"any-review-failed\",\"description\":\"At least one review must have failed\"},\"isFixCycle\":true,\"effects\":[\"increment-fix-cycle\"]},{\"from\":\"synthesize\",\"to\":\"delegate\",\"guard\":{\"id\":\"synthesize-retryable\",\"description\":\"Synthesis can be retried (has error and retries remaining)\"}},{\"from\":\"synthesize\",\"to\":\"completed\",\"guard\":{\"id\":\"pr-url-exists\",\"description\":\"PR URL must exist\"}},{\"from\":\"blocked\",\"to\":\"delegate\",\"guard\":{\"id\":\"human-unblocked\",\"description\":\"Human must have unblocked the workflow\"}}],\"tracks\":{\"implementation\":[\"delegate\",\"review\"]}}",
       "validTargets": {
         "plan": [
           {
@@ -116,13 +116,6 @@
             }
           },
           {
-            "phase": "merge-pending",
-            "guard": {
-              "id": "merge-pending-entry",
-              "description": "Most recent task.completed must carry a worktree association and mergeOrchestrator must not already be in a terminal phase"
-            }
-          },
-          {
             "phase": "cancelled",
             "universal": true
           },
@@ -148,27 +141,6 @@
             "guard": {
               "id": "any-review-failed",
               "description": "At least one review must have failed"
-            }
-          },
-          {
-            "phase": "cancelled",
-            "universal": true
-          },
-          {
-            "phase": "completed",
-            "guard": {
-              "id": "merge-verified",
-              "description": "Merge must be verified by the orchestrator before cleanup"
-            },
-            "universal": true
-          }
-        ],
-        "merge-pending": [
-          {
-            "phase": "delegate",
-            "guard": {
-              "id": "merge-pending-exit",
-              "description": "A merge.executed/merge.rollback/merge.recovered/merge.aborted must follow the latest task.completed (or mergeOrchestrator.phase must be terminal)"
             }
           },
           {
@@ -226,8 +198,8 @@
           }
         ]
       },
-      "kernel": "{\"approvalPoints\":[],\"authority\":{\"assumptions\":[{\"id\":\"plan-is-current\",\"statement\":\"The plan's tasks and their dependencies are current as of this compilation.\"},{\"id\":\"tasks-are-separable\",\"statement\":\"Each task can be completed without changing the declared result shape of another task.\"}],\"delegatedDecisions\":[{\"id\":\"implementation-approach\",\"statement\":\"How a task is implemented, within its declared result shape.\"},{\"id\":\"execution-order\",\"statement\":\"The order and concurrency of tasks whose dependencies are satisfied.\"}],\"escalationBoundaries\":[{\"id\":\"published-contract-change\",\"statement\":\"Any change to a published schema, event type or action contract.\"},{\"id\":\"work-outside-the-plan\",\"statement\":\"Completing a task requires work the plan's task list does not contain.\"},{\"id\":\"assumption-invalidated\",\"statement\":\"Evidence that an assumption of this capsule does not hold.\"}],\"invariants\":[{\"id\":\"append-only-history\",\"statement\":\"Workflow history is append-only: a recorded event is never rewritten or removed.\"},{\"id\":\"pinned-terms\",\"statement\":\"Work is judged against the capsule it was compiled under. Terms that change while it runs apply only to a later compilation.\"},{\"id\":\"evidenced-completion\",\"statement\":\"A task is complete only when its result is returned with evidence of a kind the capsule admits.\"}]},\"branchPoints\":[],\"entryStepId\":\"plan\",\"failureHandlers\":[],\"forkPoints\":[],\"loops\":[],\"name\":\"exarchos.feature\",\"schemaVersion\":\"1.0\",\"steps\":[{\"isTerminal\":false,\"kind\":\"skill\",\"runtime\":\"exarchos\",\"stepId\":\"plan\",\"stepName\":\"plan\",\"stepType\":\"PLAN\"},{\"isTerminal\":false,\"kind\":\"skill\",\"runtime\":\"exarchos\",\"stepId\":\"plan-review\",\"stepName\":\"plan-review\",\"stepType\":\"PLAN\"},{\"isTerminal\":false,\"kind\":\"skill\",\"runtime\":\"exarchos\",\"stepId\":\"delegate\",\"stepName\":\"delegate\",\"stepType\":\"IMPLEMENT\"},{\"isTerminal\":false,\"kind\":\"skill\",\"runtime\":\"exarchos\",\"stepId\":\"review\",\"stepName\":\"review\",\"stepType\":\"REVIEW\"},{\"isTerminal\":false,\"kind\":\"skill\",\"runtime\":\"exarchos\",\"stepId\":\"merge-pending\",\"stepName\":\"merge-pending\",\"stepType\":\"MERGE\"},{\"isTerminal\":false,\"kind\":\"skill\",\"runtime\":\"exarchos\",\"stepId\":\"synthesize\",\"stepName\":\"synthesize\",\"stepType\":\"SYNTHESIZE\"},{\"isTerminal\":true,\"kind\":\"skill\",\"runtime\":\"exarchos\",\"stepId\":\"completed\",\"stepName\":\"completed\",\"stepType\":\"final\"},{\"isTerminal\":true,\"kind\":\"skill\",\"runtime\":\"exarchos\",\"stepId\":\"cancelled\",\"stepName\":\"cancelled\",\"stepType\":\"final\"},{\"isTerminal\":false,\"kind\":\"skill\",\"runtime\":\"exarchos\",\"stepId\":\"blocked\",\"stepName\":\"blocked\",\"stepType\":\"GATHER\"}],\"transitions\":[{\"fromStepId\":\"plan\",\"isDefault\":false,\"toStepId\":\"plan-review\",\"transitionId\":\"plan->plan-review\"},{\"fromStepId\":\"plan-review\",\"isDefault\":false,\"toStepId\":\"delegate\",\"transitionId\":\"plan-review->delegate\"},{\"fromStepId\":\"plan-review\",\"isDefault\":false,\"toStepId\":\"blocked\",\"transitionId\":\"plan-review->blocked\"},{\"fromStepId\":\"plan-review\",\"isDefault\":false,\"toStepId\":\"plan\",\"transitionId\":\"plan-review->plan\"},{\"fromStepId\":\"delegate\",\"isDefault\":false,\"toStepId\":\"review\",\"transitionId\":\"delegate->review\"},{\"fromStepId\":\"delegate\",\"isDefault\":false,\"toStepId\":\"merge-pending\",\"transitionId\":\"delegate->merge-pending\"},{\"fromStepId\":\"merge-pending\",\"isDefault\":false,\"toStepId\":\"delegate\",\"transitionId\":\"merge-pending->delegate\"},{\"fromStepId\":\"review\",\"isDefault\":false,\"toStepId\":\"synthesize\",\"transitionId\":\"review->synthesize\"},{\"fromStepId\":\"review\",\"isDefault\":false,\"toStepId\":\"delegate\",\"transitionId\":\"review->delegate\"},{\"fromStepId\":\"synthesize\",\"isDefault\":false,\"toStepId\":\"delegate\",\"transitionId\":\"synthesize->delegate\"},{\"fromStepId\":\"synthesize\",\"isDefault\":false,\"toStepId\":\"completed\",\"transitionId\":\"synthesize->completed\"},{\"fromStepId\":\"blocked\",\"isDefault\":false,\"toStepId\":\"delegate\",\"transitionId\":\"blocked->delegate\"}]}",
-      "definitionVersion": "fb23880b4958b39590a7a3008c22bdbb819d944d8c2fee99fab512202eb46fc9",
+      "kernel": "{\"approvalPoints\":[],\"authority\":{\"assumptions\":[{\"id\":\"plan-is-current\",\"statement\":\"The plan's tasks and their dependencies are current as of this compilation.\"},{\"id\":\"tasks-are-separable\",\"statement\":\"Each task can be completed without changing the declared result shape of another task.\"}],\"delegatedDecisions\":[{\"id\":\"implementation-approach\",\"statement\":\"How a task is implemented, within its declared result shape.\"},{\"id\":\"execution-order\",\"statement\":\"The order and concurrency of tasks whose dependencies are satisfied.\"}],\"escalationBoundaries\":[{\"id\":\"published-contract-change\",\"statement\":\"Any change to a published schema, event type or action contract.\"},{\"id\":\"work-outside-the-plan\",\"statement\":\"Completing a task requires work the plan's task list does not contain.\"},{\"id\":\"assumption-invalidated\",\"statement\":\"Evidence that an assumption of this capsule does not hold.\"}],\"invariants\":[{\"id\":\"append-only-history\",\"statement\":\"Workflow history is append-only: a recorded event is never rewritten or removed.\"},{\"id\":\"pinned-terms\",\"statement\":\"Work is judged against the capsule it was compiled under. Terms that change while it runs apply only to a later compilation.\"},{\"id\":\"evidenced-completion\",\"statement\":\"A task is complete only when its result is returned with evidence of a kind the capsule admits.\"}]},\"branchPoints\":[],\"entryStepId\":\"plan\",\"failureHandlers\":[],\"forkPoints\":[],\"loops\":[],\"name\":\"exarchos.feature\",\"schemaVersion\":\"1.0\",\"steps\":[{\"isTerminal\":false,\"kind\":\"skill\",\"runtime\":\"exarchos\",\"stepId\":\"plan\",\"stepName\":\"plan\",\"stepType\":\"PLAN\"},{\"isTerminal\":false,\"kind\":\"skill\",\"runtime\":\"exarchos\",\"stepId\":\"plan-review\",\"stepName\":\"plan-review\",\"stepType\":\"PLAN\"},{\"isTerminal\":false,\"kind\":\"skill\",\"runtime\":\"exarchos\",\"stepId\":\"delegate\",\"stepName\":\"delegate\",\"stepType\":\"IMPLEMENT\"},{\"isTerminal\":false,\"kind\":\"skill\",\"runtime\":\"exarchos\",\"stepId\":\"review\",\"stepName\":\"review\",\"stepType\":\"REVIEW\"},{\"isTerminal\":false,\"kind\":\"skill\",\"runtime\":\"exarchos\",\"stepId\":\"synthesize\",\"stepName\":\"synthesize\",\"stepType\":\"SYNTHESIZE\"},{\"isTerminal\":true,\"kind\":\"skill\",\"runtime\":\"exarchos\",\"stepId\":\"completed\",\"stepName\":\"completed\",\"stepType\":\"final\"},{\"isTerminal\":true,\"kind\":\"skill\",\"runtime\":\"exarchos\",\"stepId\":\"cancelled\",\"stepName\":\"cancelled\",\"stepType\":\"final\"},{\"isTerminal\":false,\"kind\":\"skill\",\"runtime\":\"exarchos\",\"stepId\":\"blocked\",\"stepName\":\"blocked\",\"stepType\":\"GATHER\"}],\"transitions\":[{\"fromStepId\":\"plan\",\"isDefault\":false,\"toStepId\":\"plan-review\",\"transitionId\":\"plan->plan-review\"},{\"fromStepId\":\"plan-review\",\"isDefault\":false,\"toStepId\":\"delegate\",\"transitionId\":\"plan-review->delegate\"},{\"fromStepId\":\"plan-review\",\"isDefault\":false,\"toStepId\":\"blocked\",\"transitionId\":\"plan-review->blocked\"},{\"fromStepId\":\"plan-review\",\"isDefault\":false,\"toStepId\":\"plan\",\"transitionId\":\"plan-review->plan\"},{\"fromStepId\":\"delegate\",\"isDefault\":false,\"toStepId\":\"review\",\"transitionId\":\"delegate->review\"},{\"fromStepId\":\"review\",\"isDefault\":false,\"toStepId\":\"synthesize\",\"transitionId\":\"review->synthesize\"},{\"fromStepId\":\"review\",\"isDefault\":false,\"toStepId\":\"delegate\",\"transitionId\":\"review->delegate\"},{\"fromStepId\":\"synthesize\",\"isDefault\":false,\"toStepId\":\"delegate\",\"transitionId\":\"synthesize->delegate\"},{\"fromStepId\":\"synthesize\",\"isDefault\":false,\"toStepId\":\"completed\",\"transitionId\":\"synthesize->completed\"},{\"fromStepId\":\"blocked\",\"isDefault\":false,\"toStepId\":\"delegate\",\"transitionId\":\"blocked->delegate\"}]}",
+      "definitionVersion": "a22adc8c4e0ac510f9ae05fffea77b252c91dc6a4d08dfd087c1c98fec046428",
       "irEdges": [
         {
           "from": "plan",
@@ -351,48 +323,6 @@
                   "value": true
                 }
               ]
-            }
-          }
-        },
-        {
-          "from": "delegate",
-          "to": "merge-pending",
-          "toPhaseKind": "MERGE",
-          "category": "admission-requirement",
-          "legacyGuardId": "merge-pending-entry",
-          "route": {
-            "kind": "all",
-            "operands": []
-          },
-          "routeSerialized": "{\"kind\":\"all\",\"operands\":[]}",
-          "obligation": {
-            "kind": "gate",
-            "gateId": "merge-pending-entry",
-            "presence": {
-              "kind": "factEquals",
-              "field": "mergePending.entryReady",
-              "value": true
-            }
-          }
-        },
-        {
-          "from": "merge-pending",
-          "to": "delegate",
-          "toPhaseKind": "IMPLEMENT",
-          "category": "admission-requirement",
-          "legacyGuardId": "merge-pending-exit",
-          "route": {
-            "kind": "all",
-            "operands": []
-          },
-          "routeSerialized": "{\"kind\":\"all\",\"operands\":[]}",
-          "obligation": {
-            "kind": "gate",
-            "gateId": "merge-pending-exit",
-            "presence": {
-              "kind": "factEquals",
-              "field": "mergePending.exitReady",
-              "value": true
             }
           }
         },
@@ -2632,217 +2562,6 @@
             "taskId": "001"
           }
         }
-      }
-    },
-    {
-      "input": {
-        "caseId": "feature-delegate-to-merge-pending-pass",
-        "caseKind": "corpus",
-        "type": "feature",
-        "target": "merge-pending",
-        "state": {
-          "_events": [
-            {
-              "type": "task.completed",
-              "data": {
-                "worktree": ".worktrees/task-001"
-              }
-            }
-          ],
-          "phase": "delegate"
-        }
-      },
-      "result": {
-        "success": true,
-        "idempotent": false,
-        "newPhase": "merge-pending",
-        "effects": [],
-        "events": [
-          {
-            "type": "transition",
-            "from": "delegate",
-            "to": "merge-pending",
-            "trigger": "execute-transition"
-          },
-          {
-            "type": "phase.exited",
-            "from": "delegate",
-            "to": "merge-pending",
-            "trigger": "execute-transition",
-            "metadata": {
-              "phase": "delegate",
-              "allRequiredGatesPassed": true
-            }
-          },
-          {
-            "type": "phase.entered",
-            "from": "delegate",
-            "to": "merge-pending",
-            "trigger": "execute-transition",
-            "metadata": {
-              "phase": "merge-pending",
-              "kind": "MERGE",
-              "resolver": null,
-              "resolvedGates": [],
-              "riskTier": "unknown",
-              "boundaryTouching": true,
-              "posture": "shared-mutating",
-              "policySource": "builtin",
-              "mode": "enforce"
-            }
-          }
-        ],
-        "resolvedGates": []
-      }
-    },
-    {
-      "input": {
-        "caseId": "feature-delegate-to-merge-pending-fail",
-        "caseKind": "corpus",
-        "type": "feature",
-        "target": "merge-pending",
-        "state": {
-          "_events": [
-            {
-              "type": "task.completed",
-              "data": {}
-            }
-          ],
-          "phase": "delegate"
-        }
-      },
-      "result": {
-        "success": false,
-        "idempotent": false,
-        "effects": [],
-        "events": [
-          {
-            "type": "guard-failed",
-            "from": "delegate",
-            "to": "merge-pending",
-            "trigger": "execute-transition",
-            "metadata": {
-              "guard": "merge-pending-entry"
-            }
-          }
-        ],
-        "errorCode": "GUARD_FAILED",
-        "errorMessage": "Guard 'merge-pending-entry' failed: merge-pending-entry not satisfied: latest task.completed event lacks data.worktree / data.worktreePath. Only task_complete writes task.completed. Give result.worktree when the next task completes. A repeat task_complete for a task that is complete is deduplicated and writes no row.",
-        "guardDescription": "Most recent task.completed must carry a worktree association and mergeOrchestrator must not already be in a terminal phase",
-        "guardSuggestedFix": {
-          "tool": "exarchos_orchestrate",
-          "params": {
-            "action": "task_complete",
-            "featureId": "<featureId>",
-            "taskId": "<next-task-id>",
-            "result": {
-              "worktree": "<worktree-path>"
-            }
-          }
-        }
-      }
-    },
-    {
-      "input": {
-        "caseId": "feature-merge-pending-to-delegate-pass",
-        "caseKind": "corpus",
-        "type": "feature",
-        "target": "delegate",
-        "state": {
-          "_events": [
-            {
-              "type": "task.completed",
-              "data": {
-                "worktree": ".worktrees/task-001"
-              }
-            },
-            {
-              "type": "merge.executed",
-              "data": {}
-            }
-          ],
-          "phase": "merge-pending"
-        }
-      },
-      "result": {
-        "success": true,
-        "idempotent": false,
-        "newPhase": "delegate",
-        "effects": [],
-        "events": [
-          {
-            "type": "transition",
-            "from": "merge-pending",
-            "to": "delegate",
-            "trigger": "execute-transition"
-          },
-          {
-            "type": "phase.exited",
-            "from": "merge-pending",
-            "to": "delegate",
-            "trigger": "execute-transition",
-            "metadata": {
-              "phase": "merge-pending",
-              "allRequiredGatesPassed": true
-            }
-          },
-          {
-            "type": "phase.entered",
-            "from": "merge-pending",
-            "to": "delegate",
-            "trigger": "execute-transition",
-            "metadata": {
-              "phase": "delegate",
-              "kind": "IMPLEMENT",
-              "resolver": "verification-ladder",
-              "resolvedGates": [],
-              "riskTier": "unknown",
-              "boundaryTouching": true,
-              "posture": "task-isolated",
-              "policySource": "builtin",
-              "mode": "enforce"
-            }
-          }
-        ],
-        "resolvedGates": []
-      }
-    },
-    {
-      "input": {
-        "caseId": "feature-merge-pending-to-delegate-fail",
-        "caseKind": "corpus",
-        "type": "feature",
-        "target": "delegate",
-        "state": {
-          "_events": [
-            {
-              "type": "task.completed",
-              "data": {
-                "worktree": ".worktrees/task-001"
-              }
-            }
-          ],
-          "phase": "merge-pending"
-        }
-      },
-      "result": {
-        "success": false,
-        "idempotent": false,
-        "effects": [],
-        "events": [
-          {
-            "type": "guard-failed",
-            "from": "merge-pending",
-            "to": "delegate",
-            "trigger": "execute-transition",
-            "metadata": {
-              "guard": "merge-pending-exit"
-            }
-          }
-        ],
-        "errorCode": "GUARD_FAILED",
-        "errorMessage": "Guard 'merge-pending-exit' failed: merge-pending-exit not satisfied: no merge.executed/merge.rollback/merge.recovered/merge.aborted event found after the latest task.completed and mergeOrchestrator.phase is not terminal",
-        "guardDescription": "A merge.executed/merge.rollback/merge.recovered/merge.aborted must follow the latest task.completed (or mergeOrchestrator.phase must be terminal)"
       }
     },
     {
@@ -8947,69 +8666,6 @@
         ],
         "historyUpdates": {
           "implementation": "review"
-        }
-      }
-    },
-    {
-      "input": {
-        "caseId": "cancel-feature-merge-pending",
-        "caseKind": "cancel",
-        "type": "feature",
-        "target": "cancelled",
-        "state": {
-          "phase": "merge-pending"
-        }
-      },
-      "result": {
-        "success": true,
-        "idempotent": false,
-        "newPhase": "cancelled",
-        "effects": [
-          "log"
-        ],
-        "events": [
-          {
-            "type": "cancel",
-            "from": "merge-pending",
-            "to": "cancelled",
-            "trigger": "user-cancel"
-          }
-        ],
-        "historyUpdates": {
-          "implementation": "merge-pending"
-        }
-      }
-    },
-    {
-      "input": {
-        "caseId": "cleanup-feature-merge-pending",
-        "caseKind": "cleanup",
-        "type": "feature",
-        "target": "completed",
-        "state": {
-          "phase": "merge-pending",
-          "_cleanup": {
-            "mergeVerified": true
-          }
-        }
-      },
-      "result": {
-        "success": true,
-        "idempotent": false,
-        "newPhase": "completed",
-        "effects": [
-          "log"
-        ],
-        "events": [
-          {
-            "type": "cleanup",
-            "from": "merge-pending",
-            "to": "completed",
-            "trigger": "cleanup"
-          }
-        ],
-        "historyUpdates": {
-          "implementation": "merge-pending"
         }
       }
     },

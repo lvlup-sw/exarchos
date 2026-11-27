@@ -67,7 +67,6 @@ export const FEATURE_PHASES = [
   'plan',
   'plan-review',
   'delegate',
-  'merge-pending',
   'review',
   'synthesize',
   'completed',
@@ -75,12 +74,30 @@ export const FEATURE_PHASES = [
   'blocked',
 ] as const;
 
+/** The phase that each retired feature phase of a persisted state reads as. */
+const RETIRED_FEATURE_PHASES: Readonly<Record<string, (typeof FEATURE_PHASES)[number]>> = {
+  ideate: 'plan',
+  'merge-pending': 'delegate',
+};
+
 /**
- * Feature workflows start at `plan` and never produce `ideate`.
- * The schema reads a persisted `ideate` phase as `plan`, so a historical feature state still parses.
+ * Returns the phase that a stored or folded phase of a workflow reads as.
+ * A feature log or state file can hold a retired feature phase. This function reads it as the schema does.
+ * Each other phase and each other workflow type returns unchanged.
+ */
+export function readStoredPhase(workflowType: unknown, phase: string): string {
+  if (workflowType !== 'feature' || !Object.hasOwn(RETIRED_FEATURE_PHASES, phase)) return phase;
+  return RETIRED_FEATURE_PHASES[phase] ?? phase;
+}
+
+/**
+ * Feature workflows start at `plan` and never produce `ideate`. The feature machine has no
+ * `merge-pending` substate, because the harness lands each task head and settle observes it.
+ * The schema reads a persisted `ideate` phase as `plan` and a persisted `merge-pending` phase as
+ * `delegate`, so a historical feature state still parses.
  */
 export const FeaturePhaseSchema = z.preprocess(
-  (val) => (val === 'ideate' ? 'plan' : val),
+  (val) => (typeof val === 'string' && Object.hasOwn(RETIRED_FEATURE_PHASES, val) ? RETIRED_FEATURE_PHASES[val] : val),
   z.enum(FEATURE_PHASES),
 );
 
@@ -188,7 +205,7 @@ export const WorktreeSchema = z.object({
 );
 
 /**
- * The persisted shape of `mergeOrchestrator.preflight`. It has the fields of `MergePreflightResult` in `verbs/pure/merge-preflight.ts`.
+ * The persisted shape of `mergeOrchestrator.preflight`. The retired `merge_orchestrate` preflight wrote it, and old states keep this shape.
  * The sub-results stay open, and `.passthrough()` accepts fields that a newer composer adds.
  */
 const MergeOrchestratorPreflightSchema = z.object({

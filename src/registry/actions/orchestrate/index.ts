@@ -9,13 +9,11 @@ import { makeDescribeAction } from '../../describe-actions.js';
 import type { BuiltinToolAction } from '../../types.js';
 import { coordinationActions } from './coordination.js';
 import { gateActions } from './gates.js';
-import { mergeActions } from './merge.js';
 import { verificationActions } from './verification.js';
 import { reviewOpsActions } from './review-ops.js';
 import { lifecycleOpsActions } from './lifecycle-ops.js';
 import { onboardingActions } from './onboarding.js';
 import { invariantActions } from './invariants.js';
-import { worktreeActions } from './worktree.js';
 import { cutoverActions } from './cutover.js';
 import { executeActions } from './execute.js';
 import { prepareActions } from './prepare.js';
@@ -25,13 +23,11 @@ import { settleActions } from './settle.js';
 export const orchestrateActions: readonly BuiltinToolAction[] = [
   ...coordinationActions,
   ...gateActions,
-  ...mergeActions,
   ...verificationActions,
   ...reviewOpsActions,
   ...lifecycleOpsActions,
   ...onboardingActions,
   ...invariantActions,
-  ...worktreeActions,
   ...cutoverActions,
   ...executeActions,
   ...prepareActions,

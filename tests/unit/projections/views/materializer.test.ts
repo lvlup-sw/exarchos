@@ -535,6 +535,63 @@ describe('ViewMaterializer StorageBackend Integration', () => {
   });
 });
 
+/**
+ * The view cache and the snapshot store have no fold version. An older fold can have cached a feature view in the retired
+ * `merge-pending` phase. A load reads that phase as `delegate`, so a later merge event does not leave it in place.
+ * The fixture view is cached at sequence 3, and the `merge.executed` event is past that high-water mark.
+ */
+describe('ViewMaterializer stale merge-pending workflow-state cache', () => {
+  function staleMergePendingView(): WorkflowStateView {
+    const events: WorkflowEvent[] = [
+      { streamId: 'feat-stale', sequence: 1, timestamp: '2026-11-01T00:00:00.000Z', type: 'workflow.started', schemaVersion: '1.0', data: { featureId: 'feat-stale', workflowType: 'feature' } } as WorkflowEvent,
+      { streamId: 'feat-stale', sequence: 2, timestamp: '2026-11-01T00:00:01.000Z', type: 'workflow.transition', schemaVersion: '1.0', data: { from: 'plan-review', to: 'delegate' } } as WorkflowEvent,
+    ];
+    const folded = events.reduce((view, event) => workflowStateProjection.apply(view, event), workflowStateProjection.init());
+    return { ...folded, phase: 'merge-pending' };
+  }
+
+  const mergeExecuted = {
+    streamId: 'feat-stale',
+    sequence: 4,
+    timestamp: '2026-11-01T00:00:03.000Z',
+    type: 'merge.executed',
+    schemaVersion: '1.0',
+    data: { taskId: 'T1', mergeSha: 'abc1234' },
+  } as WorkflowEvent;
+
+  it('LoadFromSnapshot_BackendCacheInMergePending_ReadsDelegateAfterMergeExecuted', async () => {
+    const backend = new InMemoryBackend();
+    backend.setViewCache('feat-stale', WORKFLOW_STATE_VIEW, staleMergePendingView(), 3);
+    const materializer = new ViewMaterializer({ backend });
+    materializer.register(WORKFLOW_STATE_VIEW, workflowStateProjection);
+
+    expect(await materializer.loadFromSnapshot('feat-stale', WORKFLOW_STATE_VIEW)).toBe(true);
+    const view = materializer.materialize<WorkflowStateView>('feat-stale', WORKFLOW_STATE_VIEW, [mergeExecuted]);
+
+    expect(view.phase).toBe('delegate');
+  });
+
+  it('LoadFromSnapshot_SnapshotStoreInMergePending_ReadsDelegate', async () => {
+    const snapshotStore = {
+      save: vi.fn().mockResolvedValue(undefined),
+      load: vi.fn().mockResolvedValue({ view: staleMergePendingView(), highWaterMark: 3, savedAt: '2026-11-01T00:00:02Z', schemaVersion: '1.0' }),
+      delete: vi.fn().mockResolvedValue(undefined),
+    };
+    const materializer = new ViewMaterializer({ snapshotStore });
+    materializer.register(WORKFLOW_STATE_VIEW, workflowStateProjection);
+
+    expect(await materializer.loadFromSnapshot('feat-stale', WORKFLOW_STATE_VIEW)).toBe(true);
+
+    expect(materializer.getState<WorkflowStateView>('feat-stale', WORKFLOW_STATE_VIEW)?.view.phase).toBe('delegate');
+  });
+
+  it('FromSnapshot_CurrentPhase_ReturnsTheSameView', () => {
+    const view = { ...staleMergePendingView(), phase: 'review' };
+
+    expect(workflowStateProjection.fromSnapshot?.(view)).toBe(view);
+  });
+});
+
 describe('ViewMaterializer Cache Stats', () => {
   const VIEW_NAME = 'counter';
 

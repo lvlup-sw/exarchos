@@ -120,7 +120,7 @@ describe('handleRehydrate — happy path (T031, DR-5)', () => {
 
     appendSnapshot(store.getReadBackend(), featureId, {
       projectionId: 'rehydration@v1',
-      projectionVersion: '1',
+      projectionVersion: REHYDRATION_PROJECTION_VERSION,
       sequence: 5,
       state: snapshotState,
       timestamp: new Date().toISOString(),
@@ -422,7 +422,7 @@ describe('handleRehydrate — corrupt-snapshot degradation (T055, DR-18)', () =>
 
     appendSnapshot(store.getReadBackend(), featureId, {
       projectionId: 'rehydration@v1',
-      projectionVersion: '1',
+      projectionVersion: REHYDRATION_PROJECTION_VERSION,
       sequence: 1,
       state: { not: 'a-valid-rehydration-document' } as unknown as RehydrationDocument,
       timestamp: new Date().toISOString(),
@@ -697,7 +697,7 @@ describe('handleRehydrate — degraded paths preserve phasePlaybook null (T-22)'
 
     appendSnapshot(store.getReadBackend(), featureId, {
       projectionId: 'rehydration@v1',
-      projectionVersion: '1',
+      projectionVersion: REHYDRATION_PROJECTION_VERSION,
       sequence: 1,
       state: { not: 'a-valid-rehydration-document' } as unknown as RehydrationDocument,
       timestamp: new Date().toISOString(),
@@ -1276,5 +1276,81 @@ describe('handleRehydrate — degradation precedence (P04-06, EFF-004)', () => {
 
     const all = await store.query(featureId);
     expect(all).toHaveLength(0);
+  });
+});
+
+/**
+ * A version 1 snapshot can hold the retired `merge-pending` phase with a pending merge entry.
+ * No later event moves that phase, so a read must not seed from that snapshot.
+ * The fixture log ends in a worktree task completion, a version 1 snapshot in `merge-pending`, and a `merge.executed`.
+ */
+describe('handleRehydrate — stale merge-pending snapshot', () => {
+  async function seedMergePendingSnapshot(featureId: string): Promise<void> {
+    await store.append(featureId, {
+      type: 'workflow.started',
+      data: { featureId, workflowType: 'feature' },
+    });
+    await store.append(featureId, {
+      type: 'workflow.transition',
+      data: { from: 'plan-review', to: 'delegate' },
+    });
+    await store.append(featureId, {
+      type: 'task.completed',
+      data: { taskId: 'T1', worktree: '.worktrees/t1' },
+    });
+    let folded: RehydrationDocument = rehydrationReducer.initial;
+    for (const ev of await store.query(featureId)) {
+      folded = rehydrationReducer.apply(folded, ev);
+    }
+    const stale: RehydrationDocument = {
+      ...folded,
+      workflowState: {
+        ...folded.workflowState,
+        phase: 'merge-pending',
+        mergeOrchestrator: { taskId: 'T1', phase: 'pending' },
+      },
+    };
+    appendSnapshot(store.getReadBackend(), featureId, {
+      projectionId: REHYDRATION_PROJECTION_ID,
+      projectionVersion: '1',
+      sequence: 3,
+      state: stale,
+      timestamp: new Date().toISOString(),
+    });
+    await store.append(featureId, {
+      type: 'merge.executed',
+      data: { taskId: 'T1', mergeSha: 'abc1234' },
+    });
+  }
+
+  it('Rehydrate_VersionOneMergePendingSnapshotThenMergeExecuted_ReadsDelegate', async () => {
+    const featureId = 'wf-stale-merge-pending';
+    await seedMergePendingSnapshot(featureId);
+
+    const result = await handleRehydrate({ featureId }, { eventStore: store, stateDir });
+
+    expect(result.success).toBe(true);
+    const doc = result.data as RehydrationDocument;
+    expect(doc.workflowState.phase).toBe('delegate');
+    expect(doc.workflowState.mergeOrchestrator).toBeUndefined();
+    expect(doc.phasePlaybook).not.toBeNull();
+  });
+
+  it('HydrateFromSnapshotThenTail_VersionOneMergePendingSnapshot_FoldsTheStreamAgain', async () => {
+    const featureId = 'wf-stale-merge-pending-checkpoint';
+    await seedMergePendingSnapshot(featureId);
+
+    const { state, lastEventSequence } = await hydrateFromSnapshotThenTail<RehydrationDocument, WorkflowEvent>(
+      rehydrationReducer,
+      store,
+      featureId,
+      stateDir,
+      REHYDRATION_PROJECTION_ID,
+      REHYDRATION_PROJECTION_VERSION,
+    );
+
+    expect(state.workflowState.phase).toBe('delegate');
+    expect(state.workflowState.mergeOrchestrator).toBeUndefined();
+    expect(lastEventSequence).toBe(4);
   });
 });

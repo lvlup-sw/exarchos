@@ -56,7 +56,6 @@ import { handleClassifyReviewItems } from './review/classify-review-items.js';
 import { handleGenerateTraceability } from './gates/generate-traceability.js';
 import { handleSpecCoverageCheck } from './gates/spec-coverage-check.js';
 import { handleVerifyWorktreeBaseline } from './gates/verify-worktree-baseline.js';
-import { handleSetupWorktree, type SetupWorktreeArgs } from './team/setup-worktree.js';
 import { handleVerifyDelegationSaga } from './team/verify-delegation-saga.js';
 import { handlePostDelegationCheck } from './team/post-delegation-check.js';
 import { handleReconcileState } from './reconcile-state.js';
@@ -73,15 +72,7 @@ import { handleRequestSynthesize } from './team/request-synthesize.js';
 import { handleFinalizeOneshot } from './tasks/finalize-oneshot.js';
 import { handleDoctor } from './doctor/index.js';
 import { handleOnboard } from './onboard/index.js';
-import { handleMergeOrchestrate } from './merge/merge-orchestrate.js';
 import { handleStackPlace } from './stack/tools.js';
-import {
-  handleAcquireWorktree,
-  handleReleaseWorktree,
-  handlePruneWorktrees,
-  handleReconcileWorktrees,
-  handleSerializeMerge,
-} from './worktree/handlers.js';
 import {
   handleCutoverDecide,
   handleCutoverReadiness,
@@ -122,14 +113,6 @@ function privateTermsRemoved(inner: ActionHandler): ActionHandler {
 /** Wraps a typed handler as an ActionHandler. The handler reads the args as its own type. */
 function adapt<T>(handler: (args: T, stateDir: string) => Promise<ToolResult>): ActionHandler {
   return (args, stateDir) => handler(args as unknown as T, stateDir);
-}
-
-/** Wraps a typed handler that receives (args, ctx: DispatchContext). */
-function adaptCtx<T>(handler: (args: T, ctx: DispatchContext) => Promise<ToolResult>): ActionHandler {
-  return async (args, _stateDir, ctx) => {
-    if (!ctx) throw new Error('DispatchContext required for this handler');
-    return handler(args as unknown as T, ctx);
-  };
 }
 
 /** Wraps a typed handler that takes only args (no stateDir) and can be sync or async. */
@@ -349,51 +332,6 @@ function adaptArgsWithStateDirAndEventStore<T>(
 }
 
 /**
- * Adapter for `setup_worktree`. With `featureId` and `ctx.eventStore`, it folds the workflow state to the tail and passes `tasks` and `synthesis` to the handler.
- * The handler owns the branch priority: `args.branch`, then the planned task branch, then the default.
- * `synthesis.integrationBranch` lets the handler base a managed worktree on the integration tip and not on a stale `main`.
- *
- * A coverage failure from the fold returns a refusal, because a fallback to `main` hides an integration tip that the fold cannot prove.
- * Any other fold error leaves the workflow state undefined, and the handler uses its default.
- * The handler validates its required fields at runtime, so the adapter casts the args without a check.
- */
-function adaptSetupWorktree(): ActionHandler {
-  return async (args, stateDir, ctx) => {
-    const featureId = (args as { featureId?: string }).featureId;
-    let workflowState:
-      | {
-          tasks?: Array<{ id: string; branch?: string }>;
-          synthesis?: { integrationBranch?: string } | undefined;
-        }
-      | undefined;
-
-    if (featureId && ctx?.eventStore) {
-      try {
-        const { getOrCreateMaterializer } = await import('../projections/views/tools.js');
-        const { foldToTail } = await import('../projections/fold-at-tail.js');
-        const { WORKFLOW_STATE_VIEW } = await import('../projections/views/workflow-state-projection.js');
-        const materializer = getOrCreateMaterializer(stateDir);
-        const { view } = await foldToTail<{
-          tasks: Array<{ id: string; branch?: string }>;
-          synthesis?: { integrationBranch?: string };
-        }>(ctx.eventStore, materializer, featureId, WORKFLOW_STATE_VIEW);
-        workflowState = { tasks: view.tasks, synthesis: view.synthesis };
-      } catch (err) {
-        const { toCoverageFailure } = await import('../projections/degraded-result.js');
-        const refusal = toCoverageFailure(err, {
-          tool: 'exarchos_orchestrate',
-          action: 'setup_worktree',
-        });
-        if (refusal) return refusal;
-        workflowState = undefined;
-      }
-    }
-
-    return handleSetupWorktree(args as unknown as SetupWorktreeArgs, workflowState);
-  };
-}
-
-/**
  * The tool that owns `ACTION_HANDLERS`.
  * The executor uses it to refuse a leaf whose tool differs from this owner. It does not assume that every key belongs to `exarchos_orchestrate`.
  */
@@ -471,7 +409,6 @@ export const ACTION_HANDLERS: Readonly<Record<string, ActionHandler>> = {
   /** Spec coverage runs its declared tests in the local approved-check executor. */
   spec_coverage_check: adaptWithEventStore(handleSpecCoverageCheck),
   verify_worktree_baseline: privateTermsRemoved(adaptWithEventStore(handleVerifyWorktreeBaseline)),
-  setup_worktree: adaptSetupWorktree(),
   verify_delegation_saga: adaptArgs(handleVerifyDelegationSaga),
   post_delegation_check: privateTermsRemoved(adaptArgsWithStateDirAndEventStore(handlePostDelegationCheck)),
   reconcile_state: adaptArgsWithEventStore(handleReconcileState),
@@ -491,24 +428,8 @@ export const ACTION_HANDLERS: Readonly<Record<string, ActionHandler>> = {
   prune_stale_workflows: handlePruneStaleWorkflows as ActionHandler,
   request_synthesize: adaptArgsWithStateDirAndEventStore(handleRequestSynthesize),
   finalize_oneshot: adaptArgsWithStateDirAndEventStore(handleFinalizeOneshot),
-  /** Merge orchestrator. It composes the preflight and the executor under one public action. The internal `handleExecuteMerge` is not in this table. */
-  merge_orchestrate: adaptCtx(handleMergeOrchestrate),
-  /**
-   * Worktree lifecycle action. Each handler delegates to the in-process `WorktreeManager` over `ctx.eventStore`.
-   * The third handler parameter is a test seam, left at its default. The read action, `worktrees`, is on `exarchos_view`.
-   */
-  acquire_worktree: adaptCtx(handleAcquireWorktree),
-  release_worktree: adaptCtx(handleReleaseWorktree),
-  prune_worktrees: adaptCtx(handlePruneWorktrees),
-  /** Runs the three ground-truth reconcile passes. A read verb carries no writes, so this action declares the events that the passes append. */
-  reconcile_worktrees: adaptCtx(handleReconcileWorktrees),
   /** Records a stack position and appends `stack.position-filled`. Its registration names this tool as the effect provider. */
   stack_place: adaptWithEventStore(handleStackPlace),
-  /**
-   * Integration-branch merge serializer: an optimistic lease for each `integrationRef` that composes `merge_orchestrate` unchanged.
-   * It adds no visible tool. The third handler parameter keeps its production default.
-   */
-  serialize_merge: adaptCtx(handleSerializeMerge),
   /**
    * Cutover promotion: the read action. Its pair, `cutover_decide`, is the decision that an operator gates.
    * Both handlers take `(args, stateDir, eventStore)`. The fourth parameter is a test seam, left at its default.

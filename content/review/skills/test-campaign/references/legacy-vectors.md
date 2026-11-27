@@ -52,4 +52,4 @@ npm exec --no -- vitest run tests/generated/property.test.ts
 npm exec --no -- vitest run tests/generated/property.test.ts -t '^Case_1$'
 ```
 
-Use the target project's typecheck command as well. For metamorphic generation, change the operation to `generate_metamorphic_tests` and supply its bindings. Review the proposed patch before applying it. The Exarchos fixtures `vitest-property.json` and `vitest-metamorphic.json` exercise the real `burstStaggerDelayMs` function through the repository's existing Vitest configuration.
+Use the target project's typecheck command as well. For metamorphic generation, change the operation to `generate_metamorphic_tests` and supply its bindings. Review the proposed patch before applying it. The Exarchos fixtures `vitest-property.json` and `vitest-metamorphic.json` exercise the `burstStaggerDelayMs` function of their binding module through the repository's existing Vitest configuration.

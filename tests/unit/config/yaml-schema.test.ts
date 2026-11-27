@@ -73,11 +73,12 @@ describe('ProjectConfigSchema', () => {
     expect(result.success).toBe(false);
   });
 
-  it('ProjectConfigSchema_VcsProvider_ValidatesEnum', () => {
+  /** The `vcs` key is retired and nothing reads it, so the schema accepts any value of it. */
+  it('ProjectConfigSchema_RetiredVcsKey_AcceptsAnyValue', () => {
     expect(ProjectConfigSchema.safeParse({ vcs: { provider: 'github' } }).success).toBe(true);
-    expect(ProjectConfigSchema.safeParse({ vcs: { provider: 'gitlab' } }).success).toBe(true);
-    expect(ProjectConfigSchema.safeParse({ vcs: { provider: 'azure-devops' } }).success).toBe(true);
-    expect(ProjectConfigSchema.safeParse({ vcs: { provider: 'bitbucket' } }).success).toBe(false);
+    expect(ProjectConfigSchema.safeParse({ vcs: { provider: 'bitbucket' } }).success).toBe(true);
+    expect(ProjectConfigSchema.safeParse({ vcs: { provider: 'gitlab', token: 'x' } }).success).toBe(true);
+    expect(ProjectConfigSchema.safeParse({ vcs: 'github' }).success).toBe(true);
   });
 
   it('ProjectConfigSchema_SkipPhases_AcceptsStringArray', () => {

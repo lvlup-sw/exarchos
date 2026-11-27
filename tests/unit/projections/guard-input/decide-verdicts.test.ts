@@ -96,7 +96,6 @@ describe('the shadow compares decide verdicts', () => {
 
     expect(emptyTasks.edges).toEqual([
       { transitionId: 'delegate->review', to: 'review', document: 'deny', fold: 'deny' },
-      { transitionId: 'delegate->merge-pending', to: 'merge-pending', document: 'deny', fold: 'deny' },
       { transitionId: 'cleanup', to: 'completed', document: 'deny', fold: 'deny' },
     ]);
     expect(noEscalation.edges).toContainEqual({

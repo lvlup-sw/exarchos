@@ -53,10 +53,6 @@ export function buildConfigDescription(config: ResolvedProjectConfig) {
         ),
       },
     },
-    vcs: {
-      provider: annotate(config.vcs.provider, DEFAULTS.vcs.provider),
-      settings: annotate(config.vcs.settings, DEFAULTS.vcs.settings),
-    },
     workflow: {
       skipPhases: annotate(config.workflow.skipPhases, DEFAULTS.workflow.skipPhases),
       maxFixCycles: annotate(config.workflow.maxFixCycles, DEFAULTS.workflow.maxFixCycles),

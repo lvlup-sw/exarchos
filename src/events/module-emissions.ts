@@ -143,16 +143,6 @@ export const MODULE_EMISSIONS: readonly ModuleEmission[] = Object.freeze([
       'action still in flight, and the hook is not itself reachable through the tool surface.',
   },
   {
-    event: 'launch.executing_started',
-    module: 'runtime/launcher/liveness.ts',
-    trigger: 'process-hook',
-    rationale:
-      'Appended from the launcher liveness path as a child process starts, driven by the runtime ' +
-      'lifecycle rather than by a dispatched call. The launcher is retired, so only stored logs ' +
-      'hold this half. The terminal half of the pair is reachable from a probing action; this ' +
-      'opening half is not.',
-  },
-  {
     event: 'emission.violated',
     module: 'dispatch/core/interceptors/emission-verifier.ts',
     trigger: 'dispatch-interceptor',

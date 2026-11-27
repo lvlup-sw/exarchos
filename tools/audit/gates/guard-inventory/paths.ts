@@ -65,7 +65,6 @@ export const GUARD_SUITE_ROOTS: readonly string[] = Object.freeze([
  */
 export const HISTORICAL_PATH_REWRITES: readonly (readonly [string, string])[] = Object.freeze([
   ['servers/exarchos-mcp/src/agents/', 'src/runtime/agents/'],
-  ['servers/exarchos-mcp/src/launcher/', 'src/runtime/launcher/'],
   ['servers/exarchos-mcp/src/workspace/', 'src/runtime/workspace/'],
   ['servers/exarchos-mcp/src/capabilities/', 'src/workflow/capabilities/'],
   ['servers/exarchos-mcp/src/channel/', 'src/adapters/channel/'],

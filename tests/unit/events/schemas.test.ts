@@ -2711,7 +2711,7 @@ describe('MergeRollbackData', () => {
   /**
    * `merge.rollback` keeps its schema and type-map entry, so stored events replay.
    * Its source is `retired`, and a `retired` type must not appear in `autoEmits`.
-   * Its successor `merge.recovered` is `auto`.
+   * Its successor `merge.recovered` is retired too, with the local merge action that wrote it.
    */
   it('schemas_MergeRollback_ReadTolerantButNotEmittable', () => {
     expect(EventTypes).toContain('merge.rollback');
@@ -2729,7 +2729,7 @@ describe('MergeRollbackData', () => {
 
     expect(EVENT_EMISSION_REGISTRY['merge.rollback']).toBe('retired');
     expect(EVENT_EMISSION_REGISTRY['merge.rollback']).not.toBe('auto');
-    expect(EVENT_EMISSION_REGISTRY['merge.recovered']).toBe('auto');
+    expect(EVENT_EMISSION_REGISTRY['merge.recovered']).toBe('retired');
 
     const catalog = serializeEventCatalog();
     expect(catalog.bySource.retired).toContain('merge.rollback');
@@ -3247,7 +3247,10 @@ describe('EventSchemaRegistry_RegistersAllNewTwoEventSplitTypes', () => {
     }
   });
 
-  /** The six provider writer types are retired with their writers. The four local types stay automatic. */
+  /**
+   * The six provider writer types are retired with their writers.
+   * The four local types are retired with the ledger-only cancel, because the cancel compensator was their last writer.
+   */
   it('B6_AllTenTypes_HaveAutoOrRetiredEmissionSource', () => {
     const retiredWriterTypes = new Set<string>([
       'pr.create.requested',
@@ -3256,6 +3259,10 @@ describe('EventSchemaRegistry_RegistersAllNewTwoEventSplitTypes', () => {
       'pr.comment.executed',
       'issue.create.requested',
       'issue.create.executed',
+      'branch.delete.requested',
+      'branch.delete.executed',
+      'worktree.remove.requested',
+      'worktree.remove.executed',
     ]);
     for (const eventType of TWO_EVENT_TYPES) {
       expect(
@@ -3604,7 +3611,7 @@ describe('WLM worktree lifecycle schemas', () => {
   it('WorktreeSchemas_FourNewLifecycleTypes_RegisteredAndValidate', () => {
     for (const type of NEW_LIFECYCLE_TYPES) {
       expect(EventTypes, `${type} missing from EventTypes`).toContain(type);
-      expect(EVENT_EMISSION_REGISTRY[type], `${type} should be classified 'auto'`).toBe('auto');
+      expect(EVENT_EMISSION_REGISTRY[type], `${type} should be classified 'retired'`).toBe('retired');
 
       const schema = EVENT_DATA_SCHEMAS[type];
       expect(schema, `${type} missing from EVENT_DATA_SCHEMAS`).toBeDefined();
@@ -3998,10 +4005,14 @@ describe('WLM operational-core merge lease schemas', () => {
     expect(EVENT_DATA_SCHEMAS[VIOLATION]).not.toBe(EVENT_DATA_SCHEMAS['promotion.executed']);
   });
 
-  /** Deterministic code appends the merge pair, so each type is `auto`. */
+  /**
+   * The retired `serialize_merge` action wrote the claim, and the retired `reconcile_worktrees` action
+   * wrote the last releases, so both are `retired`. Both keep their schemas, so old rows replay.
+   */
   it('WorktreeMergeEvents_ClassificationMaps_Exhaustive', () => {
+    expect(EVENT_EMISSION_REGISTRY['worktree.merge_requested']).toBe('retired');
+    expect(EVENT_EMISSION_REGISTRY['worktree.merge_executed']).toBe('retired');
     for (const type of MERGE_TYPES) {
-      expect(EVENT_EMISSION_REGISTRY[type], `${type} should be classified 'auto'`).toBe('auto');
       const schema = EVENT_DATA_SCHEMAS[type];
       expect(schema, `${type} missing from EVENT_DATA_SCHEMAS`).toBeDefined();
     }
@@ -4152,16 +4163,16 @@ describe('harness-launcher event schemas (DR-2)', () => {
   });
 
   /**
-   * Deterministic code appends the `launch.*` pair, so it is classified `auto`.
-   * The retired launcher was the only writer of the `worktree.create.*` pair, so that pair is `retired`.
-   * All four schemas stay, so stored rows still parse.
+   * The retired launcher and the retired `reconcile_worktrees` action were the only writers of the
+   * `launch.*` and `worktree.create.*` pairs, so all four are `retired`. All four schemas stay, so
+   * stored rows still parse.
    */
-  it('EmissionRegistry_LaunchPairAuto_CreatePairRetired_SchemasKept', () => {
+  it('EmissionRegistry_LaunchAndCreatePairsRetired_SchemasKept', () => {
     const expected: Record<(typeof NEW_TYPES)[number], string> = {
       'worktree.create.requested': 'retired',
       'worktree.create.executed': 'retired',
-      'launch.executing_started': 'auto',
-      'launch.executed': 'auto',
+      'launch.executing_started': 'retired',
+      'launch.executed': 'retired',
     };
     for (const type of NEW_TYPES) {
       expect(EVENT_EMISSION_REGISTRY[type], `${type} should be classified '${expected[type]}'`).toBe(expected[type]);

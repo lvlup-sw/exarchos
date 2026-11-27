@@ -48,7 +48,7 @@ describe('projection registry — rehydration barrel registration (T026)', () =>
     const found = defaultRegistry.get('rehydration@v1');
     expect(found).toBe(rehydrationReducer);
     expect(found?.id).toBe('rehydration@v1');
-    expect(found?.version).toBe(1);
+    expect(found?.version).toBe(2);
   });
 
   /** A `get` that falls back to the first reducer fails this test. */
