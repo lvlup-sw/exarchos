@@ -634,8 +634,9 @@ describe('State Store', () => {
     /**
      * On Windows, `chmod(0o444)` on a directory does not block file creation for the owner, so the write succeeds.
      * The cleanup after a failure is the same on every platform. Only this way to force the failure is POSIX-specific.
+     * The root user ignores the write bit, so the case does not run as root either.
      */
-    it.skipIf(process.platform === 'win32')('should not leave temp files behind after write failure', async () => {
+    it.skipIf(process.platform === 'win32' || process.getuid?.() === 0)('should not leave temp files behind after write failure', async () => {
       const { state } = await initStateFile(tmpDir, 'cleanup-test', 'feature');
 
       const readOnlyDir = path.join(tmpDir, 'readonly');
@@ -661,8 +662,9 @@ describe('State Store', () => {
     /**
      * A read-only directory makes `writeFile` fail with `EACCES`, not `EEXIST`.
      * On Windows, a read-only directory does not block the owner, so the test runs on POSIX only.
+     * The root user ignores the write bit, so the case does not run as root either.
      */
-    it.skipIf(process.platform === 'win32')('should throw StateStoreError with FILE_IO_ERROR when writeFile fails with non-EEXIST error', async () => {
+    it.skipIf(process.platform === 'win32' || process.getuid?.() === 0)('should throw StateStoreError with FILE_IO_ERROR when writeFile fails with non-EEXIST error', async () => {
       const readOnlyDir = path.join(tmpDir, 'readonly-dir');
       await fs.mkdir(readOnlyDir);
       await fs.chmod(readOnlyDir, 0o444);

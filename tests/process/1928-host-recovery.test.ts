@@ -18,6 +18,9 @@ import { makeTempDir, rmrfAsync } from '../../tools/test-helpers/temp-dir.js';
 
 const execute = promisify(execFile);
 
+/** The verifier host confines each run with bubblewrap. A Linux host with no `bwrap` on PATH cannot run the host, so its cases do not run there. */
+const HAS_BWRAP = await execute('which', ['bwrap']).then(() => true, () => false);
+
 async function fixture(interrupt = false) {
   const root = makeTempDir('1928-host-');
   const control = join(root, 'control');
@@ -223,7 +226,7 @@ function measured(response: VerificationResponse) {
   return response.signed.evidence.outcome.adequacy;
 }
 
-it.runIf(process.platform === 'linux')('HostedAdequacy_RecognizesAssertionButNotInfrastructureAndReplaysOriginal', async () => {
+it.runIf(process.platform === 'linux' && HAS_BWRAP)('HostedAdequacy_RecognizesAssertionButNotInfrastructureAndReplaysOriginal', async () => {
   const f = await fixture();
   const [request, infrastructure, noTests, vitest] = f.requests;
   if (request === undefined || infrastructure === undefined || noTests === undefined || vitest === undefined) throw new Error('Incomplete fixture');
@@ -370,7 +373,7 @@ async function processIdentity(pid: number) {
   }
 }
 
-it.runIf(process.platform === 'linux')('HostedAdequacy_InterruptedRestorationKeepsOriginalClaimAndResourceLease', async () => {
+it.runIf(process.platform === 'linux' && HAS_BWRAP)('HostedAdequacy_InterruptedRestorationKeepsOriginalClaimAndResourceLease', async () => {
   const f = await fixture(true);
   const request = f.requests.find(term => term.resourceId === 'interrupted');
   const alias = f.requests.find(term => term.resourceId === 'interrupted-alias');

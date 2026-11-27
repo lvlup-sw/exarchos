@@ -156,7 +156,7 @@ it.runIf(process.platform === 'linux')('LocalLifecycle_ApprovedOperationsRunInTh
     expect(await runsOf(f.marker('main-typecheck'))).toBe(1);
 
     await seedActivePhaseAttempt(f.events, 'lifecycle-merge', { phase: 'synthesize', repoRoot: deriveRepoKey(f.repo.checkout) });
-    const postMerge = await f.call({ action: 'check_post_merge', featureId: 'lifecycle-merge', prUrl: 'https://example.invalid/pull/1',
+    const postMerge = await f.call({ action: 'check_post_merge', featureId: 'lifecycle-merge', prUrl: 'https://example.invalid/acme/widget/pull/1',
       mergeSha: 'abc1234', repoRoot: f.repo.checkout });
     expect(postMerge, JSON.stringify(postMerge)).toMatchObject({ success: true, data: { passed: true } });
     expect(JSON.stringify(postMerge)).toContain('Test suite (node test.cjs passed)');
