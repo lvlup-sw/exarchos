@@ -9,7 +9,6 @@ import {
   QUALITY_EVALUATION,
   AGENT_TEAMS_SAGA,
   SYNTHESIS_FLOW,
-  SYNTHESIS_CLOSEOUT,
   SHEPHERD_ITERATION,
   TASK_FIX,
   TASK_CLASSIFICATION,
@@ -108,15 +107,21 @@ describe('Runbook definitions', () => {
     expect(AGENT_TEAMS_SAGA.steps[12].action).toBe('transition');
   });
 
-  it('SynthesisFlow_HasFiveSteps', () => {
-    expect(SYNTHESIS_FLOW.steps).toHaveLength(5);
-    expect(SYNTHESIS_FLOW.steps[0].action).toBe('prepare_synthesis');
+  it('SynthesisFlow_HasFourSteps', () => {
+    expect(SYNTHESIS_FLOW.steps.map((step) => step.action)).toEqual([
+      'prepare_synthesis',
+      'validate_pr_body',
+      'gh_pr_create',
+      'append',
+    ]);
     expect(SYNTHESIS_FLOW.phase).toBe('synthesize');
   });
 
   it('ShepherdIteration_HasSixSteps', () => {
     expect(SHEPHERD_ITERATION.steps).toHaveLength(6);
-    expect(SHEPHERD_ITERATION.steps[0].action).toBe('assess_stack');
+    expect(SHEPHERD_ITERATION.steps[0].tool).toBe('native:bash');
+    expect(SHEPHERD_ITERATION.steps.map((step) => step.action)).not.toContain('assess_stack');
+    expect(SHEPHERD_ITERATION.autoEmits).toEqual([]);
     expect(SHEPHERD_ITERATION.phase).toBe('synthesize');
   });
 
@@ -148,16 +153,16 @@ describe('Runbook definitions', () => {
   });
 
   it('AllRunbooks_Count', () => {
-    expect(ALL_RUNBOOKS).toHaveLength(20);
+    expect(ALL_RUNBOOKS).toHaveLength(19);
   });
 
-  /** Both steps stop on failure. The body check guards the create, and the create is a remote side effect. */
-  it('SynthesisCloseout_HasTwoSteps_BodyCheckThenCreate', () => {
-    expect(SYNTHESIS_CLOSEOUT.phase).toBe('synthesize');
-    expect(SYNTHESIS_CLOSEOUT.steps).toHaveLength(2);
-    expect(SYNTHESIS_CLOSEOUT.steps[0].action).toBe('validate_pr_body');
-    expect(SYNTHESIS_CLOSEOUT.steps[1].action).toBe('create_pr');
-    expect(SYNTHESIS_CLOSEOUT.steps.map((step) => step.onFail)).toEqual(['stop', 'stop']);
+  /** The harness opens the pull request, so no runbook compiles synthesis closeout or names a provider writer. */
+  it('SynthesisCloseout_IsNoLongerARunbook', () => {
+    expect(ALL_RUNBOOKS.map((runbook) => runbook.id)).not.toContain('synthesis-closeout');
+    const actions = ALL_RUNBOOKS.flatMap((runbook) => runbook.steps.map((step) => step.action));
+    for (const writer of ['create_pr', 'merge_pr', 'add_pr_comment', 'create_issue']) {
+      expect(actions).not.toContain(writer);
+    }
   });
 
   /** The two gates stop the segment on failure. The matrix generator is not a gate, so its failure does not stop the segment. */

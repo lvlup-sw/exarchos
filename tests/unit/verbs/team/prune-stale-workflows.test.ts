@@ -502,7 +502,6 @@ function makeDeps(overrides: Partial<PruneHandlerDeps> = {}): PruneHandlerDeps &
     .mockResolvedValue({ success: true, data: { phase: 'cancelled' } });
   const branchSpy = vi.fn().mockResolvedValue('feat/x');
   const safeguards: PruneSafeguards = {
-    hasOpenPR: vi.fn().mockResolvedValue(false),
     hasRecentCommits: vi.fn().mockResolvedValue(false),
   };
   const phaseTransitionSpy = vi.fn().mockResolvedValue(undefined);
@@ -710,42 +709,10 @@ describe('handlePruneStaleWorkflows', () => {
     expect(data.pruned.map((p) => p.featureId).sort()).toEqual(['a', 'b']);
   });
 
-  it('safeguard (open PR) skips candidate and records reason', async () => {
-    const { ctx } = makeEventStoreStub();
-    const deps = makeDeps({
-      safeguards: {
-        hasOpenPR: vi.fn().mockImplementation(async (featureId: string) => featureId === 'a'),
-        hasRecentCommits: vi.fn().mockResolvedValue(false),
-      },
-    });
-    deps.listSpy.mockResolvedValue(
-      makeListResult([
-        { featureId: 'a', lastActivityTimestamp: staleIso(30_000) },
-        { featureId: 'b', lastActivityTimestamp: staleIso(30_000) },
-      ]),
-    );
-
-    const result = await handlePruneStaleWorkflows(
-      { dryRun: false, now: NOW_ISO },
-      STATE_DIR,
-      ctx,
-      deps,
-    );
-
-    const data = result.data as {
-      pruned: Array<{ featureId: string }>;
-      skipped: Array<{ featureId: string; reason: string }>;
-    };
-    expect(data.pruned.map((p) => p.featureId)).toEqual(['b']);
-    expect(data.skipped.map((s) => s.featureId)).toEqual(['a']);
-    expect(data.skipped[0]?.reason).toBe('open-pr');
-  });
-
   it('safeguard (recent commits) skips candidate and records reason', async () => {
     const { ctx } = makeEventStoreStub();
     const deps = makeDeps({
       safeguards: {
-        hasOpenPR: vi.fn().mockResolvedValue(false),
         hasRecentCommits: vi
           .fn()
           .mockImplementation(async (branch: string | undefined) => branch === 'feat/b'),
@@ -779,7 +746,6 @@ describe('handlePruneStaleWorkflows', () => {
     const { append, ctx } = makeEventStoreStub();
     const deps = makeDeps({
       safeguards: {
-        hasOpenPR: vi.fn().mockResolvedValue(true),
         hasRecentCommits: vi.fn().mockResolvedValue(true),
       },
     });
@@ -795,7 +761,6 @@ describe('handlePruneStaleWorkflows', () => {
     );
 
     expect(result.success).toBe(true);
-    expect(deps.safeguards.hasOpenPR).not.toHaveBeenCalled();
     expect(deps.safeguards.hasRecentCommits).not.toHaveBeenCalled();
     const data = result.data as { pruned: Array<{ featureId: string }> };
     expect(data.pruned.map((p) => p.featureId)).toEqual(['a']);
@@ -809,7 +774,7 @@ describe('handlePruneStaleWorkflows', () => {
     const envelope = payload as { type: string; data: Record<string, unknown> };
     expect(envelope.type).toBe('workflow.pruned');
     expect(envelope.data.featureId).toBe('a');
-    expect(envelope.data.skippedSafeguards).toEqual(['open-pr', 'active-branch']);
+    expect(envelope.data.skippedSafeguards).toEqual(['active-branch']);
   });
 
   it('emits workflow.pruned event per successful cancel', async () => {
@@ -842,12 +807,11 @@ describe('handlePruneStaleWorkflows', () => {
     }
   });
 
-  it('skips both safeguards when branchName missing, still prunes', async () => {
+  it('skips the safeguard when branchName missing, still prunes', async () => {
     const { ctx } = makeEventStoreStub();
     const deps = makeDeps({
       readBranchName: vi.fn().mockResolvedValue(undefined),
       safeguards: {
-        hasOpenPR: vi.fn().mockRejectedValue(new Error('must-not-be-called')),
         hasRecentCommits: vi.fn().mockRejectedValue(new Error('must-not-be-called')),
       },
     });
@@ -862,7 +826,6 @@ describe('handlePruneStaleWorkflows', () => {
       deps,
     );
 
-    expect(deps.safeguards.hasOpenPR).not.toHaveBeenCalled();
     expect(deps.safeguards.hasRecentCommits).not.toHaveBeenCalled();
     const data = result.data as { pruned: Array<{ featureId: string }> };
     expect(data.pruned.map((p) => p.featureId)).toEqual(['nobrn']);

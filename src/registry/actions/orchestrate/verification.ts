@@ -1,7 +1,7 @@
 import { vacuityWaiver } from '../../../output-schema-declaration.js';
 import { z } from 'zod';
 import { declared, none, withActionContract, type ActionContract } from '../../action-contract.js';
-import { COMPENSABLE_LOCAL, LOCAL_MUTATION, READ_ONLY_LOCAL, READ_ONLY_REMOTE } from '../../annotations.js';
+import { COMPENSABLE_LOCAL, LOCAL_MUTATION, READ_ONLY_LOCAL } from '../../annotations.js';
 import { ALL_PHASES, DELEGATE_PHASES, PLAN_PHASES, REVIEW_PHASES, ROLE_ANY, ROLE_LEAD, SYNTHESIS_REVIEW_PHASES, featureIdSchema } from '../../phases.js';
 import type { BuiltinActionDraft, BuiltinToolAction } from '../../types.js';
 
@@ -228,26 +228,9 @@ export const verificationActions: readonly BuiltinToolAction[] = [
     replay: { kind: 'safe-repeat' },
   }),
   withContract({
-    name: 'check_pr_comments',
-    description: 'Check PR for unresolved review comment threads',
-    schema: z.object({
-      pr: z.number().int().positive(),
-      repo: z.string().optional(),
-    }),
-    phases: SYNTHESIS_REVIEW_PHASES,
-    roles: ROLE_LEAD,
-    outputSchema: vacuityWaiver('exarchos_orchestrate.check_pr_comments'),
-    annotations: READ_ONLY_REMOTE,
-  }, {
-    ensures: none('check_pr_comments reads remote review threads and writes nothing durable'),
-    needs: none('remote PR comment reads use the host gh client; no capability token names that network'),
-    replay: { kind: 'safe-repeat' },
-  }),
-  withContract({
     name: 'validate_pr_body',
     description: 'Validate PR body contains required sections (Summary, Changes, Test Plan)',
     schema: z.object({
-      pr: z.number().int().positive().optional(),
       bodyFile: z.string().optional(),
       body: z.string().optional(),
       template: z.string().optional(),
@@ -267,31 +250,6 @@ export const verificationActions: readonly BuiltinToolAction[] = [
     ensures: none('validate_pr_body checks section presence and writes nothing durable'),
     needs: declared('fs:read'),
     resources: declared({ kind: 'path', selector: 'bodyFile' }),
-    replay: { kind: 'safe-repeat' },
-  }),
-  withContract({
-    name: 'validate_pr_stack',
-    description: 'Validate PR stack ordering and base branch consistency',
-    schema: z.object({
-      /**
-       * The stream that records the durable gate evidence. It is required, because the observer reads
-       * the record on the stream that the call names.
-       */
-      featureId: z.string().min(1),
-      baseBranch: z.string().min(1),
-    }),
-    phases: new Set<string>(['synthesize']),
-    roles: ROLE_LEAD,
-    gate: { blocking: true, gateClass: 'pr-stack' },
-    outputSchema: vacuityWaiver('exarchos_orchestrate.validate_pr_stack'),
-    annotations: READ_ONLY_LOCAL,
-  }, {
-    ensures: declared({ source: 'durable-evidence', when: 'always', evidenceType: 'gate' }),
-    needs: declared('fs:read', 'mcp:exarchos'),
-    resources: declared(
-      { kind: 'stream', selector: 'featureId' },
-      { kind: 'git-ref', selector: 'baseBranch' },
-    ),
     replay: { kind: 'safe-repeat' },
   }),
   withContract({
@@ -360,8 +318,8 @@ export const verificationActions: readonly BuiltinToolAction[] = [
       actionItems: z.array(z.record(z.string(), z.unknown())),
     }),
     /**
-     * The shepherd runs in `synthesize` and calls this action after `assess_stack`. With only
-     * `REVIEW_PHASES`, the phase guard refuses that call.
+     * The shepherd runs in `synthesize` and calls this action after it reads the review comments.
+     * With only `REVIEW_PHASES`, the phase guard refuses that call.
      */
     phases: SYNTHESIS_REVIEW_PHASES,
     roles: ROLE_LEAD,

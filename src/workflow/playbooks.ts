@@ -58,6 +58,13 @@ export interface PhasePlaybook {
   readonly compactGuidance: string;
 }
 
+/**
+ * The synthesize prerequisite on the recorded pull request. The caller asserts it: the harness opens the pull request and records its URL.
+ * Exarchos does not observe the pull request. The local synthesis boundary is an integration-tip predicate that the capsule work defines.
+ */
+export const PR_RECORDED_PREREQUISITE =
+  'artifacts.pr exists (caller-asserted: the harness opens the PR and records its URL, and Exarchos does not observe the PR)';
+
 const registry = new Map<string, PhasePlaybook>();
 
 function register(playbook: PhasePlaybook): void {
@@ -266,7 +273,7 @@ register({
   validationScripts: [],
   humanCheckpoint: false,
   compactGuidance:
-    'Local-git merge handoff. Call exarchos_orchestrate merge_orchestrate to land the subagent worktree branch on the integration branch via local git merge with recorded rollback sha. NOT a remote PR merge — that is merge_pr in synthesize. Runs preflight (ancestry / current-branch / main-worktree / drift), records HEAD as rollback anchor, runs git merge per strategy, and on failure runs the INV-14 recovery ladder (git merge --abort → git reset --keep <rollbackSha>, never --hard). Strategy required (no default). Resumable: terminal phases (completed / rolled-back / aborted) short-circuit on re-entry. Events auto-emitted: merge.preflight carries structured guard sub-results + failureReasons; merge.executed records mergeSha; merge.recovered records reason + optional recoveryError/recoveryErrorDetail. Use exarchos_event describe before any manual emission. HSM exits merge-pending back to delegate on terminal merge event. Full guidance: @skills/merge-orchestrator/SKILL.md.',
+    'Local-git merge handoff. Call exarchos_orchestrate merge_orchestrate to land the subagent worktree branch on the integration branch via local git merge with recorded rollback sha. NOT a remote PR merge — the harness owns that in synthesize. Runs preflight (ancestry / current-branch / main-worktree / drift), records HEAD as rollback anchor, runs git merge per strategy, and on failure runs the INV-14 recovery ladder (git merge --abort → git reset --keep <rollbackSha>, never --hard). Strategy required (no default). Resumable: terminal phases (completed / rolled-back / aborted) short-circuit on re-entry. Events auto-emitted: merge.preflight carries structured guard sub-results + failureReasons; merge.executed records mergeSha; merge.recovered records reason + optional recoveryError/recoveryErrorDetail. Use exarchos_event describe before any manual emission. HSM exits merge-pending back to delegate on terminal merge event. Full guidance: @skills/merge-orchestrator/SKILL.md.',
 });
 
 register({
@@ -327,10 +334,9 @@ register({
   events: phaseEventInstructions('synthesize'),
   autoEmittedEvents: phaseRuntimeEmissions('synthesize'),
   transitionCriteria: 'PR created and enqueued → completed',
-  guardPrerequisites: 'artifacts.pr exists',
+  guardPrerequisites: PR_RECORDED_PREREQUISITE,
   validationScripts: [
     'pre_synthesis_check',
-    'validate_pr_stack',
   ],
   humanCheckpoint: true,
   compactGuidance:
@@ -601,7 +607,7 @@ register({
   events: phaseEventInstructions('synthesize'),
   autoEmittedEvents: phaseRuntimeEmissions('synthesize'),
   transitionCriteria: 'PR URL exists → completed',
-  guardPrerequisites: 'artifacts.pr exists',
+  guardPrerequisites: PR_RECORDED_PREREQUISITE,
   validationScripts: [],
   humanCheckpoint: true,
   compactGuidance:
@@ -918,10 +924,9 @@ register({
   events: phaseEventInstructions('synthesize'),
   autoEmittedEvents: phaseRuntimeEmissions('synthesize'),
   transitionCriteria: 'PR URL exists → completed',
-  guardPrerequisites: 'artifacts.pr exists',
+  guardPrerequisites: PR_RECORDED_PREREQUISITE,
   validationScripts: [
     'pre_synthesis_check',
-    'validate_pr_stack',
   ],
   humanCheckpoint: true,
   compactGuidance:
@@ -1051,7 +1056,7 @@ export const oneshotPlaybook: readonly PhasePlaybook[] = [
     autoEmittedEvents: phaseRuntimeEmissions('synthesize'),
     transitionCriteria: 'PR merged → completed',
     guardPrerequisites:
-      'artifacts.pr exists AND PR merge verified (merge.verified or shepherd.completed event)',
+      `${PR_RECORDED_PREREQUISITE} AND cleanup.mergeVerified is true (the harness reads the merge state with its own tools)`,
     validationScripts: ['pre_synthesis_check'],
     humanCheckpoint: true,
     compactGuidance:

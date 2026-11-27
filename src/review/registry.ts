@@ -5,6 +5,9 @@
  *
  * `detectKind` maps a comment author to a `ReviewerKind`. It is the one place
  * that holds the author-string conventions.
+ *
+ * RESERVED(issue: #1928, owner: exarchos, expires: 2027-02-28). The `assess_stack` retirement
+ * removed the last production importer. The provider layer removal deletes this registry and its adapters.
  */
 
 import type {

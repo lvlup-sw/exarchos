@@ -20,7 +20,6 @@ vi.mock('../../src/vcs/factory.js', async (importOriginal) => {
 });
 
 import { createVcsProvider } from '../../src/vcs/factory.js';
-import type { VcsProvider } from '../../src/vcs/provider.js';
 import type { DispatchContext } from '../../src/dispatch/core/dispatch.js';
 import { dispatch } from '../../src/dispatch/core/dispatch.js';
 import { deriveMcpCallerIdentity } from '../../src/dispatch/caller-identity.js';
@@ -218,7 +217,7 @@ describe('lifecycle and team routes in the local executor', () => {
   /**
    * Each lifecycle and team route runs its approved legs in the local executor, also with skip flags.
    * The marker program lies outside the checkout, so it runs. No plain Git starts.
-   * Each pre-synthesis call makes its VCS provider with the process-wide Git path, and `skipStack` asks it for no pull request.
+   * No pre-synthesis call makes a VCS provider, because the gate has no PR-stack leg.
    */
   it('LocalRoutes_ApprovedLegs_RunWithNoPlainGitStart', async () => {
     const root = await tempRoot('observational-local-');
@@ -230,8 +229,8 @@ describe('lifecycle and team routes in the local executor', () => {
 
     const calls: Record<string, unknown>[] = [
       { action: 'verify_worktree_baseline', worktreePath: main },
-      { action: 'pre_synthesis_check', featureId: FEATURE, repoRoot: main, skipStack: true },
-      { action: 'pre_synthesis_check', featureId: FEATURE, repoRoot: main, skipTests: true, skipStack: true },
+      { action: 'pre_synthesis_check', featureId: FEATURE, repoRoot: main },
+      { action: 'pre_synthesis_check', featureId: FEATURE, repoRoot: main, skipTests: true },
       { action: 'debug_review_gate', featureId: FEATURE, repoRoot: main, baseBranch: 'main' },
       { action: 'debug_review_gate', featureId: FEATURE, repoRoot: main, baseBranch: 'main', skipRun: true },
       { action: 'post_delegation_check', featureId: FEATURE, repoRoot: main },
@@ -245,7 +244,7 @@ describe('lifecycle and team routes in the local executor', () => {
 
     expect(await markerRuns(marker)).toBe(5);
     expect(await shimCalls()).toHaveLength(0);
-    expect(vi.mocked(createVcsProvider).mock.calls.map(([options]) => options?.detectorDeps?.gitPath)).toEqual([GIT, GIT]);
+    expect(createVcsProvider).not.toHaveBeenCalled();
     expect(await git(main, 'status', '--porcelain')).toBe('');
   });
 
@@ -294,7 +293,7 @@ describe('lifecycle and team routes in the local executor', () => {
     primeObservationalGitPath(GIT);
 
     const result = await orchestrate(stateDir, store,
-      { action: 'pre_synthesis_check', featureId: FEATURE, repoRoot: main, skipStack: true, verificationHost: { gitPath: '' } });
+      { action: 'pre_synthesis_check', featureId: FEATURE, repoRoot: main, verificationHost: { gitPath: '' } });
 
     expect(result.success, JSON.stringify(result.error)).toBe(true);
     expect(await markerRuns(marker)).toBe(1);
@@ -302,28 +301,24 @@ describe('lifecycle and team routes in the local executor', () => {
 });
 
 describe('converted reads of the lifecycle and team routes', () => {
-  /** The pre-synthesis branch read observes the checkout root above a subdirectory with the process-wide Git path. A detached HEAD fails the check. */
-  it('PreSynthesisBranchRead_ProcessGitPath_NoPathGitAndDetachedFailsClosed', async () => {
+  /** The pre-synthesis gate reads no branch and makes no VCS provider. A detached HEAD does not change its report. */
+  it('PreSynthesis_NoPrStackLeg_DetachedHeadChangesNothingAndNoProviderStarts', async () => {
     const root = await tempRoot('observational-branch-');
     const { main } = await repository(root, { 'src/a.ts': 'export {};\n' });
     await git(main, 'checkout', '-q', '-b', 'feature/stack');
     const { stateDir, store } = await storeWith(FEATURE, 'synthesize');
-    const heads: (string | undefined)[] = [];
-    const provider = {
-      name: 'github',
-      listPrs: async (filter?: { head?: string }) => { heads.push(filter?.head); return [{ number: 1, url: '', title: '', headRefName: 'feature/stack', baseRefName: 'main', state: 'OPEN' }]; },
-    } as unknown as VcsProvider;
     primeObservationalGitPath(GIT);
     const shimCalls = await pathShim(root);
     const args = { featureId: FEATURE, eventStore: store, stateDir, repoRoot: join(main, 'src'), skipTests: true };
 
-    const attached = await runAsTrustedCaller(stateDir, () => handlePreSynthesisCheck(args, provider));
+    const attached = await runAsTrustedCaller(stateDir, () => handlePreSynthesisCheck(args));
     await git(main, 'checkout', '-q', '--detach');
-    const detached = await runAsTrustedCaller(stateDir, () => handlePreSynthesisCheck(args, provider));
+    const detached = await runAsTrustedCaller(stateDir, () => handlePreSynthesisCheck(args));
 
-    expect(heads).toEqual(['feature/stack']);
-    expect((attached.data as { report: string }).report).toContain("PR stack exists (1 open PRs for 'feature/stack')");
-    expect((detached.data as { report: string }).report).toContain('Could not determine current branch');
+    const report = (result: typeof attached) => (result.data as { report: string }).report;
+    expect(report(attached)).not.toContain('PR stack');
+    expect(report(detached)).toBe(report(attached));
+    expect(createVcsProvider).not.toHaveBeenCalled();
     expect(await shimCalls()).toHaveLength(0);
   });
 
@@ -894,7 +889,7 @@ async function shallowClone(root: string): Promise<{ readonly clone: string; rea
 }
 
 describe('constrained observational reads: Git path selection', () => {
-  /** The primed Git path serves review, schema sync and polish scope with no PATH Git start, and prune detection receives its own Git path. */
+  /** The primed Git path serves review, schema sync and polish scope with no PATH Git start. */
   it('PrimedGitPath_ReviewSchemaSyncAndPolishScope_NoShimGitStarts', async () => {
     const root = await tempRoot('observational-preference-');
     const { main } = await repository(root, { 'src/Models/User.cs': 'class User {}\n' });
@@ -907,16 +902,10 @@ describe('constrained observational reads: Git path selection', () => {
     const review = await orchestrate(stateDir, store, { action: 'review_diff', worktreePath: main });
     const sync = await orchestrate(stateDir, store, { action: 'needs_schema_sync', repoRoot: main });
     const scope = await orchestrate(stateDir, store, { action: 'check_polish_scope', repoRoot: main });
-    const listPrs = vi.fn(async () => []);
-    const safeguards = defaultSafeguards(undefined, pruneObservation(GIT));
-    vi.mocked(createVcsProvider).mockResolvedValueOnce({ name: 'github', listPrs } as unknown as VcsProvider);
-    expect(await safeguards.hasOpenPR(FEATURE, 'task')).toBe(false);
 
     expect(review.success, JSON.stringify(review.error)).toBe(true);
     expect((sync.data as { apiFiles: string[] }).apiFiles).toEqual(['src/Models/Order.cs']);
     expect(scope.success, JSON.stringify(scope.error)).toBe(true);
-    expect(vi.mocked(createVcsProvider).mock.calls[0]?.[0]).toMatchObject({ detectorDeps: { gitPath: GIT, reader: expect.any(Function) } });
-    expect(listPrs).toHaveBeenCalledTimes(1);
     expect(await shimCalls()).toHaveLength(0);
   });
 
@@ -1014,7 +1003,7 @@ describe('constrained observational reads: the outcome of each site', () => {
     await git(main, 'update-ref', 'refs/remotes/origin/stale', old);
     primeObservationalGitPath(GIT);
     const shimCalls = await pathShim(root);
-    const readable = defaultSafeguards({ name: 'gitlab' } as unknown as VcsProvider, pruneObservation(GIT));
+    const readable = defaultSafeguards(pruneObservation(GIT));
 
     await inDirectory(main, async () => {
       expect(await readable.hasRecentCommits('fresh', 24)).toBe(true);
@@ -1023,10 +1012,10 @@ describe('constrained observational reads: the outcome of each site', () => {
       expect(await readable.hasRecentCommits(undefined, 24)).toBe(false);
       expect(await readable.hasRecentCommits(`x;'${program}'`, 24)).toBe(true);
       expect(await readable.hasRecentCommits('$(touch-marker)', 24)).toBe(true);
-      const unusable = defaultSafeguards({ name: 'gitlab' } as unknown as VcsProvider, pruneObservation(join(root, 'no-git')));
+      const unusable = defaultSafeguards(pruneObservation(join(root, 'no-git')));
       expect(await unusable.hasRecentCommits('stale', 24)).toBe(true);
       await git(main, 'config', 'includeIf.gitdir:/.path', '/untrusted');
-      const refused = defaultSafeguards({ name: 'gitlab' } as unknown as VcsProvider, pruneObservation(GIT));
+      const refused = defaultSafeguards(pruneObservation(GIT));
       expect(await refused.hasRecentCommits('stale', 24)).toBe(true);
     });
 

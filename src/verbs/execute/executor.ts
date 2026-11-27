@@ -230,6 +230,18 @@ async function boundReceipt(operationId: string, input: z.infer<typeof ExecuteIn
   return claim.result;
 }
 
+/**
+ * The refusal of a synthesis-closeout call that has no original custody. Exarchos no longer compiles this intent.
+ * The harness opens the pull request. Only an original terminal receipt of the same operation replays.
+ */
+const SYNTHESIS_CLOSEOUT_RETIRED_RESULT: ToolResult = {
+  success: false,
+  error: {
+    code: 'SYNTHESIS_CLOSEOUT_RETIRED',
+    message: 'Exarchos no longer compiles synthesis-closeout, and this operation has no original receipt to replay. The harness opens the pull request. Nothing was executed.',
+  },
+};
+
 /** Authenticate original synthesis custody without consulting live compilation, providers or configuration. */
 async function historicalSynthesisResult(streamId: string, operationId: string, args: Record<string, unknown>, ctx: DispatchContext, bundles: RunBundleStore): Promise<ToolResult | undefined> {
   try {
@@ -475,8 +487,8 @@ export async function handleExecuteIntent(
 
   return runExclusivePerOperation(operationId, async () => {
     if (intent === 'synthesis-closeout') {
-      const historical = await historicalSynthesisResult(streamId, operationId, intentArgs, ctx, deps.bundleStore ?? ctx.eventStore.bundleStore);
-      if (historical !== undefined) return historical;
+      return await historicalSynthesisResult(streamId, operationId, intentArgs, ctx, deps.bundleStore ?? ctx.eventStore.bundleStore)
+        ?? SYNTHESIS_CLOSEOUT_RETIRED_RESULT;
     }
     const compiled = compileIntent(intent, { streamId }, intentArgs, deps);
     if (!compiled.ok) {
@@ -497,10 +509,6 @@ export async function handleExecuteIntent(
       .ensureSqliteBackendSync()
       .lookupOperationClaim<IntentReceipt>(operationId);
     if (claim !== undefined) {
-      if (intent === 'synthesis-closeout') {
-        return await historicalSynthesisResult(streamId, operationId, intentArgs, ctx, deps.bundleStore ?? ctx.eventStore.bundleStore)
-          ?? { success: false, error: { code: 'INTENT_HISTORY_REFUSED', message: 'Historical claim disappeared. Nothing was executed.' } };
-      }
       if (claim.requestDigest !== requestDigest) {
         return digestMismatchResult(operationId, 'Nothing was executed.');
       }
@@ -756,7 +764,8 @@ async function runSegment(input: RunSegmentInput): Promise<CommitOutcome> {
 
   for (const leaf of segment.leaves) {
     const startedAt = new Date().toISOString();
-    const outcome = await runLeaf({ leaf, operationId, stateDir, ctx, outer, handlers, handlerTool, segment });
+    const outcome = await runLeaf({ leaf, operationId, stateDir, ctx, outer, handlers, handlerTool, segment,
+      ...(input.boundInput === undefined ? {} : { boundInput: input.boundInput }) });
     const endedAt = new Date().toISOString();
     leaves.push({
       action: leaf.action,
@@ -832,8 +841,8 @@ function foldHeldRows(
 
 /**
  * Returns the held rows when the effect of a `reject-replay` leaf already happened, or `undefined`.
- * A crash-retry runs each leaf again under the same derived id. The only proof the executor can read is the unconditional rows under that id.
- * A partial set is not proof. The leaf then goes back through its handler, where its own remote precheck still applies.
+ * Only a segment with an immutable bound input calls it. There the operation id is bound to the input digest, so the rows under the derived id belong to this request.
+ * A partial set is not proof. The leaf then goes back through its handler.
  *
  * Elision skips the emission verifier. The check that every owed event landed stands in for it.
  * A leaf that declares `ensures` never elides, because the emission check cannot stand in for a durable-evidence postcondition.
@@ -861,6 +870,19 @@ async function replayElidedRows(input: {
   return rows
     .filter((row) => row.type !== EMISSION_VIOLATION_EVENT)
     .map((row) => ({ type: row.type, streamId: leaf.observationStreamId, sequence: row.sequence }));
+}
+
+/**
+ * Throws when a `reject-replay` leaf of a segment with no bound input already has rows under its derived id.
+ * Nothing binds the operation id of such a segment to its request, so the rows do not prove that this request caused them.
+ * The executor does not run the leaf again and does not count it as passed. A crash before the first append leaves no row.
+ */
+async function refuseUnboundRejectReplayRetry(leaf: CompiledLeaf, derived: string, ctx: DispatchContext): Promise<void> {
+  if (leaf.contract.replay.kind !== 'reject-replay') return;
+  const rows = await ctx.eventStore.query(leaf.observationStreamId, { operationId: derived });
+  if (rows.length > 0) {
+    throw new Error(`Interrupted leaf '${leaf.action}' has effects without a safe continuation contract; retain them and recover explicitly`);
+  }
 }
 
 /**
@@ -953,7 +975,8 @@ async function runLeaf(input: RunLeafInput): Promise<LeafOutcome> {
       };
     }
 
-    const elided = await replayElidedRows({ leaf, derived, ctx });
+    if (input.boundInput === undefined) await refuseUnboundRejectReplayRetry(leaf, derived, ctx);
+    const elided = input.boundInput === undefined ? undefined : await replayElidedRows({ leaf, derived, ctx });
     if (elided !== undefined) {
       captures.push(...elided);
       return {

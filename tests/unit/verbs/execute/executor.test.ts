@@ -1391,47 +1391,6 @@ describe('handleExecuteIntent run bundle', () => {
   });
 
   /**
-   * The crash retry skips a reject-replay leaf that already landed its declared rows.
-   * The bundle records this as one discriminated value, so "not reached" and "already proved" cannot disagree.
-   */
-  it('ReplayElidedLeaf_IsRecordedAsElidedNotInvoked', async () => {
-    const guarded = fixtureAction({
-      name: 'fixture_guarded',
-      emissions: declared({ event: 'task.completed', condition: 'always', owner: 'orchestrate', role: 'primary' }),
-      replay: {
-        kind: 'reject-replay',
-        because: 'fixture leaf refuses replay so the elision has a leaf to record',
-      },
-    });
-    const counted = countingHandler(appendingHandler('task.completed'));
-    let crash = true;
-    const deps = depsFor(
-      [fixtureStep('fixture_guarded', 'stop'), fixtureStep('fixture_quiet', 'stop')],
-      {
-        fixture_guarded: counted.handler,
-        fixture_quiet: async (args, dir, ctx) => {
-          if (crash) throw new Error('fixture crash');
-          return silentHandler()(args, dir, ctx);
-        },
-      },
-      [guarded, quiet],
-    );
-    const request = { intent: INTENT, streamId: STREAM, args: { taskId: 't1' }, operationId: 'op-bundle-elided' };
-
-    await expect(execute(request, deps)).rejects.toThrow('fixture crash');
-    crash = false;
-    const receipt = receiptOf(await execute(request, deps));
-
-    expect(counted.calls(), 'the guarded leaf ran again on the retry').toBe(1);
-    const [ref] = refsOf(receipt);
-    if (ref === undefined) throw new Error('no reference');
-    const bundle = decodeExecuteIntentBundle(await bundles().resolve(ref.digest));
-    expect(bundle.leaves[0]?.disposition).toEqual({ kind: 'replay-elided' });
-    expect(bundle.leaves[0]?.verdict).toEqual({ status: 'passed' });
-    expect(bundle.leaves[1]?.disposition).toEqual({ kind: 'invoked', handler: { success: true } });
-  });
-
-  /**
    * The executor does not own the error codes of handlers. An empty code must not make the commit throw on each retry.
    * The trace records the refusal unchanged, and the segment commits as failed.
    */

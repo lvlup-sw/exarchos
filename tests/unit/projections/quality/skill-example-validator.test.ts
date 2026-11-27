@@ -131,8 +131,8 @@ describe('validateExample against a fake oracle — well-formed examples PASS', 
 describe('validateExample against the LIVE registry — seeded drift FAILS', () => {
   const oracle = buildOracleFromRegistry(TOOL_REGISTRY);
 
-  it('flags a stale/retired action name (reconstruct_stack → validate_pr_stack)', () => {
-    const md = fence('exarchos_orchestrate({ action: "reconstruct_stack", baseBranch: "main" })');
+  it('flags a retired action name (validate_pr_stack)', () => {
+    const md = fence('exarchos_orchestrate({ action: "validate_pr_stack", featureId: "f", baseBranch: "main" })');
     const issues = validateMarkdown(md, 'seed.md', oracle);
     expect(issues.some((i) => i.code === 'UNKNOWN_ACTION')).toBe(true);
   });

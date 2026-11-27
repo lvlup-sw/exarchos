@@ -5,7 +5,6 @@ import {
   resolveEscalationPolicy,
   decideEscalation,
   classifyFinding,
-  countShepherdIterations,
 } from '../../../../src/verbs/review/escalation-policy.js';
 
 describe('escalation-policy (DR-3, #1595)', () => {
@@ -124,27 +123,6 @@ describe('escalation-policy (DR-3, #1595)', () => {
       expect(classifyFinding({ category: 'coverage' })).toBe('mechanical');
       expect(classifyFinding({})).toBe('mechanical');
       expect(classifyFinding({ intentTouching: false })).toBe('mechanical');
-    });
-  });
-
-  describe('countShepherdIterations', () => {
-    it('counts only shepherd.iteration events', () => {
-      const events = [
-        { type: 'shepherd.started' },
-        { type: 'shepherd.iteration' },
-        { type: 'task.completed' },
-        { type: 'shepherd.iteration' },
-        { type: 'shepherd.iteration' },
-        { type: 'shepherd.completed' },
-      ];
-      expect(countShepherdIterations(events)).toBe(3);
-    });
-
-    it('returns 0 for an empty stream or a stream with no iterations', () => {
-      expect(countShepherdIterations([])).toBe(0);
-      expect(
-        countShepherdIterations([{ type: 'shepherd.started' }, { type: 'shepherd.completed' }]),
-      ).toBe(0);
     });
   });
 

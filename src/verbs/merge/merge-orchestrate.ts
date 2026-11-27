@@ -72,7 +72,7 @@ export const HandleMergeOrchestrateArgsSchema = z.object({
   sourceBranch: z.string().min(1),
   targetBranch: z.string().min(1),
   taskId: z.string().optional(),
-  /** Required with no default, as for `merge_pr.strategy`, so the event log records the intent. */
+  /** Required with no default, so the event log records the intent. */
   strategy: z.enum(['squash', 'rebase', 'merge']),
   /**
    * When true, the handler stops after it appends `merge.preflight`. It writes no state and runs no

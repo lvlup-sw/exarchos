@@ -1,31 +1,22 @@
-// Duplicate merge and duplicate PR are prevented through the shipped path.
+// Duplicate merge is prevented through the shipped path.
 //
-// A test with a mock `vcsMerge` or a mock provider counts mock calls. It cannot
-// count merge commits or `gh pr create` calls. The tests in this file run the
-// production call path and assert on facts outside the process.
+// A test with a mock `vcsMerge` counts mock calls. It cannot count merge
+// commits. The test in this file runs the production call path and asserts on
+// facts outside the process. `handleExecuteMerge` gets no DI hooks, so it runs
+// a real `git merge --no-ff` in a temp repository with a real `EventStore`.
 //
-// - Merge arm: `handleExecuteMerge` gets no DI hooks, so it runs a real
-//   `git merge --no-ff` in a temp repository with a real `EventStore`.
-// - PR arm: `handleCreatePr` runs the real `GitHubProvider`. The `vi.mock` of
-//   `src/vcs/shell.ts` fakes only the process boundary: the one `execFile` shim
-//   that each provider calls.
-//
-// Each test carries its NEGATIVE TWIN: a distinct request identity that must
+// The test carries its NEGATIVE TWIN: a distinct request identity that must
 // not be deduped. Without the twin, a handler that never acts twice passes.
-// Each test gets its dispatch context from the production composition root,
+// The test gets its dispatch context from the production composition root,
 // through `createPublicRootHarness()` in `_harness.ts`.
 
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { execFileAsync } from '../../../../tools/test-helpers/spawn.js';
 
-vi.mock('../../../../src/vcs/shell.js', () => ({ exec: vi.fn() }));
-
-import { exec as ghBoundary } from '../../../../src/vcs/shell.js';
 import { handleExecuteMerge } from '../../../../src/verbs/merge/execute-merge.js';
-import { handleCreatePr } from '../../../../src/verbs/vcs/create-pr.js';
 import { rmrf } from '../../../../tools/test-helpers/temp-dir.js';
 import { createPublicRootHarness, type PublicRootHarness } from '../_harness.js';
 import type { WorkflowEvent } from '../../../../src/events/schemas.js';
@@ -39,7 +30,6 @@ const openHarnesses: PublicRootHarness[] = [];
  * leftover Windows file lock never shows as a test failure.
  */
 afterEach(async () => {
-  vi.clearAllMocks();
   while (openHarnesses.length > 0) {
     try {
       await openHarnesses.pop()?.dispose();
@@ -119,8 +109,7 @@ async function revParse(repoRoot: string, rev: string): Promise<string> {
 }
 
 /**
- * Builds a public-root harness over an empty project root. The resolved config of an empty root
- * has the default VCS provider, GitHub, so the production context builds the real `GitHubProvider`.
+ * Builds a public-root harness over an empty project root.
  * Each test makes one harness. A harness starts the storage backend of the process, so a second
  * harness replaces the backend of the first.
  */
@@ -141,84 +130,7 @@ function countEvents(events: readonly WorkflowEvent[], type: string): number {
   return events.filter((e) => e.type === type).length;
 }
 
-interface FakePr {
-  readonly number: number;
-  readonly url: string;
-  readonly title: string;
-  readonly headRefName: string;
-  readonly baseRefName: string;
-  readonly state: string;
-}
-
-interface FakeGh {
-  /** Each argv that crossed `src/vcs/shell.ts::exec`, in order. */
-  readonly calls: string[][];
-  /** The PR table of the fake server. Its length is the number of PRs that exist. */
-  readonly prs: FakePr[];
-  createCalls(): string[][];
-}
-
-/**
- * Installs a fake `gh` at the process boundary. It models `gh pr list` with
- * the `--state`, `--head` and `--base` filters, and `gh pr create`.
- *
- * `pr create` appends a row on each call and has no dedup of its own. Thus
- * production code causes each prevention that a test sees. The output has a
- * progress line before the URL, as the real `gh` prints, so the provider must
- * parse the last non-empty line.
- */
-function installFakeGh(): FakeGh {
-  const calls: string[][] = [];
-  const prs: FakePr[] = [];
-  let nextNumber = 100;
-
-  const flag = (args: readonly string[], name: string): string | undefined => {
-    const i = args.indexOf(name);
-    return i >= 0 ? args[i + 1] : undefined;
-  };
-
-  vi.mocked(ghBoundary).mockImplementation(async (command: string, args: string[]) => {
-    calls.push([command, ...args]);
-    if (command !== 'gh') throw new Error(`fake gh: unexpected command '${command}'`);
-
-    if (args[0] === 'pr' && args[1] === 'list') {
-      const state = flag(args, '--state');
-      const head = flag(args, '--head');
-      const base = flag(args, '--base');
-      const matched = prs.filter(
-        (pr) =>
-          (state === undefined || state === 'all' || pr.state === state) &&
-          (head === undefined || pr.headRefName === head) &&
-          (base === undefined || pr.baseRefName === base),
-      );
-      return JSON.stringify(matched);
-    }
-
-    if (args[0] === 'pr' && args[1] === 'create') {
-      const number = nextNumber++;
-      const url = `https://github.com/acme/repo/pull/${number}`;
-      prs.push({
-        number,
-        url,
-        title: flag(args, '--title') ?? '',
-        headRefName: flag(args, '--head') ?? '',
-        baseRefName: flag(args, '--base') ?? '',
-        state: 'open',
-      });
-      return `\nCreating pull request for ${flag(args, '--head')} into ${flag(args, '--base')}\n${url}`;
-    }
-
-    throw new Error(`fake gh: unhandled argv ${JSON.stringify(args)}`);
-  });
-
-  return {
-    calls,
-    prs,
-    createCalls: () => calls.filter((c) => c[1] === 'pr' && c[2] === 'create'),
-  };
-}
-
-describe('DR-12 — duplicate merge and duplicate PR prevention (shipped path)', () => {
+describe('DR-12 — duplicate merge prevention (shipped path)', () => {
   /**
    * The handler gets no DI hooks, so it runs a real `git merge --no-ff` and
    * writes a real state file. Arm 1 replays one request in sequence. Arm 2
@@ -347,101 +259,5 @@ describe('DR-12 — duplicate merge and duplicate PR prevention (shipped path)',
     expect(
       countEvents(await eventStore.query(otherFeatureId), 'merge.executed'),
     ).toBe(1);
-  });
-
-  /**
-   * The idempotency anchor of PR creation is natural identity: the head branch
-   * and the base branch. `verbs/vcs/create-pr.ts` looks for an open PR with
-   * that identity before it creates one. The argv assertions pin that the
-   * shipped `GitHubProvider` built the `pr create` call and the `pr list`
-   * lookup. Each of the two duplicate attempts records a `pr.create.executed`
-   * event for the one PR.
-   *
-   * NEGATIVE TWIN: a different head, or a different base, must create a new PR.
-   * A replay of the first identity after the twins must still dedup.
-   */
-  it('CreatePr_DuplicateIdempotencyKey_CreatesExactlyOnePr', async () => {
-    const gh = installFakeGh();
-    const { ctx, eventStore } = await makeHarness();
-
-    const duplicateRequest = {
-      title: 'feat: DR-12 duplicate PR prevention',
-      body: 'Body for the DR-12 acceptance fixture.',
-      base: 'main',
-      head: 'feat/dr12-pr',
-    };
-
-    const first = await handleCreatePr({ ...duplicateRequest }, ctx);
-    const second = await handleCreatePr({ ...duplicateRequest }, ctx);
-
-    expect(first.success).toBe(true);
-    expect(second.success).toBe(true);
-
-    const createCalls = gh.createCalls();
-    expect(createCalls.length).toBe(1);
-    expect(gh.prs.length).toBe(1);
-
-    expect(createCalls[0]).toEqual([
-      'gh',
-      'pr',
-      'create',
-      '--title',
-      duplicateRequest.title,
-      '--body',
-      duplicateRequest.body,
-      '--base',
-      'main',
-      '--head',
-      'feat/dr12-pr',
-    ]);
-    expect(gh.calls).toContainEqual([
-      'gh',
-      'pr',
-      'list',
-      '--json',
-      'number,url,title,headRefName,baseRefName,state',
-      '--state',
-      'open',
-      '--head',
-      'feat/dr12-pr',
-      '--base',
-      'main',
-    ]);
-
-    const firstData = first.data as { url: string; number: number };
-    const secondData = second.data as { url: string; number: number };
-    expect(secondData.url).toBe(firstData.url);
-    expect(secondData.number).toBe(firstData.number);
-    expect(firstData.number).toBe(gh.prs[0]?.number);
-
-    const vcsEvents = await eventStore.query('vcs');
-    const executed = vcsEvents.filter((e) => e.type === 'pr.create.executed');
-    expect(executed.length).toBe(2);
-    for (const ev of executed) {
-      expect((ev.data as { prNumber: number }).prNumber).toBe(firstData.number);
-    }
-
-    const differentHead = await handleCreatePr(
-      { ...duplicateRequest, head: 'feat/dr12-pr-two' },
-      ctx,
-    );
-    expect(differentHead.success).toBe(true);
-    expect(gh.createCalls().length).toBe(2);
-    expect(gh.prs.length).toBe(2);
-    const differentData = differentHead.data as { url: string; number: number };
-    expect(differentData.number).not.toBe(firstData.number);
-
-    const differentBase = await handleCreatePr(
-      { ...duplicateRequest, base: 'release/1.x' },
-      ctx,
-    );
-    expect(differentBase.success).toBe(true);
-    expect(gh.createCalls().length).toBe(3);
-    expect(gh.prs.length).toBe(3);
-
-    const replay = await handleCreatePr({ ...duplicateRequest }, ctx);
-    expect(replay.success).toBe(true);
-    expect(gh.createCalls().length).toBe(3);
-    expect((replay.data as { number: number }).number).toBe(firstData.number);
   });
 });

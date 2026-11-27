@@ -59,9 +59,8 @@ export const executeActions: readonly BuiltinToolAction[] = [
       '(review) { high, medium, low, diffContent, diff?, repoRoot?, worktreePath?, ' +
       'blockedReason? }, which REQUIRES passing gate evidence on the stream for the active ' +
       "phase attempt under the review requirement; 'plan-closeout' (plan) { specPath }, one " +
-      "path for the unified spec; 'synthesis-closeout' (synthesize) { title, prBody, " +
-      'baseBranch, headBranch }, which validates the body then opens the PR — recording its ' +
-      'URL in state stays with the caller. ' +
+      "path for the unified spec. 'synthesis-closeout' no longer compiles: only an original " +
+      'receipt of the same operation replays, and the harness opens the PR. ' +
       'A caller-supplied `operationId` replays: the same id with the same request returns ' +
       'the persisted receipt and executes nothing; a different request under it is rejected.',
     schema: z
@@ -77,13 +76,12 @@ export const executeActions: readonly BuiltinToolAction[] = [
     /**
      * The union of the phase families of the shipped intents. Only the next-actions computer reads it.
      * It must not equal the plan phase set, because an action with exactly that set counts as a plan gate.
-     * No exported constant holds `synthesize` alone, so it is a literal.
+     * No shipped intent runs in `synthesize`, so that phase is not in the set.
      */
     phases: new Set<string>([
       ...DELEGATE_PHASES,
       ...REVIEW_PHASES,
       ...PLAN_PHASES,
-      'synthesize',
     ]),
     roles: ROLE_ANY,
     /** The leaves run in-process, and some gates run lint, typecheck, or test commands. */

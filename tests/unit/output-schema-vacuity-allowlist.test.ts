@@ -289,11 +289,22 @@ describe('DR-4: outputSchema vacuity is unconstructible', () => {
       'exarchos_event.batch_append',
       'exarchos_event.describe',
       'exarchos_event.query',
+      'exarchos_orchestrate.add_pr_comment',
+      'exarchos_orchestrate.assess_stack',
+      'exarchos_orchestrate.check_ci',
+      'exarchos_orchestrate.check_coderabbit',
       'exarchos_orchestrate.check_invariant_conformance',
+      'exarchos_orchestrate.check_pr_comments',
       'exarchos_orchestrate.check_test_adequacy',
+      'exarchos_orchestrate.create_issue',
+      'exarchos_orchestrate.create_pr',
       'exarchos_orchestrate.cutover_decide',
       'exarchos_orchestrate.cutover_readiness',
+      'exarchos_orchestrate.get_pr_comments',
+      'exarchos_orchestrate.list_prs',
+      'exarchos_orchestrate.merge_pr',
       'exarchos_orchestrate.mutation-adequacy',
+      'exarchos_orchestrate.validate_pr_stack',
       'exarchos_sync.now',
       'exarchos_view.stack_place',
       'exarchos_workflow.cancel',
@@ -323,9 +334,20 @@ describe('DR-4: outputSchema vacuity is unconstructible', () => {
         expect(census.substantive).toContain(currentIdOf(id));
       }
     }
-    expect([...deletedIds].filter((id) => retiredIds.includes(id))).toEqual([
-      'exarchos_orchestrate.mutation-adequacy',
+    expect([...deletedIds].filter((id) => retiredIds.includes(id)).sort()).toEqual([
+      'exarchos_orchestrate.add_pr_comment',
+      'exarchos_orchestrate.assess_stack',
+      'exarchos_orchestrate.check_ci',
+      'exarchos_orchestrate.check_coderabbit',
+      'exarchos_orchestrate.check_pr_comments',
       'exarchos_orchestrate.check_test_adequacy',
+      'exarchos_orchestrate.create_issue',
+      'exarchos_orchestrate.create_pr',
+      'exarchos_orchestrate.get_pr_comments',
+      'exarchos_orchestrate.list_prs',
+      'exarchos_orchestrate.merge_pr',
+      'exarchos_orchestrate.mutation-adequacy',
+      'exarchos_orchestrate.validate_pr_stack',
     ]);
 
     const retirementShape = (entry: { owner: string; retiredAt: string }): boolean =>

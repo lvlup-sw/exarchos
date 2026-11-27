@@ -1,34 +1,17 @@
-// Behavioral parity of `checkPostMerge` with `check-post-merge.sh`. The gate has
-// two checks, CI status and the test suite, and reports PASS only when both pass.
-// A CI check passes on `pass` or `skipped`.
+// Behavioral parity of `checkPostMerge` with the test-suite leg of `check-post-merge.sh`.
+// The CI-status leg is gone, so the gate has one check and reports PASS only when the
+// test suite passes. The exact report lines stay as they were for that leg.
 
-import { describe, it, expect, vi, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { checkPostMerge } from '../../../../src/verbs/pure/post-merge.js';
 import type { CommandResult } from '../../../../src/verbs/pure/post-merge.js';
-import type { VcsProvider, CiStatus } from '../../../../src/vcs/provider.js';
 import { rmrf } from '../../../../tools/test-helpers/temp-dir.js';
 
 const PR_URL = 'https://github.com/org/repo/pull/42';
 const MERGE_SHA = 'abc1234def5678';
-
-function createMockProvider(ciStatus: CiStatus): VcsProvider {
-  return {
-    name: 'github',
-    createPr: vi.fn(),
-    checkCi: vi.fn<(prId: string) => Promise<CiStatus>>().mockResolvedValue(ciStatus),
-    mergePr: vi.fn(),
-    addComment: vi.fn(),
-    getReviewStatus: vi.fn(),
-    listPrs: vi.fn(),
-    getPrComments: vi.fn(),
-    getPrDiff: vi.fn(),
-    createIssue: vi.fn(),
-    getRepository: vi.fn(),
-  };
-}
 
 function makeTestPassRunner(): (cmd: string, args: readonly string[]) => CommandResult {
   return (): CommandResult => ({ exitCode: 0, stdout: 'Tests passed\n', stderr: '' });
@@ -51,29 +34,19 @@ describe('behavioral parity with check-post-merge.sh', () => {
     rmrf(nodeRepo);
   });
 
-  it('all pass — CI green + tests pass yields PASS (2/2)', async () => {
-    const provider = createMockProvider({
-      status: 'pass',
-      checks: [
-        { name: 'build', status: 'pass' },
-        { name: 'test', status: 'pass' },
-      ],
-    });
-
+  it('tests pass yields PASS (1/1)', async () => {
     expect(await checkPostMerge({
       prUrl: PR_URL,
       mergeSha: MERGE_SHA,
       repoRoot: nodeRepo,
       runCommand: makeTestPassRunner(),
-      provider,
     })).toEqual({
       status: 'pass',
       prUrl: PR_URL,
       mergeSha: MERGE_SHA,
-      passCount: 2,
+      passCount: 1,
       failCount: 0,
       results: [
-        '- **PASS**: CI green (all checks SUCCESS, SKIPPED, or NEUTRAL)',
         '- **PASS**: Test suite (npm run test:run passed)',
       ],
       findings: [],
@@ -83,131 +56,31 @@ describe('behavioral parity with check-post-merge.sh', () => {
         `**PR:** \`${PR_URL}\``,
         `**Merge SHA:** \`${MERGE_SHA}\``,
         '',
-        '- **PASS**: CI green (all checks SUCCESS, SKIPPED, or NEUTRAL)',
         '- **PASS**: Test suite (npm run test:run passed)',
         '',
         '---',
         '',
-        '**Result: PASS** (2/2 checks passed)',
+        '**Result: PASS** (1/1 checks passed)',
       ].join('\n'),
     });
   });
 
-  it('CI fail — lint FAILURE yields FAIL (1/2)', async () => {
-    const provider = createMockProvider({
-      status: 'fail',
-      checks: [
-        { name: 'build', status: 'pass' },
-        { name: 'lint', status: 'fail' },
-      ],
-    });
-
-    expect(await checkPostMerge({
-      prUrl: PR_URL,
-      mergeSha: MERGE_SHA,
-      repoRoot: nodeRepo,
-      runCommand: makeTestPassRunner(),
-      provider,
-    })).toEqual({
-      status: 'fail',
-      prUrl: PR_URL,
-      mergeSha: MERGE_SHA,
-      passCount: 1,
-      failCount: 1,
-      results: [
-        '- **FAIL**: CI green -- Failed checks: lint (FAIL)',
-        '- **PASS**: Test suite (npm run test:run passed)',
-      ],
-      findings: [
-        'FINDING [D4] [HIGH] criterion="ci-green" evidence="Failed checks: lint (FAIL)"',
-      ],
-      report: [
-        '## Post-Merge Regression Report',
-        '',
-        `**PR:** \`${PR_URL}\``,
-        `**Merge SHA:** \`${MERGE_SHA}\``,
-        '',
-        '- **FAIL**: CI green -- Failed checks: lint (FAIL)',
-        '- **PASS**: Test suite (npm run test:run passed)',
-        '',
-        '---',
-        '',
-        '**Result: FAIL** (1/2 checks failed)',
-      ].join('\n'),
-    });
-  });
-
-  it('test fail — test suite failure yields FAIL (1/2)', async () => {
-    const provider = createMockProvider({
-      status: 'pass',
-      checks: [
-        { name: 'build', status: 'pass' },
-        { name: 'test', status: 'pass' },
-      ],
-    });
-
+  it('test fail — test suite failure yields FAIL (1/1)', async () => {
     expect(await checkPostMerge({
       prUrl: PR_URL,
       mergeSha: MERGE_SHA,
       repoRoot: nodeRepo,
       runCommand: makeTestFailRunner(),
-      provider,
-    })).toEqual({
-      status: 'fail',
-      prUrl: PR_URL,
-      mergeSha: MERGE_SHA,
-      passCount: 1,
-      failCount: 1,
-      results: [
-        '- **PASS**: CI green (all checks SUCCESS, SKIPPED, or NEUTRAL)',
-        '- **FAIL**: Test suite -- npm run test:run failed',
-      ],
-      findings: [
-        `FINDING [D4] [HIGH] criterion="test-suite" evidence="npm run test:run failed (merge-sha: ${MERGE_SHA})"`,
-      ],
-      report: [
-        '## Post-Merge Regression Report',
-        '',
-        `**PR:** \`${PR_URL}\``,
-        `**Merge SHA:** \`${MERGE_SHA}\``,
-        '',
-        '- **PASS**: CI green (all checks SUCCESS, SKIPPED, or NEUTRAL)',
-        '- **FAIL**: Test suite -- npm run test:run failed',
-        '',
-        '---',
-        '',
-        '**Result: FAIL** (1/2 checks failed)',
-      ].join('\n'),
-    });
-  });
-
-  it('both fail — CI + test failures yield FAIL (0/2)', async () => {
-    const provider = createMockProvider({
-      status: 'fail',
-      checks: [
-        { name: 'build', status: 'pass' },
-        { name: 'lint', status: 'fail' },
-      ],
-    });
-
-    expect(await checkPostMerge({
-      prUrl: PR_URL,
-      mergeSha: MERGE_SHA,
-      repoRoot: nodeRepo,
-      runCommand: makeTestFailRunner(),
-      provider,
     })).toEqual({
       status: 'fail',
       prUrl: PR_URL,
       mergeSha: MERGE_SHA,
       passCount: 0,
-      failCount: 2,
+      failCount: 1,
       results: [
-        '- **FAIL**: CI green -- Failed checks: lint (FAIL)',
         '- **FAIL**: Test suite -- npm run test:run failed',
       ],
       findings: [
-        'FINDING [D4] [HIGH] criterion="ci-green" evidence="Failed checks: lint (FAIL)"',
         `FINDING [D4] [HIGH] criterion="test-suite" evidence="npm run test:run failed (merge-sha: ${MERGE_SHA})"`,
       ],
       report: [
@@ -216,54 +89,11 @@ describe('behavioral parity with check-post-merge.sh', () => {
         `**PR:** \`${PR_URL}\``,
         `**Merge SHA:** \`${MERGE_SHA}\``,
         '',
-        '- **FAIL**: CI green -- Failed checks: lint (FAIL)',
         '- **FAIL**: Test suite -- npm run test:run failed',
         '',
         '---',
         '',
-        '**Result: FAIL** (2/2 checks failed)',
-      ].join('\n'),
-    });
-  });
-
-  it('SKIPPED CI state — treated as passing', async () => {
-    const provider = createMockProvider({
-      status: 'pass',
-      checks: [
-        { name: 'build', status: 'pass' },
-        { name: 'optional', status: 'skipped' },
-      ],
-    });
-
-    expect(await checkPostMerge({
-      prUrl: PR_URL,
-      mergeSha: MERGE_SHA,
-      repoRoot: nodeRepo,
-      runCommand: makeTestPassRunner(),
-      provider,
-    })).toEqual({
-      status: 'pass',
-      prUrl: PR_URL,
-      mergeSha: MERGE_SHA,
-      passCount: 2,
-      failCount: 0,
-      results: [
-        '- **PASS**: CI green (all checks SUCCESS, SKIPPED, or NEUTRAL)',
-        '- **PASS**: Test suite (npm run test:run passed)',
-      ],
-      findings: [],
-      report: [
-        '## Post-Merge Regression Report',
-        '',
-        `**PR:** \`${PR_URL}\``,
-        `**Merge SHA:** \`${MERGE_SHA}\``,
-        '',
-        '- **PASS**: CI green (all checks SUCCESS, SKIPPED, or NEUTRAL)',
-        '- **PASS**: Test suite (npm run test:run passed)',
-        '',
-        '---',
-        '',
-        '**Result: PASS** (2/2 checks passed)',
+        '**Result: FAIL** (1/1 checks failed)',
       ].join('\n'),
     });
   });

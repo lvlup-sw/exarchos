@@ -1,10 +1,10 @@
 import { TaskVerificationCoordinateSchema } from '../../../contract/capsule/exarchos-capsule.js';
-import { coercedIntArray, coercedNonnegativeInt, coercedPositiveInt, coercedRecord } from '../../../coerce.js';
+import { coercedNonnegativeInt, coercedRecord } from '../../../coerce.js';
 import { vacuityWaiver, withCappedShape } from '../../../output-schema-declaration.js';
 import { StackPlaceOutputSchema } from '../../../verbs/stack/schemas.js';
 import { z } from 'zod';
 import { declared, none, withActionContract, type ActionContract } from '../../action-contract.js';
-import { LOCAL_MUTATION, REMOTE_MUTATION } from '../../annotations.js';
+import { LOCAL_MUTATION } from '../../annotations.js';
 import { DELEGATE_PHASES, REVIEW_PHASES, ROLE_ANY, ROLE_LEAD, ROLE_TEAMMATE, STACK_PHASES, SYNTHESIS_REVIEW_PHASES } from '../../phases.js';
 import type { BuiltinActionDraft, BuiltinToolAction } from '../../types.js';
 
@@ -299,7 +299,7 @@ export const coordinationActions: readonly BuiltinToolAction[] = [
   withContract({
     name: 'stack_place',
     description:
-      'Record a task\'s position in a PR stack. Validates the position and appends stack.position-filled, which the stack projection folds into the ordered stack view. Use for: registering where a task sits in the stack after its branch or PR exists. Do NOT use for: reading current stack positions (use exarchos_view stack_status); assessing stack CI/review health (use assess_stack).',
+      'Record a task\'s position in a PR stack. Validates the position and appends stack.position-filled, which the stack projection folds into the ordered stack view. Use for: registering where a task sits in the stack after its branch or PR exists. Do NOT use for: reading current stack positions (use exarchos_view stack_status).',
     schema: z.object({
       streamId: z.string().min(1),
       position: coercedNonnegativeInt(),
@@ -320,55 +320,5 @@ export const coordinationActions: readonly BuiltinToolAction[] = [
     ),
     replay: { kind: 'claim-required', scope: 'stream-subject-request' },
     emissions: declared({ event: 'stack.position-filled', condition: 'always', owner: 'orchestrate', role: 'primary' }),
-  }),
-  withContract({
-    name: 'assess_stack',
-    description: 'Assess PR stack health during synthesize: CI status, reviews, comments. Emits events for the shepherd iteration loop (within synthesize phase) and eval flywheel.',
-    schema: z.object({
-      featureId: z.string().min(1),
-      /**
-       * `coercedIntArray` accepts a JSON array string, a CSV string, or a native array. Thus the direct
-       * MCP path accepts the shapes that the CLI `coerceFlags` splitter makes.
-       */
-      prNumbers: coercedIntArray(),
-      /** The per-PR comment paging. The schema declares it, so the CLI emits the flags. */
-      limit: coercedPositiveInt().optional(),
-      offset: coercedNonnegativeInt().optional(),
-    }),
-    phases: SYNTHESIS_REVIEW_PHASES,
-    roles: ROLE_LEAD,
-    /** It runs `gh` for each PR in the stack, so the latency grows with the stack depth. */
-    longRunning: true,
-    outputSchema: vacuityWaiver('exarchos_orchestrate.assess_stack'),
-    /**
-     * The action reads GitHub PR state and also appends shepherd and CI events. `readOnly: true`
-     * misleads clients that gate on the hint, so it uses `REMOTE_MUTATION`.
-     */
-    annotations: REMOTE_MUTATION,
-  }, {
-    /**
-     * There is no `always` append postcondition. The action appends one row for each check that it
-     * reads. It reads none for an empty stack, or when `queryPrChecks` records a provider failure.
-     * The assessment still succeeds in both cases.
-     */
-    ensures: none('assess_stack reports observed CI state; a stack with no checks to read succeeds and appends nothing'),
-    needs: declared('mcp:exarchos'),
-    resources: declared({ kind: 'stream', selector: 'featureId' }),
-    replay: { kind: 'claim-required', scope: 'stream-subject-request' },
-    /**
-     * `ci.check_observed` gives one row for each observed CI check, beside the per-PR `ci.status`
-     * roll-up. The two `provider.*` faults are per comment, and the handler records them and does
-     * not raise them.
-     */
-    emissions: declared(
-      { event: 'ci.status', condition: 'conditional', owner: 'orchestrate', role: 'primary', description: 'One per PR assessed; none when the stack is empty' },
-      { event: 'ci.check_observed', condition: 'conditional', owner: 'orchestrate', role: 'primary', description: 'One per observed check; none when no check was read' },
-      { event: 'shepherd.approval_requested', condition: 'conditional', owner: 'orchestrate', role: 'primary', description: 'When approval needed' },
-      { event: 'shepherd.completed', condition: 'conditional', owner: 'orchestrate', role: 'primary', description: 'When PR merged' },
-      { event: 'shepherd.escalated', condition: 'conditional', owner: 'orchestrate', role: 'primary', description: 'When the auto-fix bound is reached' },
-      { event: 'shepherd.started', condition: 'conditional', owner: 'orchestrate', role: 'primary', description: 'First invocation (idempotent)' },
-      { event: 'provider.parse-error', condition: 'conditional', owner: 'orchestrate', role: 'primary', description: 'When a review adapter throws while parsing a comment' },
-      { event: 'provider.unknown-tier', condition: 'conditional', owner: 'orchestrate', role: 'primary', description: 'When a parsed action item carries a tier the adapter does not know' },
-    ),
   }),
 ];

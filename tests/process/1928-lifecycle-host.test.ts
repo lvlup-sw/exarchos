@@ -149,7 +149,7 @@ it.runIf(process.platform === 'linux')('LocalLifecycle_ApprovedOperationsRunInTh
     for (const gate of ['task-completion', 'tests', 'typecheck', 'document', 'stack']) {
       await seedGateEvidence(f.events, { streamId: 'lifecycle-synthesis', requirementId: gate, phaseAttemptId: synthesis });
     }
-    const pre = await f.call({ action: 'pre_synthesis_check', featureId: 'lifecycle-synthesis', repoRoot: f.repo.checkout, skipStack: true });
+    const pre = await f.call({ action: 'pre_synthesis_check', featureId: 'lifecycle-synthesis', repoRoot: f.repo.checkout });
     expect(pre, JSON.stringify(pre)).toMatchObject({ success: true });
     expect(JSON.stringify(pre)).toContain('**PASS**: Tests pass');
     expect(await runsOf(f.marker('main-test'))).toBe(3);

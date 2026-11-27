@@ -27,21 +27,17 @@ The composite action validates all readiness conditions:
 ## Step 2: Verify Branch Stack
 
 Validate that the PR stack is correctly ordered and every branch targets a
-consistent base before opening PRs:
-```typescript
-mcp__plugin_exarchos_exarchos__exarchos_orchestrate({
-  action: "validate_pr_stack",
-  featureId: "<feature-id>",
-  baseBranch: "<integration-branch>"
-})
+consistent base before opening PRs. Read the open PRs of the stack with your own tools:
+```bash
+gh pr list --state open --limit 100 --json number,url,headRefName,baseRefName
 ```
 
-The check verifies:
+Check:
 1. **Ordering** -- stacked PRs are in dependency order (each branch's parent precedes it)
 2. **Base consistency** -- every branch in the stack targets the expected base branch
 
-**On `passed: true`:** Stack ordering and bases are consistent -- proceed to Step 3.
-**On `passed: false`:** The output names the inconsistency (an out-of-order branch or one targeting the wrong base). Fix a wrong base with `gh pr edit <number> --base <correct-base>`, then re-run before proceeding.
+**On a consistent stack:** proceed to Step 3.
+**On an inconsistency** (an out-of-order branch or one targeting the wrong base): fix a wrong base with `gh pr edit <number> --base <correct-base>`, then read the stack again before proceeding.
 
 ## Step 3: Quick Test Verification
 
@@ -55,21 +51,15 @@ If these fail, return to `/exarchos:review` or `/exarchos:delegate` to resolve.
 
 ## Step 4: Check CodeRabbit Review State
 
-Get PR numbers from the branch stack, then run the CodeRabbit review check:
-```typescript
-// Check CodeRabbit review state via orchestrate
-mcp__plugin_exarchos_exarchos__exarchos_orchestrate({
-  action: "check_coderabbit",
-  owner: "<owner>",
-  repo: "<repo>",
-  prNumbers: ["<pr-number-1>", "<pr-number-2>"]
-})
+Get PR numbers from the branch stack, then read the CodeRabbit reviews of each PR with your own tools:
+```bash
+gh api --paginate repos/<owner>/<repo>/pulls/<pr-number>/reviews --jq '.[] | select(.user.login == "coderabbitai[bot]") | .state'
 ```
 
-The script queries GitHub's PR reviews API for each PR, filters for CodeRabbit reviews, and classifies the latest review state.
+The latest CodeRabbit review of each PR gives its state.
 
-**On `passed: true`:** All PRs are APPROVED or have no CodeRabbit review -- proceed to Step 5.
-**On `passed: false`:** At least one PR has CHANGES_REQUESTED or PENDING. The output identifies which PRs need attention. Route to fix cycle:
+**All PRs APPROVED or with no CodeRabbit review:** proceed to Step 5.
+**At least one PR with CHANGES_REQUESTED or PENDING:** route to fix cycle:
 ```typescript
 Skill({ skill: "exarchos:shepherd", args: "[PR_URL]" })
 ```
@@ -81,6 +71,14 @@ For each PR in the stack, write a structured description following `references/p
 
 1. **Title:** `<type>: <what>` (max 72 chars)
 2. **Body:** Summary → Changes → Test Plan → Footer
+
+Write each body to a file first, and validate the file:
+```typescript
+mcp__plugin_exarchos_exarchos__exarchos_orchestrate({
+  action: "validate_pr_body",
+  bodyFile: "/tmp/pr-body.md"
+})
+```
 
 Update each PR body via GitHub MCP or CLI (run this before or after PR creation in Step 6):
 ```bash
@@ -102,14 +100,14 @@ EOF
 )"
 ```
 
-**Validation:** Run `mcp__plugin_exarchos_exarchos__exarchos_orchestrate({ action: "validate_pr_body", pr: "<number>" })` to verify the body passes.
+**Validation:** `validate_pr_body` checks the body text of the file only. It reads no PR.
 CI enforces this via the `PR Body Check` workflow — PRs missing required sections will fail.
 
-**Custom templates:** If the project has a `.exarchos/pr-template.md`, pass it via `--template`:
+**Custom templates:** If the project has a `.exarchos/pr-template.md`, pass it via `template`:
 ```typescript
 mcp__plugin_exarchos_exarchos__exarchos_orchestrate({
   action: "validate_pr_body",
-  pr: "<number>",
+  bodyFile: "/tmp/pr-body.md",
   template: ".exarchos/pr-template.md"
 })
 ```
@@ -120,7 +118,7 @@ First run the Idempotency procedure of the synthesize skill for every head of th
 
 Then, for each head of the stack (bottom-up), the coordinator creates the PR through its harness, outside governance, with base `<parent-branch>`, head `<branch>`, the title `<type>: <what>` and the validated body. It skips the create for a reused open match. It records the URL that the harness returns in the workflow state with `update` as soon as the harness returns it, and each write holds the full list recorded so far. Only after that `update` succeeds does it enable auto-merge on the PR through its harness, with the squash strategy.
 
-For a reused open match, take the URL from the single exact open match of a read filtered by head and base: `exarchos_orchestrate({ action: "list_prs", head: "<branch>", base: "<parent-branch>", state: "all" })`. Never record an unfiltered list of open PRs.
+For a reused open match, take the URL from the single exact open match of your own read filtered by head and base: `gh pr list --head <branch> --base <parent-branch> --state all --limit 100 --json url,state,headRefName,baseRefName`. Never record an unfiltered list of open PRs.
 
 If the harness cannot do a write, stop and report. Do not fall back to an Exarchos action.
 

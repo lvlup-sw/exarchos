@@ -149,7 +149,6 @@ describe('EVENT_EMISSION_REGISTRY', () => {
       'state.patched',
       'tool.invoked',
       'review.routed',
-      'ci.status',
       'quality.regression',
     ];
     for (const eventType of autoSpotChecks) {
@@ -3248,11 +3247,21 @@ describe('EventSchemaRegistry_RegistersAllNewTwoEventSplitTypes', () => {
     }
   });
 
-  it('B6_AllTenTypes_HaveAutoEmissionSource', () => {
+  /** The six provider writer types are retired with their writers. The four local types stay automatic. */
+  it('B6_AllTenTypes_HaveAutoOrRetiredEmissionSource', () => {
+    const retiredWriterTypes = new Set<string>([
+      'pr.create.requested',
+      'pr.create.executed',
+      'pr.comment.requested',
+      'pr.comment.executed',
+      'issue.create.requested',
+      'issue.create.executed',
+    ]);
     for (const eventType of TWO_EVENT_TYPES) {
       expect(
         (EVENT_EMISSION_REGISTRY as Record<string, EventEmissionSource>)[eventType],
-      ).toBe('auto');
+        eventType,
+      ).toBe(retiredWriterTypes.has(eventType) ? 'retired' : 'auto');
     }
   });
 

@@ -50,8 +50,8 @@ import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
 import { deriveRepoKey } from '../../../../src/utils/paths.js';
 import { seedActivePhaseAttempt, withTrustedCaller } from '../../../../tools/test-helpers/trusted-context.js';
 
-/** The registry held 24 provider classes when this was written. A smaller count means a broken read of the registry. */
-const PROVIDER_CLASS_FLOOR = 24;
+/** The registry holds 23 provider classes after the retirement of the pr-stack gate. A smaller count means a broken read of the registry. */
+const PROVIDER_CLASS_FLOOR = 23;
 
 const CAPABILITIES = ['fs:read', 'fs:write', 'shell:exec', 'isolation:worktree', 'mcp:exarchos'];
 

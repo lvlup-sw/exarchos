@@ -1,8 +1,8 @@
 /**
  * Derives a workflow intent from the diff and an optional transcript, and stores it in workflow
- * state for review and PR-body generation.
+ * state for review and for the `validate_pr_body` advisory.
  * `deriveIntent` is pure and has no `workflowType` parameter, so each workflow type uses the same derivation.
- * `persistIntent` and `readIntent` are fail-soft, so a state failure cannot break review or PR creation.
+ * `persistIntent` and `readIntent` are fail-soft, so a state failure cannot break review or the advisory.
  *
  * `changedFilesAgainstBase` mirrors the diff helper in `prepare-synthesis.ts`, but it returns `[]` on a git error.
  * The `prepare-synthesis.ts` helper returns `null` and fails closed, so the two do not share one symbol.
@@ -153,7 +153,7 @@ export async function persistIntent(
  * Reads `artifacts.intent` back from workflow state through {@link resolveWorkflowState}, and parses
  * it with {@link WorkflowIntentSchema}. It never throws. It returns `undefined` when `featureId` or
  * the event store is absent, the state is not readable, or the intent is absent or not valid.
- * PR-body grounding then keeps its default behavior, so a state failure cannot break PR creation.
+ * The `validate_pr_body` advisory then reports no intent, so a state failure cannot break the check.
  */
 export async function readIntent(
   featureId: string | undefined,
@@ -175,15 +175,12 @@ export async function readIntent(
 }
 
 /**
- * The idempotency marker of the `## Intent` section in a PR body. It is an HTML comment, so GitHub
- * does not show it. `create_pr` and `validate_pr_body` use it as a presence check.
+ * The marker of the `## Intent` section in a PR body. It is an HTML comment, so GitHub does not
+ * show it. `validate_pr_body` uses it as a presence check.
  */
 export const INTENT_GROUNDING_MARKER = '<!-- intent-grounded -->';
 
-/**
- * Whether a body already carries the intent-grounding marker. Used by both the
- * create_pr enrichment (idempotency guard) and the validate_pr_body advisory.
- */
+/** Whether a body already carries the intent-grounding marker. The `validate_pr_body` advisory reads it. */
 export function bodyHasIntentMarker(body: string): boolean {
   return body.includes(INTENT_GROUNDING_MARKER);
 }
@@ -194,33 +191,4 @@ export function bodyHasIntentMarker(body: string): boolean {
  */
 export function isMeaningfulIntent(intent: WorkflowIntent): boolean {
   return intent.changedFiles.length > 0;
-}
-
-/**
- * Builds the `## Intent` section for a PR body: the surfaces, the summary, the optional transcript
- * line, and the idempotency marker. It has no `workflowType` branch.
- */
-export function buildIntentSection(intent: WorkflowIntent): string {
-  const lines: string[] = ['## Intent', '', INTENT_GROUNDING_MARKER, ''];
-  lines.push(`**Surfaces:** ${intent.surfaces.length > 0 ? intent.surfaces.join(', ') : '(none)'}`);
-  lines.push('');
-  lines.push(intent.summary);
-  if (intent.transcriptSummary) {
-    lines.push('');
-    lines.push(`**Context:** ${intent.transcriptSummary}`);
-  }
-  return lines.join('\n');
-}
-
-/**
- * Append the `## Intent` grounding section to a PR body when the intent is
- * meaningful AND the body is not already grounded (idempotent). Returns the body
- * UNCHANGED when the intent is not meaningful or the marker is already present.
- * Pure / total — never throws.
- */
-export function groundBodyInIntent(body: string, intent: WorkflowIntent): string {
-  if (!isMeaningfulIntent(intent)) return body;
-  if (bodyHasIntentMarker(body)) return body;
-  const section = buildIntentSection(intent);
-  return body.trimEnd().length === 0 ? section : `${body.trimEnd()}\n\n${section}`;
 }

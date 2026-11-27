@@ -299,7 +299,7 @@ describe('KILL: schema / output / fixture — tampering the SHIPPED proof baseli
 
 describe('KILL: artifact — removing a SHIPPED client command drops the census', () => {
   it('an ActionId with no command in the shipped CLI surface breaks the artifact hop', () => {
-    const target = 'exarchos_orchestrate.create_pr';
+    const target = 'exarchos_orchestrate.prepare';
     const cliSurfaceFile = mutatedArtifact(CLI_SURFACE_FILE, 'cli-surface-missing.json', 'commands', (entries) =>
       entries.filter((e) => e.actionId !== target),
     );

@@ -1,6 +1,6 @@
 /**
  * Tests that `handleOrchestrate` routes each action to its handler and wraps a success in the envelope.
- * The VCS factory stub keeps the `create_issue` precheck away from the real `gh` CLI.
+ * The VCS factory stub keeps provider calls away from the real `gh` CLI.
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -24,10 +24,6 @@ vi.mock('../../../src/verbs/team/prepare-delegation.js', () => ({
 
 vi.mock('../../../src/verbs/team/prepare-synthesis.js', () => ({
   handlePrepareSynthesis: vi.fn(),
-}));
-
-vi.mock('../../../src/verbs/vcs/assess-stack.js', () => ({
-  handleAssessStack: vi.fn(),
 }));
 
 vi.mock('../../../src/verbs/gates/design-completeness.js', () => ({
@@ -57,34 +53,6 @@ vi.mock('../../../src/verbs/tasks/finalize-oneshot.js', () => ({
 
 vi.mock('../../../src/verbs/doctor/index.js', () => ({
   handleDoctor: vi.fn(),
-}));
-
-vi.mock('../../../src/verbs/vcs/create-pr.js', () => ({
-  handleCreatePr: vi.fn(),
-}));
-
-vi.mock('../../../src/verbs/vcs/merge-pr.js', () => ({
-  handleMergePr: vi.fn(),
-}));
-
-vi.mock('../../../src/verbs/vcs/check-ci.js', () => ({
-  handleCheckCi: vi.fn(),
-}));
-
-vi.mock('../../../src/verbs/vcs/list-prs.js', () => ({
-  handleListPrs: vi.fn(),
-}));
-
-vi.mock('../../../src/verbs/vcs/get-pr-comments.js', () => ({
-  handleGetPrComments: vi.fn(),
-}));
-
-vi.mock('../../../src/verbs/vcs/add-pr-comment.js', () => ({
-  handleAddPrComment: vi.fn(),
-}));
-
-vi.mock('../../../src/verbs/vcs/create-issue.js', () => ({
-  handleCreateIssue: vi.fn(),
 }));
 
 vi.mock('../../../src/vcs/factory.js', () => ({
@@ -122,7 +90,6 @@ import { handleTaskClaim, handleTaskComplete, handleTaskFail } from '../../../sr
 import { handleReviewTriage } from '../../../src/review/tools.js';
 import { handlePrepareDelegation } from '../../../src/verbs/team/prepare-delegation.js';
 import { handlePrepareSynthesis } from '../../../src/verbs/team/prepare-synthesis.js';
-import { handleAssessStack } from '../../../src/verbs/vcs/assess-stack.js';
 import { handleDesignCompleteness } from '../../../src/verbs/gates/design-completeness.js';
 import { handlePlanCoverage } from '../../../src/verbs/gates/plan-coverage.js';
 import { handlePostMerge } from '../../../src/verbs/gates/post-merge.js';
@@ -132,13 +99,6 @@ import { handlePruneStaleWorkflows } from '../../../src/verbs/team/prune-stale-w
 import { handleRequestSynthesize } from '../../../src/verbs/team/request-synthesize.js';
 import { handleFinalizeOneshot } from '../../../src/verbs/tasks/finalize-oneshot.js';
 import { handleDoctor } from '../../../src/verbs/doctor/index.js';
-import { handleCreatePr } from '../../../src/verbs/vcs/create-pr.js';
-import { handleMergePr } from '../../../src/verbs/vcs/merge-pr.js';
-import { handleCheckCi } from '../../../src/verbs/vcs/check-ci.js';
-import { handleListPrs } from '../../../src/verbs/vcs/list-prs.js';
-import { handleGetPrComments } from '../../../src/verbs/vcs/get-pr-comments.js';
-import { handleAddPrComment } from '../../../src/verbs/vcs/add-pr-comment.js';
-import { handleCreateIssue } from '../../../src/verbs/vcs/create-issue.js';
 import { handleMergeOrchestrate } from '../../../src/verbs/merge/merge-orchestrate.js';
 import { handleScaffold } from '../../../src/verbs/invariants/scaffold.js';
 import { handleAdd } from '../../../src/verbs/invariants/add.js';
@@ -422,25 +382,6 @@ describe('handleOrchestrate', () => {
       expect(vi.mocked(handlePrepareSynthesis).mock.calls).toEqual([[{ featureId: 'feat-1' }, STATE_DIR, CTX.eventStore]]);
     });
 
-    it('HandleOrchestrate_AssessStack_DelegatesToHandler', async () => {
-      const expected = successResult({ status: 'healthy', actionItems: [], recommendation: 'proceed' });
-      vi.mocked(handleAssessStack).mockResolvedValue(expected);
-      const args = {
-        action: 'assess_stack',
-        featureId: 'feat-789',
-        prNumbers: [101, 102],
-      };
-
-      const result = await handleOrchestrate(args, CTX);
-
-      expectEnvelopedSuccess(result, expected);
-      expect(handleAssessStack).toHaveBeenCalledWith(
-        { featureId: 'feat-789', prNumbers: [101, 102] },
-        STATE_DIR,
-        CTX.eventStore,
-      );
-    });
-
     it('HandleOrchestrate_CheckDesignCompleteness_DelegatesToHandler', async () => {
       const expected = successResult({ passed: true, advisory: true, findings: [] });
       vi.mocked(handleDesignCompleteness).mockResolvedValue(expected);
@@ -653,123 +594,14 @@ describe('handleOrchestrate', () => {
   });
 
   describe('VCS actions', () => {
-    it('OrchestrateComposite_CreatePr_RoutesToHandler', async () => {
-      const expected = successResult({ url: 'https://github.com/repo/pull/1', number: 1 });
-      vi.mocked(handleCreatePr).mockResolvedValue(expected);
-      const args = {
-        action: 'create_pr',
-        title: 'feat: test',
-        body: 'body',
-        base: 'main',
-        head: 'feat/test',
-      };
-
-      const result = await handleOrchestrate(args, CTX);
-
-      expectEnvelopedSuccess(result, expected);
-      expect(handleCreatePr).toHaveBeenCalledTimes(1);
-      const call = vi.mocked(handleCreatePr).mock.calls[0];
-      expect(call[0]).toEqual({ title: 'feat: test', body: 'body', base: 'main', head: 'feat/test' });
-      expect(call[1]).toBe(CTX);
-    });
-
-    it('OrchestrateComposite_MergePr_RoutesToHandler', async () => {
-      const expected = successResult({ merged: true, sha: 'abc' });
-      vi.mocked(handleMergePr).mockResolvedValue(expected);
-      const args = { action: 'merge_pr', prId: '42', strategy: 'squash' };
-
-      const result = await handleOrchestrate(args, CTX);
-
-      expectEnvelopedSuccess(result, expected);
-      expect(handleMergePr).toHaveBeenCalledTimes(1);
-      const call = vi.mocked(handleMergePr).mock.calls[0];
-      expect(call[0]).toEqual({ prId: '42', strategy: 'squash' });
-      expect(call[1]).toBe(CTX);
-    });
-
-    it('OrchestrateComposite_CheckCi_RoutesToHandler', async () => {
-      const expected = successResult({ status: 'pass', checks: [] });
-      vi.mocked(handleCheckCi).mockResolvedValue(expected);
-      const args = { action: 'check_ci', prId: '42' };
-
-      const result = await handleOrchestrate(args, CTX);
-
-      expectEnvelopedSuccess(result, expected);
-      expect(handleCheckCi).toHaveBeenCalledTimes(1);
-      const call = vi.mocked(handleCheckCi).mock.calls[0];
-      expect(call[0]).toEqual({ prId: '42' });
-      expect(call[1]).toBe(CTX);
-    });
-
-    it('OrchestrateComposite_ListPrs_RoutesToHandler', async () => {
-      const expected = successResult([]);
-      vi.mocked(handleListPrs).mockResolvedValue(expected);
-      const args = { action: 'list_prs', state: 'open' };
-
-      const result = await handleOrchestrate(args, CTX);
-
-      expectEnvelopedSuccess(result, expected);
-      expect(handleListPrs).toHaveBeenCalledTimes(1);
-      const call = vi.mocked(handleListPrs).mock.calls[0];
-      expect(call[0]).toEqual({ state: 'open' });
-      expect(call[1]).toBe(CTX);
-    });
-
-    it('OrchestrateComposite_GetPrComments_RoutesToHandler', async () => {
-      const expected = successResult([]);
-      vi.mocked(handleGetPrComments).mockResolvedValue(expected);
-      const args = { action: 'get_pr_comments', prId: '42' };
-
-      const result = await handleOrchestrate(args, CTX);
-
-      expectEnvelopedSuccess(result, expected);
-      expect(handleGetPrComments).toHaveBeenCalledTimes(1);
-      const call = vi.mocked(handleGetPrComments).mock.calls[0];
-      expect(call[0]).toEqual({ prId: '42' });
-      expect(call[1]).toBe(CTX);
-    });
-
-    it('OrchestrateComposite_AddPrComment_RoutesToHandler', async () => {
-      const expected = successResult(undefined);
-      vi.mocked(handleAddPrComment).mockResolvedValue(expected);
-      const args = { action: 'add_pr_comment', prId: '42', body: 'comment' };
-
-      const result = await handleOrchestrate(args, CTX);
-
-      expectEnvelopedSuccess(result, expected);
-      expect(handleAddPrComment).toHaveBeenCalledTimes(1);
-      const call = vi.mocked(handleAddPrComment).mock.calls[0];
-      expect(call[0]).toEqual({ prId: '42', body: 'comment' });
-      expect(call[1]).toBe(CTX);
-    });
-
-    /** The composite adds a provider-backed `listIssuesByMarker` to the handler args. */
-    it('OrchestrateComposite_CreateIssue_RoutesToHandler', async () => {
-      const expected = successResult({ number: 1, url: 'https://github.com/repo/issues/1' });
-      vi.mocked(handleCreateIssue).mockResolvedValue(expected);
-      const args = { action: 'create_issue', title: 'Bug', body: 'Details' };
-
-      const result = await handleOrchestrate(args, CTX);
-
-      expectEnvelopedSuccess(result, expected);
-      expect(handleCreateIssue).toHaveBeenCalledTimes(1);
-      const call = vi.mocked(handleCreateIssue).mock.calls[0];
-      expect(call[0]).toMatchObject({ title: 'Bug', body: 'Details' });
-      expect(typeof (call[0] as { listIssuesByMarker?: unknown }).listIssuesByMarker).toBe('function');
-      expect(call[1]).toBe(CTX);
-    });
-
-    it('OrchestrateRegistry_ActionList_IncludesVcsActions', () => {
+    /** The provider reads and writes are retired, so the orchestrate registry and the router hold none of them. */
+    it('OrchestrateRegistry_ActionList_ExcludesRetiredVcsActions', () => {
       const orchestrate = TOOL_REGISTRY.find((t) => t.name === 'exarchos_orchestrate');
       expect(orchestrate).toBeDefined();
-      const actionNames = orchestrate!.actions.map((a) => a.name);
-      expect(actionNames).toContain('create_pr');
-      expect(actionNames).toContain('merge_pr');
-      expect(actionNames).toContain('check_ci');
-      expect(actionNames).toContain('list_prs');
-      expect(actionNames).toContain('get_pr_comments');
-      expect(actionNames).toContain('add_pr_comment');
-      expect(actionNames).toContain('create_issue');
+      const actionNames = orchestrate?.actions.map((a) => a.name) ?? [];
+      for (const retired of ['check_ci', 'list_prs', 'get_pr_comments', 'assess_stack', 'create_pr', 'merge_pr', 'add_pr_comment', 'create_issue']) {
+        expect(actionNames).not.toContain(retired);
+      }
     });
   });
 

@@ -1,7 +1,7 @@
 /**
  * Builds a `git push --force-with-lease=<ref>:<sha>` with an explicit SHA. A bare
  * `--force-with-lease` leases against the local remote-tracking ref, which can be stale. The
- * explicit SHA comes from `assess_stack` or from a fresh `git ls-remote`, so the push fails when
+ * explicit SHA comes from the last PR read of the shepherd or from a fresh `git ls-remote`, so the push fails when
  * the remote moved. The argv build is pure, and the git read sits behind an injectable runner.
  * No production call site uses this module yet.
  *
@@ -105,7 +105,7 @@ export interface ResolveExpectedShaOptions {
   /** Remote name. The default is `origin`. */
   readonly remote?: string;
   /**
-   * The remote SHA that the shepherd loop last saw through `assess_stack`. A valid value wins,
+   * The remote SHA that the shepherd loop last saw in its PR read. A valid value wins,
    * because it is the SHA the loop used and it needs no network read.
    */
   readonly observedSha?: string | undefined;

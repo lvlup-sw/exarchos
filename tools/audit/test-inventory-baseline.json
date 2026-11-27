@@ -4,11 +4,11 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1482,
-    "parsedFiles": 1438,
+    "testFiles": 1460,
+    "parsedFiles": 1416,
     "shellFiles": 44,
-    "cases": 16580,
-    "dynamicTitles": 331,
+    "cases": 16340,
+    "dynamicTitles": 321,
     "unparseableFiles": 0
   },
   "unparseable": [],
@@ -4947,52 +4947,6 @@
         }
       ]
     },
-    "tests/acceptance/action-contract-vcs-observation.test.ts": {
-      "file": "tests/acceptance/action-contract-vcs-observation.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "vcs journal action observation declarations",
-          "name": "VcsJournalActions_DeclareTheSharedStream_ObservationResolvesIt (%s)",
-          "dynamic": false
-        },
-        {
-          "suite": "vcs journal action observation declarations",
-          "name": "<dynamic-case-1>",
-          "dynamic": true
-        },
-        {
-          "suite": "vcs journal action observation declarations",
-          "name": "VcsJournalActions_ForeignFeatureIdArgument_DoesNotOverrideTheDeclaration (%s)",
-          "dynamic": false
-        },
-        {
-          "suite": "vcs journal action observation declarations",
-          "name": "<dynamic-case-2>",
-          "dynamic": true
-        },
-        {
-          "suite": "vcs journal action observation declarations",
-          "name": "VcsJournalActions_CompiledAsLeaves_NeverFallBackToTheSegmentStream (%s)",
-          "dynamic": false
-        },
-        {
-          "suite": "vcs journal action observation declarations",
-          "name": "<dynamic-case-3>",
-          "dynamic": true
-        },
-        {
-          "suite": "vcs journal action observation declarations",
-          "name": "VcsJournalActions_AbstainFromPostconditions_ForAStatedReason (%s)",
-          "dynamic": false
-        },
-        {
-          "suite": "vcs journal action observation declarations",
-          "name": "<dynamic-case-4>",
-          "dynamic": true
-        }
-      ]
-    },
     "tests/acceptance/action-contract-vcs-replay.test.ts": {
       "file": "tests/acceptance/action-contract-vcs-replay.test.ts",
       "runner": "vitest:root",
@@ -5261,6 +5215,11 @@
         {
           "suite": "host-owned actions — execute vs return the obligation",
           "name": "HostObligations_AgentSpec_ReturnsTheSpecNotTheObligation",
+          "dynamic": false
+        },
+        {
+          "suite": "host-owned actions — execute vs return the obligation",
+          "name": "HostObligations_UnderTheShippedTelemetryDefault_RunOrReturnTheObligationAsBefore",
           "dynamic": false
         }
       ]
@@ -6736,6 +6695,22 @@
         {
           "suite": "no test writes into the live checkout (#2030)",
           "name": "NoLiveCheckoutWrites_Matcher_FollowsAnImportedHelper",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/architecture/no-reject-replay-segment-leaf.test.ts": {
+      "file": "tests/architecture/no-reject-replay-segment-leaf.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "no compiled segment leaf declares reject-replay",
+          "name": "RunbookSteps_NoRegisteredLeafDeclaresRejectReplay",
+          "dynamic": false
+        },
+        {
+          "suite": "no compiled segment leaf declares reject-replay",
+          "name": "RejectReplayActions_AreNamedByNoRunbookStep",
           "dynamic": false
         }
       ]
@@ -8464,13 +8439,8 @@
       "runner": "vitest:root",
       "cases": [
         {
-          "suite": "DR-12 — duplicate merge and duplicate PR prevention (shipped path)",
+          "suite": "DR-12 — duplicate merge prevention (shipped path)",
           "name": "ExecuteMerge_DuplicateRequest_CreatesExactlyOneMergeCommit",
-          "dynamic": false
-        },
-        {
-          "suite": "DR-12 — duplicate merge and duplicate PR prevention (shipped path)",
-          "name": "CreatePr_DuplicateIdempotencyKey_CreatesExactlyOnePr",
           "dynamic": false
         }
       ]
@@ -8850,7 +8820,7 @@
         },
         {
           "suite": "Effect families through the compiled binary (P05-02)",
-          "name": "Process_ListPrsSpawnsAChildProcess",
+          "name": "Process_ReviewDiffSpawnsGit",
           "dynamic": false
         },
         {
@@ -10412,7 +10382,7 @@
         },
         {
           "suite": "historical terminal admission without live compilation",
-          "name": "UnfinishedOriginal_RefusesWithLiveAndRetiredCompiler_EmptyFreshRemainsLive",
+          "name": "UnfinishedOriginal_RefusesIncomplete_FreshOperationGetsTheRetiredRefusal",
           "dynamic": false
         },
         {
@@ -10525,7 +10495,7 @@
         },
         {
           "suite": "converted reads of the lifecycle and team routes",
-          "name": "PreSynthesisBranchRead_ProcessGitPath_NoPathGitAndDetachedFailsClosed",
+          "name": "PreSynthesis_NoPrStackLeg_DetachedHeadChangesNothingAndNoProviderStarts",
           "dynamic": false
         },
         {
@@ -10686,42 +10656,6 @@
         {
           "suite": "constrained observational reads: acquire_worktree adoption",
           "name": "AcquireWorktree_MainWorktreeConfigWorktree_DoesNotMoveALinkedUpstream",
-          "dynamic": false
-        }
-      ]
-    },
-    "tests/integration/1928-pr-observation.test.ts": {
-      "file": "tests/integration/1928-pr-observation.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "exact staged PR observation",
-          "name": "OneApprovedGET_BindsExactRecordAndFiveHeadingTemplate",
-          "dynamic": false
-        },
-        {
-          "suite": "exact staged PR observation",
-          "name": "WrongOwnerHeadRefsStateAndMalformedIdentity_Refuse",
-          "dynamic": false
-        },
-        {
-          "suite": "exact staged PR observation",
-          "name": "CapturedTemplate_NoDefaultBotOrQueueBypass",
-          "dynamic": false
-        },
-        {
-          "suite": "exact staged PR observation",
-          "name": "RedirectCredentialAndBoundedResponse_RefuseWithoutSecondFetch",
-          "dynamic": false
-        },
-        {
-          "suite": "exact staged PR observation",
-          "name": "SlowHeadersAndBody_AbortWithinFixedBound",
-          "dynamic": false
-        },
-        {
-          "suite": "exact staged PR observation",
-          "name": "SharedPurePolicy_PreservesLegacyDefaultAndCaseSemantics",
           "dynamic": false
         }
       ]
@@ -11160,24 +11094,13 @@
           "dynamic": false
         },
         {
-          "suite": "pruneIntegration_safeguardOpenPrSkipsOneCandidate",
-          "name": "skips the candidate with an open PR and prunes the other",
+          "suite": "pruneIntegration_safeguardActiveBranchSkipsOneCandidate",
+          "name": "skips the candidate with recent commits and prunes the other",
           "dynamic": false
         },
         {
           "suite": "pruneIntegration_respectsThresholdInProduction",
           "name": "handlePruneStaleWorkflows_respectsThresholdInProduction_readingRealStateFiles",
-          "dynamic": false
-        }
-      ]
-    },
-    "tests/integration/shepherd-classifier.integration.test.ts": {
-      "file": "tests/integration/shepherd-classifier.integration.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "shepherd → classifier integration (#1159)",
-          "name": "ShepherdIteration_MixedSeverityComments_RoutesPerClassifier",
           "dynamic": false
         }
       ]
@@ -30848,7 +30771,7 @@
         },
         {
           "suite": "EventSchemaRegistry_RegistersAllNewTwoEventSplitTypes",
-          "name": "B6_AllTenTypes_HaveAutoEmissionSource",
+          "name": "B6_AllTenTypes_HaveAutoOrRetiredEmissionSource",
           "dynamic": false
         },
         {
@@ -36977,77 +36900,92 @@
       "runner": "vitest:root",
       "cases": [
         {
-          "suite": "skill-migration — T34: gh to MCP action migration",
+          "suite": "skill-migration — harness-owned VCS writes and agent-owned VCS reads",
           "name": "NoActionableGhPrCreate_InSkillSources",
           "dynamic": false
         },
         {
-          "suite": "skill-migration — T34: gh to MCP action migration",
+          "suite": "skill-migration — harness-owned VCS writes and agent-owned VCS reads",
           "name": "NoActionableGhPrMerge_InSkillSources",
           "dynamic": false
         },
         {
-          "suite": "skill-migration — T34: gh to MCP action migration",
+          "suite": "skill-migration — harness-owned VCS writes and agent-owned VCS reads",
           "name": "NoActionableGhIssueCreate_InSkillSources",
           "dynamic": false
         },
         {
-          "suite": "skill-migration — T34: gh to MCP action migration",
-          "name": "NoActionableGhPrChecks_InSkillSources",
+          "suite": "skill-migration — harness-owned VCS writes and agent-owned VCS reads",
+          "name": "NoCheckCiRead_InSkillSources",
           "dynamic": false
         },
         {
-          "suite": "skill-migration — T34: gh to MCP action migration",
-          "name": "NoActionableGhPrViewJsonReviews_InSkillSources",
+          "suite": "skill-migration — harness-owned VCS writes and agent-owned VCS reads",
+          "name": "NoGetPrCommentsRead_InSkillSources",
           "dynamic": false
         },
         {
-          "suite": "skill-migration — T34: gh to MCP action migration",
+          "suite": "skill-migration — harness-owned VCS writes and agent-owned VCS reads",
           "name": "NoActionableGhPrComment_InSkillSources",
           "dynamic": false
         },
         {
-          "suite": "skill-migration — T34: gh to MCP action migration",
-          "name": "NoActionableGhPrList_InSkillSources_ExceptAllowedContexts",
+          "suite": "skill-migration — harness-owned VCS writes and agent-owned VCS reads",
+          "name": "NoListPrsRead_InSkillSources",
           "dynamic": false
         },
         {
-          "suite": "skill-migration — T34: gh to MCP action migration",
-          "name": "NoActionableGhPrView_InSkillSources_ExceptAllowedOperations",
+          "suite": "skill-migration — harness-owned VCS writes and agent-owned VCS reads",
+          "name": "NoAssessStackRead_InSkillSources",
           "dynamic": false
         },
         {
-          "suite": "skill-migration — T34: gh to MCP action migration",
-          "name": "NoActionableGhIssueView_InSkillSources",
+          "suite": "skill-migration — harness-owned VCS writes and agent-owned VCS reads",
+          "name": "NoProviderReadingPrGate_InSkillSources",
           "dynamic": false
         },
         {
-          "suite": "skill-migration — T34: gh to MCP action migration",
+          "suite": "skill-migration — harness-owned VCS writes and agent-owned VCS reads",
+          "name": "ValidatePrBody_ExamplesCheckBodyTextOnly",
+          "dynamic": false
+        },
+        {
+          "suite": "skill-migration — harness-owned VCS writes and agent-owned VCS reads",
           "name": "VcsPreamble_PresentInAffectedSkills",
           "dynamic": false
         },
         {
-          "suite": "skill-migration — T34: gh to MCP action migration",
+          "suite": "skill-migration — harness-owned VCS writes and agent-owned VCS reads",
+          "name": "VcsPreamble_PrReadingSkills_ReadWithTheAgentTools",
+          "dynamic": false
+        },
+        {
+          "suite": "skill-migration — harness-owned VCS writes and agent-owned VCS reads",
           "name": "McpActionReferences_Synthesize_LeavesPrCreationAndMergeToTheHarness",
           "dynamic": false
         },
         {
-          "suite": "skill-migration — T34: gh to MCP action migration",
-          "name": "McpActionReferences_ListPrs_PresentInMigratedSkills",
+          "suite": "skill-migration — harness-owned VCS writes and agent-owned VCS reads",
+          "name": "AgentReads_Synthesize_IdempotencyReadsPrsWithTheAgentTools",
           "dynamic": false
         },
         {
-          "suite": "skill-migration — T34: gh to MCP action migration",
+          "suite": "skill-migration — harness-owned VCS writes and agent-owned VCS reads",
           "name": "McpActionReferences_Dogfood_LeavesIssueFilingToTheHarness",
           "dynamic": false
         },
         {
-          "suite": "skill-migration — T34: gh to MCP action migration",
-          "name": "McpActionReferences_CheckCi_PresentInTroubleshooting",
+          "suite": "skill-migration — harness-owned VCS writes and agent-owned VCS reads",
+          "name": "AgentReads_Troubleshooting_ReadsCiWithTheAgentTools",
           "dynamic": false
         },
         {
-          "suite": "skill-migration — T34: gh to MCP action migration",
+          "suite": "skill-migration — harness-owned VCS writes and agent-owned VCS reads",
+          "name": "AgentReads_Shepherd_AppendsOnlyShepherdIteration",
+          "dynamic": false
+        },
+        {
+          "suite": "skill-migration — harness-owned VCS writes and agent-owned VCS reads",
           "name": "RetiredActions_NamedByNoSkillSource",
           "dynamic": false
         }
@@ -38129,6 +38067,11 @@
         {
           "suite": "computeNextActions — admission-derived affordances (DR-9, T-13)",
           "name": "NextActions_TopologyDisagreesWithAdmission_FailsConsistencyCheck",
+          "dynamic": false
+        },
+        {
+          "suite": "computeNextActions — admission-derived affordances (DR-9, T-13)",
+          "name": "NextActions_EventLogDecidesBlocked_PublishesItOnlyAtTheCap",
           "dynamic": false
         },
         {
@@ -39660,7 +39603,7 @@
         },
         {
           "suite": "validateExample against the LIVE registry — seeded drift FAILS",
-          "name": "flags a stale/retired action name (reconstruct_stack → validate_pr_stack)",
+          "name": "flags a retired action name (validate_pr_stack)",
           "dynamic": false
         },
         {
@@ -42717,6 +42660,11 @@
       "cases": [
         {
           "suite": "gate reliability diagnostic projection",
+          "name": "GateReliability_RetiredPrStackEvidence_ReadsItsOriginalVerdict",
+          "dynamic": false
+        },
+        {
+          "suite": "gate reliability diagnostic projection",
           "name": "GateReliability_VerdictAndContradiction_FoldsAttributably",
           "dynamic": false
         },
@@ -44276,11 +44224,6 @@
         },
         {
           "suite": "ShepherdStatusView",
-          "name": "ShepherdStatus_AndLoop_AgreeOnCount",
-          "dynamic": false
-        },
-        {
-          "suite": "ShepherdStatusView",
           "name": "Apply_AllPrsPassing_NoUnresolved_SetsHealthy",
           "dynamic": false
         },
@@ -44332,6 +44275,11 @@
         {
           "suite": "ShepherdStatusView",
           "name": "ShepherdStatusView_Completed_RecordsOutcome",
+          "dynamic": false
+        },
+        {
+          "suite": "ShepherdStatusView_RetiredShepherdEvents_StoredLogReplay",
+          "name": "a stored log with the four retired shepherd types replays with its original read results",
           "dynamic": false
         }
       ]
@@ -46393,21 +46341,6 @@
         },
         {
           "suite": "Task 022 — registry schema batch (DR-1/DR-3/DR-8) > registrySchemas_EconomyParams_ValidateAndCoerce",
-          "name": "get_pr_comments declares and coerces limit/offset/fields",
-          "dynamic": false
-        },
-        {
-          "suite": "Task 022 — registry schema batch (DR-1/DR-3/DR-8) > registrySchemas_EconomyParams_ValidateAndCoerce",
-          "name": "assess_stack declares comment paging and coerces prNumbers as an int array",
-          "dynamic": false
-        },
-        {
-          "suite": "Task 022 — registry schema batch (DR-1/DR-3/DR-8) > registrySchemas_EconomyParams_ValidateAndCoerce",
-          "name": "check_coderabbit prNumbers routes through the same coerced int-array",
-          "dynamic": false
-        },
-        {
-          "suite": "Task 022 — registry schema batch (DR-1/DR-3/DR-8) > registrySchemas_EconomyParams_ValidateAndCoerce",
           "name": "prepare_delegation declares the DR-4 detail/outputFormat escape hatch",
           "dynamic": false
         },
@@ -47403,7 +47336,7 @@
         },
         {
           "suite": "Runbook definitions",
-          "name": "SynthesisFlow_HasFiveSteps",
+          "name": "SynthesisFlow_HasFourSteps",
           "dynamic": false
         },
         {
@@ -47438,7 +47371,7 @@
         },
         {
           "suite": "Runbook definitions",
-          "name": "SynthesisCloseout_HasTwoSteps_BodyCheckThenCreate",
+          "name": "SynthesisCloseout_IsNoLongerARunbook",
           "dynamic": false
         },
         {
@@ -53319,21 +53252,6 @@
       "runner": "vitest:root",
       "cases": [
         {
-          "suite": "GitHub pull request id injection > action schemas",
-          "name": "%s rejects a non-numeric prId before a handler runs",
-          "dynamic": false
-        },
-        {
-          "suite": "GitHub pull request id injection > action schemas",
-          "name": "<dynamic-case-1>",
-          "dynamic": true
-        },
-        {
-          "suite": "GitHub pull request id injection > action schemas",
-          "name": "add_pr_comment rejects a non-numeric threadId",
-          "dynamic": false
-        },
-        {
           "suite": "GitHub pull request id injection > GitHubProvider argument vector",
           "name": "mergePr passes a numeric id after -- and keeps the strategy flag before it",
           "dynamic": false
@@ -53345,7 +53263,7 @@
         },
         {
           "suite": "GitHub pull request id injection > GitHubProvider argument vector",
-          "name": "<dynamic-case-2>",
+          "name": "<dynamic-case-1>",
           "dynamic": true
         },
         {
@@ -53360,7 +53278,7 @@
         },
         {
           "suite": "GitHub pull request id injection > GitHubProvider argument vector",
-          "name": "<dynamic-case-3>",
+          "name": "<dynamic-case-2>",
           "dynamic": true
         },
         {
@@ -53375,7 +53293,7 @@
         },
         {
           "suite": "GitHub pull request id injection > GitHubProvider argument vector",
-          "name": "<dynamic-case-4>",
+          "name": "<dynamic-case-3>",
           "dynamic": true
         },
         {
@@ -53390,7 +53308,7 @@
         },
         {
           "suite": "GitHub pull request id injection > GitHubProvider argument vector",
-          "name": "<dynamic-case-5>",
+          "name": "<dynamic-case-4>",
           "dynamic": true
         },
         {
@@ -53405,7 +53323,7 @@
         },
         {
           "suite": "GitHub pull request id injection > GitHubProvider argument vector",
-          "name": "<dynamic-case-6>",
+          "name": "<dynamic-case-5>",
           "dynamic": true
         },
         {
@@ -53420,7 +53338,7 @@
         },
         {
           "suite": "GitHub pull request id injection > GitHubProvider argument vector",
-          "name": "<dynamic-case-7>",
+          "name": "<dynamic-case-6>",
           "dynamic": true
         },
         {
@@ -53430,7 +53348,7 @@
         },
         {
           "suite": "GitHub pull request id injection > GitHubProvider argument vector",
-          "name": "<dynamic-case-8>",
+          "name": "<dynamic-case-7>",
           "dynamic": true
         },
         {
@@ -53445,57 +53363,7 @@
         },
         {
           "suite": "GitHub pull request id injection > GitHubProvider argument vector",
-          "name": "<dynamic-case-9>",
-          "dynamic": true
-        },
-        {
-          "suite": "GitHub pull request id injection > orchestrate handlers",
-          "name": "merge_pr refuses %j before gh runs and records no pr.merged event",
-          "dynamic": false
-        },
-        {
-          "suite": "GitHub pull request id injection > orchestrate handlers",
-          "name": "<dynamic-case-10>",
-          "dynamic": true
-        },
-        {
-          "suite": "GitHub pull request id injection > orchestrate handlers",
-          "name": "check_ci refuses %j before gh runs",
-          "dynamic": false
-        },
-        {
-          "suite": "GitHub pull request id injection > orchestrate handlers",
-          "name": "<dynamic-case-11>",
-          "dynamic": true
-        },
-        {
-          "suite": "GitHub pull request id injection > orchestrate handlers",
-          "name": "get_pr_comments refuses %j before gh runs",
-          "dynamic": false
-        },
-        {
-          "suite": "GitHub pull request id injection > orchestrate handlers",
-          "name": "<dynamic-case-12>",
-          "dynamic": true
-        },
-        {
-          "suite": "GitHub pull request id injection > orchestrate handlers",
-          "name": "add_pr_comment refuses prId %j before gh runs and writes no event",
-          "dynamic": false
-        },
-        {
-          "suite": "GitHub pull request id injection > orchestrate handlers",
-          "name": "<dynamic-case-13>",
-          "dynamic": true
-        },
-        {
-          "suite": "GitHub pull request id injection > orchestrate handlers",
-          "name": "add_pr_comment refuses threadId %j before gh runs and writes no event",
-          "dynamic": false
-        },
-        {
-          "suite": "GitHub pull request id injection > orchestrate handlers",
-          "name": "<dynamic-case-14>",
+          "name": "<dynamic-case-8>",
           "dynamic": true
         }
       ]
@@ -54124,37 +53992,6 @@
         }
       ]
     },
-    "tests/unit/vcs/require-github.test.ts": {
-      "file": "tests/unit/vcs/require-github.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "requiresGitHub",
-          "name": "requiresGitHub_GitHubProvider_ReturnsNull",
-          "dynamic": false
-        },
-        {
-          "suite": "requiresGitHub",
-          "name": "requiresGitHub_UndefinedProvider_ReturnsNull",
-          "dynamic": false
-        },
-        {
-          "suite": "requiresGitHub",
-          "name": "requiresGitHub_GitLabProvider_ReturnsSkippedResult",
-          "dynamic": false
-        },
-        {
-          "suite": "requiresGitHub",
-          "name": "requiresGitHub_AzureDevOpsProvider_ReturnsSkippedResult",
-          "dynamic": false
-        },
-        {
-          "suite": "requiresGitHub",
-          "name": "requiresGitHub_DifferentOperations_IncludeOperationInReason",
-          "dynamic": false
-        }
-      ]
-    },
     "tests/unit/vcs/worktree-provisioner.test.ts": {
       "file": "tests/unit/vcs/worktree-provisioner.test.ts",
       "runner": "vitest:root",
@@ -54263,11 +54100,6 @@
         },
         {
           "suite": "handleOrchestrate > composite actions",
-          "name": "HandleOrchestrate_AssessStack_DelegatesToHandler",
-          "dynamic": false
-        },
-        {
-          "suite": "handleOrchestrate > composite actions",
           "name": "HandleOrchestrate_CheckDesignCompleteness_DelegatesToHandler",
           "dynamic": false
         },
@@ -54328,42 +54160,7 @@
         },
         {
           "suite": "handleOrchestrate > VCS actions",
-          "name": "OrchestrateComposite_CreatePr_RoutesToHandler",
-          "dynamic": false
-        },
-        {
-          "suite": "handleOrchestrate > VCS actions",
-          "name": "OrchestrateComposite_MergePr_RoutesToHandler",
-          "dynamic": false
-        },
-        {
-          "suite": "handleOrchestrate > VCS actions",
-          "name": "OrchestrateComposite_CheckCi_RoutesToHandler",
-          "dynamic": false
-        },
-        {
-          "suite": "handleOrchestrate > VCS actions",
-          "name": "OrchestrateComposite_ListPrs_RoutesToHandler",
-          "dynamic": false
-        },
-        {
-          "suite": "handleOrchestrate > VCS actions",
-          "name": "OrchestrateComposite_GetPrComments_RoutesToHandler",
-          "dynamic": false
-        },
-        {
-          "suite": "handleOrchestrate > VCS actions",
-          "name": "OrchestrateComposite_AddPrComment_RoutesToHandler",
-          "dynamic": false
-        },
-        {
-          "suite": "handleOrchestrate > VCS actions",
-          "name": "OrchestrateComposite_CreateIssue_RoutesToHandler",
-          "dynamic": false
-        },
-        {
-          "suite": "handleOrchestrate > VCS actions",
-          "name": "OrchestrateRegistry_ActionList_IncludesVcsActions",
+          "name": "OrchestrateRegistry_ActionList_ExcludesRetiredVcsActions",
           "dynamic": false
         },
         {
@@ -55362,7 +55159,7 @@
         },
         {
           "suite": "compileIntent over the live registry",
-          "name": "EveryOtherRunbook_IsNotCompilable_FourIntentsShip",
+          "name": "EveryOtherRunbook_IsNotCompilable_ThreeIntentsShip",
           "dynamic": false
         },
         {
@@ -56074,125 +55871,6 @@
         {
           "suite": "run-bundle document",
           "name": "ArtifactId_IsDerivedFromTheOperationIdAndFitsTheGrammarAtTheBound",
-          "dynamic": false
-        }
-      ]
-    },
-    "tests/unit/verbs/execute/synthesis-closeout-compile.test.ts": {
-      "file": "tests/unit/verbs/execute/synthesis-closeout-compile.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "synthesis-closeout compiles against the live registry",
-          "name": "SynthesisCloseout_CompilesToTheTwoShippedLeaves_InRunbookOrder",
-          "dynamic": false
-        },
-        {
-          "suite": "synthesis-closeout compiles against the live registry",
-          "name": "SynthesisCloseout_OnePrBody_BindsOntoBothLeafSpellings",
-          "dynamic": false
-        },
-        {
-          "suite": "synthesis-closeout compiles against the live registry",
-          "name": "SynthesisCloseout_CreatePrLeaf_IsObservedOnTheSharedVcsStream",
-          "dynamic": false
-        },
-        {
-          "suite": "synthesis-closeout compiles against the live registry",
-          "name": "SynthesisCloseout_WithoutHeadBranch_RefusedByTheIntentSchema",
-          "dynamic": false
-        },
-        {
-          "suite": "synthesis-closeout compiles against the live registry",
-          "name": "SynthesisCloseout_DraftKnob_Refused",
-          "dynamic": false
-        },
-        {
-          "suite": "synthesis-closeout compiles against the live registry",
-          "name": "SynthesisCloseout_ValidatedArgsWithoutTheVariable_HitTheUnboundFence",
-          "dynamic": false
-        }
-      ]
-    },
-    "tests/unit/verbs/execute/synthesis-closeout-emission-scope.test.ts": {
-      "file": "tests/unit/verbs/execute/synthesis-closeout-emission-scope.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "the declared observation stream is load-bearing",
-          "name": "SynthesisCloseout_WithoutTheDeclaredStream_LeafIsRefusedForItsOwnEmissions",
-          "dynamic": false
-        },
-        {
-          "suite": "the declared observation stream is load-bearing",
-          "name": "SynthesisCloseout_WithTheShippedDeclaration_TheSameSegmentPasses",
-          "dynamic": false
-        }
-      ]
-    },
-    "tests/unit/verbs/execute/synthesis-closeout-executor.test.ts": {
-      "file": "tests/unit/verbs/execute/synthesis-closeout-executor.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "synthesis-closeout over the live handler table",
-          "name": "SynthesisCloseout_CoherentInput_CommitsOneOperationRecord",
-          "dynamic": false
-        },
-        {
-          "suite": "synthesis-closeout over the live handler table",
-          "name": "SynthesisCloseout_CreatePrLeaf_HoldsBothJournalRowsOnTheVcsStream",
-          "dynamic": false
-        },
-        {
-          "suite": "synthesis-closeout over the live handler table",
-          "name": "SynthesisCloseout_VcsLeaf_DoesNotMoveTheSegmentTail",
-          "dynamic": false
-        },
-        {
-          "suite": "synthesis-closeout over the live handler table",
-          "name": "SynthesisCloseout_ReceiptEvents_CarryTheStreamTheirSequencesNumber",
-          "dynamic": false
-        },
-        {
-          "suite": "synthesis-closeout over the live handler table",
-          "name": "SynthesisCloseout_SameOperationIdSameRequest_ReplaysWithoutReExecuting",
-          "dynamic": false
-        },
-        {
-          "suite": "synthesis-closeout over the live handler table",
-          "name": "SynthesisCloseout_SameOperationIdDifferentRequest_IsRefused",
-          "dynamic": false
-        },
-        {
-          "suite": "synthesis-closeout over the live handler table",
-          "name": "SynthesisCloseout_CrashedMidSegmentThenRetried_LeavesOneRowPerJournalPhase",
-          "dynamic": false
-        },
-        {
-          "suite": "synthesis-closeout over the live handler table",
-          "name": "SynthesisCloseout_BodyMissingRequiredSections_HaltsBeforeTheRemoteCall",
-          "dynamic": false
-        },
-        {
-          "suite": "synthesis-closeout over the live handler table",
-          "name": "SynthesisCloseout_FailedSegment_ReplaysToTheSameFailedReceipt",
-          "dynamic": false
-        }
-      ]
-    },
-    "tests/unit/verbs/execute/synthesis-closeout-parity.test.ts": {
-      "file": "tests/unit/verbs/execute/synthesis-closeout-parity.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "synthesis-closeout driven by hand and by the executor",
-          "name": "ExecutorAndPrimitiveBaseline_ProduceTheSameJournalFacts",
-          "dynamic": false
-        },
-        {
-          "suite": "synthesis-closeout driven by hand and by the executor",
-          "name": "BothPathsHaltAtTheBodyCheck_WhenTheBodyIsDeficient",
           "dynamic": false
         }
       ]
@@ -58460,7 +58138,7 @@
       "cases": [
         {
           "suite": "handlePostMerge",
-          "name": "handlePostMerge_CIPassing_ReturnsPassed",
+          "name": "handlePostMerge_SuitePassing_ReturnsPassed",
           "dynamic": false
         },
         {
@@ -58541,7 +58219,7 @@
         },
         {
           "suite": "handlePreSynthesisCheck",
-          "name": "UsesProviderListPrs_ForPrStackCheck",
+          "name": "NoPrStackLeg_ReadsNoBranchAndNoProvider",
           "dynamic": false
         },
         {
@@ -58572,11 +58250,6 @@
         {
           "suite": "handlePreSynthesisCheck",
           "name": "SkipTests_SkipsTestExecution",
-          "dynamic": false
-        },
-        {
-          "suite": "handlePreSynthesisCheck",
-          "name": "SkipStack_SkipsPrStackCheck",
           "dynamic": false
         },
         {
@@ -58626,11 +58299,6 @@
         },
         {
           "suite": "handlePreSynthesisCheck",
-          "name": "NoPrsForBranch_ReturnsFailForStack",
-          "dynamic": false
-        },
-        {
-          "suite": "handlePreSynthesisCheck",
           "name": "FilelessMcpOnly_ResolvesFromEventStore_NoStateFileRequired",
           "dynamic": false
         },
@@ -58652,11 +58320,6 @@
         {
           "suite": "handlePreSynthesisCheck",
           "name": "LocalRefusal_ReturnsTheRefusalAndSkipTestsRunsNoCheck",
-          "dynamic": false
-        },
-        {
-          "suite": "handlePreSynthesisCheck",
-          "name": "PrStack_ConstrainedBranchRead_UsesTheProcessGitPathAndFailsClosed",
           "dynamic": false
         }
       ]
@@ -59567,11 +59230,6 @@
         {
           "suite": "gates that declare durable evidence pay it on dispatch",
           "name": "CheckCoverageThresholds_Dispatched_RecordsEvidence",
-          "dynamic": false
-        },
-        {
-          "suite": "gates that declare durable evidence pay it on dispatch",
-          "name": "ValidatePrStack_Dispatched_RecordsEvidence",
           "dynamic": false
         },
         {
@@ -63695,27 +63353,12 @@
       "cases": [
         {
           "suite": "behavioral parity with check-post-merge.sh",
-          "name": "all pass — CI green + tests pass yields PASS (2/2)",
+          "name": "tests pass yields PASS (1/1)",
           "dynamic": false
         },
         {
           "suite": "behavioral parity with check-post-merge.sh",
-          "name": "CI fail — lint FAILURE yields FAIL (1/2)",
-          "dynamic": false
-        },
-        {
-          "suite": "behavioral parity with check-post-merge.sh",
-          "name": "test fail — test suite failure yields FAIL (1/2)",
-          "dynamic": false
-        },
-        {
-          "suite": "behavioral parity with check-post-merge.sh",
-          "name": "both fail — CI + test failures yield FAIL (0/2)",
-          "dynamic": false
-        },
-        {
-          "suite": "behavioral parity with check-post-merge.sh",
-          "name": "SKIPPED CI state — treated as passing",
+          "name": "test fail — test suite failure yields FAIL (1/1)",
           "dynamic": false
         }
       ]
@@ -63726,12 +63369,7 @@
       "cases": [
         {
           "suite": "checkPostMerge",
-          "name": "clean merge (all checks pass via provider) returns pass",
-          "dynamic": false
-        },
-        {
-          "suite": "checkPostMerge",
-          "name": "CI failure after merge via provider returns fail",
+          "name": "clean merge (test suite passes) returns pass",
           "dynamic": false
         },
         {
@@ -63741,27 +63379,12 @@
         },
         {
           "suite": "checkPostMerge",
-          "name": "both CI and tests fail returns fail with two findings",
-          "dynamic": false
-        },
-        {
-          "suite": "checkPostMerge",
-          "name": "provider error reports failure",
+          "name": "reads no CI status and runs only the test command",
           "dynamic": false
         },
         {
           "suite": "checkPostMerge",
           "name": "report output is structured markdown",
-          "dynamic": false
-        },
-        {
-          "suite": "checkPostMerge",
-          "name": "pending CI checks are treated as non-passing",
-          "dynamic": false
-        },
-        {
-          "suite": "checkPostMerge",
-          "name": "empty checks from provider returns pass for CI",
           "dynamic": false
         },
         {
@@ -64553,16 +64176,6 @@
         {
           "suite": "escalation-policy (DR-3, #1595) > classifyFinding",
           "name": "classifies lint/format/style/coverage findings as mechanical",
-          "dynamic": false
-        },
-        {
-          "suite": "escalation-policy (DR-3, #1595) > countShepherdIterations",
-          "name": "counts only shepherd.iteration events",
-          "dynamic": false
-        },
-        {
-          "suite": "escalation-policy (DR-3, #1595) > countShepherdIterations",
-          "name": "returns 0 for an empty stream or a stream with no iterations",
           "dynamic": false
         },
         {
@@ -66940,26 +66553,6 @@
           "suite": "readIntent (DR-1 task 006)",
           "name": "ReadIntent_UnknownWorkflow_FailsSoftToUndefined",
           "dynamic": false
-        },
-        {
-          "suite": "intent body grounding (DR-1 task 006)",
-          "name": "GroundBody_MeaningfulIntent_AppendsIntentSectionAndMarker",
-          "dynamic": false
-        },
-        {
-          "suite": "intent body grounding (DR-1 task 006)",
-          "name": "GroundBody_TranscriptSummary_IncludedWhenPresent",
-          "dynamic": false
-        },
-        {
-          "suite": "intent body grounding (DR-1 task 006)",
-          "name": "GroundBody_EmptyIntent_LeavesBodyUntouched",
-          "dynamic": false
-        },
-        {
-          "suite": "intent body grounding (DR-1 task 006)",
-          "name": "GroundBody_AlreadyMarked_IsIdempotent",
-          "dynamic": false
         }
       ]
     },
@@ -68833,28 +68426,23 @@
       "runner": "vitest:root",
       "cases": [
         {
-          "suite": "defaultSafeguards > hasOpenPR",
-          "name": "hasOpenPR_WithOpenPR_ReturnsTrue",
+          "suite": "defaultSafeguards",
+          "name": "DefaultSafeguards_HoldsNoOpenPrCheck",
           "dynamic": false
         },
         {
-          "suite": "defaultSafeguards > hasOpenPR",
-          "name": "hasOpenPR_NoOpenPR_ReturnsFalse",
+          "suite": "defaultSafeguards",
+          "name": "HasRecentCommits_UndefinedBranch_ReturnsFalseWithoutAnyRead",
           "dynamic": false
         },
         {
-          "suite": "defaultSafeguards > hasOpenPR",
-          "name": "hasOpenPR_ProviderError_ReturnsFalse",
+          "suite": "defaultSafeguards",
+          "name": "HasRecentCommits_UnsafeBranchName_KeepsCandidateWithoutAnyRead",
           "dynamic": false
         },
         {
-          "suite": "defaultSafeguards > hasOpenPR",
-          "name": "hasOpenPR_UndefinedBranch_ReturnsFalse",
-          "dynamic": false
-        },
-        {
-          "suite": "defaultSafeguards > hasOpenPR",
-          "name": "hasOpenPR_UnsafeBranchName_ReturnsFalse",
+          "suite": "defaultSafeguards",
+          "name": "HasRecentCommits_UnreadableCheckout_KeepsCandidate",
           "dynamic": false
         }
       ]
@@ -68975,11 +68563,6 @@
         },
         {
           "suite": "handlePruneStaleWorkflows",
-          "name": "safeguard (open PR) skips candidate and records reason",
-          "dynamic": false
-        },
-        {
-          "suite": "handlePruneStaleWorkflows",
           "name": "safeguard (recent commits) skips candidate and records reason",
           "dynamic": false
         },
@@ -68995,7 +68578,7 @@
         },
         {
           "suite": "handlePruneStaleWorkflows",
-          "name": "skips both safeguards when branchName missing, still prunes",
+          "name": "skips the safeguard when branchName missing, still prunes",
           "dynamic": false
         },
         {
@@ -69637,727 +69220,6 @@
         }
       ]
     },
-    "tests/unit/verbs/vcs/add-pr-comment.parity.test.ts": {
-      "file": "tests/unit/verbs/vcs/add-pr-comment.parity.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "exarchos add_pr_comment CLI↔MCP parity (Wave B / B2.5)",
-          "name": "AddPrComment_Parity_BothCarriersObserveTwoEventSequence",
-          "dynamic": false
-        },
-        {
-          "suite": "exarchos add_pr_comment CLI↔MCP parity (Wave B / B2.5)",
-          "name": "AddPrReply_Parity_BothCarriersRouteThreadReplyThroughAddReply",
-          "dynamic": false
-        }
-      ]
-    },
-    "tests/unit/verbs/vcs/add-pr-comment.test.ts": {
-      "file": "tests/unit/verbs/vcs/add-pr-comment.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "handleAddPrComment",
-          "name": "handleAddPrComment_ValidArgs_CallsProviderAddComment",
-          "dynamic": false
-        },
-        {
-          "suite": "handleAddPrComment",
-          "name": "handleAddPrComment_Success_ReturnsSuccessResult",
-          "dynamic": false
-        },
-        {
-          "suite": "handleAddPrComment",
-          "name": "handleAddPrComment_ThreadId_RoutesThroughAddReplyNotAddComment",
-          "dynamic": false
-        },
-        {
-          "suite": "handleAddPrComment",
-          "name": "handleAddPrComment_ThreadId_EmitsExecutedWithReplyId",
-          "dynamic": false
-        },
-        {
-          "suite": "handleAddPrComment",
-          "name": "handleAddPrComment_ThreadId_RecordsThreadIdInRequestedIntent",
-          "dynamic": false
-        },
-        {
-          "suite": "handleAddPrComment",
-          "name": "handleAddPrComment_InvalidThreadId_ReturnsInvalidInput",
-          "dynamic": false
-        },
-        {
-          "suite": "handleAddPrComment",
-          "name": "handleAddPrComment_Success_EmitsTwoEventSequence",
-          "dynamic": false
-        },
-        {
-          "suite": "handleAddPrComment",
-          "name": "AddPrComment_PostSucceededButVerificationLookupMissed_ReturnsFailureAndDoesNotEmitExecuted",
-          "dynamic": false
-        },
-        {
-          "suite": "handleAddPrComment",
-          "name": "handleAddPrComment_ProviderError_ReturnsFailure",
-          "dynamic": false
-        },
-        {
-          "suite": "handleAddPrComment — B2.2 Phase-A retry non-refire",
-          "name": "AddPrComment_PhaseARetry_DoesNotRefireGhPrComment",
-          "dynamic": false
-        },
-        {
-          "suite": "handleAddPrComment — B2.2 Phase-A retry non-refire",
-          "name": "AddPrComment_PhaseABusyBudgetExhausted_ReturnsStorageBusyNotGenericVcsError",
-          "dynamic": false
-        },
-        {
-          "suite": "handleAddPrComment — B2.3 Idempotent operationId marker check",
-          "name": "AddPrComment_RequestedEventCommittedButExecutionInterrupted_RecoversWithoutDuplicate",
-          "dynamic": false
-        },
-        {
-          "suite": "handleAddPrComment — B2.3 Idempotent operationId marker check",
-          "name": "AddPrComment_ReplyRecovery_UsesDiscussionAnchorNotIssueComment",
-          "dynamic": false
-        }
-      ]
-    },
-    "tests/unit/verbs/vcs/assess-stack.test.ts": {
-      "file": "tests/unit/verbs/vcs/assess-stack.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "handleAssessStack > input validation",
-          "name": "AssessStack_MissingFeatureId_ReturnsInvalidInput",
-          "dynamic": false
-        },
-        {
-          "suite": "handleAssessStack > input validation",
-          "name": "AssessStack_MissingPrNumbers_ReturnsInvalidInput",
-          "dynamic": false
-        },
-        {
-          "suite": "handleAssessStack > non-GitHub provider gating",
-          "name": "AssessStack_NonGitHubProvider_ProceedsNotSkipped",
-          "dynamic": false
-        },
-        {
-          "suite": "handleAssessStack > VcsProvider usage",
-          "name": "AssessStack_UsesProviderCheckCi_ForCiStatus",
-          "dynamic": false
-        },
-        {
-          "suite": "handleAssessStack > VcsProvider usage",
-          "name": "AssessStack_UsesProviderGetReviewStatus_ForReviews",
-          "dynamic": false
-        },
-        {
-          "suite": "handleAssessStack > VcsProvider usage",
-          "name": "AssessStack_UsesProviderGetPrComments_ForComments",
-          "dynamic": false
-        },
-        {
-          "suite": "handleAssessStack > happy path",
-          "name": "AssessStack_ValidInput_ReturnsShepherdStatus",
-          "dynamic": false
-        },
-        {
-          "suite": "handleAssessStack > CI failure handling",
-          "name": "AssessStack_CiFailing_IncludesActionItem",
-          "dynamic": false
-        },
-        {
-          "suite": "handleAssessStack > comment handling",
-          "name": "AssessStack_UnresolvedComments_IncludesActionItems",
-          "dynamic": false
-        },
-        {
-          "suite": "handleAssessStack > comment body truncation",
-          "name": "AssessStack_LongCommentBody_TruncatedTo200Chars",
-          "dynamic": false
-        },
-        {
-          "suite": "handleAssessStack > comment body truncation",
-          "name": "AssessStack_ShortCommentBody_NotTruncated",
-          "dynamic": false
-        },
-        {
-          "suite": "handleAssessStack > recommendation logic",
-          "name": "AssessStack_AllPassing_RecommendsApproval",
-          "dynamic": false
-        },
-        {
-          "suite": "handleAssessStack > recommendation logic",
-          "name": "AssessStack_BlockingIssues_RecommendsFixAndResubmit",
-          "dynamic": false
-        },
-        {
-          "suite": "handleAssessStack > recommendation logic",
-          "name": "AssessStack_PendingCi_RecommendsWait",
-          "dynamic": false
-        },
-        {
-          "suite": "handleAssessStack > recommendation logic",
-          "name": "AssessStack_MaxIterations_RecommendsEscalate",
-          "dynamic": false
-        },
-        {
-          "suite": "handleAssessStack > recommendation logic",
-          "name": "IterationCounter_SingleEventSourcedAuthority",
-          "dynamic": false
-        },
-        {
-          "suite": "handleAssessStack > recommendation logic",
-          "name": "IterationBound_ConfigResolvable_LowersEscalationThreshold",
-          "dynamic": false
-        },
-        {
-          "suite": "handleAssessStack > shepherd lifecycle events",
-          "name": "HandleAssessStack_FirstInvocation_EmitsShepherdStarted",
-          "dynamic": false
-        },
-        {
-          "suite": "handleAssessStack > shepherd lifecycle events",
-          "name": "HandleAssessStack_SubsequentInvocation_DoesNotReEmitShepherdStarted",
-          "dynamic": false
-        },
-        {
-          "suite": "handleAssessStack > shepherd lifecycle events",
-          "name": "HandleAssessStack_AllChecksPassing_EmitsApprovalRequested",
-          "dynamic": false
-        },
-        {
-          "suite": "handleAssessStack > shepherd lifecycle events",
-          "name": "HandleAssessStack_ChecksFailing_DoesNotEmitApprovalRequested",
-          "dynamic": false
-        },
-        {
-          "suite": "handleAssessStack > shepherd lifecycle events",
-          "name": "HandleAssessStack_PrMerged_EmitsShepherdCompleted",
-          "dynamic": false
-        },
-        {
-          "suite": "handleAssessStack > shepherd lifecycle events",
-          "name": "HandleAssessStack_PriorCompleted_SkipsApprovalRequested",
-          "dynamic": false
-        },
-        {
-          "suite": "handleAssessStack > shepherd lifecycle events",
-          "name": "BoundHit_EmitsStructuredEscalation_NotHang",
-          "dynamic": false
-        },
-        {
-          "suite": "handleAssessStack > event emission",
-          "name": "AssessStack_EmitsCiStatusEvents",
-          "dynamic": false
-        },
-        {
-          "suite": "handleAssessStack > event emission",
-          "name": "AssessStack_EmitsCiCheckObservedEvents",
-          "dynamic": false
-        },
-        {
-          "suite": "handleAssessStack > provider.unknown-tier event emission",
-          "name": "AssessStack_CoderabbitUnknownTier_EmitsUnknownTierEvent",
-          "dynamic": false
-        },
-        {
-          "suite": "handleAssessStack > provider.unknown-tier event emission",
-          "name": "AssessStack_CoderabbitUnknownTier_EventCarriesRawTier",
-          "dynamic": false
-        },
-        {
-          "suite": "handleAssessStack > provider.unknown-tier event emission",
-          "name": "AssessStack_RecognizedTier_DoesNotEmitUnknownTierEvent",
-          "dynamic": false
-        },
-        {
-          "suite": "handleAssessStack > classifyActionItems severity threading",
-          "name": "ClassifyActionItems_HighSeverityComment_RetainsHighNormalizedSeverity",
-          "dynamic": false
-        },
-        {
-          "suite": "handleAssessStack > adapter dispatch via registry",
-          "name": "QueryPrComments_CoderabbitComment_PopulatesNormalizedSeverity",
-          "dynamic": false
-        },
-        {
-          "suite": "handleAssessStack > adapter dispatch via registry",
-          "name": "QueryPrComments_HumanComment_PopulatesNormalizedMedium",
-          "dynamic": false
-        },
-        {
-          "suite": "handleAssessStack > adapter dispatch via registry",
-          "name": "QueryPrComments_UnknownBot_RoutesToUnknownAdapter",
-          "dynamic": false
-        },
-        {
-          "suite": "handleAssessStack > comment body economy (DR-2)",
-          "name": "QueryPrComments_LongCommentBody_TruncatedNoFullBodyCopy",
-          "dynamic": false
-        },
-        {
-          "suite": "handleAssessStack > ActionItem with reviewer-context fields",
-          "name": "ActionItem_WithReviewerFields_TypeChecks",
-          "dynamic": false
-        },
-        {
-          "suite": "handleAssessStack > adapter parse-error batch safety",
-          "name": "AssessStack_AdapterThrows_EmitsProviderParseError",
-          "dynamic": false
-        },
-        {
-          "suite": "handleAssessStack > adapter parse-error batch safety",
-          "name": "AssessStack_AdapterThrowsOnOne_BatchContinuesForOthers",
-          "dynamic": false
-        },
-        {
-          "suite": "handleAssessStack > unified PR-feedback feed consumption",
-          "name": "AssessStack_InlineReviewComment_BecomesActionItem",
-          "dynamic": false
-        },
-        {
-          "suite": "handleAssessStack > unified PR-feedback feed consumption",
-          "name": "AssessStack_ThreadedReply_Surfaced",
-          "dynamic": false
-        },
-        {
-          "suite": "handleAssessStack > unified PR-feedback feed consumption",
-          "name": "AssessStack_ReviewSummaryBody_Surfaced",
-          "dynamic": false
-        },
-        {
-          "suite": "handleAssessStack > unified PR-feedback feed consumption",
-          "name": "AssessStack_ResolvedComment_NotSurfaced",
-          "dynamic": false
-        },
-        {
-          "suite": "handleAssessStack > unified PR-feedback feed consumption",
-          "name": "AssessStack_HarvestLoop_NoWorkflowTypeBranch",
-          "dynamic": false
-        },
-        {
-          "suite": "handleAssessStack > multi-provider comment surfacing",
-          "name": "AssessStack_SurfacesGitLabComments_AsCommentReply",
-          "dynamic": false
-        },
-        {
-          "suite": "handleAssessStack > multi-provider comment surfacing",
-          "name": "AssessStack_SurfacesAdoComments_AsCommentReply",
-          "dynamic": false
-        },
-        {
-          "suite": "handleAssessStack > multi-provider comment surfacing",
-          "name": "AssessStack_HarvestLoop_NoProviderBranch",
-          "dynamic": false
-        },
-        {
-          "suite": "handleAssessStack > DR-2 token economy",
-          "name": "assessStack_CommentHeavyStack_StaysUnderBudget",
-          "dynamic": false
-        },
-        {
-          "suite": "handleAssessStack > DR-2 token economy",
-          "name": "assessStack_UnresolvedComments_EachCommentSerializedOnce",
-          "dynamic": false
-        },
-        {
-          "suite": "handleAssessStack > DR-2 token economy",
-          "name": "assessStack_PagedComments_EveryActionableReferenceReachable",
-          "dynamic": false
-        },
-        {
-          "suite": "handleAssessStack > DR-2 token economy",
-          "name": "assessStack_AdapterConsumption_UnaffectedByFullBodyRemoval",
-          "dynamic": false
-        },
-        {
-          "suite": "handleAssessStack > resolveCommentWindow — pagination edge cases",
-          "name": "resolveCommentWindow_MissingInputs_DefaultsToFullFirstPage",
-          "dynamic": false
-        },
-        {
-          "suite": "handleAssessStack > resolveCommentWindow — pagination edge cases",
-          "name": "resolveCommentWindow_ValidInts_PassThrough",
-          "dynamic": false
-        },
-        {
-          "suite": "handleAssessStack > resolveCommentWindow — pagination edge cases",
-          "name": "resolveCommentWindow_FractionalLimit_FallsBackToDefaultNotEmpty",
-          "dynamic": false
-        },
-        {
-          "suite": "handleAssessStack > resolveCommentWindow — pagination edge cases",
-          "name": "resolveCommentWindow_ZeroOrNegativeLimit_FallsBackToDefault",
-          "dynamic": false
-        },
-        {
-          "suite": "handleAssessStack > resolveCommentWindow — pagination edge cases",
-          "name": "resolveCommentWindow_HugeLimit_ClampsToMax",
-          "dynamic": false
-        },
-        {
-          "suite": "handleAssessStack > resolveCommentWindow — pagination edge cases",
-          "name": "resolveCommentWindow_FractionalOrNegativeOffset_FloorsAtZero",
-          "dynamic": false
-        }
-      ]
-    },
-    "tests/unit/verbs/vcs/check-ci.test.ts": {
-      "file": "tests/unit/verbs/vcs/check-ci.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "handleCheckCi",
-          "name": "handleCheckCi_ValidPrId_CallsProviderCheckCi",
-          "dynamic": false
-        },
-        {
-          "suite": "handleCheckCi",
-          "name": "handleCheckCi_Pass_ReturnsSuccessWithStatus",
-          "dynamic": false
-        },
-        {
-          "suite": "handleCheckCi",
-          "name": "handleCheckCi_ReadOnly_DoesNotEmitEvent",
-          "dynamic": false
-        },
-        {
-          "suite": "handleCheckCi",
-          "name": "handleCheckCi_Pending_ReturnsSuccessWithPendingStatus",
-          "dynamic": false
-        },
-        {
-          "suite": "handleCheckCi",
-          "name": "handleCheckCi_ProviderError_ReturnsFailure",
-          "dynamic": false
-        }
-      ]
-    },
-    "tests/unit/verbs/vcs/check-coderabbit.test.ts": {
-      "file": "tests/unit/verbs/vcs/check-coderabbit.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "handleCheckCoderabbit",
-          "name": "handleCheckCoderabbit_AllApproved_ReturnsPassed",
-          "dynamic": false
-        },
-        {
-          "suite": "handleCheckCoderabbit",
-          "name": "handleCheckCoderabbit_UsesProviderGetReviewStatus",
-          "dynamic": false
-        },
-        {
-          "suite": "handleCheckCoderabbit",
-          "name": "handleCheckCoderabbit_ChangesRequested_ReturnsFailed",
-          "dynamic": false
-        },
-        {
-          "suite": "handleCheckCoderabbit",
-          "name": "handleCheckCoderabbit_NoReview_ReturnsPassedWithNone",
-          "dynamic": false
-        },
-        {
-          "suite": "handleCheckCoderabbit",
-          "name": "handleCheckCoderabbit_ApiError_ReturnsFailed",
-          "dynamic": false
-        },
-        {
-          "suite": "handleCheckCoderabbit",
-          "name": "handleCheckCoderabbit_MissingOwner_ReturnsError",
-          "dynamic": false
-        },
-        {
-          "suite": "handleCheckCoderabbit",
-          "name": "handleCheckCoderabbit_InvalidPrNumber_ReturnsSkip",
-          "dynamic": false
-        },
-        {
-          "suite": "handleCheckCoderabbit",
-          "name": "handleCheckCoderabbit_ReportContainsMarkdownTable",
-          "dynamic": false
-        },
-        {
-          "suite": "handleCheckCoderabbit",
-          "name": "handleCheckCoderabbit_AlternativeLoginNames_Recognized",
-          "dynamic": false
-        },
-        {
-          "suite": "handleCheckCoderabbit",
-          "name": "handleCheckCoderabbit_PendingReview_ReturnsFailed",
-          "dynamic": false
-        }
-      ]
-    },
-    "tests/unit/verbs/vcs/check-pr-comments.test.ts": {
-      "file": "tests/unit/verbs/vcs/check-pr-comments.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "handleCheckPrComments",
-          "name": "handleCheckPrComments_UsesProviderGetPrComments",
-          "dynamic": false
-        },
-        {
-          "suite": "handleCheckPrComments",
-          "name": "handleCheckPrComments_UsesProviderGetRepository_WhenRepoNotSpecified",
-          "dynamic": false
-        },
-        {
-          "suite": "handleCheckPrComments",
-          "name": "handleCheckPrComments_NoComments_ReturnsPassed",
-          "dynamic": false
-        },
-        {
-          "suite": "handleCheckPrComments",
-          "name": "handleCheckPrComments_MissingPrNumber_ReturnsError",
-          "dynamic": false
-        },
-        {
-          "suite": "handleCheckPrComments",
-          "name": "handleCheckPrComments_ProviderFailure_ReturnsError",
-          "dynamic": false
-        },
-        {
-          "suite": "handleCheckPrComments",
-          "name": "handleCheckPrComments_RepoDetectionFailure_ReturnsError",
-          "dynamic": false
-        },
-        {
-          "suite": "handleCheckPrComments",
-          "name": "handleCheckPrComments_ReportContainsAnalysis",
-          "dynamic": false
-        },
-        {
-          "suite": "handleCheckPrComments",
-          "name": "checkPrComments_ManyComments_CapsWithCountAndSteering",
-          "dynamic": false
-        }
-      ]
-    },
-    "tests/unit/verbs/vcs/create-issue.parity.test.ts": {
-      "file": "tests/unit/verbs/vcs/create-issue.parity.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "create_issue CLI↔MCP parity (B3.5)",
-          "name": "CreateIssue_Parity_BothCarriersObserveTwoEventSequence",
-          "dynamic": false
-        }
-      ]
-    },
-    "tests/unit/verbs/vcs/create-issue.test.ts": {
-      "file": "tests/unit/verbs/vcs/create-issue.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "handleCreateIssue",
-          "name": "handleCreateIssue_ValidArgs_CallsProviderCreateIssue",
-          "dynamic": false
-        },
-        {
-          "suite": "handleCreateIssue",
-          "name": "handleCreateIssue_Success_ReturnsSuccessWithData",
-          "dynamic": false
-        },
-        {
-          "suite": "handleCreateIssue",
-          "name": "handleCreateIssue_WithLabels_PassedToProvider",
-          "dynamic": false
-        },
-        {
-          "suite": "handleCreateIssue",
-          "name": "handleCreateIssue_WithAssignees_PassedToProvider",
-          "dynamic": false
-        },
-        {
-          "suite": "handleCreateIssue",
-          "name": "handleCreateIssue_Success_EmitsTwoEventSequence",
-          "dynamic": false
-        },
-        {
-          "suite": "handleCreateIssue",
-          "name": "handleCreateIssue_ProviderError_ReturnsFailure",
-          "dynamic": false
-        },
-        {
-          "suite": "handleCreateIssue",
-          "name": "CreateIssue_PhaseARetry_DoesNotRefireGhIssueCreate",
-          "dynamic": false
-        },
-        {
-          "suite": "handleCreateIssue",
-          "name": "CreateIssue_RequestedEventCommittedButExecutionInterrupted_RecoversWithoutDuplicate",
-          "dynamic": false
-        },
-        {
-          "suite": "handleCreateIssue",
-          "name": "CreateIssue_MissingListIssuesByMarker_RefusesAndDoesNotCallProvider",
-          "dynamic": false
-        },
-        {
-          "suite": "handleCreateIssue",
-          "name": "CreateIssue_PrecheckFailure_DoesNotCallProvider",
-          "dynamic": false
-        },
-        {
-          "suite": "handleCreateIssue",
-          "name": "CreateIssue_RecoverOperationIdQueryFailure_ReturnsPrecheckFailedWithoutCallingProvider",
-          "dynamic": false
-        }
-      ]
-    },
-    "tests/unit/verbs/vcs/create-pr.parity.test.ts": {
-      "file": "tests/unit/verbs/vcs/create-pr.parity.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "CreatePr_Parity_BothCarriersObserveTwoEventSequence (B1.5)",
-          "name": "CreatePr_Parity_BothCarriersObserveTwoEventSequence",
-          "dynamic": false
-        }
-      ]
-    },
-    "tests/unit/verbs/vcs/create-pr.test.ts": {
-      "file": "tests/unit/verbs/vcs/create-pr.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "handleCreatePr",
-          "name": "handleCreatePr_ValidArgs_CallsProviderCreatePr",
-          "dynamic": false
-        },
-        {
-          "suite": "handleCreatePr",
-          "name": "handleCreatePr_ValidArgs_ReturnsSuccessWithData",
-          "dynamic": false
-        },
-        {
-          "suite": "handleCreatePr",
-          "name": "handleCreatePr_DraftAndLabels_PassedToProvider",
-          "dynamic": false
-        },
-        {
-          "suite": "handleCreatePr",
-          "name": "handleCreatePr_Success_EmitsPrCreateExecutedEvent",
-          "dynamic": false
-        },
-        {
-          "suite": "handleCreatePr",
-          "name": "handleCreatePr_ProviderError_ReturnsFailure",
-          "dynamic": false
-        },
-        {
-          "suite": "handleCreatePr",
-          "name": "handleCreatePr_ListPrsFailure_ReturnsPrecheckFailedWithoutCallingCreatePr",
-          "dynamic": false
-        },
-        {
-          "suite": "CreatePr_PhaseARetry_DoesNotRefireGhPrCreate (B1.2 RED)",
-          "name": "CreatePr_PhaseARetry_DoesNotRefireGhPrCreate",
-          "dynamic": false
-        },
-        {
-          "suite": "CreatePr_PhaseAAppendUnknownError_ReturnsCodedEnvelopeNotThrow",
-          "name": "CreatePr_PhaseAAppendUnknownError_ReturnsCodedEnvelopeNotThrow",
-          "dynamic": false
-        },
-        {
-          "suite": "CreatePr_RequestedEventCommittedButExecutionInterrupted_RecoversWithoutDuplicate (B1.3 RED)",
-          "name": "CreatePr_RequestedEventCommittedButExecutionInterrupted_RecoversWithoutDuplicate",
-          "dynamic": false
-        },
-        {
-          "suite": "CreatePr_RecoveryAppendFailure_DoesNotFallThroughToCreatePr",
-          "name": "CreatePr_RecoveryAppendFailure_DoesNotFallThroughToCreatePr",
-          "dynamic": false
-        },
-        {
-          "suite": "CreatePr_Body_ReferencesIntent (DR-1 task 006)",
-          "name": "CreatePr_MeaningfulIntent_EnrichesRequestedEventAndCreatedPrBody",
-          "dynamic": false
-        },
-        {
-          "suite": "CreatePr_Body_ReferencesIntent (DR-1 task 006)",
-          "name": "CreatePr_NoFeatureId_LeavesBodyUntouched",
-          "dynamic": false
-        },
-        {
-          "suite": "CreatePr_Body_ReferencesIntent (DR-1 task 006)",
-          "name": "CreatePr_EmptyIntent_LeavesBodyUntouched",
-          "dynamic": false
-        },
-        {
-          "suite": "CreatePr_Body_ReferencesIntent (DR-1 task 006)",
-          "name": "CreatePr_BodyAlreadyGrounded_DoesNotDoubleInject",
-          "dynamic": false
-        },
-        {
-          "suite": "CreatePr_SinglePrOwnerGuard (DR-4 task 007)",
-          "name": "CreatePr_ShepherdContext_Refused",
-          "dynamic": false
-        },
-        {
-          "suite": "CreatePr_SinglePrOwnerGuard (DR-4 task 007)",
-          "name": "CreatePr_OwnedViaPrUrlOnly_Refused",
-          "dynamic": false
-        },
-        {
-          "suite": "CreatePr_SinglePrOwnerGuard (DR-4 task 007)",
-          "name": "CreatePr_DoubleCreateGuard_RetainedAndPinned",
-          "dynamic": false
-        },
-        {
-          "suite": "CreatePr_SinglePrOwnerGuard (DR-4 task 007)",
-          "name": "CreatePr_FeatureIdButNoPrRecorded_ProceedsToNormalCreate",
-          "dynamic": false
-        },
-        {
-          "suite": "PrIdempotency_SingleAuthority_HandlerGuardOnly (DR-4 task 009)",
-          "name": "PrIdempotency_SingleAuthority_HandlerGuardOnly",
-          "dynamic": false
-        }
-      ]
-    },
-    "tests/unit/verbs/vcs/get-pr-comments.test.ts": {
-      "file": "tests/unit/verbs/vcs/get-pr-comments.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "handleGetPrComments",
-          "name": "handleGetPrComments_ValidPrId_CallsProviderGetPrComments",
-          "dynamic": false
-        },
-        {
-          "suite": "handleGetPrComments",
-          "name": "handleGetPrComments_ValidPrId_ReturnsSuccessWithComments",
-          "dynamic": false
-        },
-        {
-          "suite": "handleGetPrComments",
-          "name": "handleGetPrComments_ThreadsWindowOpts_ToProvider",
-          "dynamic": false
-        },
-        {
-          "suite": "handleGetPrComments",
-          "name": "handleGetPrComments_NoFields_OmitsFieldsFromContinuation",
-          "dynamic": false
-        },
-        {
-          "suite": "handleGetPrComments",
-          "name": "handleGetPrComments_ReadOnly_DoesNotEmitEvent",
-          "dynamic": false
-        },
-        {
-          "suite": "handleGetPrComments",
-          "name": "handleGetPrComments_ProviderError_ReturnsFailure",
-          "dynamic": false
-        }
-      ]
-    },
     "tests/unit/verbs/vcs/git-exec-default.test.ts": {
       "file": "tests/unit/verbs/vcs/git-exec-default.test.ts",
       "runner": "vitest:root",
@@ -70380,88 +69242,6 @@
         {
           "suite": "git-exec-default — DR-1 index.lock retry composition",
           "name": "DefaultGitExecComposition_PersistentLock_ReturnsContentionResultNotSilentFailure",
-          "dynamic": false
-        }
-      ]
-    },
-    "tests/unit/verbs/vcs/list-prs.test.ts": {
-      "file": "tests/unit/verbs/vcs/list-prs.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "handleListPrs",
-          "name": "handleListPrs_NoFilter_CallsProviderListPrs",
-          "dynamic": false
-        },
-        {
-          "suite": "handleListPrs",
-          "name": "handleListPrs_NoFilter_ReturnsSuccessWithData",
-          "dynamic": false
-        },
-        {
-          "suite": "handleListPrs",
-          "name": "listPrs_NoLimit_ReturnsDefaultWindow",
-          "dynamic": false
-        },
-        {
-          "suite": "handleListPrs",
-          "name": "handleListPrs_WithFilter_PassesFilterToProvider",
-          "dynamic": false
-        },
-        {
-          "suite": "handleListPrs",
-          "name": "handleListPrs_ReadOnly_DoesNotEmitEvent",
-          "dynamic": false
-        },
-        {
-          "suite": "handleListPrs",
-          "name": "handleListPrs_ProviderError_ReturnsFailure",
-          "dynamic": false
-        }
-      ]
-    },
-    "tests/unit/verbs/vcs/merge-pr.test.ts": {
-      "file": "tests/unit/verbs/vcs/merge-pr.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "handleMergePr",
-          "name": "handleMergePr_SquashStrategy_CallsProviderMergePr",
-          "dynamic": false
-        },
-        {
-          "suite": "handleMergePr",
-          "name": "handleMergePr_Success_ReturnsSuccessWithData",
-          "dynamic": false
-        },
-        {
-          "suite": "handleMergePr",
-          "name": "handleMergePr_RebaseStrategy_PassedToProvider",
-          "dynamic": false
-        },
-        {
-          "suite": "handleMergePr",
-          "name": "handleMergePr_Success_EmitsPrMergedEvent",
-          "dynamic": false
-        },
-        {
-          "suite": "handleMergePr",
-          "name": "handleMergePr_MergeFailed_ReturnsSuccessWithUnmergedData",
-          "dynamic": false
-        },
-        {
-          "suite": "handleMergePr",
-          "name": "handleMergePr_MergeFailed_DoesNotEmitEvent",
-          "dynamic": false
-        },
-        {
-          "suite": "handleMergePr",
-          "name": "handleMergePr_ProviderError_ReturnsFailure",
-          "dynamic": false
-        },
-        {
-          "suite": "handleMergePr",
-          "name": "handleMergePr_MergedButAppendFails_ReturnsFailureNotSilentSuccess",
           "dynamic": false
         }
       ]
@@ -70558,42 +69338,17 @@
       "cases": [
         {
           "suite": "VCS action routing registration",
-          "name": "VcsActions_AllRegisteredInCompositeHandlerSource",
+          "name": "VcsActions_RetiredWriters_AreAbsentAndRefused",
           "dynamic": false
         },
         {
           "suite": "VCS action routing registration",
-          "name": "VcsActions_AllRegisteredInToolRegistry",
+          "name": "VcsActions_RetiredReads_AreAbsentAndRefused",
           "dynamic": false
         },
         {
           "suite": "VCS action routing registration",
-          "name": "VcsActions_SchemasAreValid",
-          "dynamic": false
-        },
-        {
-          "suite": "VCS action routing registration",
-          "name": "VcsActions_MutatingActionsHaveAutoEmits",
-          "dynamic": false
-        },
-        {
-          "suite": "VCS action routing registration",
-          "name": "VcsActions_ReadOnlyActionsNoAutoEmits",
-          "dynamic": false
-        },
-        {
-          "suite": "VCS action routing registration",
-          "name": "VcsActions_CreatePrSchema_ValidatesInput",
-          "dynamic": false
-        },
-        {
-          "suite": "VCS action routing registration",
-          "name": "VcsActions_MergePrSchema_ValidatesStrategy",
-          "dynamic": false
-        },
-        {
-          "suite": "VCS action routing registration",
-          "name": "VcsActions_CompositeImportsAllHandlers",
+          "name": "VcsActions_CompositeImportsNoRetiredReadHandler",
           "dynamic": false
         }
       ]
@@ -70624,7 +69379,7 @@
         },
         {
           "suite": "handleValidatePrBody",
-          "name": "ReadsFromPrNumber",
+          "name": "PrNumberOnly_RefusedWithoutAnyProcess",
           "dynamic": false
         },
         {
@@ -70644,22 +69399,12 @@
         },
         {
           "suite": "handleValidatePrBody",
-          "name": "GhFailure_ReturnsError",
-          "dynamic": false
-        },
-        {
-          "suite": "handleValidatePrBody",
           "name": "ReportListsMissingSections",
           "dynamic": false
         },
         {
           "suite": "handleValidatePrBody",
-          "name": "SkipsBotAuthors",
-          "dynamic": false
-        },
-        {
-          "suite": "handleValidatePrBody",
-          "name": "SkipsMergeQueuePRs",
+          "name": "BotShapedBody_NoSkipPath_SectionsChecked",
           "dynamic": false
         },
         {
@@ -70695,88 +69440,6 @@
         {
           "suite": "ValidatePrBody_WithIntent_GroundsBody (DR-1 task 006)",
           "name": "EmptyIntent_NotMeaningful_GroundingFieldsAbsent",
-          "dynamic": false
-        }
-      ]
-    },
-    "tests/unit/verbs/vcs/validate-pr-stack.test.ts": {
-      "file": "tests/unit/verbs/vcs/validate-pr-stack.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "handleValidatePrStack",
-          "name": "NoPRs_ReturnsPassedTrue",
-          "dynamic": false
-        },
-        {
-          "suite": "handleValidatePrStack",
-          "name": "ValidLinearChain_ReturnsPassedTrueWithVisualization",
-          "dynamic": false
-        },
-        {
-          "suite": "handleValidatePrStack",
-          "name": "PRBaseNotInStack_ReturnsPassedFalseWithError",
-          "dynamic": false
-        },
-        {
-          "suite": "handleValidatePrStack",
-          "name": "MultiplePRsTargetBase_ReturnsPassedFalse",
-          "dynamic": false
-        },
-        {
-          "suite": "handleValidatePrStack",
-          "name": "NoPRTargetsBase_ReturnsPassedFalse",
-          "dynamic": false
-        },
-        {
-          "suite": "handleValidatePrStack",
-          "name": "ProviderFailure_ReturnsErrorResult",
-          "dynamic": false
-        },
-        {
-          "suite": "handleValidatePrStack",
-          "name": "ForkDetection_BranchUsedAsBaseByMultiplePRs",
-          "dynamic": false
-        },
-        {
-          "suite": "handleValidatePrStack",
-          "name": "MissingBaseBranch_ReturnsError",
-          "dynamic": false
-        },
-        {
-          "suite": "handleValidatePrStack",
-          "name": "UsesProviderListPrs_WithStateOpenFilter",
-          "dynamic": false
-        }
-      ]
-    },
-    "tests/unit/verbs/vcs/vcs-observation.dispatch.test.ts": {
-      "file": "tests/unit/verbs/vcs/vcs-observation.dispatch.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "vcs journal actions — dispatch-level observation",
-          "name": "MergePr_MergedSuccessfully_DispatchReturnsSuccess",
-          "dynamic": false
-        },
-        {
-          "suite": "vcs journal actions — dispatch-level observation",
-          "name": "MergePr_ProviderDeclinedTheMerge_DispatchStillReturnsSuccess",
-          "dynamic": false
-        },
-        {
-          "suite": "vcs journal actions — dispatch-level observation",
-          "name": "AddPrComment_Dispatched_BothJournalRowsAreFindableByTheDispatchOperation",
-          "dynamic": false
-        },
-        {
-          "suite": "vcs journal actions — dispatch-level observation",
-          "name": "CreateIssue_Dispatched_BothJournalRowsLandOnTheSharedStream",
-          "dynamic": false
-        },
-        {
-          "suite": "create_issue — crash recovery keys the retry under its own operation",
-          "name": "CreateIssue_RetryAfterPriorCrash_DispatchReturnsSuccessNotEmissionViolation",
           "dynamic": false
         }
       ]
@@ -79763,6 +78426,11 @@
         {
           "suite": "DR-11: gate selection is resolver/SoT-derived, not hardcoded in playbooks",
           "name": "PlanReviewSynthesisPlaybooks_ValidationScripts_CarryNoPhaseKindGateNames",
+          "dynamic": false
+        },
+        {
+          "suite": "the recorded pull request is a caller-asserted prerequisite",
+          "name": "SynthesizePlaybooks_PrPrerequisite_IsMarkedCallerAsserted",
           "dynamic": false
         }
       ]

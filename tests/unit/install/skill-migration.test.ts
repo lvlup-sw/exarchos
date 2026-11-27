@@ -1,18 +1,21 @@
 /**
- * Tests that skill content stays harness-neutral for VCS writes and uses MCP actions for VCS reads.
+ * Tests that skill content leaves VCS writes to the harness and VCS reads to the agent.
  * A source under `content/` names no actionable `gh pr create`, `gh pr merge`, `gh pr comment` or `gh issue create`.
  * The harness of the coordinator owns these writes.
- * A source under `content/` holds no actionable `gh` read that an `exarchos_orchestrate` read action replaces.
+ *
+ * No Markdown source under `content/` tells the agent to read PR, CI or review state through an Exarchos action.
+ * The agent reads that state with its own tools, such as `gh`, and records shepherd events with `exarchos_event`.
  * A skill that uses VCS operations must hold a VCS provider preamble.
  * No Markdown source under `content/` names a retired action.
  */
 
 import { describe, it, expect } from 'vitest';
-import { readFileSync, readdirSync, statSync, existsSync } from 'node:fs';
+import { readFileSync, readdirSync, existsSync } from 'node:fs';
 import { join, resolve, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { dirname } from 'node:path';
 import { skillPath as resolveSkillPath, skillReference as resolveSkillReference } from '../../../tools/test-helpers/content-tree.js';
+import { extractToolExamples } from '../../../src/projections/quality/skill-example-validator.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -38,41 +41,33 @@ function collectMarkdownFiles(dir: string): string[] {
   return results;
 }
 
-/** Patterns for an actionable `gh` command, which is one that the skill tells the agent to run. */
-const ACTIONABLE_GH_PATTERNS = [
-  /** `gh pr create`. The harness of the coordinator creates each PR, so skill content names no command for it. */
-  /(?:^|\n)\s*(?:```[\s\S]*?)?gh pr create\b/,
-  /** `gh pr merge`. The harness of the coordinator merges each PR, so skill content names no command for it. */
-  /(?:^|\n)\s*(?:```[\s\S]*?)?gh pr merge\b/,
-  /** `gh issue create`. The harness of the coordinator files each issue, so skill content names no command for it. */
-  /(?:^|\n)\s*(?:```[\s\S]*?)?gh issue create\b/,
-  /** `gh pr checks`, which the `check_ci` action replaces. */
-  /(?:^|\n)\s*(?:```[\s\S]*?)?gh pr checks\b/,
-  /** `gh pr view` with `--json reviews` or `--json comments`, which the `get_pr_comments` action replaces. */
-  /gh pr view\s+\S+\s+--json\s+(?:reviews|comments|reviews,comments)/,
-  /** `gh pr list` at the start of a line, which the `list_prs` action replaces. */
-  /(?:^|\n)\s*gh pr list\b/,
-  /** `gh pr comment`. The harness of the coordinator posts each comment, so skill content names no command for it. */
-  /(?:^|\n)\s*(?:```[\s\S]*?)?gh pr comment\b/,
-];
+type Violation = { file: string; line: number; text: string };
 
-/** `gh` commands that skill content can keep. Each element gives the reason. */
-const ALLOWED_GH_REFERENCES = [
-  /** `gh pr edit --add-label`. No MCP action sets a label. */
-  /gh pr edit\s+\S+\s+--add-label/,
-  /** `gh pr edit --base`. No MCP action retargets a PR. */
-  /gh pr edit\s+\S+\s+--base/,
-  /** `gh pr edit --body`. The update of a PR body needs complex formatting. */
-  /gh pr edit\s+\S+\s+--body/,
-  /** `gh pr edit --add-reviewer`. No MCP action assigns a reviewer. */
-  /gh pr edit\s+\S+\s+--add-reviewer/,
-  /** `gh pr update-branch`. No MCP action updates a branch. */
-  /gh pr update-branch/,
-  /** `gh pr diff`, which is handled locally. */
-  /gh pr diff/,
-  /** `gh pr view --json autoMergeRequest`, an auto-merge check with no MCP action. */
-  /gh pr view\s+\S+\s+--json\s+autoMergeRequest/,
-];
+/**
+ * Gives each line of a Markdown source under `content/` that matches one of the patterns.
+ * It also gives the count of scanned files, so a caller can refuse an empty scan.
+ */
+function scanSkillSources(patterns: readonly RegExp[]): { scanned: number; violations: Violation[] } {
+  const files = collectMarkdownFiles(SKILLS_SRC_DIR);
+  const violations: Violation[] = [];
+  for (const file of files) {
+    const lines = readFileSync(file, 'utf8').split('\n');
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      if (patterns.some((pattern) => pattern.test(line))) {
+        violations.push({ file: relToSkillsSrc(file), line: i + 1, text: line.trim() });
+      }
+    }
+  }
+  return { scanned: files.length, violations };
+}
+
+function formatViolations(violations: readonly Violation[]): string {
+  return violations.map((v) => `  ${v.file}:${v.line}: ${v.text}`).join('\n');
+}
+
+const AGENT_READ_GUIDANCE =
+  'The agent reads PR, CI and review state with its own tools, such as gh, and records shepherd events with exarchos_event.';
 
 /** Retired action names, and the retired `merge-orchestrate` CLI verb. Each pattern matches a whole word only. */
 const RETIRED_ACTION_PATTERNS = [
@@ -87,6 +82,9 @@ const RETIRED_ACTION_PATTERNS = [
   /\bmerge-orchestrate\b/,
 ];
 
+/** The preamble sentence that tells the agent to read PR state with its own tools. */
+const OWN_TOOLS_READ_SENTENCE = 'Exarchos reads no PR, CI or review state, and it does no VCS write.';
+
 /** Skills that use VCS operations. Each one must hold a VCS preamble. */
 const SKILLS_REQUIRING_VCS_PREAMBLE = [
   'synthesize',
@@ -97,7 +95,10 @@ const SKILLS_REQUIRING_VCS_PREAMBLE = [
   'oneshot',
 ];
 
-describe('skill-migration — T34: gh to MCP action migration', () => {
+/** Skills that read PR state. Each preamble states that the agent reads it with its own tools. Prune reads the open PRs of its candidates. */
+const SKILLS_READING_PR_STATE = ['synthesize', 'shepherd', 'cleanup', 'prune'];
+
+describe('skill-migration — harness-owned VCS writes and agent-owned VCS reads', () => {
   /** Only a Markdown table row can name `gh pr create`. */
   it('NoActionableGhPrCreate_InSkillSources', () => {
     const files = collectMarkdownFiles(SKILLS_SRC_DIR);
@@ -186,55 +187,25 @@ describe('skill-migration — T34: gh to MCP action migration', () => {
     ).toEqual([]);
   });
 
-  it('NoActionableGhPrChecks_InSkillSources', () => {
-    const files = collectMarkdownFiles(SKILLS_SRC_DIR);
-    const violations: Array<{ file: string; line: number; text: string }> = [];
+  /** No Markdown source under `content/` names the `check_ci` read. The agent reads CI state with its own tools. */
+  it('NoCheckCiRead_InSkillSources', () => {
+    const { scanned, violations } = scanSkillSources([/\bcheck_ci\b/]);
 
-    for (const file of files) {
-      const content = readFileSync(file, 'utf8');
-      const lines = content.split('\n');
-
-      for (let i = 0; i < lines.length; i++) {
-        const line = lines[i];
-        if (/\bgh pr checks\b/.test(line)) {
-          violations.push({
-            file: relToSkillsSrc(file),
-            line: i + 1,
-            text: line.trim(),
-          });
-        }
-      }
-    }
-
+    expect(scanned).toBeGreaterThan(0);
     expect(
       violations,
-      `Found ${violations.length} actionable 'gh pr checks' references that should be migrated to exarchos_orchestrate({ action: "check_ci" }):\n${violations.map((v) => `  ${v.file}:${v.line}: ${v.text}`).join('\n')}`,
+      `Found ${violations.length} references to the check_ci read. ${AGENT_READ_GUIDANCE}\n${formatViolations(violations)}`,
     ).toEqual([]);
   });
 
-  it('NoActionableGhPrViewJsonReviews_InSkillSources', () => {
-    const files = collectMarkdownFiles(SKILLS_SRC_DIR);
-    const violations: Array<{ file: string; line: number; text: string }> = [];
+  /** No Markdown source under `content/` names the `get_pr_comments` read. The agent reads PR comments with its own tools. */
+  it('NoGetPrCommentsRead_InSkillSources', () => {
+    const { scanned, violations } = scanSkillSources([/\bget_pr_comments\b/]);
 
-    for (const file of files) {
-      const content = readFileSync(file, 'utf8');
-      const lines = content.split('\n');
-
-      for (let i = 0; i < lines.length; i++) {
-        const line = lines[i];
-        if (/\bgh pr view\s+\S+\s+--json\s+(?:reviews|comments|reviews,comments)\b/.test(line)) {
-          violations.push({
-            file: relToSkillsSrc(file),
-            line: i + 1,
-            text: line.trim(),
-          });
-        }
-      }
-    }
-
+    expect(scanned).toBeGreaterThan(0);
     expect(
       violations,
-      `Found ${violations.length} actionable 'gh pr view --json reviews/comments' references that should be migrated to exarchos_orchestrate({ action: "get_pr_comments" }):\n${violations.map((v) => `  ${v.file}:${v.line}: ${v.text}`).join('\n')}`,
+      `Found ${violations.length} references to the get_pr_comments read. ${AGENT_READ_GUIDANCE}\n${formatViolations(violations)}`,
     ).toEqual([]);
   });
 
@@ -264,114 +235,64 @@ describe('skill-migration — T34: gh to MCP action migration', () => {
     ).toEqual([]);
   });
 
-  /**
-   * Three contexts can name `gh pr list`:
-   * - the prune files in `ALLOWED_FILES`, because the prune safeguards use `gh` internally
-   * - a Markdown table row
-   * - text with the word "from" directly before the command in backticks
-   * `ALLOWED_FILES` matches the path below the skill, not the path below the content root.
-   * Thus a move of the skill to another domain does not remove the exemption.
-   */
-  it('NoActionableGhPrList_InSkillSources_ExceptAllowedContexts', () => {
-    const files = collectMarkdownFiles(SKILLS_SRC_DIR);
-    const violations: Array<{ file: string; line: number; text: string }> = [];
+  /** No Markdown source under `content/` names the `list_prs` read. The agent lists PRs with its own tools. */
+  it('NoListPrsRead_InSkillSources', () => {
+    const { scanned, violations } = scanSkillSources([/\blist_prs\b/]);
 
-    const ALLOWED_FILES = [
-      'prune/references/safeguards.md',
-      'prune/SKILL.md',
-    ];
-
-    for (const file of files) {
-      const relPath = relToSkillsSrc(file);
-      if (ALLOWED_FILES.some((allowed) => relPath.endsWith(allowed))) continue;
-
-      const content = readFileSync(file, 'utf8');
-      const lines = content.split('\n');
-
-      for (let i = 0; i < lines.length; i++) {
-        const line = lines[i];
-        if (/\bgh pr list\b/.test(line)) {
-          const isAllowed =
-            /\|.*gh pr list.*\|/.test(line) ||
-            /from\s+`gh pr list/.test(line);
-          if (!isAllowed) {
-            violations.push({
-              file: relPath,
-              line: i + 1,
-              text: line.trim(),
-            });
-          }
-        }
-      }
-    }
-
+    expect(scanned).toBeGreaterThan(0);
     expect(
       violations,
-      `Found ${violations.length} actionable 'gh pr list' references that should be migrated to exarchos_orchestrate({ action: "list_prs" }):\n${violations.map((v) => `  ${v.file}:${v.line}: ${v.text}`).join('\n')}`,
+      `Found ${violations.length} references to the list_prs read. ${AGENT_READ_GUIDANCE}\n${formatViolations(violations)}`,
+    ).toEqual([]);
+  });
+
+  /** No Markdown source under `content/` names the `assess_stack` read. The shepherd assesses each PR from its own reads. */
+  it('NoAssessStackRead_InSkillSources', () => {
+    const { scanned, violations } = scanSkillSources([/\bassess_stack\b/]);
+
+    expect(scanned).toBeGreaterThan(0);
+    expect(
+      violations,
+      `Found ${violations.length} references to the assess_stack read. ${AGENT_READ_GUIDANCE}\n${formatViolations(violations)}`,
     ).toEqual([]);
   });
 
   /**
-   * Two kinds of line can name `gh pr view`: a Markdown table row, and a line with `--json autoMergeRequest`.
-   * No MCP action does the auto-merge check.
+   * No Markdown source under `content/` names a PR gate that reads the provider: `check_pr_comments`,
+   * `check_coderabbit` or `validate_pr_stack`. The agent reads the review state and the stack with its own tools.
    */
-  it('NoActionableGhPrView_InSkillSources_ExceptAllowedOperations', () => {
-    const files = collectMarkdownFiles(SKILLS_SRC_DIR);
-    const violations: Array<{ file: string; line: number; text: string }> = [];
+  it('NoProviderReadingPrGate_InSkillSources', () => {
+    const { scanned, violations } = scanSkillSources([
+      /\bcheck_pr_comments\b/,
+      /\bcheck_coderabbit\b/,
+      /\bvalidate_pr_stack\b/,
+    ]);
 
-    for (const file of files) {
-      const relPath = relToSkillsSrc(file);
-      const content = readFileSync(file, 'utf8');
-      const lines = content.split('\n');
-
-      for (let i = 0; i < lines.length; i++) {
-        const line = lines[i];
-        if (/\bgh pr view\b/.test(line)) {
-          const isAllowed =
-            /--json\s+autoMergeRequest/.test(line) ||
-            /\|.*gh pr view.*\|/.test(line);
-          if (!isAllowed) {
-            violations.push({
-              file: relPath,
-              line: i + 1,
-              text: line.trim(),
-            });
-          }
-        }
-      }
-    }
-
+    expect(scanned).toBeGreaterThan(0);
     expect(
       violations,
-      `Found ${violations.length} actionable 'gh pr view' references that should be migrated:\n${violations.map((v) => `  ${v.file}:${v.line}: ${v.text}`).join('\n')}`,
+      `Found ${violations.length} references to a PR gate that reads the provider. ${AGENT_READ_GUIDANCE}\n${formatViolations(violations)}`,
     ).toEqual([]);
   });
 
-  it('NoActionableGhIssueView_InSkillSources', () => {
-    const files = collectMarkdownFiles(SKILLS_SRC_DIR);
-    const violations: Array<{ file: string; line: number; text: string }> = [];
+  /**
+   * Each `validate_pr_body` example under `content/` checks a body text. No example passes `pr`, because the action takes no PR number and reads no PR.
+   * The case also asserts that it found at least one example, so it cannot pass on an empty set.
+   */
+  it('ValidatePrBody_ExamplesCheckBodyTextOnly', () => {
+    const examples = collectMarkdownFiles(SKILLS_SRC_DIR).flatMap((file) =>
+      extractToolExamples(readFileSync(file, 'utf8'), relToSkillsSrc(file)).filter(
+        (example) => example.tool === 'exarchos_orchestrate' && example.action === 'validate_pr_body',
+      ),
+    );
+    const withPr = examples.filter((example) => 'pr' in example.params);
+    const withoutBody = examples.filter(
+      (example) => !('bodyFile' in example.params) && !('body' in example.params),
+    );
 
-    for (const file of files) {
-      const relPath = relToSkillsSrc(file);
-      const content = readFileSync(file, 'utf8');
-      const lines = content.split('\n');
-
-      for (let i = 0; i < lines.length; i++) {
-        const line = lines[i];
-        if (/\bgh issue view\b/.test(line)) {
-          violations.push({
-            file: relPath,
-            line: i + 1,
-            text: line.trim(),
-          });
-        }
-      }
-    }
-
-    expect(
-      violations,
-      `Found ${violations.length} actionable 'gh issue view' references that should be migrated:\n${violations.map((v) => `  ${v.file}:${v.line}: ${v.text}`).join('\n')}`,
-    ).toEqual([]);
+    expect(examples.length).toBeGreaterThan(0);
+    expect(withPr.map((example) => `${example.file}:${example.line}`)).toEqual([]);
+    expect(withoutBody.map((example) => `${example.file}:${example.line}`)).toEqual([]);
   });
 
   /**
@@ -400,6 +321,19 @@ describe('skill-migration — T34: gh to MCP action migration', () => {
     ).toEqual([]);
   });
 
+  /** The preamble of each skill that reads PR state states that Exarchos reads none, and it names `gh` as the own tool for GitHub. */
+  it('VcsPreamble_PrReadingSkills_ReadWithTheAgentTools', () => {
+    const missing = SKILLS_READING_PR_STATE.filter((skillName) => {
+      const content = readFileSync(resolveSkillPath(skillName), 'utf8');
+      const start = content.indexOf('## VCS Provider');
+      const preamble = start < 0 ? '' : content.slice(start, content.indexOf('\n## ', start + 1));
+      return !preamble.includes(OWN_TOOLS_READ_SENTENCE) || !preamble.includes('with your own tools') || !preamble.includes('`gh`');
+    });
+
+    expect(SKILLS_READING_PR_STATE).toHaveLength(4);
+    expect(missing, `Skills whose VCS preamble does not send PR reads to the agent tools: ${missing.join(', ')}`).toEqual([]);
+  });
+
   /** The synthesize skill names no `create_pr` or `merge_pr` action, and it names the harness hand-off for the PR creation and the auto-merge. */
   it('McpActionReferences_Synthesize_LeavesPrCreationAndMergeToTheHarness', () => {
     const synthSkillPath = resolveSkillPath('synthesize');
@@ -411,11 +345,14 @@ describe('skill-migration — T34: gh to MCP action migration', () => {
     expect(content).toContain('the coordinator enables auto-merge on the PR through its harness, outside governance');
   });
 
-  it('McpActionReferences_ListPrs_PresentInMigratedSkills', () => {
-    const synthSkillPath = resolveSkillPath('synthesize');
-    const content = readFileSync(synthSkillPath, 'utf8');
+  /** The Idempotency procedure of the synthesize skill reads the PRs of each head with `gh pr list`, filtered by head and base. */
+  it('AgentReads_Synthesize_IdempotencyReadsPrsWithTheAgentTools', () => {
+    const content = readFileSync(resolveSkillPath('synthesize'), 'utf8');
+    const idempotency = content.slice(content.indexOf('## Idempotency'), content.indexOf('## Direct Edits to Stack Branches'));
 
-    expect(content).toContain('action: "list_prs"');
+    expect(idempotency).toContain('The coordinator runs this procedure with its own tools');
+    expect(idempotency).toContain('gh pr list --head <head> --base <base> --state all');
+    expect(idempotency).toContain('A read that returns as many PRs as its `--limit` is a failed read');
   });
 
   it('McpActionReferences_Dogfood_LeavesIssueFilingToTheHarness', () => {
@@ -426,11 +363,28 @@ describe('skill-migration — T34: gh to MCP action migration', () => {
     expect(content).toContain('the coordinator files the issue through its harness, outside governance.');
   });
 
-  it('McpActionReferences_CheckCi_PresentInTroubleshooting', () => {
-    const troublePath = resolveSkillReference('synthesize', 'troubleshooting.md');
-    const content = readFileSync(troublePath, 'utf8');
+  /** The synthesize troubleshooting guide reads the CI state of a rejected PR with `gh pr checks`. */
+  it('AgentReads_Troubleshooting_ReadsCiWithTheAgentTools', () => {
+    const content = readFileSync(resolveSkillReference('synthesize', 'troubleshooting.md'), 'utf8');
 
-    expect(content).toContain('action: "check_ci"');
+    expect(content).toContain('Check CI status with your own tools: `gh pr checks <number>`');
+  });
+
+  /**
+   * The shepherd skill and its references append `shepherd.iteration` and no other `shepherd.*` event.
+   * The other four shepherd types are retired as emissions, so no example appends them.
+   */
+  it('AgentReads_Shepherd_AppendsOnlyShepherdIteration', () => {
+    const texts = [
+      readFileSync(resolveSkillPath('shepherd'), 'utf8'),
+      readFileSync(resolveSkillReference('shepherd', 'escalation-criteria.md'), 'utf8'),
+      readFileSync(resolveSkillReference('shepherd', 'shepherd-event-schemas.md'), 'utf8'),
+    ];
+    const appended = new Set(texts.flatMap((text) => [...text.matchAll(/type: "(shepherd\.[a-z_]+)"/g)].map((m) => m[1])));
+
+    expect([...appended]).toEqual(['shepherd.iteration']);
+    expect(texts[0]).toContain('No Exarchos action reads a PR or appends a `shepherd.*` event for you.');
+    expect(texts[0]).toContain('`shepherd.iteration` is the only `shepherd.*` event that you append.');
   });
 
   /**
@@ -438,23 +392,12 @@ describe('skill-migration — T34: gh to MCP action migration', () => {
    * The case also asserts that it scanned at least one file, so it cannot pass on an empty set.
    */
   it('RetiredActions_NamedByNoSkillSource', () => {
-    const files = collectMarkdownFiles(SKILLS_SRC_DIR);
-    const violations: Array<{ file: string; line: number; text: string }> = [];
+    const { scanned, violations } = scanSkillSources(RETIRED_ACTION_PATTERNS);
 
-    for (const file of files) {
-      const lines = readFileSync(file, 'utf8').split('\n');
-      for (let i = 0; i < lines.length; i++) {
-        const line = lines[i];
-        if (RETIRED_ACTION_PATTERNS.some((pattern) => pattern.test(line))) {
-          violations.push({ file: relToSkillsSrc(file), line: i + 1, text: line.trim() });
-        }
-      }
-    }
-
-    expect(files.length).toBeGreaterThan(0);
+    expect(scanned).toBeGreaterThan(0);
     expect(
       violations,
-      `Found ${violations.length} references to a retired action. The coordinator does these effects through its harness, outside governance:\n${violations.map((v) => `  ${v.file}:${v.line}: ${v.text}`).join('\n')}`,
+      `Found ${violations.length} references to a retired action. The coordinator does these effects through its harness, outside governance:\n${formatViolations(violations)}`,
     ).toEqual([]);
   });
 });

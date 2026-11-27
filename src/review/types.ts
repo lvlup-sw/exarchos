@@ -63,7 +63,7 @@ export interface ActionItem {
   readonly normalizedSeverity: Severity;
   /**
    * True when the adapter found no known severity tier in the comment body.
-   * `assess_stack` then emits `provider.unknown-tier`, so drift in the upstream tier words is visible.
+   * Old logs hold a `provider.unknown-tier` row for such an item, so drift in the upstream tier words is visible.
    */
   readonly unknownTier?: boolean;
   /**

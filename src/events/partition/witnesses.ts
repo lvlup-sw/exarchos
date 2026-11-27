@@ -8,8 +8,8 @@
  * An oracle measures every arm again:
  *   • `projection-fold`: the governance-filtered fold diverges without the type.
  *   • `raw-reader`: the named module still reads the type, or the row is stale.
- *   • `gate-expectation`: the emission gate still lists the type. No live row uses it,
- *     but it stays, because a source scan cannot see that read shape.
+ *   • `gate-expectation`: the emission gate still lists the type. A source scan cannot see
+ *     that read shape, so the oracle reads the expectation table.
  *   • `charter-pin`: the decision record pins the family. A row that gains real evidence must move.
  *
  * The load refuses a row for a type whose tier already derives `auto`.
@@ -88,14 +88,13 @@ export const GOVERNANCE_WITNESSES: Readonly<Record<string, AuthorityWitness>> = 
       'runs against the wrong tree, or against none.',
   },
   'shepherd.iteration': {
-    arm: 'raw-reader',
-    evidence: ['src/verbs/review/escalation-policy.ts', 'src/verbs/vcs/assess-stack.ts'],
+    arm: 'gate-expectation',
+    evidence: ['src/verbs/gates/check-event-emissions.ts'],
     because:
-      'The escalation policy counts these events raw and calls itself the single event-sourced ' +
-      'iteration-count authority; the bound it enforces is therefore a function of the event ' +
-      'stream. This is in direct tension with the ratified charter, which lists the type among ' +
-      'its telemetry examples: the demotion cannot land while a live fold-external reader derives ' +
-      'an escalation bound from it, so the reader must be retired or re-sourced first.',
+      'The emission gate expects this type in the synthesize phase. It asks whether the stream ' +
+      'holds the type and reports a missing emission when it does not. The ratified charter lists ' +
+      'the type among its telemetry examples, so the demotion waits until the type leaves the ' +
+      'expectation table.',
   },
 
   'task.progressed': {

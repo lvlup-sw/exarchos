@@ -7,7 +7,7 @@
  *   envelope. An action with a `cli.alias` runs by that alias.
  * - Host commands: each composite-tool CLI group and each top-level promoted verb.
  * - Exit codes: the exit of each observed error must equal the stable exit code of its error code.
- * - Effects: `wf init` writes the event store, and `list_prs` spawns `gh` or `git`.
+ * - Effects: `wf init` writes the event store, and `review_diff` spawns `git`.
  * - Cancellation: a `wf init` and then a `wf cancel`.
  *
  * The baseline records the accepted gaps: the error families `authorization`, `output`,
@@ -294,8 +294,9 @@ async function driveEveryAction(binaryPath: string): Promise<ActionObservation[]
  * verb through the contract envelope.
  *
  * The filesystem probe is a `wf init` that must succeed and leave files in the state directory.
- * The process probe is `orch list_prs`. It passes when the run gives an envelope and stdout names
- * a `gh` or git failure.
+ * The process probe is `orch review_diff` in a checkout whose `.git` holds only an object directory.
+ * The storage checks pass with no process, so only a spawned `git` can give the `DIFF_FAILED` refusal
+ * that quotes the Git failure. The probe passes when the run gives that envelope.
  */
 async function runSweep(binaryPath: string): Promise<SweepResult> {
   const observations = await driveEveryAction(binaryPath);
@@ -352,18 +353,17 @@ async function runSweep(binaryPath: string): Promise<SweepResult> {
   const procCwd = await mkTmp('exq-proof-proccwd-');
   let processProven = false;
   try {
-    const run = await runCli(binaryPath, ['orch', 'list_prs'], {
+    await fsp.mkdir(path.join(procCwd, '.git', 'objects'), { recursive: true });
+    const run = await runCli(binaryPath, ['orch', 'review_diff'], {
       cwd: procCwd,
       stateDir: procState,
       timeoutMs: CLI_TIMEOUT_MS,
     });
     const env = extractEnvelope(run.stdout);
-    const spawnedChild = /gh pr list|failed to run git|not a git repos|NOT_GIT_REPO|VCS_ERROR/i.test(
-      run.stdout,
-    );
-    processProven = env !== undefined && spawnedChild;
+    const spawnedChild = env?.error?.code === 'DIFF_FAILED' && /not a git repository/i.test(run.stdout);
+    processProven = spawnedChild;
     if (env !== undefined) {
-      exitObservations.push({ label: 'effect:proc:list_prs', code: env.error?.code, exit: run.exit });
+      exitObservations.push({ label: 'effect:proc:review_diff', code: env.error?.code, exit: run.exit });
     }
   } finally {
     await rmrfAsync(procState).catch(() => undefined);
@@ -542,7 +542,7 @@ describe('Stable CLI exit codes through the compiled binary (P05-02)', () => {
     }
   });
 
-  /** A handler failure, such as a VCS failure outside a git repository, must exit 2. */
+  /** A handler failure, such as a diff read outside a git repository, must exit 2. */
   it('HandlerFamily_BusinessFailure_ExitsTwoThroughTheBinary', () => {
     const handler = SWEEP.exitObservations.filter(
       (o) => o.code !== undefined && classifyErrorLayer(o.code) === 'handler',
@@ -557,7 +557,7 @@ describe('Effect families through the compiled binary (P05-02)', () => {
     expect(SWEEP.filesystemProven).toBe(true);
   });
 
-  it('Process_ListPrsSpawnsAChildProcess', () => {
+  it('Process_ReviewDiffSpawnsGit', () => {
     expect(SWEEP.processProven).toBe(true);
   });
 });

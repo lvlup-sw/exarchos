@@ -1,8 +1,9 @@
 /**
  * Prunes stale workflows. `selectPruneCandidates` is pure: it takes the entry list and an injected
  * `now`, and returns candidates and exclusions. `handlePruneStaleWorkflows` composes it with real IO:
- * `handleList`, `handleCancel`, the event store for `workflow.pruned`, and the safeguards in
+ * `handleList`, `handleCancel`, the event store for `workflow.pruned`, and the recent-commits safeguard in
  * `prune-safeguards.ts`. The IO seams sit in a `PruneHandlerDeps` bundle, so tests can pass stubs.
+ * The handler reads no PR from a provider. The harness checks for an open PR before it starts a prune.
  */
 
 import * as path from 'node:path';
@@ -219,7 +220,7 @@ export function selectPruneCandidates(
 const RECENT_COMMITS_WINDOW_HOURS = 24;
 
 /**
- * The handler args. Each field is optional: `dryRun` defaults to true, `force` (skip the safeguards)
+ * The handler args. Each field is optional: `dryRun` defaults to true, `force` (skip the safeguard)
  * to false, `includeOneShot` to true, and `now` to the current time.
  * The `prune_stale_workflows` schema rejects a `thresholdMinutes` arg, because per-phase staleness
  * lives in `topology.yaml`.
@@ -263,13 +264,12 @@ export interface PruneSkipped {
   featureId: string;
   /**
    * Why the handler skipped the candidate:
-   * - `open-pr`: a safeguard found an open PR for the branch.
-   * - `active-branch`: a safeguard found commits on the branch in the recency window.
+   * - `active-branch`: the safeguard found commits on the branch in the recency window.
    * - `cancel-failed`: `handleCancel` returned `success: false`.
    * - `event-append-failed`: the cancel succeeded, but the `workflow.pruned` append threw. The
    *   workflow is cancelled but not counted as pruned, because the audit trail is incomplete.
    */
-  reason: 'open-pr' | 'active-branch' | 'cancel-failed' | 'event-append-failed';
+  reason: 'active-branch' | 'cancel-failed' | 'event-append-failed';
   message?: string;
 }
 
@@ -324,7 +324,7 @@ export interface PruneHandlerResult {
 
 /**
  * Reads the top-level `branchName` of a workflow through `readStateFile`. It returns `undefined` when
- * the field is absent or the read fails, and the handler then skips both safeguards.
+ * the field is absent or the read fails, and the handler then skips the safeguard.
  */
 async function defaultReadBranchName(
   featureId: string,
@@ -393,7 +393,7 @@ async function observedBranchActivityTimestamp(
 }
 
 /**
- * Production dep bundle — real `handleList`/`handleCancel` + default safeguards.
+ * Production dep bundle — real `handleList`/`handleCancel` + the default safeguard.
  * One Git observation serves the call with the process-wide Git path.
  */
 function productionDeps(_ctx?: DispatchContext): PruneHandlerDeps {
@@ -407,7 +407,7 @@ function productionDeps(_ctx?: DispatchContext): PruneHandlerDeps {
         _ctx?.eventStore ?? null,
       ),
     readBranchName: defaultReadBranchName,
-    safeguards: defaultSafeguards(undefined, observation),
+    safeguards: defaultSafeguards(observation),
     readPhaseTransitionTimestamp: makeReadPhaseTransitionTimestamp(_ctx),
     readBranchActivityTimestamp: (branchName) => observedBranchActivityTimestamp(observation, branchName),
   };
@@ -506,10 +506,10 @@ function extractListEntries(result: ToolResult): {
 }
 
 /**
- * The safeguards in evaluation order, recorded on the audit event when `force` skips them. The names
- * are the user-facing reason keys. The backend for `active-branch` is `hasRecentCommits`.
+ * The safeguards recorded on the audit event when `force` skips them. The names are the user-facing
+ * reason keys. The backend for `active-branch` is `hasRecentCommits`. Older events can also name `open-pr`.
  */
-const ALL_SKIPPED_SAFEGUARDS = ['open-pr', 'active-branch'] as const;
+const ALL_SKIPPED_SAFEGUARDS = ['active-branch'] as const;
 
 /**
  * The outcome of one candidate from {@link prunePruneCandidate}: `skipped` or `pruned`. The union
@@ -520,9 +520,9 @@ type CandidateOutcome =
   | { kind: 'pruned'; entry: PrunePruned };
 
 /**
- * Runs the apply-mode steps for one candidate: the safeguards, the cancel, and the `workflow.pruned`
- * audit event. `force` skips the safeguards and records them on the event. A workflow with no branch
- * name skips both safeguards. A failed cancel gives `cancel-failed`, and the batch continues.
+ * Runs the apply-mode steps for one candidate: the safeguard, the cancel, and the `workflow.pruned`
+ * audit event. `force` skips the safeguard and records it on the event. A workflow with no branch
+ * name skips the safeguard. A failed cancel gives `cancel-failed`, and the batch continues.
  * A failed append gives `event-append-failed` only, not `pruned`, because the audit trail is incomplete.
  */
 async function prunePruneCandidate(
@@ -535,9 +535,6 @@ async function prunePruneCandidate(
   const branchName = await deps.readBranchName(candidate.featureId, stateDir);
 
   if (!force && branchName !== undefined) {
-    if (await deps.safeguards.hasOpenPR(candidate.featureId, branchName)) {
-      return { kind: 'skipped', entry: { featureId: candidate.featureId, reason: 'open-pr' } };
-    }
     if (await deps.safeguards.hasRecentCommits(branchName, RECENT_COMMITS_WINDOW_HOURS)) {
       return {
         kind: 'skipped',
@@ -595,7 +592,7 @@ async function prunePruneCandidate(
 /**
  * The `prune_stale_workflows` handler. It lists workflows, adds the second staleness signals, selects
  * candidates, and caps them at `maxBatchSize`, most stale first. A dry run returns the candidates without `pruned`.
- * Apply mode runs the safeguards unless `force` is set, cancels each candidate that passes, and appends `workflow.pruned`.
+ * Apply mode runs the safeguard unless `force` is set, cancels each candidate that passes, and appends `workflow.pruned`.
  * Apply mode needs the event store, so no cancel happens without an audit trail. With `requireDryRun`,
  * it also needs a `prune.diagnostics` event on `_prune`, and a failed query skips that check.
  *

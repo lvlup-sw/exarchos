@@ -156,9 +156,11 @@ describe('DR-2: caller-supplied evidence cannot satisfy a blocking gate', () => 
   /**
    * `isBlockingGate` fails closed: a gate class with no registration is blocking. Without this
    * default, a gate name that `task_complete` adds with no registration opens a new bypass.
+   * The retired `pr-stack` class was blocking, so a stored `pr-stack` row keeps its blocking reading.
    */
   it('TaskComplete_UnknownGateClass_IsTreatedAsBlocking', () => {
     expect(isBlockingGate('no-such-gate-class')).toBe(true);
+    expect(isBlockingGate('pr-stack')).toBe(true);
   });
 
   /** The registry declares `mock-boundary` with `blocking: false`, and the handler holds no list. */

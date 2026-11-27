@@ -379,7 +379,7 @@ describe('buildRegistrationSchema', () => {
 });
 
 describe('merge_orchestrate description', () => {
-  /** The description must state the wrong uses and name the correct action for each one. */
+  /** The description must state the wrong uses and name the correct owner for each one. */
   it('MergeOrchestrateDescription_StatesDoNotUseFor_WithPointers', () => {
     const action = findActionInRegistry('exarchos_orchestrate', 'merge_orchestrate');
     expect(action).toBeDefined();
@@ -387,7 +387,7 @@ describe('merge_orchestrate description', () => {
 
     expect(description).toContain('Do NOT use for');
 
-    expect(description).toContain('merge_pr');
+    expect(description).toContain('the harness owns it');
     expect(description).toContain('verify_worktree');
     expect(description).toContain('request_synthesize');
   });
@@ -675,7 +675,7 @@ describe('TOOL_REGISTRY', () => {
     it('should have 71 actions for task management, review triage, gate checks, validation handlers, runbooks, agent spec, oneshot/pruning, onboard (DR-2 task 011), doctor, VCS, classify_review_items (#1159), merge_orchestrate (DR-MO-1), check_integration_suite (#1329), check_invariant_conformance (DR-3), invariants_scaffold/invariants_add (invariants-catalog-wizard P2), check_contract_drift + check_mock_boundary (verification-ladder slice 1), and composite actions', () => {
       const composite = findComposite('exarchos_orchestrate');
       expect(composite).toBeDefined();
-      expect(composite!.actions).toHaveLength(84);
+      expect(composite!.actions).toHaveLength(73);
 
       const actionNames = composite!.actions.map((a) => a.name);
       expect(actionNames).toEqual(
@@ -686,7 +686,6 @@ describe('TOOL_REGISTRY', () => {
           'review_triage',
           'prepare_delegation',
           'prepare_synthesis',
-          'assess_stack',
           'check_design_completeness',
           'check_plan_coverage',
           'check_contract_drift',
@@ -709,9 +708,7 @@ describe('TOOL_REGISTRY', () => {
           'investigation_timer',
           'check_coverage_thresholds',
           'assess_refactor_scope',
-          'check_pr_comments',
           'validate_pr_body',
-          'validate_pr_stack',
           'debug_review_gate',
           'extract_fix_tasks',
           'generate_traceability',
@@ -722,7 +719,6 @@ describe('TOOL_REGISTRY', () => {
           'post_delegation_check',
           'reconcile_state',
           'pre_synthesis_check',
-          'check_coderabbit',
           'check_polish_scope',
           'needs_schema_sync',
           'verify_doc_links',
@@ -731,13 +727,6 @@ describe('TOOL_REGISTRY', () => {
           'prune_stale_workflows',
           'request_synthesize',
           'finalize_oneshot',
-          'create_pr',
-          'merge_pr',
-          'check_ci',
-          'list_prs',
-          'get_pr_comments',
-          'add_pr_comment',
-          'create_issue',
           'onboard',
           'merge_orchestrate',
           'check_integration_suite',
@@ -1745,7 +1734,7 @@ describe('AutoEmits Drift Tests', () => {
     }
 
     expect(populatedCount, 'declared autoEmits population dropped below the floor').toBeGreaterThan(
-      56,
+      54,
     );
     expect(violations, `AutoEmits drift:\n${violations.join('\n')}`).toEqual([]);
   });
@@ -2692,7 +2681,6 @@ const EXPECTED_EFFECTIVE_BUDGETS: Readonly<Record<string, number>> = {
   'exarchos_orchestrate.review_triage': 2000,
   'exarchos_orchestrate.prepare_delegation': 2000,
   'exarchos_orchestrate.prepare_synthesis': 2000,
-  'exarchos_orchestrate.assess_stack': 2000,
   'exarchos_orchestrate.check_static_analysis': 2000,
   'exarchos_orchestrate.check_integration_suite': 2000,
   'exarchos_orchestrate.check_security_scan': 2000,
@@ -2718,9 +2706,7 @@ const EXPECTED_EFFECTIVE_BUDGETS: Readonly<Record<string, number>> = {
   'exarchos_orchestrate.investigation_timer': 2000,
   'exarchos_orchestrate.check_coverage_thresholds': 2000,
   'exarchos_orchestrate.assess_refactor_scope': 2000,
-  'exarchos_orchestrate.check_pr_comments': 2000,
   'exarchos_orchestrate.validate_pr_body': 2000,
-  'exarchos_orchestrate.validate_pr_stack': 2000,
   'exarchos_orchestrate.debug_review_gate': 2000,
   'exarchos_orchestrate.extract_fix_tasks': 2000,
   'exarchos_orchestrate.classify_review_items': 2000,
@@ -2736,7 +2722,6 @@ const EXPECTED_EFFECTIVE_BUDGETS: Readonly<Record<string, number>> = {
   'exarchos_orchestrate.reconcile_worktrees': 2000,
   'exarchos_orchestrate.stack_place': 2000,
   'exarchos_orchestrate.pre_synthesis_check': 2000,
-  'exarchos_orchestrate.check_coderabbit': 2000,
   'exarchos_orchestrate.check_polish_scope': 2000,
   'exarchos_orchestrate.needs_schema_sync': 2000,
   'exarchos_orchestrate.verify_doc_links': 2000,
@@ -2750,13 +2735,6 @@ const EXPECTED_EFFECTIVE_BUDGETS: Readonly<Record<string, number>> = {
   'exarchos_orchestrate.runbook': 4000,
   'exarchos_orchestrate.agent_spec': 2000,
   'exarchos_orchestrate.doctor': 2000,
-  'exarchos_orchestrate.create_pr': 2000,
-  'exarchos_orchestrate.merge_pr': 2000,
-  'exarchos_orchestrate.check_ci': 2000,
-  'exarchos_orchestrate.list_prs': 2000,
-  'exarchos_orchestrate.get_pr_comments': 2000,
-  'exarchos_orchestrate.add_pr_comment': 2000,
-  'exarchos_orchestrate.create_issue': 2000,
   'exarchos_orchestrate.onboard': 2000,
   'exarchos_orchestrate.invariants_scaffold': 2000,
   'exarchos_orchestrate.invariants_add': 2000,
@@ -3250,71 +3228,6 @@ describe('Task 022 — registry schema batch (DR-1/DR-3/DR-8)', () => {
   }
 
   describe('registrySchemas_EconomyParams_ValidateAndCoerce', () => {
-    /** `limit` and `offset` arrive as numeric strings, and `fields` arrives as a JSON array string. */
-    it('get_pr_comments declares and coerces limit/offset/fields', () => {
-      const schema = findAction('exarchos_orchestrate', 'get_pr_comments').schema;
-      const parsed = schema.safeParse({
-        prId: '42',
-        limit: '20',
-        offset: '5',
-        fields: '["body","author"]',
-      });
-      expect(parsed.success).toBe(true);
-      if (!parsed.success) return;
-      const data = parsed.data as Record<string, unknown>;
-      expect(data.limit).toBe(20);
-      expect(data.offset).toBe(5);
-      expect(data.fields).toEqual(['body', 'author']);
-    });
-
-    /**
-     * `prNumbers` must coerce from a JSON array string, from an array of numeric strings and from a bare CSV string.
-     * `coerceFlags` gives the CSV form for an array flag, and a direct MCP caller can also send it.
-     */
-    it('assess_stack declares comment paging and coerces prNumbers as an int array', () => {
-      const schema = findAction('exarchos_orchestrate', 'assess_stack').schema;
-      const fromJsonString = schema.safeParse({
-        featureId: 'feat-x',
-        prNumbers: '[1660,1671]',
-        limit: '10',
-        offset: '2',
-      });
-      expect(fromJsonString.success).toBe(true);
-      if (fromJsonString.success) {
-        const data = fromJsonString.data as Record<string, unknown>;
-        expect(data.prNumbers).toEqual([1660, 1671]);
-        expect(data.limit).toBe(10);
-        expect(data.offset).toBe(2);
-      }
-      const fromStringElements = schema.safeParse({
-        featureId: 'feat-x',
-        prNumbers: ['1', '2', '3'],
-      });
-      expect(fromStringElements.success).toBe(true);
-      if (fromStringElements.success) {
-        expect((fromStringElements.data as Record<string, unknown>).prNumbers).toEqual([1, 2, 3]);
-      }
-      const fromCsv = schema.safeParse({ featureId: 'feat-x', prNumbers: '1660,1671,1659' });
-      expect(fromCsv.success).toBe(true);
-      if (fromCsv.success) {
-        expect((fromCsv.data as Record<string, unknown>).prNumbers).toEqual([1660, 1671, 1659]);
-      }
-    });
-
-    it('check_coderabbit prNumbers routes through the same coerced int-array', () => {
-      const schema = findAction('exarchos_orchestrate', 'check_coderabbit').schema;
-      const parsed = schema.safeParse({ owner: 'acme', repo: 'app', prNumbers: ['1', '2'] });
-      expect(parsed.success).toBe(true);
-      if (parsed.success) {
-        expect((parsed.data as Record<string, unknown>).prNumbers).toEqual([1, 2]);
-      }
-      const fromCsv = schema.safeParse({ owner: 'acme', repo: 'app', prNumbers: '1,2' });
-      expect(fromCsv.success).toBe(true);
-      if (fromCsv.success) {
-        expect((fromCsv.data as Record<string, unknown>).prNumbers).toEqual([1, 2]);
-      }
-    });
-
     /**
      * The handler reads `detail` and `outputFormat`, so the schema must declare both.
      * Zod strips an undeclared field on the MCP path, and the CLI builds no flag for it.
@@ -3866,7 +3779,20 @@ describe('the closed retired-action table', () => {
     expect(RETIRED_ACTIONS.map((entry) => `${entry.tool}.${entry.action}`)).toEqual([
       'exarchos_orchestrate.mutation-adequacy',
       'exarchos_orchestrate.check_test_adequacy',
+      'exarchos_orchestrate.create_pr',
+      'exarchos_orchestrate.merge_pr',
+      'exarchos_orchestrate.add_pr_comment',
+      'exarchos_orchestrate.create_issue',
+      'exarchos_orchestrate.check_ci',
+      'exarchos_orchestrate.list_prs',
+      'exarchos_orchestrate.get_pr_comments',
+      'exarchos_orchestrate.check_pr_comments',
+      'exarchos_orchestrate.check_coderabbit',
+      'exarchos_orchestrate.validate_pr_stack',
+      'exarchos_orchestrate.assess_stack',
     ]);
+    expect(new Set(RETIRED_ACTIONS.filter((entry) => entry.action !== 'mutation-adequacy' && entry.action !== 'check_test_adequacy').map((entry) => entry.code))).toEqual(new Set(['PROVIDER_WRITE_RETIRED', 'PROVIDER_READ_RETIRED']));
+    expect(RETIRED_ACTIONS.filter((entry) => entry.code === 'PROVIDER_READ_RETIRED').map((entry) => entry.action)).toEqual(['check_ci', 'list_prs', 'get_pr_comments', 'check_pr_comments', 'check_coderabbit', 'validate_pr_stack', 'assess_stack']);
     for (const entry of RETIRED_ACTIONS) {
       const tool = TOOL_REGISTRY.find((candidate) => candidate.name === entry.tool);
       expect(tool, entry.tool).toBeDefined();

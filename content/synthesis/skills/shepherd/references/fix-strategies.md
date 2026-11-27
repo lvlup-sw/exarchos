@@ -5,8 +5,9 @@ How to address common issues found during shepherd assessment.
 ## Decision: Fix Directly vs. Delegate
 
 The `classify_review_items` orchestrate action owns this decision.
-Pass it the `actionItems` from `assess_stack` and consume the
-`recommendation` field on each returned group:
+Pass it the action items that you built from your own reads in Step 1 of
+the shepherd loop, and consume the `recommendation` field on each returned
+group:
 
 - `direct` — handle inline in the shepherd loop
 - `delegate-fixer` — spawn the fixer subagent (batched / HIGH severity)
@@ -61,12 +62,13 @@ These events feed `selfCorrectionRate` and `avgRemediationAttempts` metrics in C
 
 ### Lint / Format
 
-1. Read the failure details via GitHub MCP:
+1. Read the failure details with your own tools, via GitHub MCP:
    ```
    mcp__plugin_github_github__pull_request_read({
      method: "get_status", owner: "<owner>", repo: "<repo>", pullNumber: <number>
    })
    ```
+   or with `gh`: `gh pr checks <number>`, then `gh run view <run-id> --log-failed`.
 2. Checkout the failing branch:
    ```bash
    git checkout <branch-name>
@@ -107,7 +109,7 @@ These events feed `selfCorrectionRate` and `avgRemediationAttempts` metrics in C
 
 If a test passes locally but fails in CI:
 1. Check if it's a known flaky test
-2. Re-run CI: `exarchos_orchestrate({ action: "check_ci", prId: "<number>" })` (or push an empty commit to retrigger)
+2. Read the check state again with your own tools (`gh pr checks <number>`), and re-run the failed jobs (`gh run rerun <run-id> --failed`) or push an empty commit to retrigger
 3. If consistently flaky, fix the test or mark it with a skip annotation and create a follow-up issue
 
 ## Addressing Inline Review Comments
@@ -116,7 +118,7 @@ If a test passes locally but fails in CI:
 
 ### Reading Comments
 
-Read all inline review comments for a PR via GitHub MCP:
+Read all inline review comments for a PR with your own tools, via GitHub MCP (or `gh api --paginate repos/<owner>/<repo>/pulls/<number>/comments`):
 ```
 mcp__plugin_github_github__pull_request_read({
   method: "get_review_comments",
@@ -158,21 +160,22 @@ For each comment, determine the appropriate response:
 
 ### Per-reviewer parsing (Sentry, CodeRabbit, Human, GitHub-Copilot)
 
-Severity normalization and per-reviewer comment parsing live in the
-provider adapters under `servers/exarchos-mcp/src/review/providers/`.
-`assess_stack` dispatches each PR comment through the adapter registry
-and attaches a normalized `ActionItem` (with `normalizedSeverity` and
-`reviewer` fields) to each unresolved comment. Use that signal when
-deciding response strategy below; you do not need to re-parse tier
-markers in the shepherd loop.
+You set the severity of each comment item when you build it from your read.
+Use the marker that the reviewer puts in the comment body:
 
-If a *recognised* reviewer (e.g. CodeRabbit) ships a new severity tier
-that the adapter does not match, the `provider.unknown-tier` event
-surfaces the unrecognised tier marker for follow-up — the comment is
-processed as MEDIUM in the meantime. Unknown *reviewers* (authors that
-don't match any typed adapter) are routed silently to the `unknown`
-adapter and never trigger this event; their comments are also processed
-as MEDIUM by default.
+| Reviewer | Marker | `normalizedSeverity` |
+|----------|--------|----------------------|
+| CodeRabbit | `Potential issue`, or a "Critical" or "Major" heading | `HIGH` |
+| CodeRabbit | `Refactor suggestion` | `MEDIUM` |
+| CodeRabbit | `Verification agent`, or a "Nitpick" or "Minor" heading | `LOW` |
+| Sentry | `CRITICAL` or `HIGH` tag | `HIGH` |
+| Sentry | `MEDIUM` tag | `MEDIUM` |
+| Sentry | `LOW` tag | `LOW` |
+| Human, GitHub Copilot | None | `MEDIUM` |
+| Any reviewer | No known marker | `MEDIUM` |
+
+The severity changes only the dispatch strategy. Every thread still gets a
+reply, whatever its severity.
 
 ### GitHub Actions Bot Comments
 
@@ -207,16 +210,12 @@ git push --force-with-lease
 
 ### Stack Validation
 
-If the stack looks broken, validate its ordering and base-branch consistency:
-```typescript
-exarchos_orchestrate({
-  action: "validate_pr_stack",
-  featureId: "<feature-id>",
-  baseBranch: "<integration-branch>"
-})
+If the stack looks broken, read the base and state of each PR with your own tools:
+```bash
+gh pr list --state all --head <branch> --json number,state,headRefName,baseRefName
 ```
 
-The check reports out-of-order branches or branches targeting the wrong base.
+Each PR must target the branch of the PR below it, and the bottom PR must target the base of the stack.
 Fix a wrong base with `gh pr edit <number> --base <correct-base>`, then resubmit.
 
 ## Commit Strategy for Fixes
@@ -244,7 +243,7 @@ When making fixes to stack branches:
    git push --force-with-lease
    ```
 
-**IMPORTANT:** After pushing, verify auto-merge is still enabled: `gh pr view <number> --json autoMergeRequest` (no MCP equivalent yet — use VCS CLI directly).
+**IMPORTANT:** After pushing, verify auto-merge is still enabled with your own tools: `gh pr view <number> --json autoMergeRequest`.
 
 ## Responding on PRs
 
@@ -262,4 +261,4 @@ mcp__plugin_github_github__add_issue_comment({
   body: "Addressed review feedback:\n- Fixed Sentry bug: ...\n- Replied to DI concern...\n\nAll inline review threads have replies."
 })
 ```
-If the harness cannot post the comment, stop and report. Do not fall back to an Exarchos action. A comment with a lost reply can post twice. Thus before a re-post, read `get_pr_comments` for the PR and follow its offset until `page.hasMore` is false. Skip the re-post only on an exact match by PR, thread and body text. A truncated or failed read stops the re-post.
+If the harness cannot post the comment, stop and report. Do not fall back to an Exarchos action. A comment with a lost reply can post twice. Thus before a re-post, read every page of the PR comments with your own tools (`gh api --paginate`). Skip the re-post only on an exact match by PR, thread and body text. A truncated or failed read stops the re-post.

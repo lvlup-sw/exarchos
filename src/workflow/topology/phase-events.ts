@@ -147,24 +147,9 @@ export const PHASE_EVENT_CONTRACTS: Readonly<Record<string, PhaseEventContract>>
       /** The synthesize playbooks share this wording. */
       {
         type: 'gate.executed',
-        when: 'After pre-synthesis-check.sh and validate-pr-stack.sh',
+        when: 'After pre-synthesis-check.sh',
         emittedBy: 'the synthesis gates',
         fields: ['gateName', 'layer', 'passed'],
-      },
-      {
-        type: 'shepherd.started',
-        when: 'On first assess-stack invocation',
-        emittedBy: 'exarchos_orchestrate assess_stack',
-      },
-      {
-        type: 'shepherd.approval_requested',
-        when: 'When all checks pass and approval is needed',
-        emittedBy: 'exarchos_orchestrate assess_stack',
-      },
-      {
-        type: 'shepherd.completed',
-        when: 'When PR is merged or shepherd resolves',
-        emittedBy: 'exarchos_orchestrate assess_stack',
       },
     ],
   },

@@ -1,10 +1,9 @@
 /**
- * Checks a PR body for its required section headers. The body comes from a
- * string, a file, or a PR number through `gh`.
+ * Checks a PR body text for its required section headers. The body comes from
+ * a string or a file. The handler reads no PR from a provider.
  */
 
 import { extractSectionsFromTemplateText, validateSections } from '../../vcs/pr-observation.js';
-import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import type { ToolResult } from '../../format.js';
 import type { EventStore } from '../../events/store.js';
@@ -12,7 +11,6 @@ import type { WorkflowIntent } from '../../workflow/schemas.js';
 import { readIntent, bodyHasIntentMarker, isMeaningfulIntent } from '../tasks/extract-intent.js';
 
 export interface ValidatePrBodyArgs {
-  readonly pr?: number;
   readonly bodyFile?: string;
   readonly body?: string;
   readonly template?: string;
@@ -34,7 +32,6 @@ interface ValidatePrBodyResult {
   readonly passed: boolean;
   readonly missingSections: readonly string[];
   readonly report: string;
-  readonly skipped?: boolean;
   /**
    * An advisory flag: true when the body refers to `artifacts.intent`. It is
    * present only for a meaningful intent, and it does not change `passed`.
@@ -43,43 +40,9 @@ interface ValidatePrBodyResult {
 }
 
 const DEFAULT_SECTIONS: readonly string[] = ['Summary', 'Changes', 'Test Plan'];
-const SKIP_AUTHORS: readonly string[] = ['renovate[bot]', 'dependabot[bot]'];
 
 function extractSectionsFromTemplate(templatePath: string): readonly string[] {
   return extractSectionsFromTemplateText(readFileSync(templatePath, 'utf-8'));
-}
-
-interface PrData {
-  readonly body: string;
-  readonly author: string;
-  readonly headRef: string;
-}
-
-function fetchPrData(pr: number): PrData {
-  const raw = execFileSync(
-    'gh',
-    ['pr', 'view', String(pr), '--json', 'body,author,headRefName'],
-    { encoding: 'utf-8', timeout: 30_000, stdio: ['pipe', 'pipe', 'pipe'] },
-  );
-  const parsed: unknown = JSON.parse(raw);
-  if (typeof parsed !== 'object' || parsed === null) {
-    throw new Error('Invalid PR data');
-  }
-  const obj = parsed as Record<string, unknown>;
-  const body = typeof obj['body'] === 'string' ? obj['body'] : '';
-  const authorObj = obj['author'];
-  const author =
-    typeof authorObj === 'object' && authorObj !== null && 'login' in authorObj
-      ? String((authorObj as Record<string, unknown>)['login'])
-      : '';
-  const headRef = typeof obj['headRefName'] === 'string' ? obj['headRefName'] : '';
-  return { body, author, headRef };
-}
-
-function shouldSkip(author: string, headRef: string): boolean {
-  if (SKIP_AUTHORS.includes(author)) return true;
-  if (headRef.startsWith('gh-readonly-queue/')) return true;
-  return false;
 }
 
 /**
@@ -99,9 +62,9 @@ function isBodyGroundedInIntent(body: string, intent: WorkflowIntent): boolean {
 }
 
 /**
- * Checks the PR body for the required sections. A bot author or a merge queue
- * branch skips the check. A `template` replaces the default sections with its
- * `##` headers. A meaningful intent adds the advisory grounding line.
+ * Checks the PR body text for the required sections. A `template` replaces the
+ * default sections with its `##` headers. A meaningful intent adds the advisory
+ * grounding line.
  */
 export async function handleValidatePrBody(
   args: ValidatePrBodyArgs,
@@ -109,8 +72,6 @@ export async function handleValidatePrBody(
   eventStore?: EventStore,
 ): Promise<ToolResult> {
   let body: string;
-  let author = '';
-  let headRef = '';
 
   if (args.body !== undefined) {
     body = args.body;
@@ -123,33 +84,11 @@ export async function handleValidatePrBody(
         error: { code: 'FILE_ERROR', message: `Failed to read body file: ${args.bodyFile}` },
       };
     }
-  } else if (args.pr !== undefined) {
-    try {
-      const prData = fetchPrData(args.pr);
-      body = prData.body;
-      author = prData.author;
-      headRef = prData.headRef;
-    } catch {
-      return {
-        success: false,
-        error: { code: 'GH_ERROR', message: `Failed to fetch PR #${args.pr} via gh` },
-      };
-    }
   } else {
     return {
       success: false,
-      error: { code: 'INVALID_INPUT', message: 'No input source provided: specify pr, bodyFile, or body' },
+      error: { code: 'INVALID_INPUT', message: 'No input source provided: specify bodyFile or body' },
     };
-  }
-
-  if (shouldSkip(author, headRef)) {
-    const result: ValidatePrBodyResult = {
-      passed: true,
-      missingSections: [],
-      report: 'Skipped: bot author or merge queue PR.',
-      skipped: true,
-    };
-    return { success: true, data: result };
   }
 
   let requiredSections: readonly string[];

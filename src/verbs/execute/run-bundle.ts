@@ -49,6 +49,7 @@ const HandlerVerdictSchema = z
 
 /**
  * How the handler relates to this run. It was not invoked (with a reason), or replay-elided because earlier rows prove the effect, or invoked with its verdict.
+ * Only a segment with an immutable bound input can elide a leaf.
  */
 export const LeafDispositionSchema = z.discriminatedUnion('kind', [
   z

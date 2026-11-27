@@ -197,14 +197,6 @@ export const READ_ONLY_LOCAL: ActionAnnotations = {
   openWorld: false,
 };
 
-export const READ_ONLY_REMOTE: ActionAnnotations = {
-  safety: 'read-only',
-  readOnly: true,
-  destructive: false,
-  idempotent: true,
-  openWorld: true,
-};
-
 export const LOCAL_MUTATION: ActionAnnotations = {
   safety: 'local-mutation',
   readOnly: false,
@@ -246,14 +238,6 @@ export const COMPENSABLE_REMOTE: ActionAnnotations = {
   safety: 'compensable',
   readOnly: false,
   destructive: true,
-  idempotent: false,
-  openWorld: true,
-};
-
-export const REMOTE_MUTATION: ActionAnnotations = {
-  safety: 'remote-mutation',
-  readOnly: false,
-  destructive: false,
   idempotent: false,
   openWorld: true,
 };

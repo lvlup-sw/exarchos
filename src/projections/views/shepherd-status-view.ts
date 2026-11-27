@@ -184,7 +184,7 @@ function handleCommentResolved(state: ShepherdStatusState, event: WorkflowEvent)
 
 /**
  * Adds 1 for each `shepherd.iteration` event and ignores any `iteration` value in the payload.
- * `countShepherdIterations` uses the same rule, so `shepherd_status` and `ps` agree with the loop count.
+ * This fold is the only iteration count, so the shepherd loop reads its bound from `shepherd_status`.
  */
 function handleShepherdIteration(state: ShepherdStatusState, event: WorkflowEvent): ShepherdStatusState {
   void event;

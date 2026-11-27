@@ -72,7 +72,6 @@ const HEARTBEAT_PATTERN = /\[heartbeat\].*\n/;
 const EXPECTED_LONG_RUNNING_ACTIONS: ReadonlySet<string> = new Set([
   'prepare_synthesis',
   'pre_synthesis_check',
-  'assess_stack',
   'check_static_analysis',
   'check_integration_suite',
   'post_delegation_check',
@@ -106,7 +105,6 @@ const EXTRA_ARGS_PER_ACTION: Record<string, string[]> = {
    * before dispatch, and the test never reaches the heartbeat path.
    */
   prepare_synthesis: ['--repo-root', process.cwd()],
-  assess_stack: ['--pr-numbers', '[1]'],
   check_integration_suite: [],
 };
 
@@ -157,7 +155,7 @@ describe('CLI long-running heartbeat emission (DR-5)', () => {
   });
 
   /** The same test runs for each listed action, so the result does not depend on the registry order. */
-  describe.each(['prepare_synthesis', 'assess_stack', 'check_integration_suite'] as const)(
+  describe.each(['prepare_synthesis', 'check_integration_suite'] as const)(
     'flagged action: %s',
     (actionName) => {
       /**

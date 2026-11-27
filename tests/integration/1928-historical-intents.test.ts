@@ -1,5 +1,5 @@
 // @oracle-sources: persisted SQLite operation membership and original content-addressed run bytes, a separately maintained fake remote creation log, and the frozen S7 request digest recipe
-/** Capture shipped S7 writer behavior before retirement, without contacting a remote service. */
+/** Prove that captured S7 writer custody replays after the retirement of synthesis closeout, without contact with a remote service. */
 import { Database } from 'bun:sqlite';
 import { join } from 'node:path';
 import { writeFile, unlink } from 'node:fs/promises';
@@ -33,7 +33,7 @@ function historicalDigest(args: Record<string, unknown>): string {
     args: Object.keys(args).sort().map(key => [key, args[key]]) })).digest('hex')}`;
 }
 
-/** Only the remote transport is fake. The live compiler, handlers, append/claim and custody store remain real. */
+/** Only the remote transport is fake. The handlers, the append and claim path, and the custody store stay real. */
 async function fixture(seed = true) {
   const state = makeTempDir('1928-history-'); const events = new EventStore(state); await events.initialize();
   closes.push(async () => { events.close(); await rmrfAsync(state); });
@@ -52,52 +52,50 @@ async function fixture(seed = true) {
 }
 
 describe('S7 historical writer provenance', () => {
+  /**
+   * The census of the original S7 writer custody. It reads the frozen terminal and interrupted custody through the retired executor.
+   * The terminal replays its original receipt, and the interrupted run stays incomplete. A fresh operation gets the retired refusal.
+   */
   it('LegacySynthesis_ActualTerminalAndInterruptedCustody', async () => {
-    const f = await fixture(); const operationId = 'history-terminal';
-    const first = await f.run(operationId); expect(first.success, JSON.stringify(first)).toBe(true);
-    const receipt = receiptOf(first);
-    expect(receipt.outcome).toBe('committed'); expect(f.opened).toHaveLength(1);
+    const f = await importedHistory(); const operationId = f.original.operationId;
+    expect(f.saved.requestDigest).toBe(historicalDigest(ARGS));
+    expect(f.saved.args).toEqual(ARGS);
+    expect(operationId).toBe('history-terminal');
+    const receipt = receiptOf({ success: true, data: f.saved.terminal.claim.result });
+    expect(receipt.outcome).toBe('committed');
     expect(receipt.requestDigest).toBe(historicalDigest(ARGS));
     const claim = f.backend.lookupOperationClaim(operationId); if (claim === undefined) throw new Error('Missing actual terminal claim');
     const rows = await f.events.query(STREAM); const vcsRows = await f.events.query('vcs');
     expect(claim.result).toEqual(receipt);
     expect(vcsRows.filter(row => row.operationId === derivedLeafOperationId(operationId, 1, 'create_pr')).map(row => row.type)).toEqual(['pr.create.requested', 'pr.create.executed']);
     const ref = receipt.bundleRefs?.[0]; if (ref === undefined) throw new Error('Missing original run custody');
-    const bytes = await f.events.bundleStore.resolve(ref.digest); const bundle = decodeExecuteIntentBundle(bytes);
+    const bundle = decodeExecuteIntentBundle(await f.events.bundleStore.resolve(ref.digest));
     expect(bundle.requestDigest).toBe(claim.requestDigest); expect(bundle.operationId).toBe(operationId); expect(bundle).not.toHaveProperty('input');
     for (const [index, sequence] of claim.sequences.entries()) {
       const row = rows.find(row => row.sequence === sequence); expect(row).toMatchObject({ eventId: claim.eventIds[index], timestamp: claim.timestamps[index], type: 'orchestrate.intent_executed' });
     }
+    const before = durableSnapshot(f.state);
     const reordered = { headBranch: ARGS.headBranch, baseBranch: ARGS.baseBranch, prBody: ARGS.prBody, title: ARGS.title };
-    expect((await f.run(operationId, reordered)).data).toEqual(receipt);
-    expect(await f.events.query(STREAM)).toEqual(rows); expect(await f.events.query('vcs')).toEqual(vcsRows); expect(f.opened).toHaveLength(1);
+    const replayed = await f.run(operationId, reordered);
+    expect(replayed).toMatchObject({ success: true, data: receipt });
+    expect(await f.events.query(STREAM)).toEqual(rows); expect(await f.events.query('vcs')).toEqual(vcsRows); expect(f.opened).toEqual([]);
     expect(await f.run(operationId, { ...ARGS, title: 'changed' })).toMatchObject({ success: false, error: { code: 'INTENT_REPLAY_DIGEST_MISMATCH' } });
     expect((await f.run(operationId, { ...ARGS, unknown: true })).success).toBe(false);
-    expect(await f.run(operationId, ARGS, true)).toEqual(first);
-    expect(f.opened).toHaveLength(1);
+    expect(await f.run(operationId, ARGS, true)).toEqual(replayed);
+    expect(await f.run('history-fresh', ARGS)).toMatchObject({ success: false, error: { code: 'SYNTHESIS_CLOSEOUT_RETIRED' } });
+    expect(durableSnapshot(f.state)).toEqual(before); expect(f.opened).toEqual([]);
 
-    const interrupted = await fixture(); const interruptedId = 'history-interrupted';
-    const put = interrupted.events.bundleStore.put.bind(interrupted.events.bundleStore); const captured: string[] = [];
-    vi.spyOn(interrupted.events.bundleStore, 'put').mockImplementation(async bytes => { captured.push(Buffer.from(bytes).toString('base64')); return put(bytes); });
-    const appender = interrupted.events.getAppender(); const decide = appender.decideOnce.bind(appender);
-    const fault = vi.spyOn(appender, 'decideOnce').mockImplementation(async (...args) => { if (args[0] === interruptedId) throw new Error('Fixture crash before terminal claim'); return decide(...args); });
-    await expect(interrupted.run(interruptedId)).rejects.toThrow('Fixture crash before terminal claim'); fault.mockRestore();
-    expect(interrupted.opened).toHaveLength(1); expect(interrupted.backend.lookupOperationClaim(interruptedId)).toBeUndefined();
+    const interrupted = await importedHistory(true); const interruptedId = interrupted.original.operationId;
+    expect(interruptedId).toBe('history-interrupted');
+    expect(interrupted.backend.lookupOperationClaim(interruptedId)).toBeUndefined();
     const interruptedRows = await interrupted.events.query(STREAM); const interruptedVcs = await interrupted.events.query('vcs');
     expect(interruptedRows.filter(row => row.type === 'orchestrate.intent_executed')).toHaveLength(0);
     expect(interruptedVcs.map(row => row.type)).toEqual(['pr.create.requested', 'pr.create.executed']);
-    const originalRuns = captured.map(base64 => Buffer.from(base64, 'base64')).filter(value => JSON.parse(value.toString()).kind === 'execute-intent-run');
-    expect(originalRuns).toHaveLength(1);
-    expect(decodeExecuteIntentBundle(originalRuns[0] ?? Buffer.alloc(0)).requestDigest).toBe(historicalDigest(ARGS));
-    const beforeRetry = [...interrupted.opened]; const retry = await interrupted.run(interruptedId);
-    expect(retry).toMatchObject({ success: false, error: { code: 'INTENT_HISTORY_INCOMPLETE' } }); expect(interrupted.opened).toEqual(beforeRetry);
+    expect(decodeExecuteIntentBundle(interrupted.bytes).requestDigest).toBe(historicalDigest(ARGS));
+    const retry = await interrupted.run(interruptedId);
+    expect(retry).toMatchObject({ success: false, error: { code: 'INTENT_HISTORY_INCOMPLETE' } }); expect(interrupted.opened).toEqual([]);
     expect(interrupted.backend.lookupOperationClaim(interruptedId)).toBeUndefined();
     expect(await interrupted.events.query('vcs')).toEqual(interruptedVcs);
-    const saved = frozenHistory();
-    expect(saved.requestDigest).toBe(historicalDigest(ARGS));
-    expect(saved.args).toEqual(ARGS);
-    expect(saved.terminal.operationId).toBe(operationId);
-    expect(saved.interrupted.operationId).toBe(interruptedId);
   });
 
   it('FrozenS7_OriginalMembershipDigestAndInterruptedBoundary', async () => {
@@ -125,16 +123,24 @@ describe('S7 historical writer provenance', () => {
   });
 });
 
+/** One captured custody: its rows, its original run bytes, and its terminal claim when one exists. */
+interface CapturedCustody {
+  readonly operationId: string;
+  readonly rows: readonly Record<string, unknown>[];
+  readonly vcsRows: readonly Record<string, unknown>[];
+  readonly runBytesBase64: string;
+  readonly claim: ReturnType<typeof frozenHistory>['terminal']['claim'] | null;
+}
+
 /** Import original members and run bytes. SQL envelope serialization is reconstructed from captured values, not recaptured. */
-async function importedHistory(interrupted = false) {
-  const saved = frozenHistory(); const f = await fixture(false);
-  const original = interrupted ? saved.interrupted : saved.terminal;
+async function importedCustody(original: CapturedCustody) {
+  const f = await fixture(false);
   const rows = [...original.rows, ...original.vcsRows].map(row => WorkflowEventBase.passthrough().parse(row));
   for (const row of rows) f.backend.appendEvent(row.streamId, row);
   const bytes = Buffer.from(original.runBytesBase64, 'base64');
   const digest = await f.events.bundleStore.put(bytes);
-  if (!interrupted) {
-    const claim = saved.terminal.claim;
+  const claim = original.claim;
+  if (claim !== null) {
     const members = claim.sequences.map((sequence, i) => {
       const matches = rows.filter(row => row.streamId === claim.streamId && row.sequence === sequence && row.eventId === claim.eventIds[i] && row.timestamp === claim.timestamps[i]);
       expect(matches).toHaveLength(1); return matches[0];
@@ -147,7 +153,14 @@ async function importedHistory(interrupted = false) {
     expect(f.backend.lookupOperationClaim(original.operationId)).toEqual(claim);
     expect(receiptOf({ success: true, data: claim.result }).bundleRefs?.[0]?.digest).toEqual(digest);
   }
-  return { ...f, original, saved, bytes, digest, blobPath: join(f.state, 'run-bundles', digest.algorithm, digest.value.slice(0, 2), digest.value.slice(2)) };
+  return { ...f, original, bytes, digest, blobPath: join(f.state, 'run-bundles', digest.algorithm, digest.value.slice(0, 2), digest.value.slice(2)) };
+}
+
+/** Import the frozen terminal custody, or the frozen interrupted custody, which has no terminal claim. */
+async function importedHistory(interrupted = false) {
+  const saved = frozenHistory();
+  const original = interrupted ? { ...saved.interrupted, claim: null } : saved.terminal;
+  return { ...(await importedCustody(original)), saved };
 }
 
 /** Capture all durable rows and claims, including their exact serialized payloads, without synthesizing a projection. */
@@ -175,15 +188,17 @@ describe('historical terminal admission without live compilation', () => {
     expect(await f.events.bundleStore.resolve(f.digest)).toEqual(f.bytes);
   });
 
-  it('UnfinishedOriginal_RefusesWithLiveAndRetiredCompiler_EmptyFreshRemainsLive', async () => {
+  /** An unfinished original stays incomplete. A fresh operation, with valid or malformed arguments, gets the retired refusal and writes nothing. */
+  it('UnfinishedOriginal_RefusesIncomplete_FreshOperationGetsTheRetiredRefusal', async () => {
     const f = await importedHistory(true); const before = durableSnapshot(f.state);
     for (const retired of [false, true]) expect(await f.run(f.original.operationId, ARGS, retired)).toMatchObject({ success: false, error: { code: 'INTENT_HISTORY_INCOMPLETE' } });
     expect(durableSnapshot(f.state)).toEqual(before); expect(f.opened).toEqual([]);
-    expect(await f.run('new-retired-operation', ARGS, true)).toMatchObject({ success: false, error: { code: 'INTENT_UNKNOWN' } });
-    expect(durableSnapshot(f.state)).toEqual(before);
-    expect(await f.run('new-live-malformed', {})).toMatchObject({ success: false, error: { code: 'INTENT_ARGS_INVALID' } });
-    expect(durableSnapshot(f.state)).toEqual(before);
-    expect((await f.run('new-live-operation')).success).toBe(true); expect(f.opened).toHaveLength(1);
+    const fresh: readonly (readonly [string, Record<string, unknown>, boolean])[] = [['new-retired-operation', ARGS, true], ['new-malformed', {}, false], ['new-operation', ARGS, false]];
+    for (const [operationId, args, retired] of fresh) {
+      expect(await f.run(operationId, args, retired)).toMatchObject({ success: false, error: { code: 'SYNTHESIS_CLOSEOUT_RETIRED' } });
+      expect(durableSnapshot(f.state)).toEqual(before);
+    }
+    expect(f.opened).toEqual([]);
   });
 
   it('PhysicalCustodyCorruption_NoFallbackNoMutation', async () => {
@@ -251,11 +266,12 @@ describe('historical terminal admission without live compilation', () => {
     }
   });
 
+  /** The frozen failed terminal replays its original failure carrier, and no call writes a row or opens a PR. */
   it('OriginalFailedTerminal_PreservesFailureCarrierWithoutCompiler', async () => {
-    const f = await fixture(); const args = { ...ARGS, prBody: 'Missing required sections' };
-    const original = await f.run('original-failed-body', args); expect(original.success).toBe(false);
-    expect(receiptOf(original).outcome).toBe('failed'); const before = durableSnapshot(f.state);
-    expect(await f.run('original-failed-body', args, true)).toEqual(original);
+    const saved = frozenFailedHistory(); const f = await importedCustody(saved);
+    expect(receiptOf(saved.result).outcome).toBe('failed'); expect(saved.vcsRows).toEqual([]);
+    const before = durableSnapshot(f.state);
+    for (const retired of [false, true]) expect(await f.run(saved.operationId, saved.args, retired)).toEqual(saved.result);
     expect(durableSnapshot(f.state)).toEqual(before); expect(f.opened).toEqual([]);
   });
 });
@@ -272,6 +288,212 @@ function frozenHistory() {
     interrupted: z.object({ operationId: z.string(), terminalClaim: z.null(), rows: z.array(row), vcsRows: z.array(row), runBytesBase64: z.string(), retry: z.object({ data: z.unknown() }), postRetryClaim: claim, postRetryRows: z.array(row) }),
   }).parse(JSON.parse(originalBytes.toString('utf8')));
 }
+
+/** Parse the frozen failed terminal without regenerating original event IDs, timestamps or content-addressed bytes. */
+function frozenFailedHistory() {
+  const originalBytes = Buffer.from(FROZEN_FAILED_HISTORY_JSON, 'utf8');
+  expect(createHash('sha256').update(originalBytes).digest('hex')).toBe('8f0e0dea840b0c6a776d22459c524c4355ca6bb7960e666ad9b193ac56272e6a');
+  const row = z.object({ sequence: z.number(), eventId: z.string(), timestamp: z.string(), operationId: z.string().optional(), type: z.string() }).passthrough();
+  const claim = z.object({ streamId: z.string(), requestDigest: z.string(), result: z.unknown(), sequences: z.array(z.number()), eventIds: z.array(z.string()), timestamps: z.array(z.string()) });
+  const result = z.object({ success: z.boolean(), data: z.unknown(), error: z.object({ code: z.string(), message: z.string() }).passthrough() }).passthrough();
+  const parsed = z.object({
+    capturedFrom: z.string(), intent: z.literal(INTENT), streamId: z.literal(STREAM), args: z.record(z.string(), z.unknown()), requestDigest: z.string(),
+    operationId: z.string(), result, claim, rows: z.array(row), vcsRows: z.array(row), runBytesBase64: z.string(),
+  }).parse(JSON.parse(originalBytes.toString('utf8')));
+  expect(parsed.capturedFrom).toBe('64a9cf732c1eaf30873d08e177c3c1a093343b7b');
+  expect(parsed.requestDigest).toBe(historicalDigest(parsed.args));
+  return parsed;
+}
+
+/**
+ * The original failed terminal, captured from the last revision that compiled synthesis closeout.
+ * The hash in frozenFailedHistory prevents silent recapture or normalization.
+ */
+const FROZEN_FAILED_HISTORY_JSON = String.raw`{
+  "capturedFrom": "64a9cf732c1eaf30873d08e177c3c1a093343b7b",
+  "intent": "synthesis-closeout",
+  "streamId": "historical-s7-writer",
+  "args": {
+    "title": "feat: retain original writer custody",
+    "prBody": "Missing required sections",
+    "baseBranch": "main",
+    "headBranch": "feature/history"
+  },
+  "requestDigest": "sha256:124aaeacb1c339cc00c9d9cff299a845ffd229a177fa1ce695f438ee207c5c7e",
+  "operationId": "original-failed-body",
+  "result": {
+    "success": false,
+    "data": {
+      "operationId": "original-failed-body",
+      "intent": "synthesis-closeout",
+      "outcome": "failed",
+      "leaves": [
+        {
+          "action": "validate_pr_body",
+          "status": "failed",
+          "events": []
+        }
+      ],
+      "failedLeaf": "validate_pr_body",
+      "tailSequence": 0,
+      "requestDigest": "sha256:124aaeacb1c339cc00c9d9cff299a845ffd229a177fa1ce695f438ee207c5c7e",
+      "failure": {
+        "code": "INTENT_SEGMENT_FAILED",
+        "message": "leaf 'validate_pr_body' failed: PR body is missing required section(s): Summary, Changes, Test Plan. PR body validation failed.\n  Missing: ## Summary\n  Missing: ## Changes\n  Missing: ## Test Plan\n\nRequired sections: Summary, Changes, Test Plan"
+      },
+      "interaction": {
+        "leavesExecuted": 1,
+        "eventsAppended": 0,
+        "requests": 1,
+        "deferred": [
+          "correction-call-rate",
+          "schema-rediscovery",
+          "tokens-net-of-refetch",
+          "suspensions"
+        ]
+      },
+      "bundleRefs": [
+        {
+          "artifactId": "run-bundle:execute-intent-run:original-failed-body",
+          "digest": {
+            "algorithm": "sha256",
+            "value": "28be35e49be98673943d562f8752e1911ee4c3cb26d1244e48da65facb45c09f"
+          }
+        }
+      ]
+    },
+    "error": {
+      "code": "INTENT_SEGMENT_FAILED",
+      "message": "leaf 'validate_pr_body' failed: PR body is missing required section(s): Summary, Changes, Test Plan. PR body validation failed.\n  Missing: ## Summary\n  Missing: ## Changes\n  Missing: ## Test Plan\n\nRequired sections: Summary, Changes, Test Plan",
+      "intentReceipt": {
+        "operationId": "original-failed-body",
+        "outcome": "failed",
+        "failedLeaf": "validate_pr_body",
+        "tailSequence": 0,
+        "bundleRefs": [
+          {
+            "artifactId": "run-bundle:execute-intent-run:original-failed-body",
+            "digest": {
+              "algorithm": "sha256",
+              "value": "28be35e49be98673943d562f8752e1911ee4c3cb26d1244e48da65facb45c09f"
+            }
+          }
+        ],
+        "leaves": [
+          {
+            "action": "validate_pr_body",
+            "status": "failed",
+            "events": 0
+          }
+        ]
+      }
+    }
+  },
+  "claim": {
+    "streamId": "historical-s7-writer",
+    "requestDigest": "sha256:124aaeacb1c339cc00c9d9cff299a845ffd229a177fa1ce695f438ee207c5c7e",
+    "result": {
+      "operationId": "original-failed-body",
+      "intent": "synthesis-closeout",
+      "outcome": "failed",
+      "leaves": [
+        {
+          "action": "validate_pr_body",
+          "status": "failed",
+          "events": []
+        }
+      ],
+      "failedLeaf": "validate_pr_body",
+      "tailSequence": 0,
+      "requestDigest": "sha256:124aaeacb1c339cc00c9d9cff299a845ffd229a177fa1ce695f438ee207c5c7e",
+      "failure": {
+        "code": "INTENT_SEGMENT_FAILED",
+        "message": "leaf 'validate_pr_body' failed: PR body is missing required section(s): Summary, Changes, Test Plan. PR body validation failed.\n  Missing: ## Summary\n  Missing: ## Changes\n  Missing: ## Test Plan\n\nRequired sections: Summary, Changes, Test Plan"
+      },
+      "interaction": {
+        "leavesExecuted": 1,
+        "eventsAppended": 0,
+        "requests": 1,
+        "deferred": [
+          "correction-call-rate",
+          "schema-rediscovery",
+          "tokens-net-of-refetch",
+          "suspensions"
+        ]
+      },
+      "bundleRefs": [
+        {
+          "artifactId": "run-bundle:execute-intent-run:original-failed-body",
+          "digest": {
+            "algorithm": "sha256",
+            "value": "28be35e49be98673943d562f8752e1911ee4c3cb26d1244e48da65facb45c09f"
+          }
+        }
+      ]
+    },
+    "eventIds": [
+      "be5433ab-e08a-4ec5-b481-ca6278564344"
+    ],
+    "sequences": [
+      2
+    ],
+    "timestamps": [
+      "2026-11-23T22:22:36.762Z"
+    ]
+  },
+  "rows": [
+    {
+      "streamId": "historical-s7-writer",
+      "timestamp": "2026-11-23T22:22:36.738Z",
+      "type": "workflow.started",
+      "schemaVersion": "1.0",
+      "data": {
+        "featureId": "historical-s7-writer",
+        "workflowType": "feature",
+        "phase": "synthesize",
+        "phaseAttemptId": "phase-attempt:historical-s7-writer"
+      },
+      "sequence": 1,
+      "eventId": "60d31db8-9f68-418d-b854-d7d6aa9e4a60"
+    },
+    {
+      "type": "orchestrate.intent_executed",
+      "data": {
+        "operationId": "original-failed-body",
+        "intent": "synthesis-closeout",
+        "outcome": "failed",
+        "failedLeaf": "validate_pr_body",
+        "leaves": [
+          {
+            "action": "validate_pr_body",
+            "status": "failed",
+            "sequences": []
+          }
+        ],
+        "requestDigest": "sha256:124aaeacb1c339cc00c9d9cff299a845ffd229a177fa1ce695f438ee207c5c7e",
+        "bundleRefs": [
+          {
+            "artifactId": "run-bundle:execute-intent-run:original-failed-body",
+            "digest": {
+              "algorithm": "sha256",
+              "value": "28be35e49be98673943d562f8752e1911ee4c3cb26d1244e48da65facb45c09f"
+            }
+          }
+        ]
+      },
+      "timestamp": "2026-11-23T22:22:36.762Z",
+      "schemaVersion": "1.1",
+      "operationId": "8acbbe14-841c-4e96-b023-738a65f8a5c1",
+      "correlationId": "8acbbe14-841c-4e96-b023-738a65f8a5c1",
+      "streamId": "historical-s7-writer",
+      "sequence": 2,
+      "eventId": "be5433ab-e08a-4ec5-b481-ca6278564344"
+    }
+  ],
+  "vcsRows": [],
+  "runBytesBase64": "eyJidW5kbGVWZXJzaW9uIjoiMS4wIiwiZmFpbGVkTGVhZiI6InZhbGlkYXRlX3ByX2JvZHkiLCJmYWlsdXJlIjp7ImNvZGUiOiJJTlRFTlRfU0VHTUVOVF9GQUlMRUQiLCJtZXNzYWdlIjoibGVhZiAndmFsaWRhdGVfcHJfYm9keScgZmFpbGVkOiBQUiBib2R5IGlzIG1pc3NpbmcgcmVxdWlyZWQgc2VjdGlvbihzKTogU3VtbWFyeSwgQ2hhbmdlcywgVGVzdCBQbGFuLiBQUiBib2R5IHZhbGlkYXRpb24gZmFpbGVkLlxuICBNaXNzaW5nOiAjIyBTdW1tYXJ5XG4gIE1pc3Npbmc6ICMjIENoYW5nZXNcbiAgTWlzc2luZzogIyMgVGVzdCBQbGFuXG5cblJlcXVpcmVkIHNlY3Rpb25zOiBTdW1tYXJ5LCBDaGFuZ2VzLCBUZXN0IFBsYW4ifSwiaW50ZW50Ijoic3ludGhlc2lzLWNsb3Nlb3V0IiwiaW50ZXJhY3Rpb24iOnsiZGVmZXJyZWQiOlsiY29ycmVjdGlvbi1jYWxsLXJhdGUiLCJzY2hlbWEtcmVkaXNjb3ZlcnkiLCJ0b2tlbnMtbmV0LW9mLXJlZmV0Y2giLCJzdXNwZW5zaW9ucyJdLCJldmVudHNBcHBlbmRlZCI6MCwibGVhdmVzRXhlY3V0ZWQiOjEsInJlcXVlc3RzIjoxfSwia2luZCI6ImV4ZWN1dGUtaW50ZW50LXJ1biIsImxlYXZlcyI6W3siYWN0aW9uIjoidmFsaWRhdGVfcHJfYm9keSIsImFyZ3MiOnsiYm9keSI6Ik1pc3NpbmcgcmVxdWlyZWQgc2VjdGlvbnMiLCJlbmZvcmNlIjp0cnVlLCJmZWF0dXJlSWQiOiJoaXN0b3JpY2FsLXM3LXdyaXRlciJ9LCJkaXNwb3NpdGlvbiI6eyJoYW5kbGVyIjp7ImVycm9yIjp7ImNvZGUiOiJQUl9CT0RZX0lOQ09NUExFVEUiLCJtZXNzYWdlIjoiUFIgYm9keSBpcyBtaXNzaW5nIHJlcXVpcmVkIHNlY3Rpb24ocyk6IFN1bW1hcnksIENoYW5nZXMsIFRlc3QgUGxhbi4gUFIgYm9keSB2YWxpZGF0aW9uIGZhaWxlZC5cbiAgTWlzc2luZzogIyMgU3VtbWFyeVxuICBNaXNzaW5nOiAjIyBDaGFuZ2VzXG4gIE1pc3Npbmc6ICMjIFRlc3QgUGxhblxuXG5SZXF1aXJlZCBzZWN0aW9uczogU3VtbWFyeSwgQ2hhbmdlcywgVGVzdCBQbGFuIn0sInN1Y2Nlc3MiOmZhbHNlfSwia2luZCI6Imludm9rZWQifSwiZW5kZWRBdCI6IjIwMjYtMTEtMjNUMjI6MjI6MzYuNzU2WiIsImV2ZW50cyI6W10sImluZGV4IjowLCJvYnNlcnZhdGlvblN0cmVhbUlkIjoiaGlzdG9yaWNhbC1zNy13cml0ZXIiLCJvbkZhaWwiOiJzdG9wIiwic3RhcnRlZEF0IjoiMjAyNi0xMS0yM1QyMjoyMjozNi43NTNaIiwidG9vbCI6ImV4YXJjaG9zX29yY2hlc3RyYXRlIiwidmVyZGljdCI6eyJmYWlsdXJlIjp7ImNvZGUiOiJJTlRFTlRfU0VHTUVOVF9GQUlMRUQiLCJtZXNzYWdlIjoibGVhZiAndmFsaWRhdGVfcHJfYm9keScgZmFpbGVkOiBQUiBib2R5IGlzIG1pc3NpbmcgcmVxdWlyZWQgc2VjdGlvbihzKTogU3VtbWFyeSwgQ2hhbmdlcywgVGVzdCBQbGFuLiBQUiBib2R5IHZhbGlkYXRpb24gZmFpbGVkLlxuICBNaXNzaW5nOiAjIyBTdW1tYXJ5XG4gIE1pc3Npbmc6ICMjIENoYW5nZXNcbiAgTWlzc2luZzogIyMgVGVzdCBQbGFuXG5cblJlcXVpcmVkIHNlY3Rpb25zOiBTdW1tYXJ5LCBDaGFuZ2VzLCBUZXN0IFBsYW4ifSwic3RhdHVzIjoiZmFpbGVkIn19XSwib3BlcmF0aW9uSWQiOiJvcmlnaW5hbC1mYWlsZWQtYm9keSIsIm91dGNvbWUiOiJmYWlsZWQiLCJyZXF1ZXN0RGlnZXN0Ijoic2hhMjU2OjEyNGFhZWFjYjFjMzM5Y2MwMGM5ZDljZmYyOTlhODQ1ZmZkMjI5YTE3N2ZhMWNlNjk1ZjQzOGVlMjA3YzVjN2UiLCJzdHJlYW1JZCI6Imhpc3RvcmljYWwtczctd3JpdGVyIiwidGFpbFNlcXVlbmNlIjowfQo="
+}
+`;
 
 /** Original capture06 file bytes. The hash in frozenHistory prevents silent recapture or normalization. */
 const FROZEN_HISTORY_JSON = String.raw`{

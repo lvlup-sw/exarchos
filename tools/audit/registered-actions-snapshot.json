@@ -4,7 +4,7 @@
   "counts": {
     "tools": 5,
     "visibleTools": 4,
-    "actions": 126,
+    "actions": 115,
     "eventTypes": 186
   },
   "tools": [
@@ -23,12 +23,8 @@
       "hidden": false,
       "actions": [
         "acquire_worktree",
-        "add_pr_comment",
         "agent_spec",
         "assess_refactor_scope",
-        "assess_stack",
-        "check_ci",
-        "check_coderabbit",
         "check_context_economy",
         "check_contract_drift",
         "check_convergence",
@@ -43,7 +39,6 @@
         "check_plan_coverage",
         "check_polish_scope",
         "check_post_merge",
-        "check_pr_comments",
         "check_provenance_chain",
         "check_review_verdict",
         "check_security_scan",
@@ -51,8 +46,6 @@
         "check_task_decomposition",
         "check_workflow_determinism",
         "classify_review_items",
-        "create_issue",
-        "create_pr",
         "cutover_decide",
         "cutover_readiness",
         "debug_review_gate",
@@ -64,14 +57,11 @@
         "extract_task",
         "finalize_oneshot",
         "generate_traceability",
-        "get_pr_comments",
         "invariants_add",
         "invariants_amend",
         "invariants_scaffold",
         "investigation_timer",
-        "list_prs",
         "merge_orchestrate",
-        "merge_pr",
         "needs_schema_sync",
         "onboard",
         "post_delegation_check",
@@ -100,7 +90,6 @@
         "task_complete",
         "task_fail",
         "validate_pr_body",
-        "validate_pr_stack",
         "verify_delegation_saga",
         "verify_doc_links",
         "verify_review_triage",
@@ -317,12 +306,12 @@
     },
     {
       "type": "ci.check_observed",
-      "lifecycle": "active",
+      "lifecycle": "retired",
       "tier": "capability"
     },
     {
       "type": "ci.status",
-      "lifecycle": "active",
+      "lifecycle": "retired",
       "tier": "capability"
     },
     {
@@ -471,13 +460,13 @@
     },
     {
       "type": "issue.create.executed",
-      "lifecycle": "active",
+      "lifecycle": "retired",
       "tier": "substrate",
       "rationale": "operation-record"
     },
     {
       "type": "issue.create.requested",
-      "lifecycle": "active",
+      "lifecycle": "retired",
       "tier": "substrate",
       "rationale": "operation-record"
     },
@@ -625,13 +614,13 @@
     },
     {
       "type": "pr.comment.executed",
-      "lifecycle": "active",
+      "lifecycle": "retired",
       "tier": "substrate",
       "rationale": "operation-record"
     },
     {
       "type": "pr.comment.requested",
-      "lifecycle": "active",
+      "lifecycle": "retired",
       "tier": "substrate",
       "rationale": "operation-record"
     },
@@ -643,13 +632,13 @@
     },
     {
       "type": "pr.create.executed",
-      "lifecycle": "active",
+      "lifecycle": "retired",
       "tier": "substrate",
       "rationale": "operation-record"
     },
     {
       "type": "pr.create.requested",
-      "lifecycle": "active",
+      "lifecycle": "retired",
       "tier": "substrate",
       "rationale": "operation-record"
     },
@@ -661,7 +650,7 @@
     },
     {
       "type": "pr.merged",
-      "lifecycle": "active",
+      "lifecycle": "retired",
       "tier": "substrate",
       "rationale": "operation-record"
     },
@@ -697,13 +686,13 @@
     },
     {
       "type": "provider.parse-error",
-      "lifecycle": "active",
+      "lifecycle": "retired",
       "tier": "substrate",
       "rationale": "operation-record"
     },
     {
       "type": "provider.unknown-tier",
-      "lifecycle": "active",
+      "lifecycle": "retired",
       "tier": "substrate",
       "rationale": "operation-record"
     },
@@ -784,18 +773,18 @@
     },
     {
       "type": "shepherd.approval_requested",
-      "lifecycle": "active",
-      "tier": "capability"
+      "lifecycle": "retired",
+      "tier": "workflow-local"
     },
     {
       "type": "shepherd.completed",
-      "lifecycle": "active",
-      "tier": "capability"
+      "lifecycle": "retired",
+      "tier": "workflow-local"
     },
     {
       "type": "shepherd.escalated",
-      "lifecycle": "active",
-      "tier": "capability"
+      "lifecycle": "retired",
+      "tier": "workflow-local"
     },
     {
       "type": "shepherd.iteration",
@@ -804,8 +793,8 @@
     },
     {
       "type": "shepherd.started",
-      "lifecycle": "active",
-      "tier": "capability"
+      "lifecycle": "retired",
+      "tier": "workflow-local"
     },
     {
       "type": "spec.legacy_capabilities_array",

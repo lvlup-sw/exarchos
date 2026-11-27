@@ -71,33 +71,11 @@ export const PlanClosureArgs = z
   })
   .strict();
 
-/**
- * Arguments for `synthesis-closeout`: validate the PR body, then open the PR.
- * `prBody` binds to the `body` parameter of both leaves, so they cannot get different texts.
- * `create_pr` can append an `## Intent` section from a captured intent. The body leaf gets
- * `body`, not `pr`, so it does not read the body back from the remote. `title`, `baseBranch`
- * and `headBranch` are required, because the `create_pr` schema requires them.
- *
- * Preconditions: the phase must admit the leaves, and the stream must not own a PR yet. After
- * a committed receipt, the caller must patch `artifacts.pr` or `synthesis.prUrl` from the
- * receipt URL. The projection does not set them, and the workflow cannot leave synthesize
- * without them.
- */
-export const SynthesisCloseoutArgs = z
-  .object({
-    title: z.string().min(1),
-    prBody: z.string().min(1),
-    baseBranch: z.string().min(1),
-    headBranch: z.string().min(1),
-  })
-  .strict();
-
 /** Intent id → the schema its `args` must satisfy. */
 export type IntentArgSchemas = Readonly<Record<string, z.ZodObject<z.ZodRawShape>>>;
 
 export const INTENT_ARG_SCHEMAS: IntentArgSchemas = {
   'task-completion': TaskCompletionArgs,
   'quality-evaluation': QualityEvaluationArgs,
-  'synthesis-closeout': SynthesisCloseoutArgs,
   'plan-closeout': PlanClosureArgs,
 };

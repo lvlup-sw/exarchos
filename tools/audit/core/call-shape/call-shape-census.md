@@ -12,7 +12,7 @@ Counts read `fixed + k*tasks + m*prs`. The N=1 columns set every loop variable t
 | delegation | transition delegate -> review | 4 | 4 | phase-not-moved: 5 (5)<br>corrective-capsule: 3 (3)<br>settlement-rejected: 3 (3)<br>recompile-required: 4 (4)<br>deviation-pending: 3 (3)<br>design-revised: 3 (3)<br>material-revision: 5 (5)<br>context-compaction: 7 (7)<br>integration-advanced: 4 (4)<br>integration-advanced-rollback: 4 (4) | 0 | 2 | 4 | 2*tasks |
 | task-completion | task_complete records the task complete | 5 | 5 | gate-failure-fix: 6 (6) | 0 | 1 | 1 | 0 |
 | review | transition review -> synthesize | 9 | 9 | needs-fixes: 8 (8) | 0 | 3 | 2 | 1 |
-| synthesis | human checkpoint: merge the stack | 3 + 2*prs | 5 | pr-body-invalid: 4 + 2*prs (6)<br>readiness-fails: 1 (1) | 0 | 1 | 4 | 1*prs |
+| synthesis | human checkpoint: merge the stack | 2 + 2*prs | 4 | pr-body-invalid: 3 + 2*prs (5)<br>readiness-fails: 1 (1) | 0 | 1 | 4 | 1*prs |
 
 ## plan
 
@@ -124,22 +124,21 @@ Exception `needs-fixes`: the verdict is NEEDS_FIXES, so the failure is recorded 
 
 ## synthesis
 
-Ends at: human checkpoint: merge the stack (`content/synthesis/skills/synthesize/SKILL.md:149`)
+Ends at: human checkpoint: merge the stack (`content/synthesis/skills/synthesize/SKILL.md:150`)
 
-1. `exarchos_orchestrate.runbook` (runbook-fetch) `content/synthesis/skills/synthesize/SKILL.md:53`
-2. `exarchos_orchestrate.prepare_synthesis` (work) `content/synthesis/skills/synthesize/SKILL.md:61`
-3. `native:Bash` (native, perPr) `content/synthesis/skills/synthesize/SKILL.md:94`
-4. `exarchos_orchestrate.validate_pr_body` (work, perPr) `content/synthesis/skills/synthesize/SKILL.md:114`
-5. `exarchos_orchestrate.list_prs` (work) `content/synthesis/skills/synthesize/SKILL.md:129`
-6. `exarchos_workflow.update` (work, perPr) `content/synthesis/skills/synthesize/SKILL.md:133`
-7. `exarchos_event.append` (work) `content/synthesis/skills/synthesize/SKILL.md:160`
+1. `exarchos_orchestrate.runbook` (runbook-fetch) `content/synthesis/skills/synthesize/SKILL.md:54`
+2. `exarchos_orchestrate.prepare_synthesis` (work) `content/synthesis/skills/synthesize/SKILL.md:62`
+3. `native:Bash` (native, perPr) `content/synthesis/skills/synthesize/SKILL.md:95`
+4. `exarchos_orchestrate.validate_pr_body` (work, perPr) `content/synthesis/skills/synthesize/SKILL.md:115`
+5. `exarchos_workflow.update` (work, perPr) `content/synthesis/skills/synthesize/SKILL.md:134`
+6. `exarchos_event.append` (work) `content/synthesis/skills/synthesize/SKILL.md:161`
 
-Exception `pr-body-invalid`: a PR body fails validation, so it is fixed and validated again (`content/synthesis/skills/synthesize/SKILL.md:120`)
+Exception `pr-body-invalid`: a PR body fails validation, so it is fixed and validated again (`content/synthesis/skills/synthesize/SKILL.md:121`)
 
 - Runs the whole normal path, adds `exarchos_orchestrate.validate_pr_body`.
-- Exarchos 4 + 2*prs; describe 0; runbook fetch 1; harness 1*prs.
+- Exarchos 3 + 2*prs; describe 0; runbook fetch 1; harness 1*prs.
 
-Exception `readiness-fails`: the readiness check fails, so synthesis returns to an earlier phase (`content/synthesis/skills/synthesize/SKILL.md:83`)
+Exception `readiness-fails`: the readiness check fails, so synthesis returns to an earlier phase (`content/synthesis/skills/synthesize/SKILL.md:84`)
 
 - Runs the normal path through `exarchos_orchestrate.prepare_synthesis`, adds no named call.
 - Exarchos 1; describe 0; runbook fetch 1; harness 0.
@@ -147,7 +146,7 @@ Exception `readiness-fails`: the readiness check fails, so synthesis returns to 
 ## Findings
 
 - No located call names an unregistered action.
-- synthesis fetches runbook synthesis-flow at `content/synthesis/skills/synthesize/SKILL.md:53` but spells a different path. Only in the runbook: `exarchos_orchestrate.validate_pr_stack`, `native:bash.gh_pr_create`. Only in the prose: `exarchos_orchestrate.list_prs`, `exarchos_workflow.update`, `native:Bash`.
+- synthesis fetches runbook synthesis-flow at `content/synthesis/skills/synthesize/SKILL.md:54` but spells a different path. Only in the runbook: `native:bash.gh_pr_create`. Only in the prose: `exarchos_workflow.update`, `native:Bash`.
 
 ## Scope
 
@@ -160,10 +159,10 @@ Exception `readiness-fails`: the readiness check fails, so synthesis returns to 
 
 ## Pins
 
-- Registry: 126 actions over 5 tools (4 visible), action ids sha256 `f4dabc9931efc654c31d78ae1aaa9ab46a6c3df2abe60ba2a8cec35c612abeef` from `tools/audit/registered-actions-snapshot.json`.
-- Contract authority `action-id-registry` digest `sha256:f4dabc9931efc654c31d78ae1aaa9ab46a6c3df2abe60ba2a8cec35c612abeef` from `src/contract/contract-authority.lock.json`.
+- Registry: 115 actions over 5 tools (4 visible), action ids sha256 `a0f8c04aae03eb90e02d16d35d6c01532e54f83982fde8a726a73a4a3aa8e520` from `tools/audit/registered-actions-snapshot.json`.
+- Contract authority `action-id-registry` digest `sha256:a0f8c04aae03eb90e02d16d35d6c01532e54f83982fde8a726a73a4a3aa8e520` from `src/contract/contract-authority.lock.json`.
 - `content/delivery/skills/delegate/SKILL.md` sha256 `0d6c5565ed2f8ce56378d7a7cd649938acd5effc39f55067d6af9fe546ea8c95`
 - `content/design/skills/plan/SKILL.md` sha256 `6d7b658968132f43ebe1e174c8187d9223177c1312c5bf435323968a5e02674a`
 - `content/review/skills/review/SKILL.md` sha256 `4cd725350933698f5491d7aff5ccc726a36d05f8b4fcf7e289fa83dd3365907c`
-- `content/synthesis/skills/synthesize/SKILL.md` sha256 `7d3615135412050a17582d34bd05c92e0f0305f1031a1121aea136ba8441b465`
-- `src/runbooks/definitions.ts` sha256 `908634fb3a4b25880dd322a8350e810452481a049ae3427b0b592ab9afae4557`
+- `content/synthesis/skills/synthesize/SKILL.md` sha256 `02db76e460365de192360c15ba9ce790d599c7b648d8c6e7244b1ab705594591`
+- `src/runbooks/definitions.ts` sha256 `ec348fc5bd4db6b86e74bee9ac7027bfeb9046fb078d0fc709345955e77a3e4f`

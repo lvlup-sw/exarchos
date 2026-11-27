@@ -1,4 +1,21 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+/**
+ * These tests check the shepherd-status view and the replay of a stored log that holds the retired shepherd types.
+ * The view cases compare the fold with literal states that this file writes by hand.
+ * The replay case writes the stored rows by hand and folds them through the workflow-state projection.
+ * It then compares that fold with a fold of the same log without the retired rows.
+ *
+ * @oracle-sources: ../../../../src/projections/views/workflow-state-projection.ts, the stored rows and expected states written in this file
+ */
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import * as path from 'node:path';
+import { mkdtemp } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { EventStore } from '../../../../src/events/store.js';
+import { SqliteBackend } from '../../../../src/storage/sqlite-backend.js';
+import { EVENT_ANNOTATIONS } from '../../../../src/events/event-annotations.js';
+import { EVENT_DATA_SCHEMAS, type EventType } from '../../../../src/events/schemas.js';
+import { workflowStateProjection } from '../../../../src/projections/views/workflow-state-projection.js';
+import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
 import { ViewMaterializer } from '../../../../src/projections/views/materializer.js';
 import {
   shepherdStatusProjection,
@@ -6,7 +23,6 @@ import {
 } from '../../../../src/projections/views/shepherd-status-view.js';
 import type { ShepherdStatusState } from '../../../../src/projections/views/shepherd-status-view.js';
 import type { WorkflowEvent } from '../../../../src/events/schemas.js';
-import { countShepherdIterations } from '../../../../src/verbs/review/escalation-policy.js';
 
 function makeEvent(
   seq: number,
@@ -211,35 +227,6 @@ describe('ShepherdStatusView', () => {
     );
 
     expect(view.iteration).toBe(3);
-  });
-
-  /**
-   * The view and `countShepherdIterations` both count `shepherd.iteration` events. Thus
-   * `shepherd_status`, `ps` and the loop agree, whatever `iteration` value a payload holds.
-   */
-  it('ShepherdStatus_AndLoop_AgreeOnCount', () => {
-    const N = 4;
-    const garbagePayloads = [42, 42, 0, -7];
-    const events: WorkflowEvent[] = [];
-    for (let i = 0; i < N; i++) {
-      events.push(
-        makeEvent(i + 1, 'shepherd.iteration', {
-          prUrl: 'https://github.com/pr/1',
-          iteration: garbagePayloads[i],
-          action: 'push-fix',
-          outcome: 'ci-passed',
-        }),
-      );
-    }
-
-    const view = materializer.materialize<ShepherdStatusState>(
-      'wf-001',
-      SHEPHERD_STATUS_VIEW,
-      events,
-    );
-
-    expect(view.iteration).toBe(N);
-    expect(view.iteration).toBe(countShepherdIterations(events));
   });
 
   it('Apply_AllPrsPassing_NoUnresolved_SetsHealthy', () => {
@@ -483,5 +470,111 @@ describe('ShepherdStatusView', () => {
 
     expect(view.completedAt).toBe(timestamp);
     expect(view.outcome).toBe('merged');
+  });
+});
+
+/** The four shepherd types that are retired as emissions. Old logs hold their rows. */
+const RETIRED_SHEPHERD_TYPES: readonly EventType[] = [
+  'shepherd.started',
+  'shepherd.approval_requested',
+  'shepherd.escalated',
+  'shepherd.completed',
+];
+
+/** The retired types as strings, for a membership test over replayed rows. */
+const RETIRED_SHEPHERD_TYPE_SET: ReadonlySet<string> = new Set(RETIRED_SHEPHERD_TYPES);
+
+describe('ShepherdStatusView_RetiredShepherdEvents_StoredLogReplay', () => {
+  let tempDir: string;
+
+  beforeEach(async () => {
+    tempDir = await mkdtemp(path.join(tmpdir(), 'shepherd-retired-replay-'));
+  });
+
+  afterEach(async () => {
+    await rmrfAsync(tempDir);
+  });
+
+  /**
+   * A stored log of an earlier shepherd loop holds all four retired types. The test writes the rows
+   * through the SQLite backend, as the earlier appender left them, and replays them through
+   * `EventStore.query`. Each row still parses with the schema of its type. The shepherd-status view
+   * gives the same read result as before the retirement, and the workflow-state projection folds
+   * the four rows as no-ops.
+   */
+  it('a stored log with the four retired shepherd types replays with its original read results', async () => {
+    const stream = 'feat-shepherd-legacy';
+    const persisted = [
+      { type: 'workflow.started', data: { featureId: stream, workflowType: 'feature' } },
+      { type: 'shepherd.started', data: { featureId: stream } },
+      { type: 'shepherd.iteration', data: { iteration: 1, prsAssessed: 2, fixesApplied: 1, status: 'resubmitted' } },
+      { type: 'shepherd.approval_requested', data: { prUrl: 'https://github.com/o/r/pull/42' } },
+      {
+        type: 'shepherd.escalated',
+        data: { featureId: stream, prNumbers: [42, 43], iterationCount: 1, maxIterations: 5, reason: 'review loop' },
+      },
+      { type: 'shepherd.completed', data: { prUrl: 'https://github.com/o/r/pull/42', outcome: 'merged' } },
+    ];
+    const timestamps = persisted.map((_, index) => `2026-03-07T1${String(index)}:00:00.000Z`);
+
+    expect(RETIRED_SHEPHERD_TYPES.map((type) => EVENT_ANNOTATIONS[type]?.lifecycle)).toEqual([
+      'retired',
+      'retired',
+      'retired',
+      'retired',
+    ]);
+    expect(EVENT_ANNOTATIONS['shepherd.iteration']?.lifecycle).toBe('active');
+
+    const backend = new SqliteBackend(path.join(tempDir, 'exarchos.db'));
+    backend.initialize();
+    try {
+      persisted.forEach((event, index) => {
+        backend.appendEvent(stream, {
+          streamId: stream,
+          sequence: index + 1,
+          type: event.type,
+          timestamp: timestamps[index] ?? '',
+          data: event.data,
+        });
+      });
+
+      const replayed = await new EventStore(tempDir, { backend }).query(stream);
+
+      expect(replayed.map((event) => event.type)).toEqual(persisted.map((event) => event.type));
+      expect(
+        RETIRED_SHEPHERD_TYPES.map(
+          (type) => EVENT_DATA_SCHEMAS[type].safeParse(replayed.find((event) => event.type === type)?.data).success,
+        ),
+      ).toEqual([true, true, true, true]);
+
+      const view = replayed.reduce(
+        (state, event) => shepherdStatusProjection.apply(state, event),
+        shepherdStatusProjection.init(),
+      );
+      expect(view).toEqual({
+        overallStatus: 'escalate',
+        prs: [],
+        iteration: 1,
+        maxIterations: 5,
+        startedAt: timestamps[1],
+        approvalRequestedAt: timestamps[3],
+        escalation: {
+          reason: 'review loop',
+          iterationCount: 1,
+          maxIterations: 5,
+          escalatedAt: timestamps[4],
+        },
+        completedAt: timestamps[5],
+        outcome: 'merged',
+      });
+
+      const foldState = (events: readonly WorkflowEvent[]) =>
+        events.reduce((state, event) => workflowStateProjection.apply(state, event), workflowStateProjection.init());
+      const withoutRetired = replayed.filter((event) => !RETIRED_SHEPHERD_TYPE_SET.has(event.type));
+      expect(withoutRetired).toHaveLength(2);
+      expect(foldState(replayed)).toEqual(foldState(withoutRetired));
+    } finally {
+      backend.close();
+    }
   });
 });

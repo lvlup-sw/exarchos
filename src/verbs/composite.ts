@@ -24,7 +24,6 @@ import {
 import { handleReviewTriage } from '../review/tools.js';
 import { handlePrepareDelegation } from './team/prepare-delegation.js';
 import { handlePrepareSynthesis } from './team/prepare-synthesis.js';
-import { handleAssessStack } from './vcs/assess-stack.js';
 import { handleDesignCompleteness } from './gates/design-completeness.js';
 import { handlePlanCoverage } from './gates/plan-coverage.js';
 import { handleCheckExplorationDepth } from './gates/check-exploration-depth.js';
@@ -50,9 +49,7 @@ import { handleSelectDebugTrack } from './review/select-debug-track.js';
 import { handleInvestigationTimer } from './review/investigation-timer.js';
 import { handleCheckCoverageThresholds } from './gates/check-coverage-thresholds.js';
 import { handleAssessRefactorScope } from './gates/assess-refactor-scope.js';
-import { handleCheckPrComments } from './vcs/check-pr-comments.js';
 import { handleValidatePrBody } from './vcs/validate-pr-body.js';
-import { handleValidatePrStack } from './vcs/validate-pr-stack.js';
 import { handleDebugReviewGate } from './review/debug-review-gate.js';
 import { handleExtractFixTasks } from './tasks/extract-fix-tasks.js';
 import { handleClassifyReviewItems } from './review/classify-review-items.js';
@@ -64,7 +61,6 @@ import { handleVerifyDelegationSaga } from './team/verify-delegation-saga.js';
 import { handlePostDelegationCheck } from './team/post-delegation-check.js';
 import { handleReconcileState } from './reconcile-state.js';
 import { handlePreSynthesisCheck, type PreSynthesisCheckArgs } from './gates/pre-synthesis-check.js';
-import { handleCheckCoderabbit } from './vcs/check-coderabbit.js';
 import { handleCheckPolishScope, type CheckPolishScopeArgs } from './gates/check-polish-scope.js';
 import { handleNeedsSchemaSync } from './gates/needs-schema-sync.js';
 import { handleVerifyDocLinks } from './gates/verify-doc-links.js';
@@ -77,15 +73,6 @@ import { handleRequestSynthesize } from './team/request-synthesize.js';
 import { handleFinalizeOneshot } from './tasks/finalize-oneshot.js';
 import { handleDoctor } from './doctor/index.js';
 import { handleOnboard } from './onboard/index.js';
-import { handleCreatePr } from './vcs/create-pr.js';
-import { handleMergePr } from './vcs/merge-pr.js';
-import { handleCheckCi } from './vcs/check-ci.js';
-import { handleListPrs } from './vcs/list-prs.js';
-import { handleGetPrComments } from './vcs/get-pr-comments.js';
-import { handleAddPrComment } from './vcs/add-pr-comment.js';
-import { handleCreateIssue } from './vcs/create-issue.js';
-import type { HandleCreateIssueArgs } from './vcs/create-issue.js';
-import { createVcsProvider } from '../vcs/factory.js';
 import { handleMergeOrchestrate } from './merge/merge-orchestrate.js';
 import { handleStackPlace } from './stack/tools.js';
 import {
@@ -446,7 +433,6 @@ export const ACTION_HANDLERS: Readonly<Record<string, ActionHandler>> = {
   review_triage: adaptWithEventStore(handleReviewTriage),
   prepare_delegation: adaptWithCtx(handlePrepareDelegation),
   prepare_synthesis: privateTermsRemoved(adaptWithEventStoreAndConfig(handlePrepareSynthesis)),
-  assess_stack: adaptWithEventStoreAndConfig(handleAssessStack),
   check_design_completeness: adaptWithEventStore(handleDesignCompleteness),
   check_plan_coverage: adaptWithEventStore(handlePlanCoverage),
   /**
@@ -477,9 +463,7 @@ export const ACTION_HANDLERS: Readonly<Record<string, ActionHandler>> = {
   investigation_timer: adaptWithOptionalEventStore(handleInvestigationTimer),
   check_coverage_thresholds: adaptWithEventStore(handleCheckCoverageThresholds),
   assess_refactor_scope: adaptArgsWithEventStore(handleAssessRefactorScope),
-  check_pr_comments: adaptArgs(handleCheckPrComments),
   validate_pr_body: adaptWithOptionalEventStore(handleValidatePrBody),
-  validate_pr_stack: adaptWithEventStore(handleValidatePrStack),
   debug_review_gate: privateTermsRemoved(adaptWithEventStore(handleDebugReviewGate)),
   extract_fix_tasks: adaptArgsWithStateDirAndEventStore(handleExtractFixTasks),
   classify_review_items: adaptArgsWithEventStore(handleClassifyReviewItems),
@@ -492,7 +476,6 @@ export const ACTION_HANDLERS: Readonly<Record<string, ActionHandler>> = {
   post_delegation_check: privateTermsRemoved(adaptArgsWithStateDirAndEventStore(handlePostDelegationCheck)),
   reconcile_state: adaptArgsWithEventStore(handleReconcileState),
   pre_synthesis_check: privateTermsRemoved(adaptArgsWithStateDirAndEventStore((args: PreSynthesisCheckArgs) => handlePreSynthesisCheck(args))),
-  check_coderabbit: adaptArgs(handleCheckCoderabbit),
   check_polish_scope: privateTermsRemoved(adapt((args: CheckPolishScopeArgs) => handleCheckPolishScope(args))),
   needs_schema_sync: privateTermsRemoved(adapt((args: Parameters<typeof handleNeedsSchemaSync>[0]) => handleNeedsSchemaSync(args))),
   verify_doc_links: adaptArgs(handleVerifyDocLinks),
@@ -508,31 +491,6 @@ export const ACTION_HANDLERS: Readonly<Record<string, ActionHandler>> = {
   prune_stale_workflows: handlePruneStaleWorkflows as ActionHandler,
   request_synthesize: adaptArgsWithStateDirAndEventStore(handleRequestSynthesize),
   finalize_oneshot: adaptArgsWithStateDirAndEventStore(handleFinalizeOneshot),
-  /** VCS action, routed through the `VcsProvider` abstraction. */
-  create_pr: adaptCtx(handleCreatePr),
-  merge_pr: adaptCtx(handleMergePr),
-  check_ci: adaptCtx(handleCheckCi),
-  list_prs: adaptCtx(handleListPrs),
-  get_pr_comments: adaptCtx(handleGetPrComments),
-  add_pr_comment: adaptCtx(handleAddPrComment),
-  /**
-   * `create_issue` needs a provider-backed `listIssuesByMarker` for its recovery precheck.
-   * The entry wires `searchIssuesByMarker` of the VCS provider, so the handler never uses a no-op that hides duplicate issues.
-   * It creates the provider only when the caller injects no `listIssuesByMarker`.
-   * A provider startup error thus cannot come before the input checks of the handler.
-   */
-  create_issue: async (args, _stateDir, ctx) => {
-    if (!ctx) throw new Error('DispatchContext required for this handler');
-    const typedArgs = args as unknown as Omit<HandleCreateIssueArgs, 'listIssuesByMarker'> &
-      Partial<Pick<HandleCreateIssueArgs, 'listIssuesByMarker'>>;
-    const listIssuesByMarker =
-      typedArgs.listIssuesByMarker ??
-      (async (operationId: string) => {
-        const provider = await createVcsProvider({ config: ctx.projectConfig });
-        return provider.searchIssuesByMarker(operationId);
-      });
-    return handleCreateIssue({ ...typedArgs, listIssuesByMarker }, ctx);
-  },
   /** Merge orchestrator. It composes the preflight and the executor under one public action. The internal `handleExecuteMerge` is not in this table. */
   merge_orchestrate: adaptCtx(handleMergeOrchestrate),
   /**

@@ -136,13 +136,41 @@ const LOCK_NOTE =
   're-approval at the pull request: the `invariant-catalog` digest moves because INV-11 ' +
   'names no launcher. Process lifecycle and worktree placement belong to the harness, the ' +
   'audit prompt flags a claim that Exarchos owns them, and the reference to the launcher ' +
-  'worktree module is removed. No ActionId, event schema or other invariant changed.';
+  'worktree module is removed. No ActionId, event schema or other invariant changed.' +
+  ' RE-APPROVED for #1928 S4 T-29 under the slice plan that Reed approved, for Reed ' +
+  're-approval at the pull request: exarchos_orchestrate.create_pr, merge_pr, ' +
+  'add_pr_comment and create_issue are the removed ActionIds. The closed retired-action ' +
+  'table refuses a call of each before dispatch, with the code PROVIDER_WRITE_RETIRED. ' +
+  'All other authority pins remain unchanged.' +
+  ' RE-APPROVED for #1928 S4 T-31 under the slice plan that Reed approved, for Reed ' +
+  're-approval at the pull request: exarchos_orchestrate.check_ci, list_prs and ' +
+  'get_pr_comments are the removed ActionIds. The closed retired-action table refuses a ' +
+  'call of each before dispatch, with the code PROVIDER_READ_RETIRED. All other authority ' +
+  'pins remain unchanged.' +
+  ' RE-APPROVED for #1928 S4 T-32 under the slice plan that Reed approved, for Reed ' +
+  're-approval at the pull request: exarchos_orchestrate.check_pr_comments, check_coderabbit ' +
+  'and validate_pr_stack are the removed ActionIds. The closed retired-action table refuses a ' +
+  'call of each before dispatch, with the code PROVIDER_READ_RETIRED. All other authority ' +
+  'pins remain unchanged.' +
+  ' RE-APPROVED for #1928 S4 T-33 under the slice plan that Reed approved, for Reed ' +
+  're-approval at the pull request: exarchos_orchestrate.assess_stack is the removed ActionId. ' +
+  'The closed retired-action table refuses a call of it before dispatch, with the code ' +
+  'PROVIDER_READ_RETIRED. All other authority pins remain unchanged.';
 
 /**
  * The approver that the freeze records for the current snapshot. Change it at each new approval, so
  * the lockfile records who approved and not the tool.
  */
 export const CURRENT_APPROVER =
+  'Delegated Claude worker (#1928 S4 T-33 stack assessment retirement under the slice plan ' +
+  'that Reed approved, 2026-11-23; for Reed re-approval at the pull request). Previously: ' +
+  'Delegated Claude worker (#1928 S4 T-32 provider review and stack read retirement under the ' +
+  'slice plan that Reed approved, 2026-11-23; for Reed re-approval at the pull request). ' +
+  'Previously: ' +
+  'Delegated Claude worker (#1928 S4 T-31 provider read retirement under the slice plan ' +
+  'that Reed approved, 2026-11-23; for Reed re-approval at the pull request). Previously: ' +
+  'Delegated Claude worker (#1928 S4 T-29 provider writer retirement under the slice plan ' +
+  'that Reed approved, 2026-11-23; for Reed re-approval at the pull request). Previously: ' +
   'Delegated Claude worker (#1928 S3 T-27 launcher retirement: INV-11 re-pointed away from ' +
   'the launcher under the slice plan that Reed approved, 2026-11-23; for Reed re-approval at ' +
   'the pull request). Previously: ' +

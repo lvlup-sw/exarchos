@@ -125,6 +125,27 @@ function metric(
 }
 
 describe('gate reliability diagnostic projection', () => {
+  /**
+   * The `validate_pr_stack` provider is retired, so an empty view has no `pr-stack` row.
+   * A stored `pr-stack` verdict still reads with its original metric.
+   */
+  it('GateReliability_RetiredPrStackEvidence_ReadsItsOriginalVerdict', () => {
+    expect(fold([]).gates.map((gate) => gate.gateClass)).not.toContain('pr-stack');
+    const stored = verdictEvent(1, 'fail', {
+      evidenceId: 'evidence.pr-stack',
+      gateClass: 'pr-stack',
+      providerRef: 'validate_pr_stack',
+    });
+
+    expect(metric(fold([stored]), 'pr-stack', 'validate_pr_stack')).toMatchObject({
+      sampleSize: 1,
+      positiveSampleSize: 0,
+      verdicts: { pass: 0, fail: 1, indeterminate: 0 },
+      asOf: timestamp(1),
+      source: { streamId: STREAM, sequence: 1 },
+    });
+  });
+
   it('GateReliability_VerdictAndContradiction_FoldsAttributably', () => {
     const pass = verdictEvent(1, 'pass', { evidenceId: 'evidence.pass' });
     const fail = verdictEvent(2, 'fail', { evidenceId: 'evidence.fail' });

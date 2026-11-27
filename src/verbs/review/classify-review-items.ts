@@ -1,6 +1,6 @@
 /**
  * The orchestrate action that wraps `review/classifier.ts`. It takes normalized `ActionItem`s from
- * `assess_stack` and returns per-file groups, each with a dispatch recommendation.
+ * the review comments that the shepherd reads, and returns per-file groups with a dispatch recommendation.
  * With an event store, it appends a `dispatch.classified` event to measure classifier accuracy and severity distribution.
  */
 

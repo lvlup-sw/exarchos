@@ -1,14 +1,12 @@
-// Tests for `handlePreSynthesisCheck`. They test the verdict of the provider, so the phase-gate
-// runner is a stub that calls only the provider. `unrunbooked-gate-evidence-dispatch.test.ts` tests
-// the evidence over real dispatch. The VCS factory mock keeps `shell.ts` and `detector.ts` unloaded.
-// The cases call the handler below `dispatch()`. `gateWiring` supplies the feature id, the state
-// directory and the event store in place of dispatch.
+// Tests for `handlePreSynthesisCheck`. They test the verdict of the gate provider, so the phase-gate
+// runner is a stub that calls only the gate provider. `unrunbooked-gate-evidence-dispatch.test.ts`
+// tests the evidence over real dispatch. The cases call the handler below `dispatch()`. `gateWiring`
+// supplies the feature id, the state directory and the event store in place of dispatch.
 //
-// The lifecycle check of the local executor is a stub, so each verdict case passes a stubbed branch
-// observation and stubbed legs.
+// The lifecycle check of the local executor is a stub, so each verdict case passes stubbed legs.
+// The VCS factory and the checkout observation are mocks only to prove that the gate never reaches them.
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import type { VcsProvider, PrSummary, PrFilter } from '../../../../src/vcs/provider.js';
 
 vi.mock('node:fs', () => ({
   existsSync: vi.fn(),
@@ -24,11 +22,6 @@ vi.mock('node:child_process', () => ({
 
 vi.mock('../../../../src/verbs/verification/lifecycle-check.js', () => ({
   admitLifecycleLegs: vi.fn(),
-}));
-
-vi.mock('../../../../src/utils/git-tree.js', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('../../../../src/utils/git-tree.js')>()),
-  processObservationalGitPath: vi.fn(() => '/usr/bin/git'),
 }));
 
 vi.mock('../../../../src/verbs/gates/gate-runner.js', () => ({
@@ -72,7 +65,7 @@ import * as nodePath from 'node:path';
 import { handlePreSynthesisCheck } from '../../../../src/verbs/gates/pre-synthesis-check.js';
 import { runPhaseGateWithEvidence } from '../../../../src/verbs/gates/gate-runner.js';
 import { admitLifecycleLegs } from '../../../../src/verbs/verification/lifecycle-check.js';
-import { observeCurrentCheckout, type CurrentCheckoutRead } from '../../../../src/verbs/gates/gate-utils.js';
+import { observeCurrentCheckout } from '../../../../src/verbs/gates/gate-utils.js';
 import { createVcsProvider } from '../../../../src/vcs/factory.js';
 import { EventStore } from '../../../../src/events/store.js';
 import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
@@ -146,37 +139,6 @@ function setupValidState(stateJson: string): void {
   currentStore = storeFrom(stateJson);
 }
 
-function createMockProvider(overrides: {
-  listPrs?: PrSummary[];
-  listPrsError?: Error;
-} = {}): VcsProvider {
-  return {
-    name: 'github',
-    createPr: vi.fn(),
-    checkCi: vi.fn(),
-    mergePr: vi.fn(),
-    addComment: vi.fn(),
-    getReviewStatus: vi.fn(),
-    listPrs: overrides.listPrsError
-      ? vi.fn().mockRejectedValue(overrides.listPrsError)
-      : vi.fn<(filter?: PrFilter) => Promise<PrSummary[]>>().mockResolvedValue(overrides.listPrs ?? []),
-    getPrComments: vi.fn(),
-    getPrDiff: vi.fn(),
-    createIssue: vi.fn(),
-    getRepository: vi.fn(),
-  };
-}
-
-/** Queues one constrained observation of the current checkout on the branch. The branch lookup uses the constrained reader. */
-function mockGitBranch(branch: string = 'feature-branch'): void {
-  const read = {
-    kind: 'observed',
-    checkout: { checkout: '/repo', repository: '/repo/.git', gitDir: '/repo/.git', branch: `refs/heads/${branch}`, head: 'c'.repeat(40) },
-    observer: {},
-  } as unknown as CurrentCheckoutRead;
-  vi.mocked(observeCurrentCheckout).mockResolvedValueOnce(read);
-}
-
 /** The observed test leg and typecheck leg of the local executor, both green. */
 function passingLegs() {
   const run = { argv: ['test'], end: 'exited' as const, exitCode: 0, stdout: 'Tests: 5 passed', stderr: '' };
@@ -192,21 +154,15 @@ describe('handlePreSynthesisCheck', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     currentStore = unavailableStore();
-    vi.mocked(observeCurrentCheckout).mockResolvedValue({ kind: 'refused', reason: 'No branch is stubbed' });
     vi.mocked(admitLifecycleLegs).mockResolvedValue(passingLegs());
   });
 
   it('AllChecksPass_ReturnsPassed', async () => {
     setupValidState(makeState());
-    mockGitBranch();
     mockTestsOnly();
 
-    const provider = createMockProvider({
-      listPrs: [{ number: 1, url: '', title: 'Test', headRefName: 'feature-branch', baseRefName: 'main', state: 'OPEN' }],
-    });
-
     const result = await handlePreSynthesisCheck({
-      ...gateWiring(), stateFile: '/tmp/state.json' }, provider);
+      ...gateWiring(), stateFile: '/tmp/state.json' });
 
     expect(result.success).toBe(true);
     const data = result.data as CheckReport;
@@ -215,27 +171,28 @@ describe('handlePreSynthesisCheck', () => {
     expect(data.checks.pass).toBeGreaterThanOrEqual(5);
   });
 
-  it('UsesProviderListPrs_ForPrStackCheck', async () => {
+  /** The gate has no PR-stack leg: it reads no branch, builds no VCS provider, and reports no PR check. */
+  it('NoPrStackLeg_ReadsNoBranchAndNoProvider', async () => {
     setupValidState(makeState());
-    mockGitBranch('feat/my-branch');
     mockTestsOnly();
 
-    const provider = createMockProvider({
-      listPrs: [{ number: 42, url: '', title: 'My PR', headRefName: 'feat/my-branch', baseRefName: 'main', state: 'OPEN' }],
-    });
-
     const result = await handlePreSynthesisCheck({
-      ...gateWiring(), stateFile: '/tmp/state.json' }, provider);
+      ...gateWiring(), stateFile: '/tmp/state.json' });
 
     expect(result.success).toBe(true);
-    expect(provider.listPrs).toHaveBeenCalledWith({ state: 'open', head: 'feat/my-branch' });
+    const data = result.data as CheckReport;
+    expect(data.passed).toBe(true);
+    expect(data.report).not.toContain('PR stack');
+    expect(observeCurrentCheckout).not.toHaveBeenCalled();
+    expect(createVcsProvider).not.toHaveBeenCalled();
+    expect(execFileSync).not.toHaveBeenCalled();
   });
 
   it('StateFileNotFound_ReturnsError', async () => {
     vi.mocked(existsSync).mockReturnValue(false);
 
     const result = await handlePreSynthesisCheck({
-      ...gateWiring(), stateFile: '/tmp/missing.json' }, undefined);
+      ...gateWiring(), stateFile: '/tmp/missing.json' });
 
     expect(result.success).toBe(true);
     const data = result.data as CheckReport;
@@ -246,15 +203,10 @@ describe('handlePreSynthesisCheck', () => {
 
   it('PhaseNotSynthesize_ReturnsFailWithGuidance', async () => {
     setupValidState(makeState({ phase: 'review' }));
-    mockGitBranch();
     mockTestsOnly();
 
-    const provider = createMockProvider({
-      listPrs: [{ number: 1, url: '', title: '', headRefName: 'feature-branch', baseRefName: 'main', state: 'OPEN' }],
-    });
-
     const result = await handlePreSynthesisCheck({
-      ...gateWiring(), stateFile: '/tmp/state.json' }, provider);
+      ...gateWiring(), stateFile: '/tmp/state.json' });
 
     expect(result.success).toBe(true);
     const data = result.data as CheckReport;
@@ -271,15 +223,10 @@ describe('handlePreSynthesisCheck', () => {
         { id: 'T3', status: 'assigned' },
       ],
     }));
-    mockGitBranch();
     mockTestsOnly();
 
-    const provider = createMockProvider({
-      listPrs: [{ number: 1, url: '', title: '', headRefName: 'feature-branch', baseRefName: 'main', state: 'OPEN' }],
-    });
-
     const result = await handlePreSynthesisCheck({
-      ...gateWiring(), stateFile: '/tmp/state.json' }, provider);
+      ...gateWiring(), stateFile: '/tmp/state.json' });
 
     expect(result.success).toBe(true);
     const data = result.data as CheckReport;
@@ -292,15 +239,10 @@ describe('handlePreSynthesisCheck', () => {
     setupValidState(makeState({
       reviews: { overall: { status: 'rejected' } },
     }));
-    mockGitBranch();
     mockTestsOnly();
 
-    const provider = createMockProvider({
-      listPrs: [{ number: 1, url: '', title: '', headRefName: 'feature-branch', baseRefName: 'main', state: 'OPEN' }],
-    });
-
     const result = await handlePreSynthesisCheck({
-      ...gateWiring(), stateFile: '/tmp/state.json' }, provider);
+      ...gateWiring(), stateFile: '/tmp/state.json' });
 
     expect(result.success).toBe(true);
     const data = result.data as CheckReport;
@@ -315,15 +257,10 @@ describe('handlePreSynthesisCheck', () => {
         { id: 'T2', status: 'needs_fixes' },
       ],
     }));
-    mockGitBranch();
     mockTestsOnly();
 
-    const provider = createMockProvider({
-      listPrs: [{ number: 1, url: '', title: '', headRefName: 'feature-branch', baseRefName: 'main', state: 'OPEN' }],
-    });
-
     const result = await handlePreSynthesisCheck({
-      ...gateWiring(), stateFile: '/tmp/state.json' }, provider);
+      ...gateWiring(), stateFile: '/tmp/state.json' });
 
     expect(result.success).toBe(true);
     const data = result.data as CheckReport;
@@ -334,17 +271,12 @@ describe('handlePreSynthesisCheck', () => {
 
   it('SkipTests_SkipsTestExecution', async () => {
     setupValidState(makeState());
-    mockGitBranch();
-
-    const provider = createMockProvider({
-      listPrs: [{ number: 1, url: '', title: '', headRefName: 'feature-branch', baseRefName: 'main', state: 'OPEN' }],
-    });
 
     const result = await handlePreSynthesisCheck({
       ...gateWiring(),
       stateFile: '/tmp/state.json',
       skipTests: true,
-    }, provider);
+    });
 
     expect(result.success).toBe(true);
     const data = result.data as CheckReport;
@@ -353,23 +285,6 @@ describe('handlePreSynthesisCheck', () => {
     expect(data.report).toContain('SKIP');
     expect(admitLifecycleLegs).not.toHaveBeenCalled();
     expect(vi.mocked(execSync)).not.toHaveBeenCalled();
-  });
-
-  it('SkipStack_SkipsPrStackCheck', async () => {
-    setupValidState(makeState());
-    mockTestsOnly();
-
-    const result = await handlePreSynthesisCheck({
-      ...gateWiring(),
-      stateFile: '/tmp/state.json',
-      skipStack: true,
-    }, undefined);
-
-    expect(result.success).toBe(true);
-    const data = result.data as CheckReport;
-    expect(data.passed).toBe(true);
-    expect(data.checks.skip).toBeGreaterThanOrEqual(1);
-    expect(data.report).toContain('SKIP');
   });
 
   it('MultipleReviewShapes_AllHandledCorrectly', async () => {
@@ -383,15 +298,10 @@ describe('handlePreSynthesisCheck', () => {
         T2: { passed: true },
       },
     }));
-    mockGitBranch();
     mockTestsOnly();
 
-    const provider = createMockProvider({
-      listPrs: [{ number: 1, url: '', title: '', headRefName: 'feature-branch', baseRefName: 'main', state: 'OPEN' }],
-    });
-
     const result = await handlePreSynthesisCheck({
-      ...gateWiring(), stateFile: '/tmp/state.json' }, provider);
+      ...gateWiring(), stateFile: '/tmp/state.json' });
 
     expect(result.success).toBe(true);
     const data = result.data as CheckReport;
@@ -408,15 +318,10 @@ describe('handlePreSynthesisCheck', () => {
         },
       },
     }));
-    mockGitBranch();
     mockTestsOnly();
 
-    const provider = createMockProvider({
-      listPrs: [{ number: 1, url: '', title: '', headRefName: 'feature-branch', baseRefName: 'main', state: 'OPEN' }],
-    });
-
     const result = await handlePreSynthesisCheck({
-      ...gateWiring(), stateFile: '/tmp/state.json' }, provider);
+      ...gateWiring(), stateFile: '/tmp/state.json' });
 
     expect(result.success).toBe(true);
     const data = result.data as CheckReport;
@@ -428,15 +333,10 @@ describe('handlePreSynthesisCheck', () => {
     setupValidState(makeState({
       reviews: { T1: { passed: false } },
     }));
-    mockGitBranch();
     mockTestsOnly();
 
-    const provider = createMockProvider({
-      listPrs: [{ number: 1, url: '', title: '', headRefName: 'feature-branch', baseRefName: 'main', state: 'OPEN' }],
-    });
-
     const result = await handlePreSynthesisCheck({
-      ...gateWiring(), stateFile: '/tmp/state.json' }, provider);
+      ...gateWiring(), stateFile: '/tmp/state.json' });
 
     expect(result.success).toBe(true);
     const data = result.data as CheckReport;
@@ -449,7 +349,7 @@ describe('handlePreSynthesisCheck', () => {
     vi.mocked(readFileSync).mockReturnValue('{ invalid json }');
 
     const result = await handlePreSynthesisCheck({
-      ...gateWiring(), stateFile: '/tmp/state.json' }, undefined);
+      ...gateWiring(), stateFile: '/tmp/state.json' });
 
     expect(result.success).toBe(true);
     const data = result.data as CheckReport;
@@ -459,15 +359,10 @@ describe('handlePreSynthesisCheck', () => {
 
   it('NoTasks_ReturnsFailWithDetail', async () => {
     setupValidState(makeState({ tasks: [] }));
-    mockGitBranch();
     mockTestsOnly();
 
-    const provider = createMockProvider({
-      listPrs: [{ number: 1, url: '', title: '', headRefName: 'feature-branch', baseRefName: 'main', state: 'OPEN' }],
-    });
-
     const result = await handlePreSynthesisCheck({
-      ...gateWiring(), stateFile: '/tmp/state.json' }, provider);
+      ...gateWiring(), stateFile: '/tmp/state.json' });
 
     expect(result.success).toBe(true);
     const data = result.data as CheckReport;
@@ -477,15 +372,10 @@ describe('handlePreSynthesisCheck', () => {
 
   it('NoReviews_ReturnsFailWithDetail', async () => {
     setupValidState(makeState({ reviews: {} }));
-    mockGitBranch();
     mockTestsOnly();
 
-    const provider = createMockProvider({
-      listPrs: [{ number: 1, url: '', title: '', headRefName: 'feature-branch', baseRefName: 'main', state: 'OPEN' }],
-    });
-
     const result = await handlePreSynthesisCheck({
-      ...gateWiring(), stateFile: '/tmp/state.json' }, provider);
+      ...gateWiring(), stateFile: '/tmp/state.json' });
 
     expect(result.success).toBe(true);
     const data = result.data as CheckReport;
@@ -498,15 +388,10 @@ describe('handlePreSynthesisCheck', () => {
       phase: 'overhaul-update-docs',
       workflowType: 'refactor',
     }));
-    mockGitBranch();
     mockTestsOnly();
 
-    const provider = createMockProvider({
-      listPrs: [{ number: 1, url: '', title: '', headRefName: 'feature-branch', baseRefName: 'main', state: 'OPEN' }],
-    });
-
     const result = await handlePreSynthesisCheck({
-      ...gateWiring(), stateFile: '/tmp/state.json' }, provider);
+      ...gateWiring(), stateFile: '/tmp/state.json' });
 
     expect(result.success).toBe(true);
     const data = result.data as CheckReport;
@@ -519,15 +404,10 @@ describe('handlePreSynthesisCheck', () => {
       phase: 'debug-review',
       workflowType: 'debug',
     }));
-    mockGitBranch();
     mockTestsOnly();
 
-    const provider = createMockProvider({
-      listPrs: [{ number: 1, url: '', title: '', headRefName: 'feature-branch', baseRefName: 'main', state: 'OPEN' }],
-    });
-
     const result = await handlePreSynthesisCheck({
-      ...gateWiring(), stateFile: '/tmp/state.json' }, provider);
+      ...gateWiring(), stateFile: '/tmp/state.json' });
 
     expect(result.success).toBe(true);
     const data = result.data as CheckReport;
@@ -540,36 +420,15 @@ describe('handlePreSynthesisCheck', () => {
       phase: 'polish-implement',
       workflowType: 'refactor',
     }));
-    mockGitBranch();
     mockTestsOnly();
 
-    const provider = createMockProvider({
-      listPrs: [{ number: 1, url: '', title: '', headRefName: 'feature-branch', baseRefName: 'main', state: 'OPEN' }],
-    });
-
     const result = await handlePreSynthesisCheck({
-      ...gateWiring(), stateFile: '/tmp/state.json' }, provider);
+      ...gateWiring(), stateFile: '/tmp/state.json' });
 
     expect(result.success).toBe(true);
     const data = result.data as CheckReport;
     expect(data.passed).toBe(false);
     expect(data.report).toContain('polish track');
-  });
-
-  it('NoPrsForBranch_ReturnsFailForStack', async () => {
-    setupValidState(makeState());
-    mockGitBranch();
-    mockTestsOnly();
-
-    const provider = createMockProvider({ listPrs: [] });
-
-    const result = await handlePreSynthesisCheck({
-      ...gateWiring(), stateFile: '/tmp/state.json' }, provider);
-
-    expect(result.success).toBe(true);
-    const data = result.data as CheckReport;
-    expect(data.passed).toBe(false);
-    expect(data.report).toContain('No open PRs');
   });
 
   /**
@@ -607,16 +466,8 @@ describe('handlePreSynthesisCheck', () => {
       },
     });
 
-    const provider = createMockProvider({
-      listPrs: [
-        { number: 1, url: '', title: '', headRefName: 'feature-branch', baseRefName: 'main', state: 'OPEN' },
-      ],
-    });
-
     const result = await handlePreSynthesisCheck({
-      ...gateWiring(), featureId, eventStore, skipTests: true, skipStack: true },
-      provider,
-    );
+      ...gateWiring(), featureId, eventStore, skipTests: true });
 
     eventStore.close();
     await rmrfAsync(eventStoreDir);
@@ -663,12 +514,8 @@ describe('handlePreSynthesisCheck', () => {
       },
     });
 
-    const provider = createMockProvider({ listPrs: [] });
-
     const result = await handlePreSynthesisCheck({
-      ...gateWiring(), stateFile: BAD, featureId, eventStore, skipTests: true, skipStack: true },
-      provider,
-    );
+      ...gateWiring(), stateFile: BAD, featureId, eventStore, skipTests: true });
 
     eventStore.close();
     await rmrfAsync(eventStoreDir);
@@ -686,7 +533,7 @@ describe('handlePreSynthesisCheck', () => {
     const run = { argv: ['test'], end: 'exited' as const, exitCode: 0, stdout: '', stderr: '' };
     vi.mocked(admitLifecycleLegs).mockResolvedValue([{ name: 'test', kind: 'command', run }, { name: 'typecheck', kind: 'typecheck', run }]);
 
-    const result = await handlePreSynthesisCheck({ ...gateWiring(), repoRoot: '/repo', skipStack: true }, createMockProvider());
+    const result = await handlePreSynthesisCheck({ ...gateWiring(), repoRoot: '/repo' });
 
     expect(result.success).toBe(true);
     expect((result.data as CheckReport).report).toContain('**PASS**: Tests pass');
@@ -702,7 +549,7 @@ describe('handlePreSynthesisCheck', () => {
   it('TestCommandOverride_BecomesTheApprovedTestLeg', async () => {
     setupValidState(makeState());
 
-    const result = await handlePreSynthesisCheck({ ...gateWiring(), repoRoot: '/repo', skipStack: true, testCommand: 'node test.cjs' }, createMockProvider());
+    const result = await handlePreSynthesisCheck({ ...gateWiring(), repoRoot: '/repo', testCommand: 'node test.cjs' });
 
     expect(result.success).toBe(true);
     expect(vi.mocked(admitLifecycleLegs).mock.calls[0]?.[0].legs[0]).toEqual({ kind: 'command', argv: ['node', 'test.cjs'] });
@@ -713,34 +560,15 @@ describe('handlePreSynthesisCheck', () => {
   it('LocalRefusal_ReturnsTheRefusalAndSkipTestsRunsNoCheck', async () => {
     setupValidState(makeState());
     vi.mocked(admitLifecycleLegs).mockResolvedValueOnce({ success: false, error: { code: 'LOCAL_CHECK_REFUSED', message: 'refused' } });
-    const refused = await handlePreSynthesisCheck({ ...gateWiring(), repoRoot: '/repo', skipStack: true }, createMockProvider());
+    const refused = await handlePreSynthesisCheck({ ...gateWiring(), repoRoot: '/repo' });
     expect(refused).toEqual({ success: false, error: { code: 'LOCAL_CHECK_REFUSED', message: 'refused' } });
     expect(vi.mocked(currentStore.append)).not.toHaveBeenCalled();
 
     vi.mocked(admitLifecycleLegs).mockClear();
-    const skipped = await handlePreSynthesisCheck({ ...gateWiring(), repoRoot: '/repo', skipStack: true, skipTests: true }, createMockProvider());
+    const skipped = await handlePreSynthesisCheck({ ...gateWiring(), repoRoot: '/repo', skipTests: true });
     expect(skipped.success).toBe(true);
     expect((skipped.data as CheckReport).report).toContain('**SKIP**: Tests pass (--skip-tests)');
     expect(admitLifecycleLegs).not.toHaveBeenCalled();
-    expect(execFileSync).not.toHaveBeenCalled();
-  });
-
-  /**
-   * The PR-stack branch comes from the constrained observation of the absolute checkout root with the process-wide Git path.
-   * A detached HEAD or another refused observation fails the check, and the provider gets no query.
-   */
-  it('PrStack_ConstrainedBranchRead_UsesTheProcessGitPathAndFailsClosed', async () => {
-    setupValidState(makeState());
-    const provider = createMockProvider({
-      listPrs: [{ number: 1, url: '', title: '', headRefName: 'feature-branch', baseRefName: 'main', state: 'OPEN' }],
-    });
-    vi.mocked(observeCurrentCheckout).mockResolvedValueOnce({ kind: 'refused', reason: 'The checkout HEAD is detached' });
-
-    const result = await handlePreSynthesisCheck({ ...gateWiring(), stateFile: '/tmp/state.json' }, provider);
-
-    expect(observeCurrentCheckout).toHaveBeenCalledWith('/usr/bin/git', nodePath.resolve('.'));
-    expect((result.data as CheckReport).report).toContain('Could not determine current branch');
-    expect(provider.listPrs).not.toHaveBeenCalled();
     expect(execFileSync).not.toHaveBeenCalled();
   });
 });

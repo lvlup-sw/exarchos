@@ -12,11 +12,6 @@ import {
   deriveIntent,
   persistIntent,
   readIntent,
-  groundBodyInIntent,
-  bodyHasIntentMarker,
-  isMeaningfulIntent,
-  buildIntentSection,
-  INTENT_GROUNDING_MARKER,
   type WorkflowIntent,
 } from '../../../../src/verbs/tasks/extract-intent.js';
 import { handleInit } from '../../../../src/workflow/tools.js';
@@ -152,39 +147,5 @@ describe('readIntent (DR-1 task 006)', () => {
 
   it('ReadIntent_UnknownWorkflow_FailsSoftToUndefined', async () => {
     expect(await readIntent('no-such-workflow-at-all', eventStore)).toBeUndefined();
-  });
-});
-
-describe('intent body grounding (DR-1 task 006)', () => {
-  /** The original body stays ahead of the appended section. */
-  it('GroundBody_MeaningfulIntent_AppendsIntentSectionAndMarker', () => {
-    const intent = deriveIntent(['servers/a.ts', 'docs/b.md']);
-    const grounded = groundBodyInIntent('## Summary\n\nDoes a thing.', intent);
-    expect(grounded).toContain('## Intent');
-    expect(bodyHasIntentMarker(grounded)).toBe(true);
-    expect(grounded).toContain('docs, servers');
-    expect(grounded).toContain(intent.summary);
-    expect(grounded.startsWith('## Summary')).toBe(true);
-  });
-
-  it('GroundBody_TranscriptSummary_IncludedWhenPresent', () => {
-    const intent = deriveIntent(['servers/a.ts'], { transcript: 'Thread the event store through.' });
-    const section = buildIntentSection(intent);
-    expect(section).toContain('**Context:** Thread the event store through.');
-  });
-
-  it('GroundBody_EmptyIntent_LeavesBodyUntouched', () => {
-    const empty = deriveIntent([]);
-    expect(isMeaningfulIntent(empty)).toBe(false);
-    const body = '## Summary\n\nNo files.';
-    expect(groundBodyInIntent(body, empty)).toBe(body);
-  });
-
-  it('GroundBody_AlreadyMarked_IsIdempotent', () => {
-    const intent = deriveIntent(['servers/a.ts']);
-    const once = groundBodyInIntent('## Summary\n\nBody.', intent);
-    const twice = groundBodyInIntent(once, intent);
-    expect(twice).toBe(once);
-    expect(twice.split(INTENT_GROUNDING_MARKER).length - 1).toBe(1);
   });
 });
