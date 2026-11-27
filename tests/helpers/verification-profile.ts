@@ -137,16 +137,6 @@ export function cSharpGlobTerm(): TestTerms['globs'] {
   return { state: 'resolved', globs: ['**/*Tests.cs'], source: 'config' };
 }
 
-/** A configured co-located glob term of a Node root beside a solution. It keeps the test-name globs of the seeds that it replaces. */
-export function polyglotGlobTerm(): TestTerms['globs'] {
-  return {
-    state: 'resolved',
-    globs: [...CO_LOCATED_TEST_GLOBS],
-    source: 'config',
-    replacedSeeds: ['**/*.test.*', '**/*.spec.*', '**/*Tests.cs', '**/*Test.cs'],
-  };
-}
-
 /** A probe term of the `none` form: the run of `argv` takes no file list. */
 export function unscopedProbeTerm(argv: readonly string[]): TestTerms['probe'] {
   return {

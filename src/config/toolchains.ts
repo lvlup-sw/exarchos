@@ -458,23 +458,6 @@ export function testGlobsForToolchain(toolchainId: string): readonly string[] | 
 }
 
 /**
- * Resolves the test globs for the probe from the globs that a detected toolchain prescribes.
- * With only the toolchain globs, a polyglot repo (python at the root, `*.test.ts` beside the source) classifies each co-located test as source.
- * So the result is the union of the defaults and the toolchain globs, deduplicated, with the defaults first.
- * A test misclassified as source gives a false pass, so the union errs in the safe direction.
- */
-export function resolveProbeTestGlobs(
-  toolchainGlobs: readonly string[] | null | undefined,
-): readonly string[] {
-  if (!toolchainGlobs || toolchainGlobs.length === 0) return DEFAULT_TEST_GLOBS;
-  const merged = [...DEFAULT_TEST_GLOBS];
-  for (const glob of toolchainGlobs) {
-    if (!merged.includes(glob)) merged.push(glob);
-  }
-  return merged;
-}
-
-/**
  * The file extensions that `extractFiles` and `validateTaskStructure` accept as file paths. A token
  * with another suffix, such as the field reference `imageProvenance.isFirstParty` in prose, is not a
  * file. This prevents false parallel-safety conflicts. Both regexes use this one list.
