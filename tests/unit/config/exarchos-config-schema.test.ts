@@ -10,7 +10,9 @@ import {
   DEV_CATALOG_PATH,
   DEV_CATALOG_DEPRECATION_CODE,
   MUTATION_COMMAND_RETIRED_CODE,
+  MUTATION_REVIEW_RETIRED_CODE,
 } from '../../../src/config/exarchos-config-schema.js';
+import { FullExarchosConfigSchema } from '../../../src/config/yaml-schema.js';
 import { resolveCatalogSources } from '../../../src/architecture/catalog-sources.js';
 
 describe('ExarchosConfigSchema — toolchains (tier 3)', () => {
@@ -281,6 +283,37 @@ describe('ExarchosConfigSchema — retired mutation command keys', () => {
         toolchains: [{ id: 'x', markers: ['x.toml'], commands: { mutation: 'a | b' } }],
       }).success,
     ).toBe(false);
+  });
+});
+
+/**
+ * No producer writes the `mutation-adequacy` review, so its settings have no effect and a required review of that name blocks its transition.
+ * The schema still accepts the settings, so an existing file keeps loading. The parse removes them, and the loader reports each one.
+ */
+describe('ExarchosConfigSchema — retired mutation review settings', () => {
+  /** The parse removes the enforcement key, the gate and the required review, and keeps the other settings. */
+  it('RetiredMutationReviewSettings_AreRemovedAndReported', () => {
+    const document = {
+      review: { 'mutation-enforcement': 'block', gates: { 'mutation-adequacy': { enabled: true }, 'security-scan': { blocking: true } } },
+      workflow: { 'required-reviews': ['mutation-adequacy', 'security'] },
+    };
+    const parsed = FullExarchosConfigSchema.parse(document);
+
+    expect(parsed.review).toEqual({ gates: { 'security-scan': { blocking: true } } });
+    expect(parsed.workflow?.['required-reviews']).toEqual(['security']);
+    expect(collectConfigDeprecations(document)).toEqual([
+      { code: MUTATION_REVIEW_RETIRED_CODE, key: 'review.mutation-enforcement', replacement: null, message: expect.stringContaining('Delete it') },
+      { code: MUTATION_REVIEW_RETIRED_CODE, key: 'review.gates.mutation-adequacy', replacement: null, message: expect.stringContaining('Delete it') },
+      { code: MUTATION_REVIEW_RETIRED_CODE, key: 'workflow.required-reviews.mutation-adequacy', replacement: null, message: expect.stringContaining('Delete it') },
+    ]);
+  });
+
+  /** A document with no retired mutation review setting gives no finding and keeps its settings unchanged. */
+  it('ConfigWithoutRetiredMutationReview_KeepsItsSettingsAndReportsNothing', () => {
+    const document = { review: { gates: { 'security-scan': { blocking: true } } }, workflow: { 'required-reviews': ['security'] } };
+
+    expect(FullExarchosConfigSchema.parse(document)).toMatchObject(document);
+    expect(collectConfigDeprecations(document)).toEqual([]);
   });
 });
 

@@ -7,6 +7,8 @@ import {
   EscalationConfigSchema,
   safeCommand,
   withoutRetiredMutationCommand,
+  withoutRetiredMutationReview,
+  withoutRetiredRequiredReview,
 } from './exarchos-config-schema.js';
 import { RETIRED_VERIFICATION_GATE_NAMES, VERIFICATION_GATE_NAMES } from '../workflow/verification-policy.js';
 import {
@@ -63,10 +65,10 @@ const RoutingConfig = z.object({
 const ReviewConfig = z.object({
   dimensions: DimensionsMap.optional(),
   gates: z.record(z.string(), GateConfig).optional(),
-  /** Mutation-score enforcement at the review to synthesize transition. Advisory by default. */
+  /** Retired. The parse removes it, and the loader reports it as a migration finding. */
   'mutation-enforcement': z.enum(['block', 'advisory']).optional(),
   routing: RoutingConfig.optional(),
-}).strict();
+}).strict().transform(withoutRetiredMutationReview);
 
 const VcsConfig = z.object({
   provider: z.enum(['github', 'gitlab', 'azure-devops']).optional(),
@@ -88,7 +90,7 @@ const WorkflowConfig = z.object({
   'max-plan-revisions': z.number().int().min(1).max(10).optional(),
   'required-reviews': z.array(z.string().min(1)).optional(),
   phases: z.record(z.string(), PhaseConfig).optional(),
-}).strict();
+}).strict().transform(withoutRetiredRequiredReview);
 
 const AgentModelValue = z.enum(['opus', 'sonnet', 'haiku']);
 const AgentSpecIdKey = z.enum(['implementer', 'fixer', 'reviewer', 'scaffolder']);

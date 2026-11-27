@@ -417,8 +417,7 @@ export function resolveConfig(project: ProjectConfig): ResolvedProjectConfig {
     ? { ...project.review.routing['risk-weights'] }
     : { ...DEFAULT_RISK_WEIGHTS };
 
-  const mutationEnforcement =
-    project.review?.['mutation-enforcement'] ?? DEFAULTS.review.mutationEnforcement;
+  const mutationEnforcement = DEFAULTS.review.mutationEnforcement;
 
   const vcsProvider = project.vcs?.provider ?? DEFAULTS.vcs.provider;
   const vcsSettings = project.vcs?.settings
