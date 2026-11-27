@@ -6,7 +6,7 @@
     "distinctEventsWithEdges": 79,
     "distinctOwners": 3,
     "registeredEvents": 186,
-    "moduleEmitterRows": 24
+    "moduleEmitterRows": 22
   },
   "keys": {
     "per-event-type/primary-edges": {
@@ -865,18 +865,6 @@
       "event": "workspace.resolved",
       "module": "runtime/workspace/discovery.ts",
       "trigger": "dispatch-interceptor",
-      "alsoDeclaredByAnAction": false
-    },
-    {
-      "event": "worktree.create.executed",
-      "module": "runtime/launcher/create-worktree.ts",
-      "trigger": "process-hook",
-      "alsoDeclaredByAnAction": false
-    },
-    {
-      "event": "worktree.create.requested",
-      "module": "runtime/launcher/create-worktree.ts",
-      "trigger": "process-hook",
       "alsoDeclaredByAnAction": false
     }
   ],

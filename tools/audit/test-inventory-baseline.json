@@ -4,11 +4,11 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1498,
-    "parsedFiles": 1454,
+    "testFiles": 1482,
+    "parsedFiles": 1438,
     "shellFiles": 44,
-    "cases": 16700,
-    "dynamicTitles": 333,
+    "cases": 16580,
+    "dynamicTitles": 331,
     "unparseableFiles": 0
   },
   "unparseable": [],
@@ -11798,77 +11798,6 @@
         }
       ]
     },
-    "tests/process/1928-launch-ownership.test.ts": {
-      "file": "tests/process/1928-launch-ownership.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "",
-          "name": "LaunchOwnership_GovernorImportWalk_ReachesNoLauncherWriter",
-          "dynamic": false
-        },
-        {
-          "suite": "",
-          "name": "LaunchOwnership_GovernorStub_RefusesEachHarnessVerbWithNoEffect",
-          "dynamic": false
-        },
-        {
-          "suite": "",
-          "name": "<dynamic-case-1>",
-          "dynamic": true
-        },
-        {
-          "suite": "",
-          "name": "LaunchOwnership_McpToolList_OffersNoLaunch",
-          "dynamic": false
-        },
-        {
-          "suite": "",
-          "name": "<dynamic-case-2>",
-          "dynamic": true
-        },
-        {
-          "suite": "",
-          "name": "LaunchOwnership_HarnessDryRun_PrintsThePlanAndStartsNoGit",
-          "dynamic": false
-        },
-        {
-          "suite": "",
-          "name": "<dynamic-case-3>",
-          "dynamic": true
-        },
-        {
-          "suite": "",
-          "name": "LaunchOwnership_HarnessLegacyJsonlState_RefusesAndCreatesNoDatabase",
-          "dynamic": false
-        },
-        {
-          "suite": "",
-          "name": "<dynamic-case-4>",
-          "dynamic": true
-        },
-        {
-          "suite": "",
-          "name": "LaunchOwnership_HarnessRealLaunch_CreatesLaunchesAndReleasesInTheSharedStore",
-          "dynamic": false
-        },
-        {
-          "suite": "",
-          "name": "<dynamic-case-5>",
-          "dynamic": true
-        },
-        {
-          "suite": "",
-          "name": "LaunchOwnership_Recovery_FinishesAPendingIntentAndNeverRecreatesAfterItsTerminal",
-          "dynamic": false
-        },
-        {
-          "suite": "",
-          "name": "<dynamic-case-6>",
-          "dynamic": true
-        }
-      ]
-    },
     "tests/process/1928-lifecycle-host.test.ts": {
       "file": "tests/process/1928-lifecycle-host.test.ts",
       "runner": "vitest:root",
@@ -17149,52 +17078,6 @@
         {
           "suite": "exarchos install-skills CLI (DR-5 rename stub)",
           "name": "CliInstallSkills_LegacyAgentFlag_StillStubs_NoInstall",
-          "dynamic": false
-        }
-      ]
-    },
-    "tests/unit/adapters/cli/cli-launcher.test.ts": {
-      "file": "tests/unit/adapters/cli/cli-launcher.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "exarchos-harness launcher entry wiring (DR-1 / DR-6, R-1)",
-          "name": "LauncherCli_NonDryRun_ActuallySpawns",
-          "dynamic": false
-        },
-        {
-          "suite": "exarchos-harness launcher entry wiring (DR-1 / DR-6, R-1)",
-          "name": "LauncherCli_DryRun_SpawnsNothing",
-          "dynamic": false
-        },
-        {
-          "suite": "exarchos-harness launcher entry wiring (DR-1 / DR-6, R-1)",
-          "name": "LauncherCli_NonDryRun_RunsStartupRecovery",
-          "dynamic": false
-        },
-        {
-          "suite": "exarchos-harness launcher entry wiring (DR-1 / DR-6, R-1)",
-          "name": "LauncherCli_LaunchRejection_MapsToUncaughtException",
-          "dynamic": false
-        },
-        {
-          "suite": "exarchos-harness launcher entry wiring (DR-1 / DR-6, R-1)",
-          "name": "LauncherCli_UnknownHarness_NeverRegistered",
-          "dynamic": false
-        },
-        {
-          "suite": "exarchos-harness launcher entry wiring (DR-1 / DR-6, R-1)",
-          "name": "LauncherCli_EmptyFeature_RefusesBeforeTheContext",
-          "dynamic": false
-        },
-        {
-          "suite": "exarchos-harness launcher entry wiring (DR-1 / DR-6, R-1)",
-          "name": "LauncherCli_NonDryRunWithoutJson_WritesOneToolResultLine",
-          "dynamic": false
-        },
-        {
-          "suite": "exarchos-harness launcher entry wiring (DR-1 / DR-6, R-1)",
-          "name": "LauncherCli_GovernorHarnessVerb_RefusesWithTheHarnessEntryName",
           "dynamic": false
         }
       ]
@@ -22899,6 +22782,16 @@
         },
         {
           "suite": "CLI command classification census",
+          "name": "HarnessLauncherVerbs_AreAbsentFromLiveTreeAndHostLocalRules",
+          "dynamic": false
+        },
+        {
+          "suite": "CLI command classification census",
+          "name": "HarnessLauncherVerb_FailsAsUnknownCommand",
+          "dynamic": false
+        },
+        {
+          "suite": "CLI command classification census",
           "name": "PlantedRogueCommand_FailsClassificationCensus",
           "dynamic": false
         },
@@ -23703,12 +23596,12 @@
         },
         {
           "suite": "DR-26 — INV-11 keeps spatial write confinement EXCLUDED",
-          "name": "GoverningCatalog_Inv11_ClaimsLifecycleAndPlacement_NotFilesystemConfinement",
+          "name": "GoverningCatalog_Inv11_GivesLifecycleAndPlacementToTheHarness_NotFilesystemConfinement",
           "dynamic": false
         },
         {
           "suite": "DR-26 — INV-11 keeps spatial write confinement EXCLUDED",
-          "name": "GoverningCatalog_Inv11_AuditPromptForbidsInferringConfinementFromTheLauncher",
+          "name": "GoverningCatalog_Inv11_AuditPromptForbidsInferringConfinementFromAWorktreeLocation",
           "dynamic": false
         },
         {
@@ -31185,7 +31078,7 @@
         },
         {
           "suite": "harness-launcher event schemas (DR-2)",
-          "name": "EmissionRegistry_FourNewTypes_ClassifiedAuto",
+          "name": "EmissionRegistry_LaunchPairAuto_CreatePairRetired_SchemasKept",
           "dynamic": false
         },
         {
@@ -31227,6 +31120,71 @@
           "suite": "Export event contract (DR-6, lifecycle-verbs task 012)",
           "name": "ExportEventSchemas_Serialization_ValidPayloadsValidate_MalformedReject",
           "dynamic": false
+        },
+        {
+          "suite": "ExecutionSettledData outcome",
+          "name": "ExecutionSettledData_AStoredRowWithTheOutcome_%s_StillParses",
+          "dynamic": false
+        },
+        {
+          "suite": "ExecutionSettledData outcome",
+          "name": "<dynamic-case-1>",
+          "dynamic": true
+        },
+        {
+          "suite": "ExecutionSettledData outcome",
+          "name": "ExecutionSettledData_ARowWithTheAddedOutcome_%s_Parses",
+          "dynamic": false
+        },
+        {
+          "suite": "ExecutionSettledData outcome",
+          "name": "<dynamic-case-2>",
+          "dynamic": true
+        },
+        {
+          "suite": "ExecutionSettledData outcome",
+          "name": "ExecutionSettledData_ItsOutcomeEnum_IsTheSharedOutcomeListAndRefusesAnUnknownName",
+          "dynamic": false
+        },
+        {
+          "suite": "ExecutionSettledData unresolved tasks",
+          "name": "ExecutionSettledData_AStoredRowWithoutUnresolvedTasks_StillParses",
+          "dynamic": false
+        },
+        {
+          "suite": "ExecutionSettledData unresolved tasks",
+          "name": "ExecutionSettledData_ARowWithUnresolvedTasks_ParsesAndKeepsEachEntry",
+          "dynamic": false
+        },
+        {
+          "suite": "ExecutionSettledData unresolved tasks",
+          "name": "ExecutionSettledData_UnresolvedTasksWith_%s_AreRefused",
+          "dynamic": false
+        },
+        {
+          "suite": "ExecutionSettledData unresolved tasks",
+          "name": "<dynamic-case-3>",
+          "dynamic": true
+        },
+        {
+          "suite": "ExecutionSettledData recorded rationales",
+          "name": "ExecutionSettledData_AStoredRowWithoutRationales_StillParses",
+          "dynamic": false
+        },
+        {
+          "suite": "ExecutionSettledData recorded rationales",
+          "name": "ExecutionSettledData_ARowWithRationales_ParsesAndKeepsEachEntry",
+          "dynamic": false
+        },
+        {
+          "suite": "ExecutionSettledData recorded rationales",
+          "name": "ExecutionSettledData_RationalesWith_%s_AreRefused",
+          "dynamic": false
+        },
+        {
+          "suite": "ExecutionSettledData recorded rationales",
+          "name": "<dynamic-case-4>",
+          "dynamic": true
         }
       ]
     },
@@ -46394,22 +46352,12 @@
           "dynamic": false
         },
         {
-          "suite": "harness-launcher verb conformance + Windows CI lane (task 015, DR-1/DR-8)",
-          "name": "Verb_SchemaConstraints_Present",
-          "dynamic": false
-        },
-        {
-          "suite": "harness-launcher verb conformance + Windows CI lane (task 015, DR-1/DR-8)",
-          "name": "Verb_WhenNotToUse_Present",
-          "dynamic": false
-        },
-        {
-          "suite": "harness-launcher verb conformance + Windows CI lane (task 015, DR-1/DR-8)",
+          "suite": "no launcher in the registry + Windows CI lane",
           "name": "VisibleToolCount_Unchanged",
           "dynamic": false
         },
         {
-          "suite": "harness-launcher verb conformance + Windows CI lane (task 015, DR-1/DR-8)",
+          "suite": "no launcher in the registry + Windows CI lane",
           "name": "WindowsLane_RunsNamedSpawnAndPathTests_Required",
           "dynamic": false
         },
@@ -49472,266 +49420,6 @@
         }
       ]
     },
-    "tests/unit/runtime/launcher/channel-probe.test.ts": {
-      "file": "tests/unit/runtime/launcher/channel-probe.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "resolveInjectionChannel — spawn-time channel probe (DR-6)",
-          "name": "channelProbe_FlagPresent_SelectsPrimary",
-          "dynamic": false
-        },
-        {
-          "suite": "resolveInjectionChannel — spawn-time channel probe (DR-6)",
-          "name": "channelProbe_FlagAbsent_FallsBackToStringFlag",
-          "dynamic": false
-        },
-        {
-          "suite": "resolveInjectionChannel — spawn-time channel probe (DR-6)",
-          "name": "channelProbe_CliMissing_ChannelNoneWithDegradation",
-          "dynamic": false
-        },
-        {
-          "suite": "resolveInjectionChannel — spawn-time channel probe (DR-6)",
-          "name": "channelProbe_ResultCachedPerProcess",
-          "dynamic": false
-        },
-        {
-          "suite": "resolveInjectionChannel — spawn-time channel probe (DR-6)",
-          "name": "channelProbe_EnvHarness_SelectsEnvWithoutProbing",
-          "dynamic": false
-        },
-        {
-          "suite": "resolveInjectionChannel — spawn-time channel probe (DR-6)",
-          "name": "channelProbe_CursorNone_ResolvesNoneWithoutDegradation",
-          "dynamic": false
-        }
-      ]
-    },
-    "tests/unit/runtime/launcher/create-worktree.test.ts": {
-      "file": "tests/unit/runtime/launcher/create-worktree.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "createLauncherWorktree (real git + real event store)",
-          "name": "Create_ReserveBeforeGitAdd_NoUntrackedWindow",
-          "dynamic": false
-        },
-        {
-          "suite": "createLauncherWorktree (real git + real event store)",
-          "name": "Create_RequestedThenCreateExecuted_Terminal",
-          "dynamic": false
-        },
-        {
-          "suite": "createLauncherWorktree (real git + real event store)",
-          "name": "Create_AppendsPairOnWorktreesStream_CorrelatedByOperationId",
-          "dynamic": false
-        },
-        {
-          "suite": "createLauncherWorktree (real git + real event store)",
-          "name": "Create_CrashBetween_PrecheckResumesOrSkips",
-          "dynamic": false
-        },
-        {
-          "suite": "createLauncherWorktree (real git + real event store)",
-          "name": "Create_CallsGuardBeforeAdd",
-          "dynamic": false
-        },
-        {
-          "suite": "createLauncherWorktree (real git + real event store)",
-          "name": "Create_NestedTarget_RefusedWithStructuredError",
-          "dynamic": false
-        },
-        {
-          "suite": "createLauncherWorktree (real git + real event store)",
-          "name": "Create_ConcurrentSameFeature_Siblings",
-          "dynamic": false
-        },
-        {
-          "suite": "createLauncherWorktree (real git + real event store)",
-          "name": "Create_AllGitViaManagerRunner",
-          "dynamic": false
-        },
-        {
-          "suite": "createLauncherWorktree (real git + real event store)",
-          "name": "Create_GitAddFails_SurfacesStderrDiagnostic",
-          "dynamic": false
-        },
-        {
-          "suite": "createLauncherWorktree (real git + real event store)",
-          "name": "Create_IntentPersistsRequestedBranch",
-          "dynamic": false
-        },
-        {
-          "suite": "createLauncherWorktree (real git + real event store)",
-          "name": "Create_CrashResume_ReplaysOriginalBranch",
-          "dynamic": false
-        },
-        {
-          "suite": "createLauncherWorktree (real git + real event store)",
-          "name": "Create_DoesNotEmitWorktreeCreated",
-          "dynamic": false
-        }
-      ]
-    },
-    "tests/unit/runtime/launcher/harness-registry.test.ts": {
-      "file": "tests/unit/runtime/launcher/harness-registry.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "harness-registry (DR-1, DR-4)",
-          "name": "Registry_FiveTier1_ResolveDescriptor",
-          "dynamic": false
-        },
-        {
-          "suite": "harness-registry (DR-1, DR-4)",
-          "name": "Registry_EnumMapsRuntimeId",
-          "dynamic": false
-        },
-        {
-          "suite": "harness-registry (DR-1, DR-4)",
-          "name": "Registry_Unknown_StructuredError",
-          "dynamic": false
-        },
-        {
-          "suite": "harness-registry (DR-1, DR-4)",
-          "name": "resolveHarness never throws on arbitrary input",
-          "dynamic": false
-        },
-        {
-          "suite": "harness-registry injection channels (DR-6, Task 014)",
-          "name": "harnessRegistry_EveryHarness_DeclaresInjectionCandidates",
-          "dynamic": false
-        },
-        {
-          "suite": "harness-registry injection channels (DR-6, Task 014)",
-          "name": "injectionChannel_Cursor_IsNone",
-          "dynamic": false
-        },
-        {
-          "suite": "harness-registry injection channels (DR-6, Task 014)",
-          "name": "harnessRegistry_RemainsPureData",
-          "dynamic": false
-        }
-      ]
-    },
-    "tests/unit/runtime/launcher/injection-channel.integration.test.ts": {
-      "file": "tests/unit/runtime/launcher/injection-channel.integration.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "injection spawn seam — fake-harness integration (DR-6)",
-          "name": "channelProbe_FlagPresent_SelectsPrimary (spawn seam)",
-          "dynamic": false
-        },
-        {
-          "suite": "injection spawn seam — fake-harness integration (DR-6)",
-          "name": "channelProbe_FlagAbsent_FallsBackToStringFlag (spawn seam)",
-          "dynamic": false
-        },
-        {
-          "suite": "injection spawn seam — fake-harness integration (DR-6)",
-          "name": "channelProbe_CliMissing_ChannelNoneWithDegradation (spawn seam)",
-          "dynamic": false
-        },
-        {
-          "suite": "injection spawn seam — fake-harness integration (DR-6)",
-          "name": "channelProbe_ResultCachedPerProcess (spawn seam)",
-          "dynamic": false
-        }
-      ]
-    },
-    "tests/unit/runtime/launcher/injection-seam.test.ts": {
-      "file": "tests/unit/runtime/launcher/injection-seam.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "injection-seam (DR-7)",
-          "name": "Injection_Payload_NoRepoWrite",
-          "dynamic": false
-        },
-        {
-          "suite": "injection-seam (DR-7)",
-          "name": "Injection_TaggedNonAuthoritativeOrientation",
-          "dynamic": false
-        },
-        {
-          "suite": "injection-seam (DR-7)",
-          "name": "Injection_Absent_LaunchUnchanged",
-          "dynamic": false
-        },
-        {
-          "suite": "applyOrientationChannel — resolved native-channel applier (DR-6)",
-          "name": "injectOrientation_DirectiveKey_StillRefused",
-          "dynamic": false
-        },
-        {
-          "suite": "applyOrientationChannel — resolved native-channel applier (DR-6)",
-          "name": "applyFlagChannel_FileForm_WritesTempFileAndTagsEnv",
-          "dynamic": false
-        },
-        {
-          "suite": "applyOrientationChannel — resolved native-channel applier (DR-6)",
-          "name": "applyFlagChannel_FileForm_NotifiesOnTempPathCreated",
-          "dynamic": false
-        },
-        {
-          "suite": "applyOrientationChannel — resolved native-channel applier (DR-6)",
-          "name": "applyEnvChannel_DirForm_NotifiesOnTempPathCreated",
-          "dynamic": false
-        },
-        {
-          "suite": "applyOrientationChannel — resolved native-channel applier (DR-6)",
-          "name": "flagValue_StringOrAssignmentForm_ThrowsOverInlineSizeGuard",
-          "dynamic": false
-        },
-        {
-          "suite": "applyOrientationChannel — resolved native-channel applier (DR-6)",
-          "name": "applyEnvChannel_ConfigJsonForm_NoSizeGuard_ContentWritesToDiskRegardlessOfSize",
-          "dynamic": false
-        },
-        {
-          "suite": "applyOrientationChannel — resolved native-channel applier (DR-6)",
-          "name": "applyEnvChannel_DirForm_NoSizeGuard_ContentWritesToDiskRegardlessOfSize",
-          "dynamic": false
-        },
-        {
-          "suite": "applyOrientationChannel — resolved native-channel applier (DR-6)",
-          "name": "applyFlagChannel_StringForm_InlinesContentNoTempFile",
-          "dynamic": false
-        },
-        {
-          "suite": "applyOrientationChannel — resolved native-channel applier (DR-6)",
-          "name": "applyFlagChannel_AssignmentForm_EncodesAssignmentKey",
-          "dynamic": false
-        },
-        {
-          "suite": "applyOrientationChannel — resolved native-channel applier (DR-6)",
-          "name": "applyEnvChannel_DirForm_PointsVarAtSyntheticDir",
-          "dynamic": false
-        },
-        {
-          "suite": "applyOrientationChannel — resolved native-channel applier (DR-6)",
-          "name": "applyEnvChannel_ConfigJsonForm_WritesTempFileAndReferencesItInInstructionsJson",
-          "dynamic": false
-        },
-        {
-          "suite": "applyOrientationChannel — resolved native-channel applier (DR-6)",
-          "name": "applyEnvChannel_ConfigJsonForm_NotifiesOnTempPathCreated",
-          "dynamic": false
-        },
-        {
-          "suite": "applyOrientationChannel — resolved native-channel applier (DR-6)",
-          "name": "applyOrientationChannel_None_ReturnsBaseUnchanged",
-          "dynamic": false
-        },
-        {
-          "suite": "applyOrientationChannel — resolved native-channel applier (DR-6)",
-          "name": "describeChannel_and_previewInjectionChannel_LabelChannels",
-          "dynamic": false
-        }
-      ]
-    },
     "tests/unit/runtime/launcher/launch-reconcile.test.ts": {
       "file": "tests/unit/runtime/launcher/launch-reconcile.test.ts",
       "runner": "vitest:root",
@@ -49758,77 +49446,6 @@
         }
       ]
     },
-    "tests/unit/runtime/launcher/lifecycle.test.ts": {
-      "file": "tests/unit/runtime/launcher/lifecycle.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "runLifecycle — launcher lifecycle integrator (real git + real event store)",
-          "name": "Lifecycle_TeardownExactlyOnce",
-          "dynamic": false
-        },
-        {
-          "suite": "runLifecycle — launcher lifecycle integrator (real git + real event store)",
-          "name": "Lifecycle_NoHandleOutlivesChild",
-          "dynamic": false
-        },
-        {
-          "suite": "runLifecycle — launcher lifecycle integrator (real git + real event store)",
-          "name": "Lifecycle_PlacesChildInWorktree_CwdEqualsWorktree",
-          "dynamic": false
-        },
-        {
-          "suite": "runLifecycle — launcher lifecycle integrator (real git + real event store)",
-          "name": "Lifecycle_InstallsSignals_AfterSpawn_ThenUninstalls",
-          "dynamic": false
-        },
-        {
-          "suite": "runLifecycle — launcher lifecycle integrator (real git + real event store)",
-          "name": "Lifecycle_SpawnFailure_NoSignalsInstalled_StillEmitsTerminal",
-          "dynamic": false
-        },
-        {
-          "suite": "runLifecycle — launcher lifecycle integrator (real git + real event store)",
-          "name": "Lifecycle_PostSpawnInstallSignalsThrows_KillsChild_NoOrphan",
-          "dynamic": false
-        },
-        {
-          "suite": "runLifecycle — launcher lifecycle integrator (real git + real event store)",
-          "name": "Lifecycle_PostSpawnObserveRejects_KillsChild_NoOrphan",
-          "dynamic": false
-        },
-        {
-          "suite": "runLifecycle — launcher lifecycle integrator (real git + real event store)",
-          "name": "Verb_NonDryRun_InvokesLifecycleAndSpawns",
-          "dynamic": false
-        },
-        {
-          "suite": "runLifecycle — launcher lifecycle integrator (real git + real event store)",
-          "name": "LauncherClaim_HolderStartedAt_NonEmptyOrNullPerSchema",
-          "dynamic": false
-        },
-        {
-          "suite": "runLifecycle — launcher lifecycle integrator (real git + real event store)",
-          "name": "runLifecycle_InjectionConstructionFails_LaunchProceedsWithDegradationRecorded",
-          "dynamic": false
-        },
-        {
-          "suite": "runLifecycle — launcher lifecycle integrator (real git + real event store)",
-          "name": "runLifecycle_ChannelResolves_AppliesNativeFlagToSpawnedDescriptor",
-          "dynamic": false
-        },
-        {
-          "suite": "runLifecycle — launcher lifecycle integrator (real git + real event store)",
-          "name": "runLifecycle_FileFormOrientation_RemovesTempPathAfterTeardown",
-          "dynamic": false
-        },
-        {
-          "suite": "runLifecycle — launcher lifecycle integrator (real git + real event store)",
-          "name": "runLifecycle_OrientationDisabled_NoInjectionApplied",
-          "dynamic": false
-        }
-      ]
-    },
     "tests/unit/runtime/launcher/liveness.test.ts": {
       "file": "tests/unit/runtime/launcher/liveness.test.ts",
       "runner": "vitest:root",
@@ -49841,314 +49458,6 @@
         {
           "suite": "launcher liveness emitters (DR-2)",
           "name": "Liveness_TerminalSeam_Idempotent",
-          "dynamic": false
-        }
-      ]
-    },
-    "tests/unit/runtime/launcher/on-ramps.test.ts": {
-      "file": "tests/unit/runtime/launcher/on-ramps.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "launcher on-ramps + runtimes lifecycle semantics (DR-1, DR-3)",
-          "name": "OnRamp_EachTier1_DeclarativeDescriptor",
-          "dynamic": false
-        },
-        {
-          "suite": "launcher on-ramps + runtimes lifecycle semantics (DR-1, DR-3)",
-          "name": "Runtimes_IsolationSemantics_LauncherManagedLifecycle",
-          "dynamic": false
-        },
-        {
-          "suite": "launcher on-ramps + runtimes lifecycle semantics (DR-1, DR-3)",
-          "name": "Runtimes_NoSpaceEnforcementClaim",
-          "dynamic": false
-        }
-      ]
-    },
-    "tests/unit/runtime/launcher/production-deps.test.ts": {
-      "file": "tests/unit/runtime/launcher/production-deps.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "makeLauncherLifecycleDeps / recoverBeforeLaunch — production wiring (DR-6)",
-          "name": "ProdDeps_Teardown_ReleasesReservation",
-          "dynamic": false
-        },
-        {
-          "suite": "makeLauncherLifecycleDeps / recoverBeforeLaunch — production wiring (DR-6)",
-          "name": "ProdDeps_Teardown_FailClosed_NonGitTarget_NoRelease",
-          "dynamic": false
-        },
-        {
-          "suite": "makeLauncherLifecycleDeps / recoverBeforeLaunch — production wiring (DR-6)",
-          "name": "ProdDeps_InstallSignals_ForwardsAndTearsDown",
-          "dynamic": false
-        },
-        {
-          "suite": "makeLauncherLifecycleDeps / recoverBeforeLaunch — production wiring (DR-6)",
-          "name": "ProdDeps_InstallSignals_OnError_LogsSignalPathFailure",
-          "dynamic": false
-        },
-        {
-          "suite": "makeLauncherLifecycleDeps / recoverBeforeLaunch — production wiring (DR-6)",
-          "name": "RecoverBeforeLaunch_InvokesRecovery",
-          "dynamic": false
-        },
-        {
-          "suite": "makeLauncherLifecycleDeps / recoverBeforeLaunch — production wiring (DR-6)",
-          "name": "RecoverBeforeLaunch_SwallowsFailure",
-          "dynamic": false
-        }
-      ]
-    },
-    "tests/unit/runtime/launcher/signals.test.ts": {
-      "file": "tests/unit/runtime/launcher/signals.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "installSignalHandlers — signal handling + orphan prevention (DR-6)",
-          "name": "Signals_SigtermForwarded_ThenTeardown",
-          "dynamic": false
-        },
-        {
-          "suite": "installSignalHandlers — signal handling + orphan prevention (DR-6) > Signals_SigtermPath_EmitsLaunchExecutedTerminal (real event store)",
-          "name": "Signals_SigtermPath_EmitsLaunchExecutedTerminal",
-          "dynamic": false
-        },
-        {
-          "suite": "installSignalHandlers — signal handling + orphan prevention (DR-6)",
-          "name": "Signals_LauncherDies_ChildNotOrphaned",
-          "dynamic": false
-        },
-        {
-          "suite": "installSignalHandlers — signal handling + orphan prevention (DR-6)",
-          "name": "Signals_DoubleSignal_TeardownIdempotent",
-          "dynamic": false
-        },
-        {
-          "suite": "installSignalHandlers — signal handling + orphan prevention (DR-6)",
-          "name": "Signals_NonExitingChild_EscalatesToSigkill",
-          "dynamic": false
-        },
-        {
-          "suite": "installSignalHandlers — signal handling + orphan prevention (DR-6)",
-          "name": "Signals_ExitingChild_NoEscalation",
-          "dynamic": false
-        },
-        {
-          "suite": "installSignalHandlers — signal handling + orphan prevention (DR-6)",
-          "name": "Signals_Uninstall_DetachesHandlers",
-          "dynamic": false
-        }
-      ]
-    },
-    "tests/unit/runtime/launcher/single-abstraction.guard.test.ts": {
-      "file": "tests/unit/runtime/launcher/single-abstraction.guard.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "single-abstraction anti-drift structural guard (DR-4)",
-          "name": "scans the required lifecycle surface (guard cannot silently scan nothing)",
-          "dynamic": false
-        },
-        {
-          "suite": "single-abstraction anti-drift structural guard (DR-4)",
-          "name": "LifecycleSurface_NoHarnessNameBranching",
-          "dynamic": false
-        },
-        {
-          "suite": "single-abstraction anti-drift structural guard (DR-4)",
-          "name": "LifecycleSurface_NoLiteralHarnessKeyedBehaviorMap",
-          "dynamic": false
-        },
-        {
-          "suite": "single-abstraction anti-drift structural guard (DR-4)",
-          "name": "Descriptor_TypeLevel_PureData",
-          "dynamic": false
-        }
-      ]
-    },
-    "tests/unit/runtime/launcher/teardown.test.ts": {
-      "file": "tests/unit/runtime/launcher/teardown.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "teardownLaunch — launcher teardown safety + recovery (DR-6)",
-          "name": "Teardown_NeverResetHard_PreservesUncommitted",
-          "dynamic": false
-        },
-        {
-          "suite": "teardownLaunch — launcher teardown safety + recovery (DR-6)",
-          "name": "Teardown_UncleanRelease_RecoveryError",
-          "dynamic": false
-        },
-        {
-          "suite": "teardownLaunch — launcher teardown safety + recovery (DR-6)",
-          "name": "Teardown_EveryCatchablePath_EmitsLaunchExecuted",
-          "dynamic": false
-        },
-        {
-          "suite": "teardownLaunch — launcher teardown safety + recovery (DR-6)",
-          "name": "Recovery_CrashMidSpawn_NoOrphanWorktree",
-          "dynamic": false
-        },
-        {
-          "suite": "teardownLaunch — launcher teardown safety + recovery (DR-6)",
-          "name": "Recovery_CwdDriftSelfAncestry_Excluded",
-          "dynamic": false
-        },
-        {
-          "suite": "teardownLaunch — launcher teardown safety + recovery (DR-6)",
-          "name": "Recovery_OriginUnreachable_FailsClosed",
-          "dynamic": false
-        },
-        {
-          "suite": "teardownLaunch — launcher teardown safety + recovery (DR-6)",
-          "name": "Teardown_OriginProbe_NonBlocking",
-          "dynamic": false
-        },
-        {
-          "suite": "teardownLaunch — launcher teardown safety + recovery (DR-6)",
-          "name": "DefaultOriginReachable_HungRemote_FailsClosedOnTimeout",
-          "dynamic": false
-        },
-        {
-          "suite": "teardownLaunch — launcher teardown safety + recovery (DR-6)",
-          "name": "Teardown_ChildExitsDuringSignalPath_ReservationReleasedNotLingering",
-          "dynamic": false
-        }
-      ]
-    },
-    "tests/unit/runtime/launcher/topology.test.ts": {
-      "file": "tests/unit/runtime/launcher/topology.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "deriveWorktreePath",
-          "name": "Derive_SiblingOffBase_Path",
-          "dynamic": false
-        },
-        {
-          "suite": "deriveWorktreePath",
-          "name": "is a pure string transform with no filesystem access",
-          "dynamic": false
-        },
-        {
-          "suite": "deriveWorktreePath",
-          "name": "refuses a multi-segment or traversal id (cannot escape one level)",
-          "dynamic": false
-        },
-        {
-          "suite": "guardWorktreeContainment",
-          "name": "Guard_NestedTarget_Refused",
-          "dynamic": false
-        },
-        {
-          "suite": "guardWorktreeContainment",
-          "name": "refuses the base worktree itself (equal path is not a sibling)",
-          "dynamic": false
-        },
-        {
-          "suite": "guardWorktreeContainment",
-          "name": "refuses a target nested inside a sibling worktree (deeper than one level)",
-          "dynamic": false
-        },
-        {
-          "suite": "guardWorktreeContainment",
-          "name": "refuses a target that climbs out of the base parent directory",
-          "dynamic": false
-        },
-        {
-          "suite": "guardWorktreeContainment",
-          "name": "refuses a partial-segment sibling of the base (startsWith false-positive)",
-          "dynamic": false
-        },
-        {
-          "suite": "guardWorktreeContainment",
-          "name": "resolves symlinks on both sides before deciding containment",
-          "dynamic": false
-        },
-        {
-          "suite": "win32 containment (DR-8 win32-fragile surface)",
-          "name": "Derive_Win32Path_ContainmentHolds",
-          "dynamic": false
-        }
-      ]
-    },
-    "tests/unit/runtime/launcher/verb.test.ts": {
-      "file": "tests/unit/runtime/launcher/verb.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "exarchos <harness> launcher verb (DR-1)",
-          "name": "Verb_Schema_ConstrainsEnum",
-          "dynamic": false
-        },
-        {
-          "suite": "exarchos <harness> launcher verb (DR-1)",
-          "name": "Verb_DryRun_ShowsPathAndPlanNoSpawn",
-          "dynamic": false
-        },
-        {
-          "suite": "exarchos <harness> launcher verb (DR-1)",
-          "name": "Verb_DryRun_NoEnforcementClaimInOutput",
-          "dynamic": false
-        },
-        {
-          "suite": "exarchos <harness> launcher verb (DR-1)",
-          "name": "Verb_DryRun_DerivesPathViaSameGuardAsCreation",
-          "dynamic": false
-        },
-        {
-          "suite": "exarchos <harness> launcher verb (DR-1)",
-          "name": "launcherVerb_DryRun_PrintsResolvedChannelAndPayload",
-          "dynamic": false
-        },
-        {
-          "suite": "exarchos <harness> launcher verb (DR-1)",
-          "name": "launcherVerb_DryRun_PayloadUnavailable_RendersGracefully",
-          "dynamic": false
-        },
-        {
-          "suite": "exarchos <harness> launcher verb (DR-1)",
-          "name": "Verb_Unknown_ReturnsValidTargets",
-          "dynamic": false
-        },
-        {
-          "suite": "exarchos <harness> launcher verb (DR-1)",
-          "name": "Verb_NonDryRun_UnwiredReturnsNotWired",
-          "dynamic": false
-        },
-        {
-          "suite": "exarchos <harness> launcher verb (DR-1)",
-          "name": "Verb_NonDryRun_DelegatesToInjectedLifecycle",
-          "dynamic": false
-        }
-      ]
-    },
-    "tests/unit/runtime/launcher/wlm-compose.test.ts": {
-      "file": "tests/unit/runtime/launcher/wlm-compose.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "LauncherWlm — WLM composition (real git + real event store)",
-          "name": "Compose_LauncherEvents_FoldedByWorktreesProjection",
-          "dynamic": false
-        },
-        {
-          "suite": "LauncherWlm — WLM composition (real git + real event store)",
-          "name": "Compose_HarnessCreatedWorktree_TrackedViaAdopt",
-          "dynamic": false
-        },
-        {
-          "suite": "LauncherWlm — WLM composition (real git + real event store)",
-          "name": "Compose_LauncherCreatedWorktree_NotReAdopted",
-          "dynamic": false
-        },
-        {
-          "suite": "LauncherWlm — WLM composition (real git + real event store)",
-          "name": "Compose_IntegrationMerge_RoutesThroughSerializeMerge",
           "dynamic": false
         }
       ]
@@ -72653,11 +71962,6 @@
         {
           "suite": "serialize_merge — DR-1 dry-run default",
           "name": "SerializeMerge_ExplicitDryRunFalse_ClaimsLeaseAndMerges",
-          "dynamic": false
-        },
-        {
-          "suite": "serialize_merge — DR-1 dry-run default",
-          "name": "SerializeMerge_ComposedCaller_StillExecutesMerge",
           "dynamic": false
         },
         {

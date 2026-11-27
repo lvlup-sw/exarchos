@@ -110,10 +110,10 @@ const KILL_FIXTURE_SOURCE = [
 ].join('\n');
 
 /**
- * The argument expressions of the three derived sites. Each site takes its name from a registry
+ * The argument expressions of the two derived sites. Each site takes its name from a registry
  * declaration.
  */
-const EXPECTED_DERIVED_EXPRESSIONS: readonly string[] = ['cliName', 'commandName', 'harness'];
+const EXPECTED_DERIVED_EXPRESSIONS: readonly string[] = ['cliName', 'commandName'];
 
 function governedSourcePath(): string {
   const rel = GOVERNED_SOURCES[0];
@@ -125,7 +125,7 @@ describe('cli-derivation-guard (DR-5 / G1)', () => {
   /**
    * In the live composition root, each site is a derivation loop or a hand-written literal, and none
    * is indeterminate. The total is derived from the two populations, so a correct paydown does not
-   * break it. The guard must not report the three derivation loops.
+   * break it. The guard must not report the two derivation loops.
    *
    * The shipped allowlist must equal the expected literals minus the kill fixtures, and no kill
    * fixture can be in the live population. Thus the guard reports zero violations. That result has

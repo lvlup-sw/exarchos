@@ -131,13 +131,21 @@ const LOCK_NOTE =
   ' RE-APPROVED for the retirement of the source-revert kill probe under Reed\'s decision of ' +
   '2026-11-25: exarchos_orchestrate.check_test_adequacy is the sole removed ActionId. The closed ' +
   'retired-action table refuses a call of it before dispatch, with the code TEST_ADEQUACY_RETIRED. ' +
-  'All other authority pins remain unchanged.';
+  'All other authority pins remain unchanged.' +
+  ' RE-APPROVED for #1928 S3 T-27 under the slice plan that Reed approved, for Reed ' +
+  're-approval at the pull request: the `invariant-catalog` digest moves because INV-11 ' +
+  'names no launcher. Process lifecycle and worktree placement belong to the harness, the ' +
+  'audit prompt flags a claim that Exarchos owns them, and the reference to the launcher ' +
+  'worktree module is removed. No ActionId, event schema or other invariant changed.';
 
 /**
  * The approver that the freeze records for the current snapshot. Change it at each new approval, so
  * the lockfile records who approved and not the tool.
  */
 export const CURRENT_APPROVER =
+  'Delegated Claude worker (#1928 S3 T-27 launcher retirement: INV-11 re-pointed away from ' +
+  'the launcher under the slice plan that Reed approved, 2026-11-23; for Reed re-approval at ' +
+  'the pull request). Previously: ' +
   'Delegated Claude worker (#1928 S2 check_test_adequacy retirement under Reed\'s decision of ' +
   '2026-11-25, pre-approved for the authority lock; for Reed review at the pull request). Previously: ' +
   'Delegated Claude worker (#1928 S2 T-23 mutation-adequacy retirement under the slice plan ' +

@@ -386,10 +386,12 @@ export const EventTypes = [
   'worktree.merge_requested',
   'worktree.merge_executed',
   /**
-   * The launcher pairs. `worktree.create.*` is the intent and terminal pair for the top-level worktree
-   * that the launcher creates. It is separate from `worktree.created`, which needs a `taskId` and a
-   * `branch`. `launch.executing_started` records the live child process (`holderPid` and
-   * `holderStartedAt`). `launch.executed` records that the child process exited.
+   * The launcher pairs. The retired launcher appended `worktree.create.*` as the intent and terminal
+   * pair for its top-level worktree. It is separate from `worktree.created`, which needs a `taskId`
+   * and a `branch`. `launch.executing_started` records the live child process (`holderPid` and
+   * `holderStartedAt`). `launch.executed` records that the child process exited, and
+   * `reconcile_worktrees` still appends it for a dead historical launch. The schemas stay, so stored
+   * logs replay the same.
    */
   'worktree.create.requested',
   'worktree.create.executed',

@@ -301,13 +301,13 @@ export const LAYER_ALLOWED_IMPORTS: readonly LayerAllowance[] = Object.freeze([
   allowance('ndjson', [], 'Foundation leaf — NDJSON framing primitives; imports no first-party directory.'),
 
   /**
-   * Layer L9 in `tools/audit/layer-map.json`. Cooperative agents drive worktrees
-   * and launches, so the edges to verbs, workflow and events are intended.
+   * Layer L9 in `tools/audit/layer-map.json`. Cooperative agents read worktrees
+   * and reconcile historical launches, so the edges to verbs, workflow and events are intended.
    */
   allowance(
     'runtime',
-    ['dispatch', 'events', 'storage', 'utils', 'verbs', 'workflow', ROOT_LAYER],
-    'L9 cooperative agents — drives launches and worktrees through the dispatch core, the verb surface, the workflow primitives and the event store.',
+    ['events', 'storage', 'utils', 'verbs', 'workflow', ROOT_LAYER],
+    'L9 cooperative agents — reads worktrees and reconciles historical launches through the verb surface, the workflow primitives and the event store.',
   ),
   allowance('pruner', ['workflow'], 'Pruner safeguards read the topology contract, which task 013 folded into workflow/.'),
   allowance(
@@ -461,7 +461,7 @@ export const LAYER_ALLOWED_IMPORTS: readonly LayerAllowance[] = Object.freeze([
     'adapters/cli',
     [
       ROOT_LAYER, 'adapters/mcp', 'cli', 'config', 'contract', 'dispatch',
-      'events', 'lifecycle', 'ndjson', 'runtime', 'utils', 'workflow',
+      'events', 'lifecycle', 'ndjson', 'utils', 'workflow',
     ],
     'The CLI presentation client. The one nested-sibling edge the tree actually carries — ' +
       '`adapters/cli/cli.ts -> adapters/mcp/mcp.ts` — lives here, so the census can reject the ' +

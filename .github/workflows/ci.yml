@@ -314,24 +314,24 @@ jobs:
             exit 1
           fi
 
-      # The named win32-fragile launcher tests (harness-launcher #1603).
-      # `npm run test:core` above already runs them on this host. Running them again by
-      # name pins the contract that the Windows lane gates the async spawn shim
-      # resolution (tests/unit/utils/process.spawn.test.ts) and the worktree path
-      # derivation and containment (tests/unit/runtime/launcher/topology.test.ts). If a
-      # path-filter or matrix regression drops either file, this step fails instead of
-      # passing on zero tests.
+      # The named win32-fragile tests. `npm run test:core` above already runs them on
+      # this host. Running them again by name pins the contract that the Windows lane
+      # gates the async spawn shim resolution (tests/unit/utils/process.spawn.test.ts)
+      # and the worktree path containment, which includes the win32 short-name case
+      # (tests/unit/verbs/worktree/pure/path-containment.test.ts). If a path-filter or
+      # matrix regression drops either file, this step fails instead of passing on zero
+      # tests.
       #
       # This job is not in CI Gate, so a failure here does not block a PR. It shows on a
       # manual dispatch run and on the main push run that follows the merge.
-      - name: DR-8 — named win32-fragile launcher tests (spawn 003 + path 009)
+      - name: DR-8 — named win32-fragile tests (spawn + path containment)
         shell: bash
         run: |
-          npx vitest run --project core tests/unit/utils/process.spawn.test.ts tests/unit/runtime/launcher/topology.test.ts --reporter=json --outputFile=.launcher-win-guard.json
-          count=$(node -e "const r=require('./.launcher-win-guard.json');process.stdout.write(String((r.numPassedTests||0)+(r.numFailedTests||0)))")
-          echo "win32-fragile launcher tests executed on windows-latest: $count"
+          npx vitest run --project core tests/unit/utils/process.spawn.test.ts tests/unit/verbs/worktree/pure/path-containment.test.ts --reporter=json --outputFile=.win32-fragile-guard.json
+          count=$(node -e "const r=require('./.win32-fragile-guard.json');process.stdout.write(String((r.numPassedTests||0)+(r.numFailedTests||0)))")
+          echo "win32-fragile tests executed on windows-latest: $count"
           if [ "$count" -eq 0 ]; then
-            echo '::error::named win32-fragile launcher tests ran 0 tests on windows-latest — DR-8 guard (a path-filter/matrix regression dropped tests/unit/utils/process.spawn.test.ts or tests/unit/runtime/launcher/topology.test.ts)'
+            echo '::error::named win32-fragile tests ran 0 tests on windows-latest — DR-8 guard (a path-filter/matrix regression dropped tests/unit/utils/process.spawn.test.ts or tests/unit/verbs/worktree/pure/path-containment.test.ts)'
             exit 1
           fi
 

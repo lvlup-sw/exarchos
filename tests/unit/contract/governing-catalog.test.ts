@@ -171,17 +171,18 @@ describe('DR-26 — INV-7 is a closed claim (T-26 / EFF-001), not a target', () 
 
 describe('DR-26 — INV-11 keeps spatial write confinement EXCLUDED', () => {
   /**
-   * The summary names what the launcher enforces: lifecycle and placement.
+   * The summary gives process lifecycle and worktree placement to the harness, and names no launcher.
    * It must say explicitly that spatial write confinement is excluded. It must list the four
    * capability postures of a harness. It must not claim confinement by construction.
    */
-  it('GoverningCatalog_Inv11_ClaimsLifecycleAndPlacement_NotFilesystemConfinement', () => {
+  it('GoverningCatalog_Inv11_GivesLifecycleAndPlacementToTheHarness_NotFilesystemConfinement', () => {
     const inv11 = catalogEntry('INV-11');
     const summary = inv11.summary;
 
-    expect(summary).toMatch(/launcher/i);
+    expect(summary).not.toMatch(/launcher/i);
     expect(summary).toMatch(/lifecycle/i);
     expect(summary).toMatch(/placement/i);
+    expect(summary).toMatch(/belong to the harness/i);
 
     expect(summary).toMatch(/spatial/i);
     expect(summary).toMatch(/exclud/i);
@@ -193,12 +194,15 @@ describe('DR-26 — INV-11 keeps spatial write confinement EXCLUDED', () => {
     expect(summary).not.toMatch(/cannot write outside its assigned worktree/i);
   });
 
-  it('GoverningCatalog_Inv11_AuditPromptForbidsInferringConfinementFromTheLauncher', () => {
+  /** The audit prompt forbids an inferred confinement, and it names no launcher. */
+  it('GoverningCatalog_Inv11_AuditPromptForbidsInferringConfinementFromAWorktreeLocation', () => {
     const inv11 = catalogEntry('INV-11');
     expect(inv11.enforcement?.mode).toBe('audit');
     const prompt = auditPromptOf(inv11);
     expect(prompt).toMatch(/spatial/i);
     expect(prompt).toMatch(/never be inferred/i);
+    expect(prompt).not.toMatch(/launcher/i);
+    expect(inv11.references.filter((reference) => /launcher/i.test(reference))).toEqual([]);
   });
 });
 

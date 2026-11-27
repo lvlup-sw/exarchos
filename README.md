@@ -128,17 +128,6 @@ The command emits repository-native property, metamorphic, differential, and sta
 
 Use the packaged [test-campaign skill](rendered/skills/standard/test-campaign/SKILL.md) to select checks, run negative controls, and retain replay evidence. The npm package includes the skill and its references. Register that directory with your agent to use the workflow. `testgen-mcp` exposes the same generation operations to MCP clients.
 
-## Launching a harness
-
-```bash
-exarchos claude    # or codex, cursor, copilot, opencode
-exarchos claude --dry-run   # print the plan, spawn nothing
-```
-
-`exarchos <harness>` hands Exarchos the harness's process and worktree lifecycle end to end: it creates the worktree as event-sourced state, execs the harness into it, watches it stay alive through liveness events, and tears the worktree down on exit. No daemon sits in between — spawn, place, observe, teardown, and nothing else runs.
-
-What it deliberately doesn't do is stop the harness from writing outside that worktree. Filesystem-write confinement belongs to the harness itself, or, when you need it enforced no matter which harness is running, to a remote sandbox — that's a different problem than the one this launcher solves.
-
 ## What's different
 
 Plenty of tools live near this problem. Most aren't competitors so much as answers to a different question.

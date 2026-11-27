@@ -1,7 +1,7 @@
 {
   "capturedAt": "2026-11-25",
-  "trackedFiles": 3580,
-  "scannedFiles": 3460,
+  "trackedFiles": 3521,
+  "scannedFiles": 3401,
   "namedFilesIncluded": [
     ".github/CODEOWNERS",
     ".gitattributes",
@@ -200,16 +200,16 @@
     "docs/guides": {
       "disposition": "delete",
       "ownFiles": 0,
-      "externalReferrers": 17,
+      "externalReferrers": 16,
       "referrersByKind": {
-        "code": 9,
+        "code": 8,
         "config": 1,
         "snapshot": 0,
         "markdownLive": 7,
         "markdownArchival": 0,
         "other": 0
       },
-      "liveReferrers": 17,
+      "liveReferrers": 16,
       "sampleReferrers": [
         ".exarchos/invariants.md",
         ".github/workflows/ci.yml",
@@ -231,8 +231,8 @@
         "tests/unit/architecture/invariants-loader.test.ts",
         "tests/unit/architecture/vocabulary-lint.test.ts",
         "tests/unit/verbs/invariants/exarchos-yml-writer.test.ts",
-        "tests/unit/verbs/stryker-adapter.smoke.test.ts",
-        "tools/audit/gates/check-measured-premises.mjs"
+        "tools/audit/gates/check-measured-premises.mjs",
+        "tools/audit/gates/guard-inventory/audit.ts"
       ]
     },
     "docs/references": {

@@ -47,7 +47,6 @@
   // A name in `files` stays in the program although `unit/**` is excluded below.
   // `TypeTestFiles_EveryFile_InATypecheckProgram` fails when a type test is in no program.
   "files": [
-    "unit/runtime/launcher/harness-registry.type-test.ts",
     "unit/contract/error-families.type-test.ts",
     "unit/contract/bindings/binding-table.type-test.ts",
     "unit/workflow/admission/remediation.type-test.ts",
