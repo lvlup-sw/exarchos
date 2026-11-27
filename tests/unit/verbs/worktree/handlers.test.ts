@@ -389,6 +389,63 @@ describe('wait — caller-bounded merge-terminal poll (DR-4)', () => {
   });
 });
 
+/** The merge wait reads only own claims, so a ref named like an `Object.prototype` member is not blocked by an inherited value. */
+describe('wait — prototype-named integration refs', () => {
+  /** With no claim, a ref such as `constructor` or `__proto__` resolves on the first fold with no sleep. */
+  it.each(['constructor', '__proto__', 'toString'])(
+    'HandleView_Wait_PrototypeNamedRef_%s_ResolvesImmediately',
+    async (integrationRef) => {
+      const arm = await createArm();
+      const sleep = vi.fn(async () => {});
+
+      const result = await handleView(
+        { action: 'wait', integrationRef, timeoutMs: 5_000 },
+        arm.ctx,
+        { sleep },
+      );
+
+      expect(result.success).toBe(true);
+      expect(result.data).toMatchObject({ integrationRef, resolved: true });
+      expect(sleep).not.toHaveBeenCalled();
+    },
+  );
+
+  /** A real claim on a prototype-named ref still blocks the wait, and the timeout names its holder. */
+  it.each(['constructor', '__proto__'])(
+    'HandleView_Wait_PrototypeNamedRef_%s_OwnClaimStillBlocks',
+    async (integrationRef) => {
+      const arm = await createArm();
+      await seedMergeRequested(arm, {
+        integrationRef,
+        operationId: `op-${integrationRef}`,
+        sourceBranch: 'feat/x',
+        holderPid: 100,
+        holderStartedAt: 'boot-100',
+      });
+      let t = 0;
+      const sleep = vi.fn(async (ms: number) => {
+        t += ms;
+      });
+
+      const result = await handleView(
+        { action: 'wait', integrationRef, timeoutMs: 100 },
+        arm.ctx,
+        { now: () => t, sleep, pollIntervalMs: 200 },
+      );
+
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe('WAIT_TIMEOUT');
+      expect(result.data).toMatchObject({
+        integrationRef,
+        holder: { operationId: `op-${integrationRef}`, holderPid: 100 },
+      });
+
+      const ps = await handleView({ action: 'ps', scope: 'worktree' }, arm.ctx);
+      expect((ps.data as { count: number }).count).toBe(1);
+    },
+  );
+});
+
 /** The `worktrees@v1` projection folds the `prune.executing_started` and `prune.executed` pair into `inFlightPrunes`. */
 describe('ps — in-flight prune surface (DR-3)', () => {
   /** `ps` lists the in-flight prune from the fold, and clears it after the terminal folds. */

@@ -125,6 +125,30 @@ export const initialWorktreesProjection: WorktreesProjection = {
   inFlightPrunes: {},
 };
 
+/**
+ * Returns the own value of `key` in a projection map, or `undefined`. A plain
+ * index returns an inherited value for a key such as `constructor`. Thus every
+ * read of a projection map by an event or caller key uses this function.
+ */
+export function ownEntry<T>(
+  record: Readonly<Record<string, T>>,
+  key: string,
+): T | undefined {
+  return Object.hasOwn(record, key) ? record[key] : undefined;
+}
+
+/**
+ * Returns a copy of a projection map without `key`. The copy uses
+ * `Object.fromEntries`, which defines each key as an own property. An
+ * assignment loop calls the `__proto__` setter and loses that entry.
+ */
+function withoutKey<T>(
+  record: Readonly<Record<string, T>>,
+  key: string,
+): Record<string, T> {
+  return Object.fromEntries(Object.entries(record).filter(([k]) => k !== key));
+}
+
 /** Returns a non-empty string field of the event data, or `undefined`. */
 function extractString(
   data: WorkflowEvent['data'],
@@ -167,7 +191,7 @@ function upsertLifecycle(
   if (!worktreeId) return state;
   const entryPath = extractString(event.data, 'path') ?? worktreeId;
   const reserved = next === 'reserved';
-  const carriedLaunch = state.worktrees[worktreeId]?.launch;
+  const carriedLaunch = ownEntry(state.worktrees, worktreeId)?.launch;
   const entry: WorktreeEntry = {
     worktreeId,
     path: entryPath,
@@ -211,16 +235,12 @@ function dropRemoved(
     if (!worktreePath) return state;
     worktreeId = canonicalWorktreeId(worktreePath, realpath);
   }
-  if (!Object.prototype.hasOwnProperty.call(state.worktrees, worktreeId)) {
+  if (!Object.hasOwn(state.worktrees, worktreeId)) {
     return state;
-  }
-  const nextWorktrees: Record<string, WorktreeEntry> = {};
-  for (const [key, value] of Object.entries(state.worktrees)) {
-    if (key !== worktreeId) nextWorktrees[key] = value;
   }
   return {
     projectionSequence: state.projectionSequence + 1,
-    worktrees: nextWorktrees,
+    worktrees: withoutKey(state.worktrees, worktreeId),
     inFlightMerges: state.inFlightMerges,
     inFlightPrunes: state.inFlightPrunes,
   };
@@ -269,21 +289,14 @@ function clearInFlightMerge(
 ): WorktreesProjection {
   const integrationRef = extractString(event.data, 'integrationRef');
   if (!integrationRef) return state;
-  if (!Object.prototype.hasOwnProperty.call(state.inFlightMerges, integrationRef)) {
-    return state;
-  }
   const operationId = extractString(event.data, 'operationId');
   if (!operationId) return state;
-  const existing = state.inFlightMerges[integrationRef];
+  const existing = ownEntry(state.inFlightMerges, integrationRef);
   if (existing === undefined || existing.operationId !== operationId) return state;
-  const nextInFlight: Record<string, InFlightMerge> = {};
-  for (const [key, value] of Object.entries(state.inFlightMerges)) {
-    if (key !== integrationRef) nextInFlight[key] = value;
-  }
   return {
     projectionSequence: state.projectionSequence + 1,
     worktrees: state.worktrees,
-    inFlightMerges: nextInFlight,
+    inFlightMerges: withoutKey(state.inFlightMerges, integrationRef),
     inFlightPrunes: state.inFlightPrunes,
   };
 }
@@ -299,7 +312,7 @@ function markLaunchInFlight(
 ): WorktreesProjection {
   const worktreeId = extractString(event.data, 'worktreeId');
   if (!worktreeId) return state;
-  const existing = state.worktrees[worktreeId];
+  const existing = ownEntry(state.worktrees, worktreeId);
   if (existing === undefined) return state;
   const launch: LaunchInFlight = {
     holderPid: extractNumber(event.data, 'holderPid') ?? null,
@@ -326,7 +339,7 @@ function clearLaunchInFlight(
 ): WorktreesProjection {
   const worktreeId = extractString(event.data, 'worktreeId');
   if (!worktreeId) return state;
-  const existing = state.worktrees[worktreeId];
+  const existing = ownEntry(state.worktrees, worktreeId);
   if (existing === undefined || existing.launch === undefined) return state;
   const { launch: _cleared, ...rest } = existing;
   const entry: WorktreeEntry = rest;
@@ -374,18 +387,14 @@ function clearInFlightPrune(
 ): WorktreesProjection {
   const operationId = extractString(event.data, 'operationId');
   if (!operationId) return state;
-  if (!Object.prototype.hasOwnProperty.call(state.inFlightPrunes, operationId)) {
+  if (!Object.hasOwn(state.inFlightPrunes, operationId)) {
     return state;
-  }
-  const nextInFlight: Record<string, InFlightPrune> = {};
-  for (const [key, value] of Object.entries(state.inFlightPrunes)) {
-    if (key !== operationId) nextInFlight[key] = value;
   }
   return {
     projectionSequence: state.projectionSequence + 1,
     worktrees: state.worktrees,
     inFlightMerges: state.inFlightMerges,
-    inFlightPrunes: nextInFlight,
+    inFlightPrunes: withoutKey(state.inFlightPrunes, operationId),
   };
 }
 

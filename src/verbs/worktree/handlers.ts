@@ -9,11 +9,12 @@
 import type { DispatchContext } from '../../dispatch/core/dispatch.js';
 import type { EventStore } from '../../events/store.js';
 import type { ToolResult } from '../../format.js';
-import type {
-  InFlightMerge,
-  InFlightPrune,
-  WorktreeEntry,
-  WorktreesProjection,
+import {
+  ownEntry,
+  type InFlightMerge,
+  type InFlightPrune,
+  type WorktreeEntry,
+  type WorktreesProjection,
 } from './projections/worktrees.js';
 import './projections/index.js';
 import {
@@ -303,7 +304,7 @@ export async function handleViewWait(
   }
   const result = await pollUntilClear(
     ctx.eventStore,
-    (projection) => projection.inFlightMerges[integrationRef],
+    (projection) => ownEntry(projection.inFlightMerges, integrationRef),
     timeoutMs,
     deps,
   );
