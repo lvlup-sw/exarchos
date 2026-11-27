@@ -4,7 +4,7 @@
  * @oracle-sources: ../../../../src/verbs/verification/disposable-copy.ts, real Git objects and the live checkout bytes
  */
 import { existsSync } from 'node:fs';
-import { lstat, mkdir, readFile, readlink, realpath, stat, writeFile } from 'node:fs/promises';
+import { chmod, lstat, mkdir, readFile, readlink, realpath, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
@@ -107,6 +107,30 @@ describe('withDisposableCopy', () => {
     })).rejects.toThrow('body failed');
     expect(seen).not.toBe('');
     expect(existsSync(seen)).toBe(false);
+  }, CASE_TIMEOUT_MS);
+
+  /**
+   * A body that throws, then a delete that fails, gives the body error first. The delete failure does not hide it.
+   * A directory with no write bit blocks the delete. The root user ignores that bit, so the case does not run as root.
+   */
+  it.skipIf(process.platform === 'win32' || process.getuid?.() === 0)('DisposableCopy_ABodyErrorThenAFailedDelete_KeepsTheBodyErrorFirst', async () => {
+    let locked = '';
+    const failure = await withDisposableCopy(await sourceOf(), async (copy) => {
+      locked = join(copy, 'locked');
+      await mkdir(locked);
+      await writeFile(join(locked, 'file.txt'), 'held\n');
+      await chmod(locked, 0o555);
+      throw new Error('body failed');
+    }).catch((error: unknown) => error);
+    try {
+      expect(failure).toBeInstanceOf(AggregateError);
+      expect((failure as AggregateError).message).toBe('body failed');
+      expect(((failure as AggregateError).errors[0] as Error).message).toBe('body failed');
+      expect((failure as AggregateError).errors).toHaveLength(2);
+    } finally {
+      await chmod(locked, 0o755);
+      await rmrfAsync(join(locked, '..'));
+    }
   }, CASE_TIMEOUT_MS);
 
   /** A head tree with a symbolic link refuses before any copy, because a link can leave the copy. */

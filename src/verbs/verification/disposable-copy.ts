@@ -124,8 +124,22 @@ async function removeCopy(copy: string): Promise<void> {
 }
 
 /**
+ * Delete one copy after `failure`, and give the error for the caller.
+ * A delete that also fails does not hide `failure`: the result is an `AggregateError` with the message of `failure`, and `failure` first.
+ */
+async function removeAfterFailure(copy: string, failure: unknown): Promise<unknown> {
+  try {
+    await removeCopy(copy);
+    return failure;
+  } catch (cleanup) {
+    const message = failure instanceof Error ? failure.message : String(failure);
+    return new AggregateError([failure, cleanup], message);
+  }
+}
+
+/**
  * Build a copy of the exact head, or of the head with the sources of `revert` at the base.
- * A copy that cannot be built is deleted before the error goes to the caller.
+ * A copy that cannot be built is deleted before the error goes to the caller. A failed delete does not hide the build error.
  */
 export async function buildDisposableCopy(source: DisposableCopySource, revert?: SourceRevert): Promise<DisposableCopy> {
   const entries = await copyEntries(source, revert);
@@ -145,8 +159,7 @@ export async function buildDisposableCopy(source: DisposableCopySource, revert?:
       await symlink(await realpath(modules), join(copy, 'node_modules'), process.platform === 'win32' ? 'junction' : 'dir');
     }
   } catch (error) {
-    await removeCopy(copy);
-    throw error;
+    throw await removeAfterFailure(copy, error);
   }
   return { root: copy, dispose: () => removeCopy(copy) };
 }
@@ -154,12 +167,16 @@ export async function buildDisposableCopy(source: DisposableCopySource, revert?:
 /**
  * Build a copy of the exact head, run the body in it, then delete it.
  * The body gets the copy root. A copy that cannot be built, or that stays after the delete, throws.
+ * When the body throws and the delete also fails, the error keeps the body error first.
  */
 export async function withDisposableCopy<T>(source: DisposableCopySource, body: (copy: string) => Promise<T>): Promise<T> {
   const copy = await buildDisposableCopy(source);
+  let result: T;
   try {
-    return await body(copy.root);
-  } finally {
-    await copy.dispose();
+    result = await body(copy.root);
+  } catch (error) {
+    throw await removeAfterFailure(copy.root, error);
   }
+  await copy.dispose();
+  return result;
 }
