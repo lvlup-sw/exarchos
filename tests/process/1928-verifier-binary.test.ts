@@ -25,6 +25,9 @@ import { scopedRepository } from '../helpers/scoped-repository.js';
 
 const execute = promisify(execFile);
 
+/** The verifier host confines each run with bubblewrap. A Linux host with no `bwrap` on PATH cannot run the host, so its cases do not run there. */
+const HAS_BWRAP = await execute('which', ['bwrap']).then(() => true, () => false);
+
 /** Wait for this exact child to announce readiness without accepting a stale socket. */
 async function ready(child: ChildProcess): Promise<void> {
   await new Promise<void>((resolve, reject) => {
@@ -100,7 +103,7 @@ async function raw(path: string, bytes: Buffer): Promise<void> {
   });
 }
 
-it.runIf(process.platform === 'linux')('IndependentVerifier_RealConfinementOriginalReplayAndProtectedProvisioning', async () => {
+it.runIf(process.platform === 'linux' && HAS_BWRAP)('IndependentVerifier_RealConfinementOriginalReplayAndProtectedProvisioning', async () => {
   const f = await fixture();
   const { root, control, state, checkout, repository, gitDir, gitPath, env, tokenPath, privateKeyPath, secret, publicKey, socketPath, request, policy, configPath, clientPath, binary, executable, subject } = f;
   let host: ChildProcess | undefined;
@@ -215,7 +218,7 @@ async function processIdentity(pid: number) {
   } catch (error) { if (processDisappeared(error)) return undefined; throw error; }
 }
 
-it.runIf(process.platform === 'linux')('IndependentVerifier_CrashRetainsUnknownClaimAndStopsOwnedChildren', async () => {
+it.runIf(process.platform === 'linux' && HAS_BWRAP)('IndependentVerifier_CrashRetainsUnknownClaimAndStopsOwnedChildren', async () => {
   const workerTitle = 'exarchos-t05-probe-ready';
   const f = await fixture(`setInterval(() => {}, 1000); process.title = ${JSON.stringify(workerTitle)};`);
   let host: ChildProcess | undefined;
@@ -345,7 +348,7 @@ it('VerifierBundle_ReachesOnlyReportParsersOfConfig', async () => {
   for (const forbidden of ['loader.ts', 'register.ts', 'load-exarchos-config.ts', 'verification-profile.ts']) expect(config).not.toContain(forbidden);
 });
 
-it.runIf(process.platform === 'linux')('HostedRuntime_RefusesUnsafeSourcesAndRunnerProfilesBeforeAnyClaim', async () => {
+it.runIf(process.platform === 'linux' && HAS_BWRAP)('HostedRuntime_RefusesUnsafeSourcesAndRunnerProfilesBeforeAnyClaim', async () => {
   const f = await authorizationFixture();
   try {
     const { control } = f;
